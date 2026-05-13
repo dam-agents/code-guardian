@@ -17,18 +17,18 @@ On every run, the agent:
    the repo detected by `gh repo view` in the working directory).
 5. Skips PRs already reviewed at the same HEAD commit — using both a local
    check (REVIEWS.md) and a remote check (GitHub comment thread for the
-   embedded `<!-- humr:review headRefOid=... -->` marker).
+   embedded `<!-- dam:review headRefOid=... -->` marker).
 6. For each new or updated PR:
    - Re-fetches `headRefOid` / `isDraft` to guard against stale snapshots.
    - Reviews the diff against the configured criteria (correctness, security,
      performance, maintainability, architecture, tests).
-   - Clones the PR branch into `/tmp/humr-pr-<number>/` and runs the
+   - Clones the PR branch into `/tmp/dam-pr-<number>/` and runs the
      `doc-drift` skill against it.
    - Re-verifies HEAD freshness one more time right before posting.
    - Outputs the structured review to the chat UI.
    - Sends the full review to Slack via
-     `mcp__humr-outbound__send_channel_message` (one PR = one message).
-   - Posts the same review as a GitHub PR comment signed as **Humr**, with
+     `mcp__dam-outbound__send_channel_message` (one PR = one message).
+   - Posts the same review as a GitHub PR comment signed as **DAM**, with
      a hidden SHA marker used for deduplication on future runs.
    - Updates `REVIEWS.md` and appends to `reviews/pr-<number>.md`.
    - Deletes the local clone before moving on to the next PR.
@@ -49,7 +49,7 @@ at startup.
 - A GitHub connection must be granted to this agent so that `gh` can
   authenticate (the Envoy sidecar injects the OAuth token on outbound GitHub
   requests).
-- A Slack connection must be wired up for `mcp__humr-outbound__send_channel_message`
+- A Slack connection must be wired up for `mcp__dam-outbound__send_channel_message`
   to reach a channel; without it, Slack delivery fails but the rest of the
   review pipeline still runs.
 
