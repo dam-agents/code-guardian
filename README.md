@@ -11,8 +11,8 @@ On every run, the agent:
 
 1. Installs (or refreshes) the `doc-drift` skill from the upstream URL so
    per-PR documentation checks are available.
-2. Reads learned review preferences from `MEMORY.md`.
-3. Reads the review history from `REVIEWS.md`.
+2. Reads learned review preferences from `work/MEMORY.md`.
+3. Reads the review history from `work/REVIEWS.md`.
 4. Lists open, non-draft PRs in the configured repository (`$GITHUB_REPO`, or
    the repo detected by `gh repo view` in the working directory).
 5. Skips PRs already reviewed at the same HEAD commit — using both a local
@@ -30,12 +30,12 @@ On every run, the agent:
      `mcp__dam-outbound__send_channel_message` (one PR = one message).
    - Posts the same review as a GitHub PR comment signed as **DAM**, with
      a hidden SHA marker used for deduplication on future runs.
-   - Updates `REVIEWS.md` and appends to `reviews/pr-<number>.md`.
+   - Updates `work/REVIEWS.md` and appends to `work/reviews/pr-<number>.md`.
    - Deletes the local clone before moving on to the next PR.
 7. Walks through an end-of-run self-check to verify every step was completed.
 
-Feedback the user gives is persisted into `MEMORY.md` (global) or
-`reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
+Feedback the user gives is persisted into `work/MEMORY.md` (global) or
+`work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
 findings.
 
@@ -55,11 +55,13 @@ at startup.
 
 ## Persistence
 
-`MEMORY.md`, `REVIEWS.md`, and the `reviews/` directory live on the
-`/workspace` PVC, so preferences and review history survive pod restarts.
+`work/MEMORY.md`, `work/REVIEWS.md`, and `work/reviews/` live on the
+`/workspace` PVC at runtime (mounted as `/home/agent/work/`), so preferences
+and review history survive pod restarts. The seed files committed to this
+repo populate the initial state of the PVC.
 
 ## Files
 
 - [`CLAUDE.md`](CLAUDE.md) — full operating manual loaded by the agent.
-- [`MEMORY.md`](MEMORY.md) — seed file for learned review preferences.
-- [`REVIEWS.md`](REVIEWS.md) — seed file for the per-PR review index.
+- [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
+- [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.
