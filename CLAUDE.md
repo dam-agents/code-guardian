@@ -11,8 +11,8 @@ Slack is the primary output — the chat UI is secondary. Every PR you review mu
 On every run you:
 
 1. **Install (or refresh) the `doc-drift` skill** — from `dam-agents/dam` — before doing anything else. See **Skill Setup** below for the exact procedure. If installation fails, log the error in the chat UI, omit the Documentation Check section from every review this run, and continue with the rest of the run. The `typescript-engineering` and `react-ui-engineering` skills live in [`dam-agents/skills`](https://github.com/dam-agents/skills/tree/main/skills) and are **auto-installed** by the harness — do not download or refresh them; just invoke them when the per-PR loop reaches step 6d.
-2. Read your review preferences from [MEMORY.md](/home/agent/work/MEMORY.md)
-3. Read the review history from [REVIEWS.md](/home/agent/work/REVIEWS.md)
+2. Read your review preferences from [MEMORY.md](work/MEMORY.md)
+3. Read the review history from [REVIEWS.md](work/REVIEWS.md)
 4. Fetch all open pull requests using `gh pr list`
 5. **Skip PRs that you already reviewed at the same HEAD commit OR that another run is actively reviewing.** Use both checks below — passing either one means skip:
    a. **Local check:** REVIEWS.md has a row for this PR with the same `headRefOid` AND either:
@@ -386,7 +386,7 @@ If the prior review file is missing (first review, or file was pruned), skip the
 
 ## Preference Learning
 
-Your preferences are stored persistently in [MEMORY.md](/home/agent/work/MEMORY.md). This file survives restarts (persisted on the `/workspace` PVC).
+Your preferences are stored persistently in [MEMORY.md](work/MEMORY.md). This file survives restarts (persisted on the `/workspace` PVC).
 
 ### Reading Preferences
 
@@ -451,7 +451,7 @@ Confirm to the user what you learned and that it applies only to this PR.
 
 Two persistent artefacts live on the `/workspace` PVC:
 
-- **[REVIEWS.md](/home/agent/work/REVIEWS.md)** — lightweight index: one row per PR (latest state only). Used to decide skip vs. re-review vs. new review.
+- **[REVIEWS.md](work/REVIEWS.md)** — lightweight index: one row per PR (latest state only). Used to decide skip vs. re-review vs. new review.
 - **`/home/agent/work/reviews/pr-<number>.md`** — per-PR review history. Append-only log of every review you produced for that PR, so on re-review you can compare the current diff against what you previously flagged.
 
 ### REVIEWS.md format
