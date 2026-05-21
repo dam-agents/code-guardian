@@ -1,4 +1,4 @@
 # Reviewed PRs
 
-| PR | Commit | Reviewed At | Verdict |
-|----|--------|-------------|---------|
+| PR | Commit | Timestamp | Verdict | Status |
+|----|--------|-----------|---------|--------|
