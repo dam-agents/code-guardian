@@ -709,10 +709,10 @@ Use the **quoted** heredoc delimiter (`<<'JSON'`) so bash doesn't try to expand 
 
 ### Summary body format
 
-The summary `body` is the same content you sent to the chat UI, signed as DAM, with the mandatory trailing dedup marker:
+The summary `body` is the same content you sent to the chat UI, signed as DAM, with the mandatory trailing dedup marker. Prepend a header line with the verdict emoji and the short SHA so the review identifies itself at a glance in GitHub's conversation tab.
 
 ```
-🛡️ **DAM** — Code Review @ `<headRefOid-short>`
+🛡️ **DAM** — <verdict-emoji> Code Review @ `<headRefOid-short>`
 
 ## PR #<number>: <title>
 **Author:** <login> | **Branch:** <head> → <base> | **Changes:** +<additions> −<deletions> (<files> files)
@@ -744,6 +744,10 @@ _Review by [DAM](https://github.com/dam-agents/dam) · automated code guardian_
 
 <!-- dam:review headRefOid=<full-sha> -->
 ```
+
+Verdict emoji for the header line: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES.
+
+`<headRefOid-short>` is the first 7 characters of the freshly-fetched `headRefOid` you reviewed (the same SHA you embed in the marker). Putting it in the header makes it obvious at a glance which commit the review applies to, and lets a human cross-check it against GitHub's HEAD without scrolling through the body.
 
 The trailing `<!-- dam:review headRefOid=... -->` line is **mandatory** on every review body — it's how the next run detects that this SHA has already been reviewed (see **Deduplication via GitHub PR reviews**). The marker is rendered invisibly by GitHub, but is queryable via `gh api .../pulls/<n>/reviews`. Use the **full** 40-char SHA from `headRefOid`, not the short form.
 
