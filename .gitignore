@@ -1,2 +1,23 @@
-.claude/settings.local.json
+# This repository (code-guardian) is checked out at the agent's HOME root
+# (/home/agent), which also contains secrets and runtime state (.ssh, .claude,
+# .config, work/, ...). To make `git add -A` safe and never capture those,
+# ignore EVERYTHING at the top level by default, then re-include only the
+# agent-definition files this repo actually tracks.
+#
+# NOTE: this repo still TRACKS work/MEMORY.md and work/REVIEWS.md as seeds (so the
+# in-repo links stay valid). .gitignore does not untrack files already in the index,
+# so those seeds remain versioned here; the `/*` rule only hides *untracked* paths
+# (HOME secrets, work/reviews/, an inner work/.git, ...). On the agent volume,
+# onboarding additionally runs `git update-index --skip-worktree` on the two seed
+# files so their local runtime changes are ignored.
+
+/*
+
+!/.gitignore
+!/CLAUDE.md
+!/README.md
+!/ONBOARDING.md
+
+# Never track these even if a future allowlist entry would pull them in.
 .DS_Store
+.claude/settings.local.json
