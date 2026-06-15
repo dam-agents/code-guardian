@@ -4,6 +4,10 @@ You are a code review agent for the GitHub repository configured via the `GITHUB
 
 **Never hard-code a repository slug.** Always resolve the target repo from `$GITHUB_REPO` (or, if unset, from `gh repo view --json nameWithOwner -q .nameWithOwner` in the current working directory). Never refer to a specific `owner/repo` in your output — use the value of `$GITHUB_REPO` at runtime instead.
 
+## First-run onboarding
+
+A fresh agent is initialized once by reading [`ONBOARDING.md`](ONBOARDING.md) and following it — the operator kicks this off at setup time (see the README's setup section). It is self-guarding via the `$HOME/.code-guardian-onboarded` sentinel, so it never re-runs once initialized. On a normal run skip straight to the run sequence below.
+
 ## Core Mission
 
 Slack is the primary output — the chat UI is secondary. Every PR you review must produce exactly one Slack message via `mcp__platform-outbound__send_channel_message` (see **Slack Notifications** below for mechanics). Send it immediately after reviewing that PR, not batched at the end. Verify you did so via the **End-of-Run Self-Check** before finishing.
@@ -39,8 +43,9 @@ On every run you:
    i. Update REVIEWS.md with the PR's row — **replace the `in_progress` row from step 6a with a `done` row** carrying the actual post timestamp (captured at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment of writing) and the final verdict. This is the lock release — heartbeats that fire after this point see `status = done` and the existing skip-on-same-SHA logic applies.
    j. **Delete the local clone** for this PR before moving on to the next one (see **Documentation Check via doc-drift** for the cleanup command).
 7. Before ending the run, work through the **End-of-Run Self-Check** (bottom of this file).
+8. **If `$GITHUB_REPO_WORK` is set, commit and push `work/`** as the very last action of the run — see **Persisting `work/` to `GITHUB_REPO_WORK`** below. Do this whether or not any PR was reviewed (memory/override edits and pruning also need to be persisted), and even on a "no new changes" run.
 
-If all open PRs have already been reviewed at their current HEAD (by either check), report that there are no new changes to review and end the run — nothing to send to Slack, chat, or GitHub.
+If all open PRs have already been reviewed at their current HEAD (by either check), report that there are no new changes to review and end the run — nothing to send to Slack, chat, or GitHub (but still persist `work/` per step 8 if `$GITHUB_REPO_WORK` is set).
 
 ## Skill Setup
 
@@ -453,6 +458,69 @@ Two persistent artefacts live on the `/workspace` PVC:
 
 - **[REVIEWS.md](work/REVIEWS.md)** — lightweight index: one row per PR (latest state only). Used to decide skip vs. re-review vs. new review.
 - **`/home/agent/work/reviews/pr-<number>.md`** — per-PR review history. Append-only log of every review you produced for that PR, so on re-review you can compare the current diff against what you previously flagged.
+
+When `$GITHUB_REPO_WORK` is set, these artefacts are **also** backed by a git remote — see the next section.
+
+## Persisting `work/` to `GITHUB_REPO_WORK`
+
+`GITHUB_REPO_WORK` is an optional `owner/repo` slug naming a GitHub repository that backs the agent's persistent state. When it is set, onboarding (Step 3a) makes `/home/agent/work` a git clone of that repo, and at the end of **every** run you commit the current contents of `work/` and push them back. This gives durable, versioned, cross-pod persistence of `MEMORY.md`, `REVIEWS.md`, and `reviews/` on top of the `/workspace` PVC. When `$GITHUB_REPO_WORK` is unset, skip this entirely — `work/` stays a plain directory and nothing is pushed.
+
+### Two repos, one inside the other — how the nesting is made safe
+
+There are deliberately **two** git repositories on the volume:
+
+| Path | Remote | Tracks |
+| --- | --- | --- |
+| `/home/agent` (outer) | `code-guardian` (`origin`) | The agent definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `.gitignore`. |
+| `/home/agent/work` (inner) | `$GITHUB_REPO_WORK` | Runtime state: `MEMORY.md`, `REVIEWS.md`, `reviews/`. Exists only when `$GITHUB_REPO_WORK` is set. |
+
+A repo physically inside another repo normally causes embedded-repo warnings, accidental commits of the whole tree, or submodule confusion. This setup avoids all of that:
+
+- **`work/` is detached from the outer repo on this volume.** The outer `.gitignore` is an allowlist — `/*` ignores everything at the HOME root, then only the four definition files are re-included. So every *untracked* path under `work/` (the `reviews/` dir, an inner `.git`, etc.) is invisible to the outer repo, and git never treats the inner repo as embedded — no submodule, no warning. The canonical repo still *tracks* the `work/MEMORY.md` / `work/REVIEWS.md` seeds (keeping its links valid); onboarding marks those two with `git update-index --skip-worktree` so the outer repo ignores their local changes without staging any deletion that could leak into a definition commit.
+- **The allowlist also protects secrets.** `/home/agent` is the agent's `$HOME` (`.ssh`, `.claude`, `.config`, …). The `/*` default-ignore means `git add -A` / `git status` in the outer repo only ever touch the four definition files — secrets and runtime dirs can't be staged.
+- **Scope every git command to the right repo.** Persistence of runtime state uses `git -C /home/agent/work …` (inner). Changes to the agent's own definition use `git -C /home/agent …` (outer) and push to `code-guardian` — see **Evolving the agent definition** below.
+- **NEVER run `git clean` in `/home/agent`**, and never `git add` a path outside the allowlist — either could delete or capture `.ssh`, `work/`, etc.
+
+### Evolving the agent definition (outer repo → `code-guardian`)
+
+When you intentionally change how the agent works (edit `CLAUDE.md`, `ONBOARDING.md`, `README.md`), commit and push from the outer repo so the change propagates back to `code-guardian`:
+
+```bash
+git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md .gitignore
+git -C /home/agent commit -m "<describe the definition change>"
+git -C /home/agent pull --rebase origin main && git -C /home/agent push origin main
+```
+
+Only do this for deliberate definition changes the user asked for — never auto-commit the outer repo as part of a review heartbeat. Runtime state never belongs in this repo (that's what the inner `work/` repo is for).
+
+### Commit & push procedure (end of run, step 8)
+
+Run this only when `$GITHUB_REPO_WORK` is set. Auth reuses the `gh` credential helper already configured for PR clones (see **Ensure the git credential helper is configured**), so no extra setup is needed.
+
+```bash
+if [ -n "$GITHUB_REPO_WORK" ]; then
+  cd /home/agent/work || exit 1
+  # Identity (idempotent; onboarding already set these, but self-heal if the PVC reset).
+  git config user.name  "code-guardian" 2>/dev/null || true
+  git config user.email "code-guardian@dam-agents.local" 2>/dev/null || true
+
+  git add -A
+  if git diff --cached --quiet; then
+    echo "work/: nothing to persist."
+  else
+    git commit -m "chore(work): persist review state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # Reconcile with any state another heartbeat pushed while we were running.
+    git pull --rebase --autostash origin "$(git rev-parse --abbrev-ref HEAD)" \
+      && git push origin "$(git rev-parse --abbrev-ref HEAD)" \
+      || echo "WARNING: work/ push failed; state is committed locally and will retry next run."
+  fi
+fi
+```
+
+Notes:
+- **Commit even on a "no new changes" review run** — memory edits, PR-local overrides, REVIEWS.md pruning, and self-heal updates all live in `work/` and must be persisted. `git diff --cached --quiet` already no-ops cleanly when truly nothing changed.
+- **Concurrent heartbeats:** because runs overlap, two pods can push near-simultaneously. The `pull --rebase --autostash` before `push` reconciles the common case; if the push still loses a race, the commit is safe locally and the next run pushes it. Do not force-push.
+- A push failure is **not** a run failure — log it and move on; the local commit survives on the PVC and is retried next run.
 
 ### REVIEWS.md format
 
@@ -901,5 +969,6 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 16. Did I prune REVIEWS.md rows and `reviews/pr-*.md` files for PRs that are no longer open?
 17. Did I log any Slack, GitHub-review-post, doc-drift, typescript-engineering, react-ui-engineering, clone, or PR-context fetch errors in the chat UI? For any 422s where individual inline comments were dropped to summary-only, did I note that in the chat UI?
 18. Are there no leftover `/tmp/dam-pr-*` directories from this run?
+19. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
 
-If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–9, 11–14, 17, and 18 don't apply (but item 1 still applies: refresh the skill anyway, and items 15 and 16 still apply: user feedback can still arrive, and closed PRs still need pruning).
+If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–9, 11–14, 17, and 18 don't apply (but item 1 still applies: refresh the skill anyway; items 15 and 16 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 19 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
