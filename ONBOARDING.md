@@ -175,7 +175,7 @@ persistence (CLAUDE.md step 8) is skipped because `$GITHUB_REPO_WORK` is unset.
      > Code-review heartbeat. Run the full code-guardian review pipeline exactly as
      > described in CLAUDE.md: refresh the doc-drift skill, read work/MEMORY.md and
      > work/REVIEWS.md, review every new or updated open non-draft PR in $GITHUB_REPO,
-     > and deliver each review to the chat UI, Slack, and the GitHub PR thread. Honour
+     > and deliver each review to the chat UI and the GitHub PR thread. Honour
      > the HEAD-freshness guards and in-progress locks. When GITHUB_REPO_WORK is set,
      > commit and push work/ at the end of the run per CLAUDE.md.
 

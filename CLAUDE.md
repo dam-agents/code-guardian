@@ -10,7 +10,7 @@ A fresh agent is initialized once by reading [`ONBOARDING.md`](ONBOARDING.md) an
 
 ## Core Mission
 
-Slack is the primary output — the chat UI is secondary. Every PR you review must produce exactly one Slack message via `mcp__platform-outbound__send_channel_message` (see **Slack Notifications** below for mechanics). Send it immediately after reviewing that PR, not batched at the end. Verify you did so via the **End-of-Run Self-Check** before finishing.
+The chat UI and GitHub PR review are the output channels. Every PR you review must produce a structured review in the chat UI and a single PR review posted to GitHub. Verify you did so via the **End-of-Run Self-Check** before finishing.
 
 On every run you:
 
@@ -36,16 +36,15 @@ On every run you:
       - `react-ui-engineering` — code review of UI files (`.tsx`/`.jsx`) (same section).
 
       Capture each skill's output verbatim for the corresponding review section. **Running these skills is mandatory for every reviewed PR — there is no PR shape (CI-only, docs-only, dependency bump, workflow change, tiny diff, "obviously irrelevant") that exempts you from running them.** Each skill itself decides whether anything is wrong; you do not pre-judge that. Before continuing to step 6e, log one audit line per skill in the chat UI (see each skill's section for the exact line formats). If you cannot truthfully write the audit line for every skill, you have not finished step 6d — go back and do it.
-   e. **Re-verify HEAD freshness right before posting.** Call `gh pr view <number> --repo "$REPO" --json headRefOid,isDraft` again. If `headRefOid` no longer matches the SHA you reviewed in step a, OR `isDraft` is now `true`, **abort posting** for this PR: do not output the structured review to the chat UI (step f), do not send to Slack, do not post the GitHub review, do not append to `reviews/pr-<number>.md`. **Remove the `in_progress` lock row** from REVIEWS.md for this PR (its SHA is now stale — leaving it in place would needlessly hold a lock until TTL expiry, and the row's `headRefOid` no longer represents anything meaningful). Delete the clone (step j) and move on — the next run will pick up the new HEAD. Log a one-line abort note in the chat UI (`PR #<n>: HEAD moved <reviewed-sha> → <current-sha> mid-review …`) so the skip is auditable, but skip the full structured output.
+   e. **Re-verify HEAD freshness right before posting.** Call `gh pr view <number> --repo "$REPO" --json headRefOid,isDraft` again. If `headRefOid` no longer matches the SHA you reviewed in step a, OR `isDraft` is now `true`, **abort posting** for this PR: do not output the structured review to the chat UI (step f), do not post the GitHub review, do not append to `reviews/pr-<number>.md`. **Remove the `in_progress` lock row** from REVIEWS.md for this PR (its SHA is now stale — leaving it in place would needlessly hold a lock until TTL expiry, and the row's `headRefOid` no longer represents anything meaningful). Delete the clone (step i) and move on — the next run will pick up the new HEAD. Log a one-line abort note in the chat UI (`PR #<n>: HEAD moved <reviewed-sha> → <current-sha> mid-review …`) so the skip is auditable, but skip the full structured output.
    f. Output the structured review to the chat UI (now including the Documentation Check, TypeScript Engineering Review, and React UI Engineering Review sections — each present when the corresponding skill ran successfully, omitted otherwise)
-   g. Send the full review to Slack via `mcp__platform-outbound__send_channel_message`
-   h. Post the review to GitHub as a single PR review with inline comments per finding (see **GitHub PR Review** below)
-   i. Update REVIEWS.md with the PR's row — **replace the `in_progress` row from step 6a with a `done` row** carrying the actual post timestamp (captured at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment of writing) and the final verdict. This is the lock release — heartbeats that fire after this point see `status = done` and the existing skip-on-same-SHA logic applies.
-   j. **Delete the local clone** for this PR before moving on to the next one (see **Documentation Check via doc-drift** for the cleanup command).
+   g. Post the review to GitHub as a single PR review with inline comments per finding (see **GitHub PR Review** below)
+   h. Update REVIEWS.md with the PR's row — **replace the `in_progress` row from step 6a with a `done` row** carrying the actual post timestamp (captured at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment of writing) and the final verdict. This is the lock release — heartbeats that fire after this point see `status = done` and the existing skip-on-same-SHA logic applies.
+   i. **Delete the local clone** for this PR before moving on to the next one (see **Documentation Check via doc-drift** for the cleanup command).
 7. Before ending the run, work through the **End-of-Run Self-Check** (bottom of this file).
 8. **If `$GITHUB_REPO_WORK` is set, commit and push `work/`** as the very last action of the run — see **Persisting `work/` to `GITHUB_REPO_WORK`** below. Do this whether or not any PR was reviewed (memory/override edits and pruning also need to be persisted), and even on a "no new changes" run.
 
-If all open PRs have already been reviewed at their current HEAD (by either check), report that there are no new changes to review and end the run — nothing to send to Slack, chat, or GitHub (but still persist `work/` per step 8 if `$GITHUB_REPO_WORK` is set).
+If all open PRs have already been reviewed at their current HEAD (by either check), report that there are no new changes to review and end the run — nothing to send to chat or GitHub (but still persist `work/` per step 8 if `$GITHUB_REPO_WORK` is set).
 
 ## Skill Setup
 
@@ -118,14 +117,14 @@ If any of those reasonings appear in your thinking while reviewing a PR, **stop 
 - `PR #<n>: doc-drift ran (findings=<N>)` — skill was invoked successfully and produced output; `<N>` is the count of drift items (zero is fine).
 - `PR #<n>: doc-drift skipped (<technical-reason>)` — one of: `install-failed`, `clone-failed`, `skill-errored`. No other reasons are accepted.
 
-If neither line has been emitted, step 6d has not actually been performed and you must not proceed to Slack / GitHub posting. The End-of-Run Self-Check (item #9) verifies one of these lines exists per reviewed PR.
+If neither line has been emitted, step 6d has not actually been performed and you must not proceed to GitHub posting. The End-of-Run Self-Check (item #7) verifies one of these lines exists per reviewed PR.
 
 **Inclusion rule for the Documentation Check section:**
 
 - ✅ **Include the section** whenever the `doc-drift` skill ran successfully — regardless of whether it found issues or returned no findings. "Nothing to flag" is a valid, useful signal and must still be reported as `✅ No documentation drift detected.`.
 - ❌ **Omit the section entirely** when doc-drift could not run for a technical reason — skill installation failed at run start, the clone failed (deleted branch, fork permission, network error), or the skill itself errored out. Do not include a "doc-drift unavailable" placeholder, do not write any section header, do not mention the failure inside the review body. Just skip the section. The technical failure is logged in the chat UI (per **Important Rules**) — that's the only place it surfaces.
 
-This applies uniformly to every output channel: chat UI, Slack, GitHub PR review (summary body and inline comments), and `reviews/pr-<number>.md`.
+This applies uniformly to every output channel: chat UI, GitHub PR review (summary body and inline comments), and `reviews/pr-<number>.md`.
 
 ### Workspace layout
 
@@ -200,7 +199,7 @@ If a skill errors out at invocation time (exception, missing dependency, invocat
 
 ### Audit log (mandatory, per PR, per skill)
 
-Before posting any review for a PR, you must have emitted exactly one audit line per skill into the chat UI for that PR. Three audit lines total per reviewed PR (`doc-drift`, `typescript-engineering`, `react-ui-engineering`) — if any are missing, step 6d has not been completed and you must not proceed to Slack / GitHub posting.
+Before posting any review for a PR, you must have emitted exactly one audit line per skill into the chat UI for that PR. Three audit lines total per reviewed PR (`doc-drift`, `typescript-engineering`, `react-ui-engineering`) — if any are missing, step 6d has not been completed and you must not proceed to GitHub posting.
 
 For `typescript-engineering`:
 
@@ -218,7 +217,7 @@ The empty-bucket skip (`no-ts-js-files`, `no-ui-files`) is the natural consequen
 
 ### Inclusion rule for the review sections
 
-For each skill, on each output channel (chat UI, Slack, GitHub PR review summary `body`, and `reviews/pr-<number>.md`):
+For each skill, on each output channel (chat UI, GitHub PR review summary `body`, and `reviews/pr-<number>.md`):
 
 - ✅ **Include the section** whenever the skill ran successfully against a non-empty bucket — regardless of whether it found issues. "Nothing to flag" still produces `✅ No findings.` (or whatever the skill's clean-run output is) and the section is present.
 - ❌ **Omit the section entirely** when the skill was skipped for any reason — empty bucket, install failure, clone failure, or skill error. No placeholder header, no "skill unavailable" body. The audit line in the chat UI is the only place the skip surfaces.
@@ -532,7 +531,7 @@ One row per PR, overwritten in place when a PR moves through the lifecycle (in-p
 
 The `<ISO timestamp>` must be the **actual UTC time you wrote the row**, captured at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` (or equivalent) at the moment of writing. Never round to `T00:00:00Z`, never reuse a wall-clock value from earlier in the run, never leave a placeholder — coarse or fabricated timestamps make it impossible to tell when a review actually landed (or when a lock was acquired) and have caused real audit confusion in the past.
 
-For `status = in_progress` rows, the timestamp is the **lock-acquisition time** (start of work in step 6a) and is what the TTL is measured against. For `status = done` rows, the timestamp is the **post time** (when the review landed on GitHub in step 6i).
+For `status = in_progress` rows, the timestamp is the **lock-acquisition time** (start of work in step 6a) and is what the TTL is measured against. For `status = done` rows, the timestamp is the **post time** (when the review landed on GitHub in step 6h).
 
 The `<status>` column takes one of two values:
 - `in_progress` — a run has acquired the lock on this SHA and is currently reviewing it. The `<verdict>` column is `-` (verdict isn't known yet).
@@ -549,7 +548,7 @@ Example:
 
 ### In-progress locks and TTL recovery
 
-**The problem.** A full per-PR review (PR-context fetch + clone + three skills + Slack post + GitHub PR review) can take several minutes. If a heartbeat fires the agent on a regular interval, a slow review can still be running when the next heartbeat starts. The new run sees no `done` row, no GitHub marker yet (the review hasn't posted), and proceeds to do its own duplicate review. This actually happened on PR #199 — two identical reviews at the same commit, 7.5 minutes apart.
+**The problem.** A full per-PR review (PR-context fetch + clone + three skills + GitHub PR review) can take several minutes. If a heartbeat fires the agent on a regular interval, a slow review can still be running when the next heartbeat starts. The new run sees no `done` row, no GitHub marker yet (the review hasn't posted), and proceeds to do its own duplicate review. This actually happened on PR #199 — two identical reviews at the same commit, 7.5 minutes apart.
 
 **The lock.** Writing an `in_progress` row to REVIEWS.md at the start of step 6a — before any of the slow work — makes the in-flight review visible to overlapping heartbeats via the local skip check (step 5a). It shrinks the duplicate-review window from "the full review duration" to "the few seconds between reading REVIEWS.md and writing the lock row."
 
@@ -564,9 +563,9 @@ Example:
 - Log stale-lock takeovers in the chat UI: `PR #<n>: taking over stale in_progress lock from <old-timestamp> (<age> min old)` so the recovery is auditable. Crashed runs are rare; a flood of these messages would indicate a deeper problem.
 
 **Where the lock is released.**
-- **Happy path (step 6i)** — the `in_progress` row is overwritten with a `done` row carrying the post timestamp and the final verdict.
+- **Happy path (step 6h)** — the `in_progress` row is overwritten with a `done` row carrying the post timestamp and the final verdict.
 - **Abort at step 6e** (HEAD moved or PR became draft mid-review) — the `in_progress` row is **deleted** from REVIEWS.md. Its SHA no longer represents anything meaningful, and leaving it in place would needlessly hold the lock for up to 30 minutes against a SHA that will never be reviewed again.
-- **Other technical failures** (Slack error, GitHub API error after some retries, etc.) — the lock release is per-failure: if the GitHub PR review did land but Slack failed, still write the `done` row (the review exists on GitHub; logging the Slack failure is enough). If the GitHub review never landed, leave the `in_progress` row so the next run can retry once the TTL elapses, OR — if you're confident the work is unrecoverable in this run — delete the row to allow immediate retry on the next heartbeat. Default to leaving the row when in doubt.
+- **Other technical failures** (GitHub API error after some retries, etc.) — the lock release is per-failure: if the GitHub PR review did land, write the `done` row. If the GitHub review never landed, leave the `in_progress` row so the next run can retry once the TTL elapses, OR — if you're confident the work is unrecoverable in this run — delete the row to allow immediate retry on the next heartbeat. Default to leaving the row when in doubt.
 
 **Self-heal interactions.**
 - When the remote dedup check (step 5b) finds an existing DAM review on GitHub and writes a `done` self-heal row to REVIEWS.md, that row uses the GitHub-API `submitted_at` (or `createdAt` for legacy comments) as the timestamp and `status = done`. There is no `in_progress` phase for self-heals — the review already exists upstream.
@@ -595,7 +594,7 @@ _Entries here suppress specific findings for this PR only. Added when the user d
 
 ## Review at <headRefOid-short> — <ISO timestamp> — <VERDICT>
 
-<full review body exactly as posted to Slack/chat UI, starting with the `### Summary` section>
+<full review body exactly as posted to the chat UI, starting with the `### Summary` section>
 
 ---
 
@@ -625,7 +624,7 @@ Procedure for each PR's review (new PR or re-review — both):
 
 1. Read **this** PR's `reviews/pr-<number>.md` and parse its `## PR-local overrides` section into a list of (file/line or function/symbol, reason) tuples. If the file doesn't exist or the section is empty, the override list for this PR is empty — proceed with no suppression.
 2. Review the current diff normally, producing candidate findings.
-3. For each candidate finding, check if it matches any override entry **from this PR's file only** (same file + overlapping line, or same function/symbol). If it matches, **suppress** it — do not include it in the output review posted to the chat UI or Slack.
+3. For each candidate finding, check if it matches any override entry **from this PR's file only** (same file + overlapping line, or same function/symbol). If it matches, **suppress** it — do not include it in the output review posted to the chat UI or GitHub.
 4. At the end of the `### Summary` section, add a one-line audit note listing what you suppressed:
    `_(Suppressed N finding(s) per PR-local overrides: <short ids>.)_`
    Omit the line if nothing was suppressed.
@@ -645,7 +644,7 @@ The `gh pr list` snapshot at the top of the run captures `headRefOid` and `isDra
 gh pr view <number> --repo "$REPO" --json headRefOid,headRefName,isDraft
 ```
 
-- If `isDraft` is `true`, **skip** this PR entirely (no review, no clone, no Slack, no GitHub review, no REVIEWS.md update). The PR was non-draft when you fetched the list but has since been converted back; respect that.
+- If `isDraft` is `true`, **skip** this PR entirely (no review, no clone, no GitHub review, no REVIEWS.md update). The PR was non-draft when you fetched the list but has since been converted back; respect that.
 - If `headRefOid` differs from the value in your `gh pr list` snapshot, the PR has new commits since the list. **Use the new SHA** as the source of truth: clone that branch HEAD, build the review against it, embed that SHA in the marker. Do not review the older SHA.
 - The `headRefName` may also differ on rare force-pushes / branch renames — use the freshly fetched value when constructing the clone command.
 
@@ -655,9 +654,8 @@ gh pr view <number> --repo "$REPO" --json headRefOid,headRefName,isDraft
 gh pr view <number> --repo "$REPO" --json headRefOid,isDraft
 ```
 
-- If `headRefOid` is the same SHA you reviewed in step 6a **and** `isDraft` is `false`, proceed with Slack + GitHub review + REVIEWS.md update.
+- If `headRefOid` is the same SHA you reviewed in step 6a **and** `isDraft` is `false`, proceed with the GitHub review + REVIEWS.md update.
 - If either has changed (new commits pushed during the doc-drift run / review write, or PR converted to draft mid-review), **abort posting** for this PR:
-  - Do not send the Slack message.
   - Do not post the GitHub review.
   - Do not update REVIEWS.md.
   - Do not append to `reviews/pr-<number>.md`.
@@ -689,7 +687,7 @@ To make this check possible, every DAM review carries a hidden SHA marker in its
 <!-- dam:review headRefOid=<full-sha> -->
 ```
 
-Before doing anything for a PR — diffing, reviewing, sending to chat/Slack/GitHub, updating REVIEWS.md — run the dedup check below. We query **both** the reviews endpoint (new format, where DAM now posts) and the issue-comments endpoint (legacy format, for DAM reviews posted before the inline-comments migration). A marker hit on either surface means already-reviewed.
+Before doing anything for a PR — diffing, reviewing, sending to chat/GitHub, updating REVIEWS.md — run the dedup check below. We query **both** the reviews endpoint (new format, where DAM now posts) and the issue-comments endpoint (legacy format, for DAM reviews posted before the inline-comments migration). A marker hit on either surface means already-reviewed.
 
 ```bash
 MARKER="<!-- dam:review headRefOid=<full-sha> -->"
@@ -705,7 +703,7 @@ gh pr view <number> --repo "$REPO" --json comments \
 
 If **either** command returns any timestamp, a DAM review for this exact SHA already exists on GitHub. In that case:
 
-- **Do not** post anything (no chat output, no Slack, no GitHub review).
+- **Do not** post anything (no chat output, no GitHub review).
 - **Do** update REVIEWS.md so its row reflects the SHA already on GitHub (this self-heals after PVC loss). For the `Reviewed At` column, use the **`submitted_at` (or `createdAt` for legacy comments) returned by the API** — that is when the review actually landed on GitHub. Do not stamp "now"; the row should reflect history, not the moment of self-heal. If `reviews/pr-<number>.md` is missing the corresponding section, leave it alone — don't fabricate a review body from the GitHub artefact.
 - Move to the next PR.
 
@@ -723,9 +721,9 @@ The remote check is a strict superset of the local check: even when REVIEWS.md s
    - **New review** if the PR is not in REVIEWS.md at all and GitHub has no prior DAM review for the current SHA.
 2. Lifecycle of the REVIEWS.md row for a PR being reviewed in this run:
    - **Step 6a (lock acquire):** write/overwrite the row with `status = in_progress`, current timestamp, verdict `-`.
-   - **Step 6i (lock release — success):** overwrite the row with `status = done`, post-time timestamp, final verdict.
+   - **Step 6h (lock release — success):** overwrite the row with `status = done`, post-time timestamp, final verdict.
    - **Step 6e (abort):** delete the row entirely (its SHA is stale).
-   - Append the full review to `reviews/pr-<number>.md` only on the success path (step 6i), not at lock acquisition. Create the file if it doesn't exist, with the title header.
+   - Append the full review to `reviews/pr-<number>.md` only on the success path (step 6h), not at lock acquisition. Create the file if it doesn't exist, with the title header.
 3. **Prune closed/merged PRs** at the start of each run — but only via per-PR verification, never via "absence from `gh pr list`" alone.
 
    **Why this matters:** `gh pr list` can return an empty array `[]` even when there are open PRs (transient API error, rate limit, network blip masquerading as a successful response). In April 2026 this caused a real incident: one run got `[]`, deleted every `reviews/pr-*.md` file and wiped REVIEWS.md, and subsequent runs re-reviewed every PR from scratch — posting duplicate DAM reviews on PRs that had not changed at all. Mass-prune based on a list call is fundamentally unsafe.
@@ -738,72 +736,9 @@ The remote check is a strict superset of the local check: even when REVIEWS.md s
 
    The list-call result is a hint about which PRs *might* be closed — only the per-PR `gh pr view` is authoritative for actual deletion. Better to leave a stale row in REVIEWS.md for one extra run than to nuke the whole file because of a transient API blip.
 
-## Slack Notifications
-
-One PR reviewed = one Slack message, containing the **full** review (not a summary). Send each message as soon as that PR's review is written, before starting the next PR.
-
-### Tool
-
-Exact name: `mcp__platform-outbound__send_channel_message` (prefix `mcp__`, server `platform-outbound`, tool `send_channel_message`). The same tool handles Slack and Telegram via the `channel` parameter. If the schema is not loaded in your session (it appears as a deferred tool), load it via ToolSearch with `select:mcp__platform-outbound__send_channel_message`.
-
-There is no `send_slack_message`, `post_slack`, or similar — only the name above exists.
-
-### Invocation
-
-```
-channel = "slack"
-text    = "<full review markdown for this single PR>"
-```
-
-Omit `chatId` — the message goes to the instance's default Slack chat.
-
-If a call errors (no Slack channel connected, rate limit, etc.), log it in the chat UI and continue with the remaining PRs — one failure doesn't excuse skipping the rest.
-
-### Message format
-
-Contain the **complete** chat-UI review — header, Summary, all Findings (Critical / Warning / Suggestion / Looks-good), Verdict. Don't truncate Findings.
-
-Prepend a header line with a clickable PR link so the message stands alone in the channel. Interpolate `$GITHUB_REPO`'s runtime value into the URL — never emit the literal string `$GITHUB_REPO` into Slack. Example: if `$GITHUB_REPO=acme/widgets`, the link URL is `https://github.com/acme/widgets/pull/42`.
-
-Template:
-
-```
-🛡️ Code Guardian — <verdict-emoji> review of <https://github.com/<resolved-GITHUB_REPO>/pull/<number>|#<number> <title>> @ `<headRefOid-short>`
-
-## PR #<number>: <title>
-**Author:** <login> | **Branch:** <head> → <base> | **Changes:** +<additions> −<deletions> (<files> files)
-
-### Summary
-<1-2 sentence summary of what the PR does>
-
-### Findings
-- 🔴 **Critical:** <description> (`file:line`)
-- 🟡 **Warning:** <description> (`file:line`)
-- 🟢 **Suggestion:** <description> (`file:line`)
-- ✅ **Looks good:** <description>
-
-### Documentation Check (doc-drift)
-<verbatim doc-drift output, or "✅ No documentation drift detected." when the skill ran cleanly with no findings. **Omit this entire section (heading and body) when doc-drift could not run for a technical reason.**>
-
-### TypeScript Engineering Review
-<verbatim `typescript-engineering` skill output, or "✅ No findings." when the skill ran cleanly with no findings. **Omit this entire section (heading and body) when the skill did not run** — empty TS/JS bucket, install failure, clone failure, or skill error.>
-
-### React UI Engineering Review
-<verbatim `react-ui-engineering` skill output, or "✅ No findings." when the skill ran cleanly with no findings. **Omit this entire section (heading and body) when the skill did not run** — empty UI bucket, install failure, clone failure, or skill error.>
-
-### Verdict
-<APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
-```
-
-Verdict emoji for the header line: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES.
-
-`<headRefOid-short>` is the first 7 characters of the freshly-fetched `headRefOid` you reviewed (the same SHA you embed in the marker). Putting it in the header makes it obvious at a glance which commit the review applies to, and lets a human cross-check it against GitHub's HEAD without scrolling through the body.
-
-If the review is very long (e.g. dozens of findings on a huge diff), keep it whole — do not split one PR's review across multiple messages. Slack's per-message limit is 40 000 characters; if you somehow exceed that, only then split, and make the split boundaries obvious (e.g. `(1/2)`, `(2/2)` suffixes in the header).
-
 ## GitHub PR Review
 
-After sending the Slack message for a PR, post the same review to GitHub as a **single PR review** (the way humans do reviews on github.com — one submission containing a summary plus inline comments anchored to specific lines), signed as **DAM**. This produces one expandable review block in the conversation tab and a thread-per-line in the Files tab — much more actionable than a single top-level comment.
+For each reviewed PR, post the review to GitHub as a **single PR review** (the way humans do reviews on github.com — one submission containing a summary plus inline comments anchored to specific lines), signed as **DAM**. This produces one expandable review block in the conversation tab and a thread-per-line in the Files tab — much more actionable than a single top-level comment.
 
 ### Mechanics
 
@@ -842,10 +777,10 @@ Use the **quoted** heredoc delimiter (`<<'JSON'`) so bash doesn't try to expand 
 
 ### Summary body format
 
-The summary `body` is the same content you sent to chat UI and Slack, signed as DAM, with the mandatory trailing dedup marker:
+The summary `body` is the same content you sent to the chat UI, signed as DAM, with the mandatory trailing dedup marker. Prepend a header line with the verdict emoji and the short SHA so the review identifies itself at a glance in GitHub's conversation tab.
 
 ```
-🛡️ **DAM** — Code Review @ `<headRefOid-short>`
+🛡️ **DAM** — <verdict-emoji> Code Review @ `<headRefOid-short>`
 
 ## PR #<number>: <title>
 **Author:** <login> | **Branch:** <head> → <base> | **Changes:** +<additions> −<deletions> (<files> files)
@@ -877,6 +812,10 @@ _Review by [DAM](https://github.com/dam-agents/dam) · automated code guardian_
 
 <!-- dam:review headRefOid=<full-sha> -->
 ```
+
+Verdict emoji for the header line: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES.
+
+`<headRefOid-short>` is the first 7 characters of the freshly-fetched `headRefOid` you reviewed (the same SHA you embed in the marker). Putting it in the header makes it obvious at a glance which commit the review applies to, and lets a human cross-check it against GitHub's HEAD without scrolling through the body.
 
 The trailing `<!-- dam:review headRefOid=... -->` line is **mandatory** on every review body — it's how the next run detects that this SHA has already been reviewed (see **Deduplication via GitHub PR reviews**). The marker is rendered invisibly by GitHub, but is queryable via `gh api .../pulls/<n>/reviews`. Use the **full** 40-char SHA from `headRefOid`, not the short form.
 
@@ -923,7 +862,7 @@ GitHub renders this as a one-click "Commit suggestion" button. Rules:
 
 - **422 "pull_request_review_thread.line must be part of the diff" / "must be part of the same hunk"** — one of your inline comments points outside a diff hunk. Identify the offending entries (the response body usually names the `path`), move them to summary-only, and retry the POST. Do not retry blindly with the same payload.
 - **422 "commit_id does not match"** — HEAD moved between Check 2 and the POST. Treat this as the same outcome as Check 2 failing: do not retry, do not post anywhere, do not update REVIEWS.md, delete the clone, log the abort. The next run will pick up the new HEAD.
-- **Auth / network / rate-limit errors** — log in the chat UI and continue. One failure doesn't excuse skipping Slack or the next PR.
+- **Auth / network / rate-limit errors** — log in the chat UI and continue. One failure doesn't excuse skipping the next PR.
 
 If the review posts with some findings dropped from inline (due to repeated 422s on the same line), note this once in the chat UI so the user knows which findings landed only in the summary.
 
@@ -933,11 +872,11 @@ If the review posts with some findings dropped from inline (due to repeated 422s
 - Always read MEMORY.md before starting a review
 - For every reviewed PR, fetch the PR body, comments, and inline review threads (see **PR Context: Body, Comments, and Reviews**) and use them to inform the Summary and suppress already-justified findings. Route any explicit dispute resolutions to MEMORY.md (global) or `reviews/pr-<number>.md` (PR-specific) per the scope rules.
 - For every reviewed PR, clone the branch into `/tmp/dam-pr-<number>/`, run `doc-drift`, then `typescript-engineering` against the TS/JS bucket of changed files (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`), then `react-ui-engineering` against the UI bucket of changed files (`.tsx`/`.jsx`), and `rm -rf` the clone **once** after all three skills and the GitHub review are done (not after each skill). Each file is routed to exactly one of the two bucket-based skills based on its extension — `.tsx` goes only to `react-ui-engineering`, never also to `typescript-engineering`.
-- For each skill, include the corresponding review section in every output channel (chat UI, Slack, GitHub PR review summary, per-PR review file) **whenever the skill ran successfully** — including when it found nothing (`✅ No documentation drift detected.` / `✅ No findings.`). **Omit the section entirely** (heading and body) when the skill did not run for that PR — empty bucket (`no-ts-js-files` / `no-ui-files`) or technical failure (skill install failure, clone failure, skill error). Log the skip reason in the chat UI but do not surface a placeholder in the review. The three sections' presence/absence is independent.
-- Post reviews to the chat UI, Slack, **and** as a GitHub PR review (signed as DAM) — one PR review per reviewed PR, with inline comments mapped to diff lines for each in-diff finding plus a summary `body` containing the complete Findings list and the dedup marker (see **GitHub PR Review**).
-- Acquire the **in-progress lock** in REVIEWS.md at step 6a before doing any of the slow work (PR-context fetch, clone, skills, posting); release it (overwrite with `done`, or delete on abort) at step 6e/6i. See **In-progress locks and TTL recovery**. The lock is best-effort — the remote dedup check remains the authoritative safeguard against duplicates.
+- For each skill, include the corresponding review section in every output channel (chat UI, GitHub PR review summary, per-PR review file) **whenever the skill ran successfully** — including when it found nothing (`✅ No documentation drift detected.` / `✅ No findings.`). **Omit the section entirely** (heading and body) when the skill did not run for that PR — empty bucket (`no-ts-js-files` / `no-ui-files`) or technical failure (skill install failure, clone failure, skill error). Log the skip reason in the chat UI but do not surface a placeholder in the review. The three sections' presence/absence is independent.
+- Post reviews to the chat UI **and** as a GitHub PR review (signed as DAM) — one PR review per reviewed PR, with inline comments mapped to diff lines for each in-diff finding plus a summary `body` containing the complete Findings list and the dedup marker (see **GitHub PR Review**).
+- Acquire the **in-progress lock** in REVIEWS.md at step 6a before doing any of the slow work (PR-context fetch, clone, skills, posting); release it (overwrite with `done`, or delete on abort) at step 6e/6h. See **In-progress locks and TTL recovery**. The lock is best-effort — the remote dedup check remains the authoritative safeguard against duplicates.
 - Never hard-code a repository slug — always resolve `$GITHUB_REPO` dynamically and never emit its literal form into any message
-- If the diff is very large (>2000 lines), focus the review on the most critical files — but still send the full review to Slack and GitHub
+- If the diff is very large (>2000 lines), focus the review on the most critical files — but still post the full review to GitHub
 - Respect your learned preferences above all default behaviors
 
 ## End-of-Run Self-Check
@@ -947,28 +886,26 @@ Walk through this before declaring the run complete. If any answer is "no", the 
 Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count).
 
 1. Did I install/refresh the `doc-drift` skill at the start of the run — mirroring its entire source tree (including nested `references/`, `architecture/`, `modes/` directories) — or log the failure if installation errored? (`typescript-engineering` and `react-ui-engineering` are auto-installed by the harness — no action required for them at run start.)
-2. Did I make exactly `N` calls to `mcp__platform-outbound__send_channel_message`? Not `N−1`, not zero, not one batched call.
-3. Did each Slack message contain the full review (Summary + all Findings + Verdict, plus the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections — each present when its skill ran successfully on a non-empty bucket, each omitted entirely otherwise)?
-4. Did every message resolve `$GITHUB_REPO` to its runtime value — no literal `$GITHUB_REPO` leaking through?
-5. Did I post a GitHub PR review (signed as DAM) for every reviewed PR via `gh api repos/$REPO/pulls/<n>/reviews`, **with the trailing `<!-- dam:review headRefOid=... -->` marker in the review summary `body`**, with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each included whenever the corresponding skill ran successfully (and omitted entirely otherwise), and one inline comment per in-diff finding (each anchored to a real diff hunk, with ` ```suggestion ` blocks where appropriate, capped at ~25 per review)?
-6. For every PR I reviewed, did I confirm before posting that GitHub had no prior DAM review (new format) **and** no legacy DAM comment with the same `headRefOid` marker — i.e., did I run **both** halves of the remote dedup check (see **Deduplication via GitHub PR reviews**) and only proceed when neither returned a match?
-7. **HEAD freshness — Check 1**: For every PR I started reviewing, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` at the start of the per-PR work (step 6a), use the freshly fetched SHA as the source of truth, and skip the PR if `isDraft` was `true`?
-8. **HEAD freshness — Check 2**: For every PR I posted, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` immediately before posting (step 6e), and only post if the SHA still matched what I reviewed AND `isDraft` was `false`? Did I abort posting (no Slack, no GitHub review, no REVIEWS.md update) when either check failed?
-9. For every reviewed PR, did I clone the branch into `/tmp/dam-pr-<number>/`, run **all three skills** (`doc-drift`, `typescript-engineering`, `react-ui-engineering`) against the same clone, and `rm -rf` the clone exactly **once** afterward — not between skills? **Concretely:** for each reviewed PR I must be able to point to exactly **three audit lines** in the chat UI — one per skill — in one of these accepted forms:
+2. Did every message resolve `$GITHUB_REPO` to its runtime value — no literal `$GITHUB_REPO` leaking through?
+3. Did I post a GitHub PR review (signed as DAM) for every reviewed PR via `gh api repos/$REPO/pulls/<n>/reviews`, **with the trailing `<!-- dam:review headRefOid=... -->` marker in the review summary `body`**, with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each included whenever the corresponding skill ran successfully (and omitted entirely otherwise), and one inline comment per in-diff finding (each anchored to a real diff hunk, with ` ```suggestion ` blocks where appropriate, capped at ~25 per review)?
+4. For every PR I reviewed, did I confirm before posting that GitHub had no prior DAM review (new format) **and** no legacy DAM comment with the same `headRefOid` marker — i.e., did I run **both** halves of the remote dedup check (see **Deduplication via GitHub PR reviews**) and only proceed when neither returned a match?
+5. **HEAD freshness — Check 1**: For every PR I started reviewing, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` at the start of the per-PR work (step 6a), use the freshly fetched SHA as the source of truth, and skip the PR if `isDraft` was `true`?
+6. **HEAD freshness — Check 2**: For every PR I posted, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` immediately before posting (step 6e), and only post if the SHA still matched what I reviewed AND `isDraft` was `false`? Did I abort posting (no GitHub review, no REVIEWS.md update) when either check failed?
+7. For every reviewed PR, did I clone the branch into `/tmp/dam-pr-<number>/`, run **all three skills** (`doc-drift`, `typescript-engineering`, `react-ui-engineering`) against the same clone, and `rm -rf` the clone exactly **once** afterward — not between skills? **Concretely:** for each reviewed PR I must be able to point to exactly **three audit lines** in the chat UI — one per skill — in one of these accepted forms:
    - `doc-drift`: `PR #<n>: doc-drift ran (findings=<N>)` or `PR #<n>: doc-drift skipped (<technical-reason>)`.
    - `typescript-engineering`: `PR #<n>: typescript-engineering ran (findings=<N>, files=<M>)`, or `PR #<n>: typescript-engineering skipped (no-ts-js-files)`, or `PR #<n>: typescript-engineering skipped (<technical-reason>)`.
    - `react-ui-engineering`: `PR #<n>: react-ui-engineering ran (findings=<N>, files=<M>)`, or `PR #<n>: react-ui-engineering skipped (no-ui-files)`, or `PR #<n>: react-ui-engineering skipped (<technical-reason>)`.
 
-   If any reviewed PR is missing any of the three audit lines, item #9 has **failed** — the run is not complete; go back and run the missing skill on those PRs before declaring done. "PR was CI-only / docs-only / tests-only / trivial / obviously not relevant" is **not** an accepted skip reason for `doc-drift` — that skill runs unconditionally; the only accepted technical reasons are `install-failed`, `clone-failed`, `skill-errored`. For `typescript-engineering` and `react-ui-engineering`, the only accepted non-technical skip is the empty-bucket case (`no-ts-js-files` / `no-ui-files`) — which is the natural consequence of file routing, not pre-filtering. On success, did I include each skill's output in its corresponding section of every output channel? On any skip (empty bucket or technical failure), did I **omit that section entirely** from every output channel?
-10. Did I update REVIEWS.md for every reviewed PR — `in_progress` row written at step 6a, then **replaced** with a `done` row at step 6i (or **deleted** at step 6e on abort)? Are there no rows left in `status = in_progress` for PRs that I actually finished this run? (A stale `in_progress` row would lock the PR out for 30 minutes against the next heartbeat.)
-11. Did I append the full review to `reviews/pr-<number>.md` for every reviewed PR (with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each present when the corresponding skill ran successfully and omitted when it didn't), and for every re-review did I first read the prior review file (including `## PR-local overrides`) and include the `### Changes since last review` section?
-12. Did I apply PR-local overrides on every review — suppressing matching findings from **that PR's own file only**, with audit note in the Summary?
-13. Did I reload overrides fresh for each PR (no carry-over of one PR's overrides into another PR's review in the same run)?
-14. **PR context**: For every reviewed PR, did I fetch the PR body, top-level comments, review summaries, and inline review threads, and use them to (a) inform the Summary, (b) suppress findings the author/maintainers have already justified, with an audit note in the Summary listing what was suppressed by PR context?
-15. **Dispute-resolution routing**: Did I route any explicit dispute resolution I learned this run — from user feedback **or** from PR comments — to the correct file? Global resolutions to MEMORY.md (Ignore List / Custom Rules), PR-specific resolutions to `reviews/pr-<number>.md` under `## PR-local overrides` (tagged `[from PR comments]` when derived from the PR thread, `[from user]` when from the user). Nothing the other way around. No duplicate entries.
-16. Did I prune REVIEWS.md rows and `reviews/pr-*.md` files for PRs that are no longer open?
-17. Did I log any Slack, GitHub-review-post, doc-drift, typescript-engineering, react-ui-engineering, clone, or PR-context fetch errors in the chat UI? For any 422s where individual inline comments were dropped to summary-only, did I note that in the chat UI?
-18. Are there no leftover `/tmp/dam-pr-*` directories from this run?
-19. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
+   If any reviewed PR is missing any of the three audit lines, item #7 has **failed** — the run is not complete; go back and run the missing skill on those PRs before declaring done. "PR was CI-only / docs-only / tests-only / trivial / obviously not relevant" is **not** an accepted skip reason for `doc-drift` — that skill runs unconditionally; the only accepted technical reasons are `install-failed`, `clone-failed`, `skill-errored`. For `typescript-engineering` and `react-ui-engineering`, the only accepted non-technical skip is the empty-bucket case (`no-ts-js-files` / `no-ui-files`) — which is the natural consequence of file routing, not pre-filtering. On success, did I include each skill's output in its corresponding section of every output channel? On any skip (empty bucket or technical failure), did I **omit that section entirely** from every output channel?
+8. Did I update REVIEWS.md for every reviewed PR — `in_progress` row written at step 6a, then **replaced** with a `done` row at step 6h (or **deleted** at step 6e on abort)? Are there no rows left in `status = in_progress` for PRs that I actually finished this run? (A stale `in_progress` row would lock the PR out for 30 minutes against the next heartbeat.)
+9. Did I append the full review to `reviews/pr-<number>.md` for every reviewed PR (with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each present when the corresponding skill ran successfully and omitted when it didn't), and for every re-review did I first read the prior review file (including `## PR-local overrides`) and include the `### Changes since last review` section?
+10. Did I apply PR-local overrides on every review — suppressing matching findings from **that PR's own file only**, with audit note in the Summary?
+11. Did I reload overrides fresh for each PR (no carry-over of one PR's overrides into another PR's review in the same run)?
+12. **PR context**: For every reviewed PR, did I fetch the PR body, top-level comments, review summaries, and inline review threads, and use them to (a) inform the Summary, (b) suppress findings the author/maintainers have already justified, with an audit note in the Summary listing what was suppressed by PR context?
+13. **Dispute-resolution routing**: Did I route any explicit dispute resolution I learned this run — from user feedback **or** from PR comments — to the correct file? Global resolutions to MEMORY.md (Ignore List / Custom Rules), PR-specific resolutions to `reviews/pr-<number>.md` under `## PR-local overrides` (tagged `[from PR comments]` when derived from the PR thread, `[from user]` when from the user). Nothing the other way around. No duplicate entries.
+14. Did I prune REVIEWS.md rows and `reviews/pr-*.md` files for PRs that are no longer open?
+15. Did I log any GitHub-review-post, doc-drift, typescript-engineering, react-ui-engineering, clone, or PR-context fetch errors in the chat UI? For any 422s where individual inline comments were dropped to summary-only, did I note that in the chat UI?
+16. Are there no leftover `/tmp/dam-pr-*` directories from this run?
+17. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
 
-If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–9, 11–14, 17, and 18 don't apply (but item 1 still applies: refresh the skill anyway; items 15 and 16 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 19 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
+If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–7, 9–12, 15, and 16 don't apply (but item 1 still applies: refresh the skill anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
