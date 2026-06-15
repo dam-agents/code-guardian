@@ -42,26 +42,64 @@ findings.
 See [`CLAUDE.md`](CLAUDE.md) for the full operating manual the agent loads
 at startup.
 
+## Setup
+
+Bringing up a new code-guardian agent takes four steps:
+
+1. **Create the agent** on the platform, with GitHub (and, optionally, Slack)
+   connections granted — see **Configuration** below.
+2. **Set the environment variables** — at minimum `GITHUB_REPO` (the repo to
+   review), and optionally `GITHUB_REPO_WORK` (a repo to back the agent's
+   persistent state). See the table below.
+3. **Copy the link to [`ONBOARDING.md`](ONBOARDING.md)** (the raw or web URL of
+   this file in the repo).
+4. **Tell the agent**, in its first message:
+
+   > Here is a file — read it and set yourself up according to it: `<ONBOARDING.md link>`
+
+That is enough for a complete initialization. The agent reads the runbook and,
+in one pass, checks out its own definition, wires up `work/`, registers the
+every-10-minutes review schedule, and marks itself onboarded so it never repeats
+the process. From then on it runs the review pipeline on schedule.
+
 ## Configuration
 
-- `GITHUB_REPO` — `owner/repo` slug to review. Defaults to the repo detected
-  in the working directory via `gh repo view`.
-- A GitHub connection must be granted to this agent so that `gh` can
-  authenticate (the Envoy sidecar injects the OAuth token on outbound GitHub
-  requests).
-- A Slack connection must be wired up for `mcp__dam-outbound__send_channel_message`
-  to reach a channel; without it, Slack delivery fails but the rest of the
-  review pipeline still runs.
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `GITHUB_REPO` | **Yes** | `owner/repo` slug of the repository whose PRs are reviewed. If unset, the agent falls back to the repo detected via `gh repo view` in the working directory. |
+| `GITHUB_REPO_WORK` | No | `owner/repo` slug of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a git clone of this repo and the agent commits & pushes its state there after every run. **When unset**, the agent reconstructs review-tracking state from the DAM reviews already on `GITHUB_REPO` on init, and persistence is local-only (the `/workspace` PVC). |
+
+### Connections
+
+- A **GitHub** connection must be granted so that `gh` can authenticate (the
+  Envoy sidecar injects the OAuth token on outbound GitHub requests). The same
+  token is used for `GITHUB_REPO`, `GITHUB_REPO_WORK`, and this definition repo.
+- A **Slack** connection must be wired up for
+  `mcp__platform-outbound__send_channel_message` to reach a channel; without it,
+  Slack delivery fails but the rest of the review pipeline still runs.
 
 ## Persistence
 
-`work/MEMORY.md`, `work/REVIEWS.md`, and `work/reviews/` live on the
-`/workspace` PVC at runtime (mounted as `/home/agent/work/`), so preferences
-and review history survive pod restarts. The seed files committed to this
-repo populate the initial state of the PVC.
+`work/MEMORY.md`, `work/REVIEWS.md`, and `work/reviews/` hold the agent's learned
+preferences and review history. They live on the `/workspace` PVC at runtime
+(mounted as `/home/agent/work/`), so they survive pod restarts. How `work/` is
+seeded depends on `GITHUB_REPO_WORK` (see above):
+
+- **`GITHUB_REPO_WORK` set** — `work/` is a clone of that repo; state is committed
+  and pushed back after every run, giving durable, versioned, cross-pod history.
+- **`GITHUB_REPO_WORK` unset** — `REVIEWS.md` and `reviews/` are reconstructed from
+  the DAM reviews on `GITHUB_REPO`; `MEMORY.md` (long-term memory, not derivable
+  from PRs) starts from the seed scaffold committed to this repo.
+
+`work/` is kept independent of this definition repo (it is git-ignored / detached
+at the top level), so the two never collide — see `CLAUDE.md` →
+**Two repos, one inside the other**.
 
 ## Files
 
 - [`CLAUDE.md`](CLAUDE.md) — full operating manual loaded by the agent.
+- [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
 - [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
 - [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.

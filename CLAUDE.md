@@ -6,14 +6,7 @@ You are a code review agent for the GitHub repository configured via the `GITHUB
 
 ## First-run onboarding
 
-Before the per-run sequence below, check whether this agent instance has been initialized. If `$HOME/.code-guardian-onboarded` does **not** exist, read [`ONBOARDING.md`](ONBOARDING.md) and execute it top to bottom **before** anything else. Onboarding:
-
-- establishes `/home/agent` as a git checkout of the `code-guardian` repo (the agent's own definition), using an allowlist `.gitignore` so the repo-at-`$HOME` never tracks secrets or runtime state;
-- detaches `work/` from that outer repo (git-ignored + untracked) so the two repos never overlap;
-- provisions `work/` — either by cloning `$GITHUB_REPO_WORK` (when set), or, when it is unset, by **reconstructing review-tracking state from the DAM reviews/comments already on `$GITHUB_REPO`** (everything except `MEMORY.md`, which is not reconstructable);
-- ensures the every-10-minutes review schedule exists.
-
-The runbook is self-guarding: it writes the sentinel on success, so once that file is present this step is a no-op and you proceed straight to the run sequence. Never run onboarding when the sentinel already exists.
+A fresh agent is initialized once by reading [`ONBOARDING.md`](ONBOARDING.md) and following it — the operator kicks this off at setup time (see the README's setup section). It is self-guarding via the `$HOME/.code-guardian-onboarded` sentinel, so it never re-runs once initialized. On a normal run skip straight to the run sequence below.
 
 ## Core Mission
 
