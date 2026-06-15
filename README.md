@@ -51,11 +51,11 @@ Bringing up a new code-guardian agent takes four steps:
 2. **Set the environment variables** — at minimum `GITHUB_REPO` (the repo to
    review), and optionally `GITHUB_REPO_WORK` (a repo to back the agent's
    persistent state). See the table below.
-3. **Copy the link to [`ONBOARDING.md`](ONBOARDING.md)** (the raw or web URL of
-   this file in the repo).
+3. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — it is:
+   `https://github.com/dam-agents/code-guardian/blob/main/ONBOARDING.md`
 4. **Tell the agent**, in its first message:
 
-   > Here is a file — read it and set yourself up according to it: `<ONBOARDING.md link>`
+   > Here is a file — read it and set yourself up according to it: https://github.com/dam-agents/code-guardian/blob/main/ONBOARDING.md
 
 That is enough for a complete initialization. The agent reads the runbook and,
 in one pass, checks out its own definition, wires up `work/`, registers the
