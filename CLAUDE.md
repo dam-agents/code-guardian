@@ -484,15 +484,24 @@ A repo physically inside another repo normally causes embedded-repo warnings, ac
 
 ### Evolving the agent definition (outer repo → `code-guardian`)
 
-When you intentionally change how the agent works (edit `CLAUDE.md`, `ONBOARDING.md`, `README.md`), commit and push from the outer repo so the change propagates back to `code-guardian`:
+When you intentionally change how the agent works (edit `CLAUDE.md`, `ONBOARDING.md`, `README.md`), **always commit to a new branch and open a pull request — never commit or push directly to `main`.** Definition changes go through human review on `code-guardian`, the same as any other code change.
 
 ```bash
+# Always branch off the latest main — never commit on main itself.
+git -C /home/agent fetch origin main
+git -C /home/agent checkout -b "fix/<short-slug>" origin/main
 git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md .gitignore
 git -C /home/agent commit -m "<describe the definition change>"
-git -C /home/agent pull --rebase origin main && git -C /home/agent push origin main
+git -C /home/agent push -u origin "fix/<short-slug>"
+gh pr create --repo dam-agents/code-guardian --base main --head "fix/<short-slug>" \
+  --title "<describe the definition change>" --body "<what changed and why>"
 ```
 
-Only do this for deliberate definition changes the user asked for — never auto-commit the outer repo as part of a review heartbeat. Runtime state never belongs in this repo (that's what the inner `work/` repo is for).
+Rules:
+- **Never push to `main` and never open the PR with `--merge`/auto-merge.** Leave the PR open for a human to review and merge. The agent's job ends at "branch pushed, PR opened."
+- Use a fresh, descriptive branch name per change (e.g. `fix/duplicate-inline-comments`). If the branch already exists from an earlier turn, reuse it rather than creating a near-duplicate.
+- Only do this for deliberate definition changes the user asked for — **never** auto-commit the outer repo as part of a review heartbeat or the end-of-run persistence step (step 8). The automatic end-of-run commit/push applies **only** to the inner `work/` repo (`$GITHUB_REPO_WORK`), never to this outer `code-guardian` repo.
+- Runtime state never belongs in this repo (that's what the inner `work/` repo is for).
 
 ### Commit & push procedure (end of run, step 8)
 
