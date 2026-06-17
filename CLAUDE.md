@@ -386,6 +386,8 @@ Previous HEAD: <short-sha> (<timestamp>) — verdict <PREV_VERDICT>
 
 Only include buckets that have entries (skip empty ones). In the main `### Findings` section that follows, list all findings applicable to the current HEAD — the `Changes since last review` section is a narrative header; it doesn't replace the full findings list.
 
+The `🔁 Still present` bucket is **summary-only**: those findings stay in the `### Findings` list but are **not** re-posted as inline comments (their original inline thread persists on the PR from the review that first raised them). Re-posting them inline on every push is what produced duplicate comment threads in the past. Only `🆕 New` findings produce inline comments on a re-review — see rule 5 under **Mapping findings to inline comments**.
+
 If the prior review file is missing (first review, or file was pruned), skip the `Changes since last review` section and note at the end of `### Summary`: `(no prior review on file)`.
 
 ## Preference Learning
@@ -834,8 +836,11 @@ For each finding, decide whether it can be posted inline:
 2. **Inline ineligible** — the finding's line is not inside any diff hunk (or the finding has no precise line — e.g. "the PR is missing a test file for `processBatch`"). Keep it **only** in the summary `Findings` list. Do not include it in `comments[]`; GitHub will reject the whole review (422) if any inline comment points outside a hunk.
 3. **`✅ Looks good`** items — summary only, never inline. No value in commenting "this is fine" on a specific line.
 4. **Cap the number of inline comments at ~25 per review.** For diffs with many findings, prioritize 🔴 Critical and 🟡 Warning; demote excess 🟢 Suggestion items to summary-only. Walls of inline comments overwhelm the author and dilute the actionable ones.
+5. **On a re-review, carryover findings are summary-only — never re-posted inline.** A finding that is carried over from a prior review (a `🔁 Still present` item in the `### Changes since last review` section) **must NOT** get a new `comments[]` entry. Its inline thread already exists on the PR from the review that first raised it (GitHub marks it "outdated" after new commits but keeps it visible); re-posting it creates a duplicate thread on **every** push. Only findings in the `🆕 New` bucket — introduced by the new commits — are inline-eligible on a re-review. `✅ Fixed` findings are gone and get nothing. A `🆕 New` finding must still satisfy rule 1 (its line falls inside a diff hunk) to be posted inline; otherwise it stays summary-only. The ~25-comment cap in rule 4 applies to this reduced set.
 
-The Findings list in the summary `body` stays unchanged — it's the canonical complete list across both surfaces.
+   On a **first** review (no prior review file — see **Re-review output**), there is nothing to carry over, so every in-diff finding is inline-eligible exactly as the rules above describe.
+
+The Findings list in the summary `body` stays unchanged — it's the canonical complete list across both surfaces, and it always includes carryover (`🔁 Still present`) findings even though they get no inline comment on a re-review.
 
 ### Suggestion blocks
 
@@ -887,7 +892,7 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 
 1. Did I install/refresh the `doc-drift` skill at the start of the run — mirroring its entire source tree (including nested `references/`, `architecture/`, `modes/` directories) — or log the failure if installation errored? (`typescript-engineering` and `react-ui-engineering` are auto-installed by the harness — no action required for them at run start.)
 2. Did every message resolve `$GITHUB_REPO` to its runtime value — no literal `$GITHUB_REPO` leaking through?
-3. Did I post a GitHub PR review (signed as DAM) for every reviewed PR via `gh api repos/$REPO/pulls/<n>/reviews`, **with the trailing `<!-- dam:review headRefOid=... -->` marker in the review summary `body`**, with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each included whenever the corresponding skill ran successfully (and omitted entirely otherwise), and one inline comment per in-diff finding (each anchored to a real diff hunk, with ` ```suggestion ` blocks where appropriate, capped at ~25 per review)?
+3. Did I post a GitHub PR review (signed as DAM) for every reviewed PR via `gh api repos/$REPO/pulls/<n>/reviews`, **with the trailing `<!-- dam:review headRefOid=... -->` marker in the review summary `body`**, with the Documentation Check / TypeScript Engineering Review / React UI Engineering Review sections each included whenever the corresponding skill ran successfully (and omitted entirely otherwise), and one inline comment per in-diff finding — **except, on a re-review, carryover (`🔁 Still present`) findings are summary-only and must NOT be re-posted inline; only `🆕 New` in-diff findings get inline comments** (each anchored to a real diff hunk, with ` ```suggestion ` blocks where appropriate, capped at ~25 per review)?
 4. For every PR I reviewed, did I confirm before posting that GitHub had no prior DAM review (new format) **and** no legacy DAM comment with the same `headRefOid` marker — i.e., did I run **both** halves of the remote dedup check (see **Deduplication via GitHub PR reviews**) and only proceed when neither returned a match?
 5. **HEAD freshness — Check 1**: For every PR I started reviewing, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` at the start of the per-PR work (step 6a), use the freshly fetched SHA as the source of truth, and skip the PR if `isDraft` was `true`?
 6. **HEAD freshness — Check 2**: For every PR I posted, did I re-fetch `headRefOid` and `isDraft` via `gh pr view` immediately before posting (step 6e), and only post if the SHA still matched what I reviewed AND `isDraft` was `false`? Did I abort posting (no GitHub review, no REVIEWS.md update) when either check failed?
