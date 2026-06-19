@@ -789,27 +789,22 @@ Use the **quoted** heredoc delimiter (`<<'JSON'`) so bash doesn't try to expand 
 
 ### Revoking a stale approval on re-review
 
-GitHub does **not** retract a previous approving review when you submit a new one — reviews accumulate. If a prior run posted an `APPROVE` review and this re-review's verdict is no longer `APPROVE` (it dropped to `COMMENT` or `REQUEST_CHANGES` because new commits introduced problems), the old approval stays **active** on the PR: it still shows DAM as approving in the conversation tab and still counts toward branch-protection approval gates. Posting a `COMMENT` / `REQUEST_CHANGES` review *alongside* it does not undo that — the PR ends up simultaneously approved and commented-on by DAM, which is misleading and can let a regressed PR merge through an approval gate DAM no longer stands behind.
+GitHub does **not** retract a prior approving review when you post a new one — reviews accumulate. So if a previous run posted an `APPROVE` review and this re-review drops to `COMMENT`/`REQUEST_CHANGES`, the old approval stays **active**: DAM still shows as approving and still counts toward branch-protection gates, letting a regressed PR merge on an approval DAM no longer stands behind.
 
-So on any re-review whose verdict is not `APPROVE`, you must explicitly dismiss DAM's prior approving review:
+On any re-review whose verdict is not `APPROVE`, dismiss DAM's prior approval:
 
-1. You already fetched DAM's prior reviews for the remote dedup check (**Deduplication via GitHub PR reviews**). Among them, find the most recent review whose `state` is `APPROVED` — its `body` carries a `<!-- dam:review headRefOid=... -->` marker, so it is unambiguously DAM's own (never a human's). If there is no such approval, there is nothing to revoke — stop here.
-2. **After** the new review has posted successfully (step 6g), dismiss the stale approval by its review `id`:
+1. From the prior reviews you fetched for the remote dedup check, find the most recent one with `state = APPROVED` (its `body` carries the `<!-- dam:review -->` marker, so it's DAM's own — never a human's). None? Nothing to revoke — stop.
+2. **After** the new review posts (step 6g), dismiss the stale approval by its `id`:
 
    ```bash
    gh api "repos/$REPO/pulls/<number>/reviews/<prior_review_id>/dismissals" \
-     -X PUT \
-     -f message="Superseded by DAM re-review at <new-sha> — verdict is now <new-verdict>; prior approval no longer applies." \
-     -f event="DISMISS"
+     -X PUT -f event="DISMISS" \
+     -f message="Superseded by DAM re-review at <new-sha> — verdict is now <new-verdict>."
    ```
 
-3. Log it in the chat UI: `PR #<n>: dismissed stale DAM approval <prior_review_id> (verdict APPROVE → <new-verdict>)`.
+3. Log it: `PR #<n>: dismissed stale DAM approval <prior_review_id> (APPROVE → <new-verdict>)`.
 
-Rules:
-- **Order matters** — post the new review first, then dismiss the old approval. Dismissing first would briefly leave the PR with no DAM review at all.
-- **Only dismiss DAM's own approvals.** Never dismiss a human reviewer's approval, even if your verdict disagrees with it — surface the disagreement in your findings instead.
-- When the new verdict is itself `APPROVE`, **leave the prior approval alone** — re-approving on the new SHA is harmless and dismissing would be wrong.
-- A failed dismissal (network, permissions, already dismissed) is **not** a run failure: log it and continue. The next re-review will attempt the dismissal again as long as the stale `APPROVED` review is still active.
+Post the new review **before** dismissing. Only ever dismiss DAM's own approvals, never a human's. When the new verdict is itself `APPROVE`, leave the prior approval alone. A failed dismissal is not a run failure — log it; the next re-review retries while the stale approval is still active.
 
 ### Summary body format
 
