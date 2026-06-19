@@ -729,6 +729,7 @@ The remote check is a strict superset of the local check: even when REVIEWS.md s
    - Otherwise, run the **remote dedup check** (see above). If GitHub already has a DAM review (new format) or a legacy DAM comment with this `headRefOid` marker, **skip** and self-heal REVIEWS.md (write a `done` row using the API-returned timestamp).
    - **Re-review** if neither check skipped, REVIEWS.md has the `number` but a different `headRefOid` (or no row at all), and GitHub has no DAM review for the current SHA — new commits were pushed since the last reviewed SHA.
      - Before writing the new review, read `reviews/pr-<number>.md` to load your prior review(s). Use it to produce the `### Changes since last review` section (see **Output Format** above).
+     - If DAM's most recent review on this PR is in `APPROVED` state and the new verdict will not be `APPROVE`, plan to dismiss that stale approval after posting — see **Revoking a stale approval on re-review** under **GitHub PR Review**.
    - **New review** if the PR is not in REVIEWS.md at all and GitHub has no prior DAM review for the current SHA.
 2. Lifecycle of the REVIEWS.md row for a PR being reviewed in this run:
    - **Step 6a (lock acquire):** write/overwrite the row with `status = in_progress`, current timestamp, verdict `-`.
@@ -785,6 +786,30 @@ Use the **quoted** heredoc delimiter (`<<'JSON'`) so bash doesn't try to expand 
 `commit_id` **must** equal the `headRefOid` you reviewed (Check 1's SHA, also embedded in the marker). Pinning to a specific commit gives a server-side safety net: if HEAD moved between Check 2 and the POST, GitHub will reject the review (422) and we won't accidentally land a stale review on a new HEAD.
 
 `event: "APPROVE"` and `event: "REQUEST_CHANGES"` require a non-empty `body` — always send one. `event: "COMMENT"` also gets a body in our flow (we always include the full summary).
+
+### Revoking a stale approval on re-review
+
+GitHub does **not** retract a previous approving review when you submit a new one — reviews accumulate. If a prior run posted an `APPROVE` review and this re-review's verdict is no longer `APPROVE` (it dropped to `COMMENT` or `REQUEST_CHANGES` because new commits introduced problems), the old approval stays **active** on the PR: it still shows DAM as approving in the conversation tab and still counts toward branch-protection approval gates. Posting a `COMMENT` / `REQUEST_CHANGES` review *alongside* it does not undo that — the PR ends up simultaneously approved and commented-on by DAM, which is misleading and can let a regressed PR merge through an approval gate DAM no longer stands behind.
+
+So on any re-review whose verdict is not `APPROVE`, you must explicitly dismiss DAM's prior approving review:
+
+1. You already fetched DAM's prior reviews for the remote dedup check (**Deduplication via GitHub PR reviews**). Among them, find the most recent review whose `state` is `APPROVED` — its `body` carries a `<!-- dam:review headRefOid=... -->` marker, so it is unambiguously DAM's own (never a human's). If there is no such approval, there is nothing to revoke — stop here.
+2. **After** the new review has posted successfully (step 6g), dismiss the stale approval by its review `id`:
+
+   ```bash
+   gh api "repos/$REPO/pulls/<number>/reviews/<prior_review_id>/dismissals" \
+     -X PUT \
+     -f message="Superseded by DAM re-review at <new-sha> — verdict is now <new-verdict>; prior approval no longer applies." \
+     -f event="DISMISS"
+   ```
+
+3. Log it in the chat UI: `PR #<n>: dismissed stale DAM approval <prior_review_id> (verdict APPROVE → <new-verdict>)`.
+
+Rules:
+- **Order matters** — post the new review first, then dismiss the old approval. Dismissing first would briefly leave the PR with no DAM review at all.
+- **Only dismiss DAM's own approvals.** Never dismiss a human reviewer's approval, even if your verdict disagrees with it — surface the disagreement in your findings instead.
+- When the new verdict is itself `APPROVE`, **leave the prior approval alone** — re-approving on the new SHA is harmless and dismissing would be wrong.
+- A failed dismissal (network, permissions, already dismissed) is **not** a run failure: log it and continue. The next re-review will attempt the dismissal again as long as the stale `APPROVED` review is still active.
 
 ### Summary body format
 
@@ -921,5 +946,6 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 15. Did I log any GitHub-review-post, doc-drift, typescript-engineering, react-ui-engineering, clone, or PR-context fetch errors in the chat UI? For any 422s where individual inline comments were dropped to summary-only, did I note that in the chat UI?
 16. Are there no leftover `/tmp/dam-pr-*` directories from this run?
 17. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
+18. **Stale approval revocation**: For every re-review whose verdict dropped from a prior `APPROVE` to `COMMENT` / `REQUEST_CHANGES`, did I dismiss DAM's prior approving review via the dismissals endpoint **after** posting the new review (or log the failure), so the PR no longer carries a stale DAM approval? Did I leave the prior approval in place when the new verdict was itself `APPROVE`, and never dismiss a human reviewer's approval? (See **Revoking a stale approval on re-review**.)
 
-If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–7, 9–12, 15, and 16 don't apply (but item 1 still applies: refresh the skill anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
+If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–7, 9–12, 15, 16, and 18 don't apply (but item 1 still applies: refresh the skill anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
