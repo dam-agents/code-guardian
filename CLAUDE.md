@@ -14,7 +14,7 @@ The chat UI and GitHub PR review are the output channels. Every PR you review mu
 
 On every run you:
 
-1. **Install (or refresh) the `doc-drift` skill** — from `dam-agents/dam` — before doing anything else. See **Skill Setup** below for the exact procedure. If installation fails, log the error in the chat UI, omit the Documentation Check section from every review this run, and continue with the rest of the run. The `typescript-engineering` and `react-ui-engineering` skills live in [`dam-agents/skills`](https://github.com/dam-agents/skills/tree/main/skills) and are **auto-installed** by the harness — do not download or refresh them; just invoke them when the per-PR loop reaches step 6d.
+1. **Install (or refresh) the `doc-drift` and `pr-artifact` skills** — both from `dam-agents/dam` — before doing anything else. See **Skill Setup** below for the exact procedure. If `doc-drift` installation fails, log the error in the chat UI, omit the Documentation Check section from every review this run, and continue with the rest of the run. If `pr-artifact` installation fails, log the error in the chat UI, skip the PR-artifact step (6i) for every review this run, and continue with the rest of the run. The `typescript-engineering` and `react-ui-engineering` skills live in [`dam-agents/skills`](https://github.com/dam-agents/skills/tree/main/skills) and are **auto-installed** by the harness — do not download or refresh them; just invoke them when the per-PR loop reaches step 6d.
 2. Read your review preferences from [MEMORY.md](work/MEMORY.md)
 3. Read the review history from [REVIEWS.md](work/REVIEWS.md)
 4. Fetch all open pull requests using `gh pr list`
@@ -36,11 +36,12 @@ On every run you:
       - `react-ui-engineering` — code review of UI files (`.tsx`/`.jsx`) (same section).
 
       Capture each skill's output verbatim for the corresponding review section. **Running these skills is mandatory for every reviewed PR — there is no PR shape (CI-only, docs-only, dependency bump, workflow change, tiny diff, "obviously irrelevant") that exempts you from running them.** Each skill itself decides whether anything is wrong; you do not pre-judge that. Before continuing to step 6e, log one audit line per skill in the chat UI (see each skill's section for the exact line formats). If you cannot truthfully write the audit line for every skill, you have not finished step 6d — go back and do it.
-   e. **Re-verify HEAD freshness right before posting.** Call `gh pr view <number> --repo "$REPO" --json headRefOid,isDraft` again. If `headRefOid` no longer matches the SHA you reviewed in step a, OR `isDraft` is now `true`, **abort posting** for this PR: do not output the structured review to the chat UI (step f), do not post the GitHub review, do not append to `reviews/pr-<number>.md`. **Remove the `in_progress` lock row** from REVIEWS.md for this PR (its SHA is now stale — leaving it in place would needlessly hold a lock until TTL expiry, and the row's `headRefOid` no longer represents anything meaningful). Delete the clone (step i) and move on — the next run will pick up the new HEAD. Log a one-line abort note in the chat UI (`PR #<n>: HEAD moved <reviewed-sha> → <current-sha> mid-review …`) so the skip is auditable, but skip the full structured output.
+   e. **Re-verify HEAD freshness right before posting.** Call `gh pr view <number> --repo "$REPO" --json headRefOid,isDraft` again. If `headRefOid` no longer matches the SHA you reviewed in step a, OR `isDraft` is now `true`, **abort posting** for this PR: do not output the structured review to the chat UI (step f), do not post the GitHub review, do not append to `reviews/pr-<number>.md`. **Remove the `in_progress` lock row** from REVIEWS.md for this PR (its SHA is now stale — leaving it in place would needlessly hold a lock until TTL expiry, and the row's `headRefOid` no longer represents anything meaningful). Delete the clone (step j) and move on — the next run will pick up the new HEAD. Log a one-line abort note in the chat UI (`PR #<n>: HEAD moved <reviewed-sha> → <current-sha> mid-review …`) so the skip is auditable, but skip the full structured output.
    f. Output the structured review to the chat UI (now including the Documentation Check, TypeScript Engineering Review, and React UI Engineering Review sections — each present when the corresponding skill ran successfully, omitted otherwise)
    g. Post the review to GitHub as a single PR review with inline comments per finding (see **GitHub PR Review** below)
    h. Update REVIEWS.md with the PR's row — **replace the `in_progress` row from step 6a with a `done` row** carrying the actual post timestamp (captured at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment of writing) and the final verdict. This is the lock release — heartbeats that fire after this point see `status = done` and the existing skip-on-same-SHA logic applies.
-   i. **Delete the local clone** for this PR before moving on to the next one (see **Documentation Check via doc-drift** for the cleanup command).
+   i. **Generate and share the visual PR artifact (only when `dam-code-guardian` is assigned).** After the three skills of step 6d have run and the review has posted, check whether `dam-code-guardian` is an assignee of this PR and, if so, generate a visual artifact via the `pr-artifact` skill, publish it as a secret gist, comment the rendered link on the PR, record the gist id, and unassign `dam-code-guardian`. See **Visual PR Artifact via pr-artifact** below for the full procedure. Skip this step entirely (no log) when `dam-code-guardian` is not assigned.
+   j. **Delete the local clone** for this PR before moving on to the next one (see **Documentation Check via doc-drift** for the cleanup command).
 7. Before ending the run, work through the **End-of-Run Self-Check** (bottom of this file).
 8. **If `$GITHUB_REPO_WORK` is set, commit and push `work/`** as the very last action of the run — see **Persisting `work/` to `GITHUB_REPO_WORK`** below. Do this whether or not any PR was reviewed (memory/override edits and pruning also need to be persisted), and even on a "no new changes" run.
 
@@ -48,48 +49,50 @@ If all open PRs have already been reviewed at their current HEAD (by either chec
 
 ## Skill Setup
 
-At the start of every run — before reading MEMORY.md, fetching PRs, or doing anything else — install (or refresh) the `doc-drift` skill used during per-PR review. It lives under `.agents/skills/doc-drift/` in the `dam-agents/dam` repository and may ship with nested subdirectories (`references/`, `architecture/`, `modes/`). The install procedure must mirror the **entire** skill directory — `SKILL.md` plus every nested file — into `~/.claude/skills/doc-drift/`, preserving subdirectory structure. The skill is not "installed" until every file in its source tree is present locally.
+At the start of every run — before reading MEMORY.md, fetching PRs, or doing anything else — install (or refresh) the `doc-drift` and `pr-artifact` skills used during per-PR review. Both live under `.agents/skills/<skill-name>/` in the `dam-agents/dam` repository and may ship with nested subdirectories (`references/`, `architecture/`, `modes/`). The install procedure must mirror the **entire** skill directory — `SKILL.md` plus every nested file — into `~/.claude/skills/<skill-name>/`, preserving subdirectory structure. A skill is not "installed" until every file in its source tree is present locally.
 
 | Skill | Source | Install? | Used for |
 | --- | --- | --- | --- |
 | `doc-drift` | `.agents/skills/doc-drift/` in `dam-agents/dam` on `main` | **Yes** — install per the procedure below on every run | Documentation drift check on every PR |
+| `pr-artifact` | `.agents/skills/pr-artifact/` in `dam-agents/dam` on `main` | **Yes** — install per the procedure below on every run | Visual PR review artifact (HTML) on assigned PRs (step 6i) |
 | `typescript-engineering` | [`dam-agents/skills` repo, `skills/typescript-engineering/`](https://github.com/dam-agents/skills/tree/main/skills) | **No** — auto-installed by the harness; never download manually | Code review of `.ts` / `.mts` / `.cts` / `.js` / `.mjs` / `.cjs` files |
 | `react-ui-engineering` | [`dam-agents/skills` repo, `skills/react-ui-engineering/`](https://github.com/dam-agents/skills/tree/main/skills) | **No** — auto-installed by the harness; never download manually | Code review of `.tsx` / `.jsx` files |
 
 `typescript-engineering` and `react-ui-engineering` are wired in at the harness level — they appear in your available skills automatically and are kept fresh outside this agent's control. Do not attempt to mirror them, refresh them, wipe their install directories, or run the procedure below against them. The only action you take for those two skills is **invoking them** during step 6d of the per-PR loop.
 
-### Install procedure (for `doc-drift` only, run once per run)
+### Install procedure (for `doc-drift` and `pr-artifact`, run once per run each)
 
-Run these steps in order:
+Run these steps **once per skill** — once for `doc-drift`, once for `pr-artifact` — substituting the skill name for `<skill>` throughout. The two installs are independent: a failure of one does not abort the other (see **When an install fails**).
 
-1. Wipe the local install directory so a stale partial install can't survive: `rm -rf "$HOME/.claude/skills/doc-drift"`.
+1. Wipe the local install directory so a stale partial install can't survive: `rm -rf "$HOME/.claude/skills/<skill>"`.
 2. Enumerate every file under the skill's source path in one call via the GitHub trees API:
 
    ```bash
    gh api 'repos/dam-agents/dam/git/trees/main?recursive=1' \
-     --jq '.tree[] | select(.type == "blob") | select(.path | startswith(".agents/skills/doc-drift/")) | .path'
+     --jq '.tree[] | select(.type == "blob") | select(.path | startswith(".agents/skills/<skill>/")) | .path'
    ```
 
    This returns the full list of blob paths under the skill — `SKILL.md` plus every nested file (references, architecture, modes, helpers, scripts). One call covers arbitrary depth, so new upstream files are picked up automatically without changing this procedure.
 
-3. For each returned path, fetch the raw file via `https://raw.githubusercontent.com/dam-agents/dam/main/<path>` and write it to the mirrored location under `~/.claude/skills/doc-drift/`, preserving the subdirectory structure (strip the `.agents/skills/doc-drift/` prefix):
+3. For each returned path, fetch the raw file via `https://raw.githubusercontent.com/dam-agents/dam/main/<path>` and write it to the mirrored location under `~/.claude/skills/<skill>/`, preserving the subdirectory structure (strip the `.agents/skills/<skill>/` prefix):
 
    ```bash
    raw_url="https://raw.githubusercontent.com/dam-agents/dam/main/<path>"
-   dest="$HOME/.claude/skills/doc-drift/${path#.agents/skills/doc-drift/}"
+   dest="$HOME/.claude/skills/<skill>/${path#.agents/skills/<skill>/}"
    mkdir -p "$(dirname "$dest")"
    curl -sSfL "$raw_url" -o "$dest"
    ```
 
-4. Log one confirmation line in the chat UI with the file count, e.g. `doc-drift skill installed (1 file)`. The count makes a silent partial-install regression obvious.
+4. Log one confirmation line in the chat UI per skill with the file count, e.g. `doc-drift skill installed (1 file)` and `pr-artifact skill installed (3 files)`. The count makes a silent partial-install regression obvious.
 
 ### When an install fails
 
-If any step fails (network error, 404, write error, partial fetch), log the failure in the chat UI and proceed with the run. The consequence is scoped:
+If any step fails (network error, 404, write error, partial fetch), log the failure in the chat UI and proceed with the run. The consequence is scoped per skill:
 
 - **`doc-drift` install failure** → omit the Documentation Check section from every review this run.
+- **`pr-artifact` install failure** → skip the PR-artifact step (6i) for every review this run (log `PR #<n>: pr-artifact skipped (install-failed)` on each assigned PR where the step would otherwise run).
 
-Do **not** abort the whole run on a skill install failure — code review still happens, just without the Documentation Check section. The auto-installed `typescript-engineering` and `react-ui-engineering` skills continue to run normally regardless of doc-drift's state; if either of them errors at invocation time, the per-PR section handles it as a `skill-errored` skip — see the per-skill invocation rules.
+Do **not** abort the whole run on a skill install failure — code review still happens, just without the affected section/step. A `pr-artifact` install failure has no effect on `doc-drift` (or vice versa) — the two installs are independent. The auto-installed `typescript-engineering` and `react-ui-engineering` skills continue to run normally regardless of doc-drift's state; if either of them errors at invocation time, the per-PR section handles it as a `skill-errored` skip — see the per-skill invocation rules.
 
 ## Documentation Check via doc-drift
 
@@ -231,6 +234,80 @@ Findings from `typescript-engineering` and `react-ui-engineering` feed into the 
 ### Cleanup
 
 `$PR_DIR` cleanup is shared with `doc-drift` (see the previous section). Do **not** delete the clone between skill runs — all three skills use the same working directory. Delete once, after the GitHub review is posted and REVIEWS.md is updated.
+
+## Visual PR Artifact via pr-artifact
+
+This is step 6i of the per-PR loop. It runs **only on PRs where `dam-code-guardian` is assigned**, and only on the success path — after the three review skills (step 6d) have run, the GitHub review has posted (step 6g), and REVIEWS.md has been updated to `done` (step 6h). It produces a self-contained visual HTML artifact of the review, publishes it as a secret gist, links it from a PR comment, records the gist id, and then unassigns `dam-code-guardian`. The same `$PR_DIR` clone from step 6d is still on disk (it isn't deleted until step 6j), so the skill can read the branch.
+
+> ⚠️ **This step publishes to a public surface.** A GitHub "secret" gist is *unlisted*, not private — anyone with the URL can read it, and the `htmlpreview.github.io` link renders it for anyone. Everything the `pr-artifact` skill puts into the HTML becomes publicly reachable. This is intended behavior, gated behind the `dam-code-guardian` assignee opt-in below: the artifact is only ever generated for PRs a human has explicitly assigned to `dam-code-guardian`.
+
+### Assignee gate — the opt-in
+
+Before doing any artifact work, check whether `dam-code-guardian` is an assignee of the PR:
+
+```bash
+gh pr view <number> --repo "$REPO" --json assignees --jq '.assignees[].login' | grep -qx 'dam-code-guardian'
+```
+
+- **Not assigned** (grep exits non-zero) → **skip step 6i entirely with no log line.** This is the silent, expected default for the vast majority of PRs. Do not emit any audit line, do not generate anything.
+- **Assigned** (grep exits zero) → proceed with the procedure below. If the `pr-artifact` skill failed to install at run start, do not attempt generation — log `PR #<n>: pr-artifact skipped (install-failed)` and move on to step 6j.
+
+### Procedure (assigned PRs only)
+
+1. **Generate the artifact.** Invoke the `pr-artifact` skill via the Skill tool, passing the PR number (and whatever else its `SKILL.md` documents — typically the `$PR_DIR` clone path). Its output is a single self-contained HTML file. Save it to:
+
+   ```
+   work/reviews/pr-artifacts/pr-<number>.html
+   ```
+
+   Create the `work/reviews/pr-artifacts/` directory first if it doesn't exist (`mkdir -p work/reviews/pr-artifacts`). If the skill errors out (exception, missing dependency, invocation error), log `PR #<n>: pr-artifact skipped (skill-errored)` and skip the rest of this step (no gist, no comment, no unassign) — proceed to step 6j. If the clone is unavailable for some reason, log `PR #<n>: pr-artifact skipped (clone-failed)` and skip the rest.
+
+2. **Publish as a secret gist.**
+
+   ```bash
+   GIST_URL=$(gh gist create work/reviews/pr-artifacts/pr-<number>.html \
+     --desc "PR #<number> review artifact")
+   GIST_ID=$(basename "$GIST_URL")
+   ```
+
+   `gh gist create` defaults to a secret (unlisted) gist — do **not** pass `--public`. The command prints the gist URL; the gist id is its last path segment.
+
+3. **Comment the rendered link on the PR.** Post a top-level PR comment linking to the htmlpreview-rendered artifact:
+
+   ```bash
+   gh pr comment <number> --repo "$REPO" \
+     --body "📊 [PR #<number> review artifact](https://htmlpreview.github.io/?https://gist.githubusercontent.com/dam-code-guardian/<GIST_ID>/raw/pr-<number>.html)"
+   ```
+
+   The rendered URL shape is exactly:
+   `https://htmlpreview.github.io/?https://gist.githubusercontent.com/dam-code-guardian/<GIST_ID>/raw/pr-<number>.html`
+
+4. **Record the gist id** in the header of `reviews/pr-<number>.md`, as an HTML comment on its own line immediately after the file's `# PR #<number>: <title>` title heading:
+
+   ```markdown
+   # PR #<number>: <title>
+   <!-- artifact-gist: <GIST_ID> -->
+   ```
+
+   If a `<!-- artifact-gist: ... -->` line already exists (a prior artifact for this PR), **overwrite it in place** with the new gist id rather than appending a second one — one artifact-gist marker per file. The pruning step (below) reads this marker to know which gist to delete.
+
+5. **Unassign `dam-code-guardian` from the PR.** After the gist is created and the comment posted, remove `dam-code-guardian` as an assignee so the artifact is generated once per assignment, not on every subsequent heartbeat:
+
+   ```bash
+   gh pr edit <number> --repo "$REPO" --remove-assignee dam-code-guardian
+   ```
+
+   If the unassign call fails, log it and continue — it is not a run failure. (The next heartbeat would then regenerate the artifact; the gist-id overwrite in step 4 keeps that from accumulating stale markers, though it would create a new gist. A failed unassign is rare; log it so it's auditable.)
+
+6. **Audit log (mandatory when assigned).** Emit exactly one line into the chat UI:
+   - `PR #<n>: pr-artifact ran → gist <GIST_ID>` — on success (artifact generated, gist published, comment posted).
+   - `PR #<n>: pr-artifact skipped (<reason>)` — on a technical failure, where `<reason>` is one of `install-failed`, `clone-failed`, `skill-errored`.
+
+   When `dam-code-guardian` is **not** assigned, emit **no** line at all (the step didn't apply).
+
+### Cleanup interaction
+
+This step does **not** delete `$PR_DIR` — that remains step 6j's job, run once after this step. The saved `work/reviews/pr-artifacts/pr-<number>.html` is intentionally kept (it's part of persisted `work/` state); it is only removed when the PR is pruned (see **Per-PR decision logic and pruning**).
 
 ## How to Review
 
@@ -595,6 +672,7 @@ File format:
 
 ```markdown
 # PR #<number>: <title>
+<!-- artifact-gist: <GIST_ID> -->
 
 ## PR-local overrides
 
@@ -618,7 +696,8 @@ _Entries here suppress specific findings for this PR only. Added when the user d
 
 Rules:
 - The title header and `## PR-local overrides` section stay at the top of the file. Reviews append **below** them.
-- If the PR title changes, update the title header in place but never lose overrides or prior review sections.
+- The optional `<!-- artifact-gist: <GIST_ID> -->` marker (written by step 6i on assigned PRs) sits on its own line immediately after the title header. Overwrite it in place when a new artifact is generated; the pruning step reads it to delete the gist. It's absent when no artifact was ever generated for the PR.
+- If the PR title changes, update the title header in place but never lose overrides, the artifact-gist marker, or prior review sections.
 - If the overrides section has no entries yet, omit the bullets (keep the heading + description so the structure is obvious), or skip the section entirely on first write and add it the first time you record an override.
 
 ### Applying PR-local overrides on re-review
@@ -744,6 +823,14 @@ The remote check is a strict superset of the local check: even when REVIEWS.md s
    1. After the `gh pr list … --jq 'map(select(.isDraft == false))'` call from the **Fetch PRs** step (note: client-side draft filter — never `--draft=false`, see that section for why), build the **open set** of PR numbers from the response.
    2. **Sanity check the list call.** If `gh pr list` returned an empty array AND REVIEWS.md has any rows, treat the result as suspicious. Do **not** prune anything this run. Log the anomaly in the chat UI ("`gh pr list` returned empty while REVIEWS.md has N rows — skipping prune") and continue with the rest of the run as if the open set were unknown (skip pruning, skip new-review work, just verify any PRs you can fetch individually).
    3. Otherwise, for each row in REVIEWS.md whose PR number is **not** in the open set, **verify before deleting**: run `gh pr view <number> --repo "$REPO" --json state --jq .state`. Only prune the row and its `reviews/pr-<number>.md` file if the state is exactly `CLOSED` or `MERGED`. If the call errors, returns `OPEN`, or returns anything unexpected, leave the row alone — never delete on ambiguity.
+
+      **Before deleting `reviews/pr-<number>.md`, clean up its artifact.** Read the `<!-- artifact-gist: <GIST_ID> -->` marker from the file header (step 4 of **Visual PR Artifact via pr-artifact**). If present, delete the published gist first:
+
+      ```bash
+      gh gist delete <GIST_ID>
+      ```
+
+      Then delete the local HTML artifact `work/reviews/pr-artifacts/pr-<number>.html` (if it exists). If the gist delete fails (already deleted, permission, network), **log it and continue** — a failed gist delete must **not** block pruning the review file. After the artifact cleanup, delete `reviews/pr-<number>.md` and the REVIEWS.md row as usual. If the file has no `artifact-gist` marker (no artifact was ever generated for this PR), skip the gist/HTML cleanup and prune normally.
    4. Never delete `reviews/pr-*.md` files in bulk (`rm reviews/pr-*.md` or equivalent globs). Only delete individual files whose PR you have just verified as closed/merged via step 3.
 
    The list-call result is a hint about which PRs *might* be closed — only the per-PR `gh pr view` is authoritative for actual deletion. Better to leave a stale row in REVIEWS.md for one extra run than to nuke the whole file because of a transient API blip.
@@ -902,7 +989,8 @@ If the review posts with some findings dropped from inline (due to repeated 422s
 
 ## Important Rules
 
-- Always install/refresh the `doc-drift` skill at the very start of the run (see **Skill Setup**). Mirror its entire source tree — `SKILL.md` plus every nested file under `references/`, `architecture/`, `modes/`, etc. — into `~/.claude/skills/doc-drift/`. `typescript-engineering` and `react-ui-engineering` come from [`dam-agents/skills`](https://github.com/dam-agents/skills/tree/main/skills) and are auto-installed by the harness — never download or refresh them, just invoke them at step 6d.
+- Always install/refresh the `doc-drift` and `pr-artifact` skills at the very start of the run (see **Skill Setup**). Mirror each skill's entire source tree — `SKILL.md` plus every nested file under `references/`, `architecture/`, `modes/`, etc. — into `~/.claude/skills/<skill>/`. `typescript-engineering` and `react-ui-engineering` come from [`dam-agents/skills`](https://github.com/dam-agents/skills/tree/main/skills) and are auto-installed by the harness — never download or refresh them, just invoke them at step 6d.
+- On every reviewed PR where `dam-code-guardian` is an assignee, generate the visual PR artifact (step 6i): run `pr-artifact`, save the HTML under `work/reviews/pr-artifacts/`, publish a secret gist, comment the htmlpreview link on the PR, record the gist id in `reviews/pr-<number>.md`, and unassign `dam-code-guardian`. Skip silently (no log) when not assigned. Note: the gist is publicly reachable by URL (see **Visual PR Artifact via pr-artifact**). On pruning a closed/merged PR, delete its recorded gist and local HTML.
 - Always read MEMORY.md before starting a review
 - For every reviewed PR, fetch the PR body, comments, and inline review threads (see **PR Context: Body, Comments, and Reviews**) and use them to inform the Summary and suppress already-justified findings. Route any explicit dispute resolutions to MEMORY.md (global) or `reviews/pr-<number>.md` (PR-specific) per the scope rules.
 - For every reviewed PR, clone the branch into `/tmp/dam-pr-<number>/`, run `doc-drift`, then `typescript-engineering` against the TS/JS bucket of changed files (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`), then `react-ui-engineering` against the UI bucket of changed files (`.tsx`/`.jsx`), and `rm -rf` the clone **once** after all three skills and the GitHub review are done (not after each skill). Each file is routed to exactly one of the two bucket-based skills based on its extension — `.tsx` goes only to `react-ui-engineering`, never also to `typescript-engineering`.
@@ -942,5 +1030,6 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 16. Are there no leftover `/tmp/dam-pr-*` directories from this run?
 17. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
 18. **Stale approval revocation**: For every re-review whose verdict dropped from a prior `APPROVE` to `COMMENT` / `REQUEST_CHANGES`, did I dismiss DAM's prior approving review via the dismissals endpoint **after** posting the new review (or log the failure), so the PR no longer carries a stale DAM approval? Did I leave the prior approval in place when the new verdict was itself `APPROVE`, and never dismiss a human reviewer's approval? (See **Revoking a stale approval on re-review**.)
+19. **Visual PR artifact (step 6i)**: Did I install/refresh the `pr-artifact` skill at run start (or log the install failure)? For every reviewed PR where `dam-code-guardian` was an assignee, did I run `pr-artifact` (or log a technical skip: `install-failed` / `clone-failed` / `skill-errored`), save the HTML to `work/reviews/pr-artifacts/pr-<number>.html`, publish it as a secret gist, post the htmlpreview link as a PR comment, record the gist id in the `<!-- artifact-gist: ... -->` header of `reviews/pr-<number>.md`, **and unassign `dam-code-guardian`** — with exactly one `PR #<n>: pr-artifact ran → gist <id>` (or `skipped (<reason>)`) audit line? For PRs where `dam-code-guardian` was **not** assigned, did I correctly emit **no** artifact log line and generate nothing? On pruning a closed/merged PR, did I read its `artifact-gist` marker, delete the gist (logging on failure without blocking the prune), and remove the local HTML?
 
-If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–7, 9–12, 15, 16, and 18 don't apply (but item 1 still applies: refresh the skill anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
+If `N = 0`, report "no new changes" to the chat UI and end the run — items 2–7, 9–12, 15, 16, 18, and 19 don't apply (but item 1 still applies: refresh **both** skills anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning — including artifact-gist cleanup; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
