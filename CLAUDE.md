@@ -1067,9 +1067,12 @@ gh api "repos/$REPO/pulls?state=open&per_page=100" \
 gh api "repos/$REPO/issues/<n>/timeline?per_page=100" \
   --jq '[.[] | select(.event=="ready_for_review") | .created_at] | last'
 
-# Formal reviews (exclude DAM's own: login != dam-code-guardian AND body lacks the dam:review marker)
+# Formal reviews by a real reviewer: exclude DAM's own (login != dam-code-guardian AND
+# body lacks the dam:review marker) AND exclude the PR author (an author reviewing/commenting
+# on their own PR is NOT an independent review — self-review must not silence nudges).
+AUTHOR=$(gh api "repos/$REPO/pulls/<n>" --jq '.user.login')
 gh api "repos/$REPO/pulls/<n>/reviews" \
-  --jq '[.[] | select(.user.login != "dam-code-guardian") | select((.body // "") | contains("<!-- dam:review") | not)] | length'
+  --jq --arg a "$AUTHOR" '[.[] | select(.user.login != "dam-code-guardian" and .user.login != $a) | select((.body // "") | contains("<!-- dam:review") | not)] | length'
 
 # Changed files (for reviewer matching)
 gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'
@@ -1080,7 +1083,7 @@ If `gh api user` 401s at run start (whole-pod auth outage), the run aborts befor
 ### Sweep algorithm (per open non-draft PR)
 
 1. **eligible_since** — compute from the timeline (latest `ready_for_review`) or `created_at`. Upsert the row in `SHEPHERD.md`.
-2. **Human-review check** — count formal reviews by a non-DAM human (query above). If ≥1 → set `human_reviewed=yes`, `status=reviewed`, **send no nudge**, done for this PR. (A human is now engaged; DAM steps back.)
+2. **Human-review check** — count formal reviews by a non-DAM human **who is not the PR author** (query above). If ≥1 → set `human_reviewed=yes`, `status=reviewed`, **send no nudge**, done for this PR. (An independent human is now engaged; DAM steps back.) **The PR author's own reviews/comments never count** — a self-review must not silence the nudge, or a PR nobody else has looked at would go quiet forever (this is exactly PR #2739's shape: author `xjacka` commented on their own otherwise-unreviewed PR).
 3. **Age gate** — `age = now - eligible_since`. If `age < 24h` → `status=watching`, no nudge, done.
 4. **Determine targets (roster-only):**
    - `assigned = requested_reviewers ∩ roster`, minus the PR author. If non-empty → these are the targets (no `*`).
