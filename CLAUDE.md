@@ -1044,7 +1044,7 @@ One row per open non-draft PR:
 
 - **eligible_since** — ISO ts the PR became review-eligible: the **latest** `ready_for_review` timeline event if any, else `created_at`.
 - **reviewers** — comma-separated roster logins targeted. GitHub requested-reviewers ∩ roster; if that set is empty, the 2 DAM-suggested reviewers, each with a trailing `*` (Slack-mention only — **never** requested on GitHub).
-- **human_reviewed** — `yes`/`no`. `yes` = a non-DAM human submitted a **formal review**.
+- **human_reviewed** — `yes`/`no`. `yes` = an independent human submitted a **position-taking review** (`APPROVED` or `CHANGES_REQUESTED`) — **not** a bare `COMMENTED` review, and **not** the PR author. See the human-review check in the algorithm for the exact rule.
 - **nudges** — count of Slack nudges sent.
 - **last_nudge_at** — ISO ts of the most recent nudge (drives the 2-day escalation tick). `-` if none sent yet.
 - **level** — `1`..`4` (1 = first reminder, 2/3 = escalations, 4 = widen+hold).
@@ -1067,9 +1067,17 @@ gh api "repos/$REPO/pulls?state=open&per_page=100" \
 gh api "repos/$REPO/issues/<n>/timeline?per_page=100" \
   --jq '[.[] | select(.event=="ready_for_review") | .created_at] | last'
 
-# Formal reviews (exclude DAM's own: login != dam-code-guardian AND body lacks the dam:review marker)
+# Independent reviews that count. Query the /reviews endpoint (NOT the comment endpoints)
+# and require a review that took a POSITION — state APPROVED or CHANGES_REQUESTED. A bare
+# COMMENTED review is just a comment, NOT a review, and must NOT silence the nudge.
+# Also exclude DAM's own (login != dam-code-guardian AND body lacks the dam:review marker)
+# and the PR author (a self-review is never independent review).
+AUTHOR=$(gh api "repos/$REPO/pulls/<n>" --jq '.user.login')
 gh api "repos/$REPO/pulls/<n>/reviews" \
-  --jq '[.[] | select(.user.login != "dam-code-guardian") | select((.body // "") | contains("<!-- dam:review") | not)] | length'
+  --jq --arg a "$AUTHOR" '[.[]
+     | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+     | select(.user.login != "dam-code-guardian" and .user.login != $a)
+     | select((.body // "") | contains("<!-- dam:review") | not)] | length'
 
 # Changed files (for reviewer matching)
 gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'
@@ -1080,7 +1088,9 @@ If `gh api user` 401s at run start (whole-pod auth outage), the run aborts befor
 ### Sweep algorithm (per open non-draft PR)
 
 1. **eligible_since** — compute from the timeline (latest `ready_for_review`) or `created_at`. Upsert the row in `SHEPHERD.md`.
-2. **Human-review check** — count formal reviews by a non-DAM human (query above). If ≥1 → set `human_reviewed=yes`, `status=reviewed`, **send no nudge**, done for this PR. (A human is now engaged; DAM steps back.)
+2. **Human-review check** — look at the PR's **reviews** (the `/reviews` endpoint), **not** its comments. Count only reviews that **took a position — state `APPROVED` or `CHANGES_REQUESTED`** — submitted by a non-DAM human **who is not the PR author**. If ≥1 → set `human_reviewed=yes`, `status=reviewed`, **send no nudge**, done for this PR. (An independent human has actually reviewed; DAM steps back.) Two things that look like a review but are **not** and must **never** silence the nudge:
+   - **A bare `COMMENTED` review** — someone left a note or a question without approving or requesting changes. That's a comment, not a review. (PR #2121's shape: `jezekra1` left a `COMMENTED` review but never posted a verdict — the PR still needs a real review.)
+   - **The PR author's own reviews/comments** — a self-review is never independent review. (PR #2739's shape: author `xjacka` commented on their own otherwise-unreviewed PR.)
 3. **Age gate** — `age = now - eligible_since`. If `age < 24h` → `status=watching`, no nudge, done.
 4. **Determine targets (roster-only):**
    - `assigned = requested_reviewers ∩ roster`, minus the PR author. If non-empty → these are the targets (no `*`).
@@ -1167,6 +1177,6 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 17. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
 18. **Stale approval revocation**: For every re-review whose verdict dropped from a prior `APPROVE` to `COMMENT` / `REQUEST_CHANGES`, did I dismiss DAM's prior approving review via the dismissals endpoint **after** posting the new review (or log the failure), so the PR no longer carries a stale DAM approval? Did I leave the prior approval in place when the new verdict was itself `APPROVE`, and never dismiss a human reviewer's approval? (See **Revoking a stale approval on re-review**.)
 19. **Visual PR artifact (steps 6i + 6b sweep)**: Did I install/refresh the `pr-artifact` skill at run start (or log the install failure)? Did I evaluate the `dam-code-guardian` assignee gate on **every open non-draft PR this run** — both PRs I reviewed (step 6i) **and** PRs I skipped because they were already reviewed at their current HEAD (step 6b sweep) — querying assignees fresh from GitHub? For every such PR where `dam-code-guardian` was assigned and no up-to-date artifact already existed, did I run `pr-artifact` (or log a technical skip: `install-failed` / `skill-errored`), save the HTML to `work/reviews/pr-artifacts/pr-<number>.html`, publish it as a secret gist, post the htmlpreview link as a PR comment, record the gist id in the `<!-- artifact-gist: ... -->` header of `reviews/pr-<number>.md`, **and unassign `dam-code-guardian`** — with exactly one `PR #<n>: pr-artifact ran → gist <id>` (or `skipped (<reason>)`) audit line? For PRs where `dam-code-guardian` was **not** assigned, did I correctly emit **no** artifact log line and generate nothing? On pruning a closed/merged PR, did I read its `artifact-gist` marker, delete the gist (logging on failure without blocking the prune), and remove the local HTML?
-20. **PR Shepherd sweep (step 6c)**: Did I run the sweep over **every open non-draft PR** this run — computing `eligible_since` (latest `ready_for_review`, else `created_at`), checking for a non-DAM human formal review, and updating `work/SHEPHERD.md`? For every PR that is >24h old with **no** human review, did I nudge in Slack at the correct level — **only escalating when ≥2 days since `last_nudge_at`**, exactly one message per level, widening to the author + `tomkis` at level 4 then holding? Did every `<@…>` mention resolve to a `slack_id` in `work/DEVELOPERS.md`, with **no one outside the roster tagged or suggested**, and non-roster requested-reviewers dropped silently? Did I set `status=reviewed` (and go quiet) on any PR that gained a human review, and refine roster **observed areas** additively without touching seed expertise? Did I log any Slack-send failure without advancing the ledger?
+20. **PR Shepherd sweep (step 6c)**: Did I run the sweep over **every open non-draft PR** this run — computing `eligible_since` (latest `ready_for_review`, else `created_at`), checking for an **independent position-taking review** (`APPROVED`/`CHANGES_REQUESTED` from a non-DAM, non-author human — a bare `COMMENTED` review does **not** count), and updating `work/SHEPHERD.md`? For every PR that is >24h old with **no** human review, did I nudge in Slack at the correct level — **only escalating when ≥2 days since `last_nudge_at`**, exactly one message per level, widening to the author + `tomkis` at level 4 then holding? Did every `<@…>` mention resolve to a `slack_id` in `work/DEVELOPERS.md`, with **no one outside the roster tagged or suggested**, and non-roster requested-reviewers dropped silently? Did I set `status=reviewed` (and go quiet) on any PR that gained a human review, and refine roster **observed areas** additively without touching seed expertise? Did I log any Slack-send failure without advancing the ledger?
 
 If `N = 0`, report "no new changes" to the chat UI — but **items 19 and 20 still apply**: even with nothing to review, I must check the `dam-code-guardian` assignee gate (step 6b) and run the **PR Shepherd sweep** (step 6c) on every open non-draft PR — a `dam-code-guardian` assignment or a review-latency threshold can be crossed with no new commit. Items 2–7, 9–12, 15, 16, and 18 don't apply when `N = 0` (but item 1 still applies: refresh **both** skills anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning — including artifact-gist cleanup and `SHEPHERD.md` row pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
