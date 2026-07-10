@@ -1008,7 +1008,7 @@ If the review posts with some findings dropped from inline (due to repeated 422s
 - Acquire the **in-progress lock** in REVIEWS.md at step 6a before doing any of the slow work (PR-context fetch, clone, skills, posting); release it (overwrite with `done`, or delete on abort) at step 6e/6h. See **In-progress locks and TTL recovery**. The lock is best-effort — the remote dedup check remains the authoritative safeguard against duplicates.
 - Never hard-code a repository slug — always resolve `$GITHUB_REPO` dynamically and never emit its literal form into any message
 - If the diff is very large (>2000 lines), focus the review on the most critical files — but still post the full review to GitHub
-- **Run the PR Shepherd sweep (step 6c) on every run** over all open non-draft PRs — nudge assigned (or, when none, suggested) reviewers in Slack once a PR is >24h old with no human review, escalating every 2 days, then widening to the author + `tomkis` and holding. **Only ever @-mention or suggest people listed in `work/DEVELOPERS.md`** — never tag anyone outside that roster. See **PR Shepherd: reviewer nudging via Slack**.
+- **Run the PR Shepherd sweep (step 6c) on every run** over all open non-draft PRs. Once a PR is >24h old and **not yet `APPROVED`** by an independent reviewer, nudge in Slack, escalating every 2 days, then widening to `tomkis` and holding. Only an `APPROVED` review stops the nudge — a bare `COMMENTED` does not. Target depends on state: **no real review yet → nudge reviewers** (assigned∩roster, else 2 suggested); **changes requested → nudge the author** to address feedback. **Only ever @-mention or suggest people listed in `work/DEVELOPERS.md`** — never tag anyone outside that roster. See **PR Shepherd: reviewer nudging via Slack**.
 - Respect your learned preferences above all default behaviors
 
 ## PR Shepherd: reviewer nudging via Slack
@@ -1044,11 +1044,11 @@ One row per open non-draft PR:
 
 - **eligible_since** — ISO ts the PR became review-eligible: the **latest** `ready_for_review` timeline event if any, else `created_at`.
 - **reviewers** — comma-separated roster logins targeted. GitHub requested-reviewers ∩ roster; if that set is empty, the 2 DAM-suggested reviewers, each with a trailing `*` (Slack-mention only — **never** requested on GitHub).
-- **human_reviewed** — `yes`/`no`. `yes` = a non-DAM human submitted a **formal review**.
+- **review_state** — the class from step 2: `approved` / `changes_requested` / `awaiting_review`. Only `approved` (an independent, non-author reviewer whose latest state is `APPROVED`) stops the nudge. A bare `COMMENTED` review counts as `awaiting_review`.
 - **nudges** — count of Slack nudges sent.
-- **last_nudge_at** — ISO ts of the most recent nudge (drives the 2-day escalation tick). `-` if none sent yet.
+- **last_nudge_at** — ISO ts of the most recent nudge actually sent. Drives both the 2-day escalation tick **and** the 20h minimum-gap cooldown (see **Preventing duplicate nudges**). `-` if none sent yet. Never reset to `-` on a class transition.
 - **level** — `1`..`4` (1 = first reminder, 2/3 = escalations, 4 = widen+hold).
-- **status** — `watching` (<24h, no nudge yet) / `nudging` / `held` (post-widen, quiet) / `reviewed` (human review landed, quiet).
+- **status** — `watching` (<24h, no nudge yet) / `nudging` (reviewer-directed) / `nudging-author` (changes-requested, author-directed) / `held` (post-widen, quiet) / `approved` (an `APPROVED` review landed, quiet).
 
 Write timestamps at second precision via `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment of writing — same discipline as REVIEWS.md, never a placeholder or rounded value.
 
@@ -1067,9 +1067,23 @@ gh api "repos/$REPO/pulls?state=open&per_page=100" \
 gh api "repos/$REPO/issues/<n>/timeline?per_page=100" \
   --jq '[.[] | select(.event=="ready_for_review") | .created_at] | last'
 
-# Formal reviews (exclude DAM's own: login != dam-code-guardian AND body lacks the dam:review marker)
+# Classify the PR by its INDEPENDENT reviews. Query the /reviews endpoint (NOT the comment
+# endpoints). "Independent" = not dam-code-guardian (and body lacks the dam:review marker)
+# and not the PR author (a self-review is never independent). Take each independent
+# reviewer's LATEST review state, then classify:
+#   - any APPROVED   → 'approved'          → STOP nudging (this is the only silencing state)
+#   - any CHANGES_REQUESTED (and none approved) → 'changes_requested' → nudge the AUTHOR
+#   - otherwise (only COMMENTED, or no independent review) → 'awaiting_review' → nudge REVIEWERS
+# A bare COMMENTED review is a comment, NOT a review — it never silences the nudge.
+AUTHOR=$(gh api "repos/$REPO/pulls/<n>" --jq '.user.login')
 gh api "repos/$REPO/pulls/<n>/reviews" \
-  --jq '[.[] | select(.user.login != "dam-code-guardian") | select((.body // "") | contains("<!-- dam:review") | not)] | length'
+  --jq --arg a "$AUTHOR" '
+    [ .[] | select(.user.login != "dam-code-guardian" and .user.login != $a)
+          | select((.body // "") | contains("<!-- dam:review") | not) ]
+    | group_by(.user.login) | map(last | .state)          # latest state per independent reviewer
+    | if any(. == "APPROVED") then "approved"
+      elif any(. == "CHANGES_REQUESTED") then "changes_requested"
+      else "awaiting_review" end'
 
 # Changed files (for reviewer matching)
 gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'
@@ -1080,21 +1094,46 @@ If `gh api user` 401s at run start (whole-pod auth outage), the run aborts befor
 ### Sweep algorithm (per open non-draft PR)
 
 1. **eligible_since** — compute from the timeline (latest `ready_for_review`) or `created_at`. Upsert the row in `SHEPHERD.md`.
-2. **Human-review check** — count formal reviews by a non-DAM human (query above). If ≥1 → set `human_reviewed=yes`, `status=reviewed`, **send no nudge**, done for this PR. (A human is now engaged; DAM steps back.)
+2. **Classify by review state** — look at the PR's **reviews** (the `/reviews` endpoint), **not** its comments, and reduce to each independent reviewer's latest state (query above). "Independent" excludes DAM and the PR author. The class decides everything downstream:
+   - **`approved`** — at least one independent reviewer's latest state is `APPROVED`. **This is the only state that stops nudging.** Set `status=approved`, **send no nudge**, done. (Someone signed off; DAM's job here is over.)
+   - **`changes_requested`** — an independent reviewer requested changes and nobody has approved. The ball is now with the **author** to address the feedback → **nudge-the-author mode** (step 4b). *(This is why a `CHANGES_REQUESTED` review does NOT silence the nudge: the PR still isn't approved. Operator rule: "keep reminding unless it's APPROVED.")*
+   - **`awaiting_review`** — no independent review yet, or only a bare **`COMMENTED`** review (a note/question, not a verdict) → **nudge-the-reviewers mode** (step 4a). (PR #2121's shape: `jezekra1` only `COMMENTED`; PR #2739's shape: only the author's own comment.)
 3. **Age gate** — `age = now - eligible_since`. If `age < 24h` → `status=watching`, no nudge, done.
-4. **Determine targets (roster-only):**
-   - `assigned = requested_reviewers ∩ roster`, minus the PR author. If non-empty → these are the targets (no `*`).
-   - Else → **suggest 2** from the roster by expertise match (below), excluding the author, each marked `*` (Slack-only).
-5. **Cadence / level** — decide whether a message is due:
-   - **Level 1** — first time the PR crosses 24h with no human review and no prior nudge (`last_nudge_at = -`). Send, set `level=1`.
+4. **Determine targets (roster-only):** depends on the class from step 2.
+   - **4a. `awaiting_review` → nudge reviewers.** `assigned = requested_reviewers ∩ roster`, minus the PR author. If non-empty → those are the targets (no `*`). Else → **suggest 2** from the roster by expertise match (below), excluding the author, each marked `*` (Slack-only).
+   - **4b. `changes_requested` → nudge the author.** The target is the **PR author** — @-mention them if they're in the roster, otherwise name them in text (no `<@…>`). The reviewer already did their job; do **not** re-nudge the reviewer. The ask is for the author to address the requested changes (and re-request review once pushed). Record the author (with `!` suffix, e.g. `kapetr!`) in the `reviewers` column so the ledger shows this is an author-directed nudge.
+5. **Cadence / level** — decide whether a message is due (same ladder for both modes):
+   - **Level 1** — first time the PR is ≥24h in a non-`approved` class with no prior nudge (`last_nudge_at = -`). Send, set `level=1`.
    - **Escalate** only when `now - last_nudge_at ≥ 2 days`: `level` 1→2 (~day 3), 2→3 (~day 5). Send one message at the new level.
-   - **Level 4 = widen + hold** — after level 3, on the next 2-day tick send **one** widen message that additionally @-mentions the **author** (only if the author is in the roster — otherwise name them in text without a mention) and the escalation owner **`tomkis` (`U07E31E1UVD`)**; then set `status=held` and **stop**. No further messages while held.
-   - **Anti-spam is critical.** Send **at most one message per level**, and only when the next tick is genuinely due (`≥ 2 days` since `last_nudge_at`). Two heartbeats close together must not double-nudge — the `last_nudge_at` guard is what prevents it, exactly like the review in-progress lock. When in doubt, don't send.
-6. **Compose & send** to the shared Slack channel:
-   - Rising tone by level (see templates). Include: PR number + title, author, age (e.g. "2 days"), the PR URL (`https://github.com/$REPO/pull/<n>`), the `<@slack_id>` mention(s) for each target, and a **"focus on…"** line derived from the suggested reviewers' expertise and the PR content.
-   - After a successful send, update the row: `nudges += 1`, `last_nudge_at = now`, new `level`, `status = nudging` (or `held` at level 4).
-   - If the Slack send fails, log it in the chat UI and **do not** advance the ledger (so the next run retries) — a failed nudge is not a run failure.
-7. **Reset on engagement** — if a previously-nudged PR now has a human review, flip it to `status=reviewed` (step 2). If new commits arrive and it's re-reviewed by DAM, the row stays; the human-review gate still governs nudging.
+   - **Level 4 = widen + hold** — after level 3, on the next 2-day tick send **one** widen message that additionally @-mentions the escalation owner **`tomkis` (`U07E31E1UVD`)** (plus the author if in roster and not already the target); then set `status=held` and **stop**. No further messages while held.
+   - **Class transitions reset the ladder — but never the clock.** If the class changes between sweeps (e.g. `awaiting_review` → `changes_requested` once a reviewer weighs in, or a new push flips it back), reset `level=1` so the new audience gets a fresh, non-urgent first nudge. **Do NOT reset `last_nudge_at`** — leave it at the timestamp of the last message actually sent. The minimum-gap cooldown (see **Preventing duplicate nudges**) is measured against it, so a class flip can never produce a second message inside the cooldown window; it only makes the *next* nudge (once the cooldown has elapsed) start at level 1.
+   - **Anti-spam is critical.** Overlapping heartbeats have produced duplicate nudges — PR #2121 got two Slack messages while the ledger showed `nudges=1`, because the row was written *after* the send, leaving the whole send as a race window. You MUST follow **Preventing duplicate nudges** below: write the claim to the local ledger **before** sending (the same status-lock pattern as REVIEWS.md's `in_progress` row), and honour the 20h cooldown. When in doubt, don't send.
+6. **Write-then-send** — follow the **Preventing duplicate nudges** protocol below. In short: check the cooldown, then **advance the `SHEPHERD.md` row on disk first**, and **only then** send the Slack message. The message goes to the shared Slack channel:
+   - Rising tone by level (see templates — reviewer-directed vs author-directed). Include: PR number + title, author, age (e.g. "2 days"), the PR URL (`https://github.com/$REPO/pull/<n>`), the `<@slack_id>` mention(s) for the target(s), and a **"focus on…"** line (reviewer mode) or a pointer to the requested changes (author mode).
+   - The row was already advanced by the write-claim step (`nudges += 1`, `last_nudge_at = now`, new `level`, `status = nudging`/`nudging-author`/`held`). Do not advance it twice.
+   - If the Slack send fails after the row was advanced, log it in the chat UI; the row stays advanced (the next run won't re-fire until the cooldown/next tick) — a failed nudge is not a run failure, and under-sending is safer than double-sending.
+7. **Reset on engagement** — recompute the class every sweep. If it becomes `approved`, flip to `status=approved` and go quiet. If it moves between `awaiting_review` and `changes_requested`, apply the ladder reset from step 5.
+
+### Preventing duplicate nudges
+
+Heartbeats overlap: a slow run can still be sweeping when the next heartbeat starts. The duplicate on PR #2121 (two Slack messages, ledger `nudges=1`) had one concrete cause: the old flow updated the row **after** sending — *"After a successful send, update the row"* — so the entire Slack-send duration was an open race window. Run A read `last_nudge_at=-`, spent time composing and sending, and only then wrote the row; run B read the still-`-` row in that gap and sent too.
+
+Fix it **exactly like review dedup: keep the status in the local ledger and write the claim *before* the slow action** — the same shape as REVIEWS.md's `in_progress` lock (written before the slow review work, not after). The `/workspace` PVC that holds `work/` is shared and always current: a local write is immediately visible to the next read within the pod, whether or not it's been committed to git. Git is only for end-of-run durability/history — **it is not needed for dedup**, so there is no per-nudge commit/push. Four rules, in force for every nudge:
+
+1. **Read the ledger fresh from disk at sweep start.** It's the current shared state — just re-read `work/SHEPHERD.md` (no `git pull` needed).
+
+2. **Write-before-send (the local status lock).** For each PR you judge due, in this order:
+   a. **First** advance its `SHEPHERD.md` row on disk: `nudges += 1`, `last_nudge_at = <now, second-precision UTC>`, new `level`, `status` (`nudging` / `nudging-author` / `held`). Write the file to disk **now** — do not batch this to end-of-run.
+   b. **Then** send the Slack message.
+   An overlapping heartbeat that reaches this PR after step (a) reads the fresh `last_nudge_at` and is blocked by the cooldown (rule 3) — precisely as an overlapping review run sees the `in_progress` lock and skips. Because the write happens before the slow Slack call, the race window shrinks from "the whole send" to the few milliseconds between reading the row and writing the claim; keep that gap free of slow calls. (If the Slack send then fails, the row still shows the nudge — under-sending is safer than double-sending; log it and let the next tick retry.)
+
+3. **Minimum-gap cooldown (belt-and-suspenders).** Never send two nudges for the **same PR** within **`MIN_NUDGE_GAP = 20h`**, no matter what — not for a level escalation, not for a class transition, not for a target change. Since real escalations are ≥2 days apart, this only ever blocks accidental rapid re-sends. Check it **first**, before the write-claim: if `now - last_nudge_at < 20h`, skip this PR entirely this sweep.
+
+4. **Deterministic, persisted targets & monotonic level.** Once reviewers are chosen for a PR, they are stored in the `reviewers` column — **reuse them; recompute only when the cell is empty.** (Two runs recomputing suggestions independently produced different people on #2121 — `jjeliga*` vs `pilartomas*` — which both looks like and can cause a second, different-looking nudge.) Likewise never re-fire a `(PR, level)` you've already sent: `level` only ever moves forward within a track, and a class transition starts a fresh level-1 track but still obeys the cooldown (rule 3).
+
+**Residual window (accepted, same as reviews).** If two heartbeats read the row in the exact same instant — both before either writes — they can still both send. This is the identical best-effort caveat the review `in_progress` lock carries; the shared-and-current local ledger plus the write-before-send ordering closes the window that actually caused #2121. Persist `SHEPHERD.md` to the work remote at end of run (step 8) as usual, for durability across pod restarts — not for dedup.
+
+If the pre-send `pull --rebase` or the claim `push` fails outright (network/auth), **do not send** — log it and let the next run retry. Under-sending is always safer than double-sending.
 
 ### Reviewer-suggestion matching (roster-only, pick top 2)
 
@@ -1120,7 +1159,9 @@ Once per run, for each open PR **authored by a roster member**, derive area keyw
 
 ### Message templates (adapt tone by level)
 
-Keep messages short, friendly, and specific. Always link the PR and name the focus. Examples:
+Keep messages short, friendly, and specific. Always link the PR. Pick the template family by class: **reviewer-directed** (`awaiting_review`) or **author-directed** (`changes_requested`).
+
+**Reviewer-directed** (`awaiting_review` — needs a first review):
 
 - **Level 1 (reminder, ~day 1):**
   `👀 PR #<n> "<title>" by <author> has been open <age> with no review yet. <@id1> <@id2> could you take a look? Focus: <focus>. <url>`
@@ -1129,9 +1170,22 @@ Keep messages short, friendly, and specific. Always link the PR and name the foc
 - **Level 3 (~day 5):**
   `🚨 PR #<n> "<title>" has waited <age> for review. <@id1> <@id2> please prioritise this when you can. Focus: <focus>. <url>`
 - **Level 4 (widen + hold):**
-  `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <@author-id> and <@U07E31E1UVD> (tomkis) to help find a reviewer. Focus: <focus>. <url>`
+  `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <@U07E31E1UVD> (tomkis) to help find a reviewer. Focus: <focus>. <url>`
 
-The **focus** line is drawn from the target reviewers' expertise and the PR's content — e.g. for an OAuth/connections PR: "token handling, credential storage, and error paths"; for a `.tsx` PR: "component structure, accessibility, and state handling". Only mention roster ids; if the author isn't in the roster, refer to them by name without an `<@…>`.
+The **focus** line is drawn from the target reviewers' expertise and the PR's content — e.g. for an OAuth/connections PR: "token handling, credential storage, and error paths"; for a `.tsx` PR: "component structure, accessibility, and state handling".
+
+**Author-directed** (`changes_requested` — a reviewer asked for changes; the author needs to act). Target is the **author** (`<@author-id>` if in roster, else their name); do **not** re-ping the reviewer:
+
+- **Level 1 (~day 1 after changes requested):**
+  `🔧 PR #<n> "<title>" has changes requested by <reviewer>. <@author> could you address the feedback and re-request review when ready? <url>`
+- **Level 2 (~day 3):**
+  `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <@author> a follow-up would move this forward. <url>`
+- **Level 3 (~day 5):**
+  `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <@author> please push an update or reply to the reviewer. <url>`
+- **Level 4 (widen + hold):**
+  `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <@U07E31E1UVD> (tomkis). <@author> let's get this unblocked. <url>`
+
+Only mention roster ids; if the author (or reviewer named) isn't in the roster, refer to them by name without an `<@…>`.
 
 ### Pruning
 
@@ -1167,6 +1221,6 @@ Let `N` = PRs you actually reviewed this run (skipped/unchanged PRs don't count)
 17. **If `$GITHUB_REPO_WORK` is set**, did I commit and push `work/` as the last action (per **Persisting `work/` to `GITHUB_REPO_WORK`**), and is there no uncommitted/unpushed state left behind (other than a logged push failure that will retry)? If `$GITHUB_REPO_WORK` is unset, this item does not apply.
 18. **Stale approval revocation**: For every re-review whose verdict dropped from a prior `APPROVE` to `COMMENT` / `REQUEST_CHANGES`, did I dismiss DAM's prior approving review via the dismissals endpoint **after** posting the new review (or log the failure), so the PR no longer carries a stale DAM approval? Did I leave the prior approval in place when the new verdict was itself `APPROVE`, and never dismiss a human reviewer's approval? (See **Revoking a stale approval on re-review**.)
 19. **Visual PR artifact (steps 6i + 6b sweep)**: Did I install/refresh the `pr-artifact` skill at run start (or log the install failure)? Did I evaluate the `dam-code-guardian` assignee gate on **every open non-draft PR this run** — both PRs I reviewed (step 6i) **and** PRs I skipped because they were already reviewed at their current HEAD (step 6b sweep) — querying assignees fresh from GitHub? For every such PR where `dam-code-guardian` was assigned and no up-to-date artifact already existed, did I run `pr-artifact` (or log a technical skip: `install-failed` / `skill-errored`), save the HTML to `work/reviews/pr-artifacts/pr-<number>.html`, publish it as a secret gist, post the htmlpreview link as a PR comment, record the gist id in the `<!-- artifact-gist: ... -->` header of `reviews/pr-<number>.md`, **and unassign `dam-code-guardian`** — with exactly one `PR #<n>: pr-artifact ran → gist <id>` (or `skipped (<reason>)`) audit line? For PRs where `dam-code-guardian` was **not** assigned, did I correctly emit **no** artifact log line and generate nothing? On pruning a closed/merged PR, did I read its `artifact-gist` marker, delete the gist (logging on failure without blocking the prune), and remove the local HTML?
-20. **PR Shepherd sweep (step 6c)**: Did I run the sweep over **every open non-draft PR** this run — computing `eligible_since` (latest `ready_for_review`, else `created_at`), checking for a non-DAM human formal review, and updating `work/SHEPHERD.md`? For every PR that is >24h old with **no** human review, did I nudge in Slack at the correct level — **only escalating when ≥2 days since `last_nudge_at`**, exactly one message per level, widening to the author + `tomkis` at level 4 then holding? Did every `<@…>` mention resolve to a `slack_id` in `work/DEVELOPERS.md`, with **no one outside the roster tagged or suggested**, and non-roster requested-reviewers dropped silently? Did I set `status=reviewed` (and go quiet) on any PR that gained a human review, and refine roster **observed areas** additively without touching seed expertise? Did I log any Slack-send failure without advancing the ledger?
+20. **PR Shepherd sweep (step 6c)**: Did I run the sweep over **every open non-draft PR** this run — computing `eligible_since` (latest `ready_for_review`, else `created_at`), **classifying each PR's independent reviews** into `approved` / `changes_requested` / `awaiting_review` (latest state per non-DAM, non-author reviewer; a bare `COMMENTED` review counts as `awaiting_review`), and updating `work/SHEPHERD.md`? Did I **stop nudging only on `approved`** (an `APPROVED` review) — and for a PR ≥24h in `awaiting_review` nudge the **reviewers** (assigned∩roster, else 2 suggested), while for `changes_requested` nudge the **author** (not the reviewer)? Did I escalate **only when ≥2 days since `last_nudge_at`**, exactly one message per level, reset the ladder (but **not** `last_nudge_at`) on a class transition, and widen to `tomkis` at level 4 then hold? **Did I prevent duplicate nudges** per **Preventing duplicate nudges** — read the ledger fresh from disk at sweep start, **write-before-send** (advance the PR's `SHEPHERD.md` row on disk *before* sending the Slack message, the same local status-lock pattern as REVIEWS.md's `in_progress` row), honour the **20h minimum-gap cooldown**, and reuse persisted targets rather than recomputing? For any PR, is the number of Slack messages I sent **exactly** the increase in its `nudges` count (never more)? Did every `<@…>` mention resolve to a `slack_id` in `work/DEVELOPERS.md`, with **no one outside the roster tagged or suggested**, non-roster requested-reviewers/authors named in text without a mention? Did I refine roster **observed areas** additively without touching seed expertise, and log any Slack-send failure without advancing the ledger?
 
 If `N = 0`, report "no new changes" to the chat UI — but **items 19 and 20 still apply**: even with nothing to review, I must check the `dam-code-guardian` assignee gate (step 6b) and run the **PR Shepherd sweep** (step 6c) on every open non-draft PR — a `dam-code-guardian` assignment or a review-latency threshold can be crossed with no new commit. Items 2–7, 9–12, 15, 16, and 18 don't apply when `N = 0` (but item 1 still applies: refresh **both** skills anyway; items 13 and 14 still apply: user feedback can still arrive, and closed PRs still need pruning — including artifact-gist cleanup and `SHEPHERD.md` row pruning; and item 17 still applies: persist `work/` if `$GITHUB_REPO_WORK` is set).
