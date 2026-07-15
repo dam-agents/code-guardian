@@ -2,17 +2,18 @@
 
 This runbook bootstraps a fresh code-guardian agent. **Run it only once per agent
 instance**, at initialization. It is self-guarding: the first successful pass writes
-a sentinel file, and every later run is a no-op.
+a sentinel file, and every later run is a no-op. All steps are idempotent — if
+onboarding fails partway, it is **safe to re-run from the top**.
 
 Two git repositories exist after onboarding, and they must never overlap:
 
 | Path | Repo | Purpose |
 | --- | --- | --- |
-| `/home/agent` | `dam-agents/code-guardian` (`origin`) | The agent's **definition** (`CLAUDE.md`, `ONBOARDING.md`, `README.md`). Edit + push back to evolve the agent. |
+| `/home/agent` | the **definition repo** (`origin`) — derived in Step 0 from this file's URL | The agent's definition (`CLAUDE.md`, `ONBOARDING.md`, `README.md`, `LICENSE`). Edit + push back (via PR) to evolve the agent. |
 | `/home/agent/work` | `$GITHUB_REPO_WORK` (when set) | The agent's **runtime state** (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
 
 `work/` is **git-ignored by the outer repo** (see `.gitignore`), so the inner repo
-is never an embedded/nested repo of code-guardian — they are fully independent.
+is never an embedded/nested repo of the definition repo — they are fully independent.
 
 ## Guard — skip if already onboarded
 
@@ -24,8 +25,7 @@ fi
 ```
 
 If the sentinel exists, **stop here**. It lives in `$HOME`, which persists across
-pod restarts, so onboarding runs once per persistent volume (once per real agent
-instance), not once per heartbeat.
+pod restarts, so onboarding runs once per persistent volume, not once per heartbeat.
 
 First make sure git auth is routed through `gh` (idempotent — same helper used for
 PR clones and for both repos, since both are on github.com):
@@ -37,70 +37,94 @@ git config --global --replace-all credential."https://github.com".helper "" \
 
 ---
 
-## Step 0 — Resolve `GITHUB_REPO` (ask if unset)
+## Step 0 — Prerequisites & repository resolution
 
-Everything below (and every review run) needs to know which repository to review.
-Check the environment first:
+### 0.1 Sanity check the GitHub connection
+
+```bash
+gh api user --jq .login
+```
+
+This must succeed and prints the login the agent acts as (needed again in Step 4).
+If it fails, **stop**: tell the operator the GitHub connection/token is not working
+and nothing can proceed until it is — don't attempt the remaining steps.
+
+### 0.2 Derive the definition repo from this file's URL
+
+You were given this runbook as a URL, e.g.
+`https://github.com/OWNER/REPO/blob/main/ONBOARDING.md` (or its
+`raw.githubusercontent.com/OWNER/REPO/main/ONBOARDING.md` form). The **definition
+repo is that `OWNER/REPO`** — for a fork, that's the fork, never upstream. Derive
+it from the URL; if you somehow don't have the URL (e.g. the file was pasted as
+text), ask the operator which repo it came from. Validate and keep it for the rest
+of the run:
+
+```bash
+gh api "repos/<owner/repo>" --jq .full_name   # must succeed
+export DEFINITION_REPO="<owner/repo>"
+```
+
+It is persisted as `definition_repo` in `work/CONFIG.md` in Step 4 — it drives the
+outer-repo `origin` (Step 1), future definition PRs, and the review footer link.
+
+### 0.3 Resolve `GITHUB_REPO` (ask if unset)
 
 ```bash
 echo "${GITHUB_REPO:-<unset>}"
 ```
 
-- **Set** → nothing to do, continue to Step 1.
-- **Unset** → ask the operator in the chat UI **before doing anything else**:
+- **Set** → continue.
+- **Unset** → ask the operator:
 
   > Which GitHub repository should I review? Please give me the `owner/repo` slug
   > (e.g. `acme/widgets`).
 
-  Then, with the operator's answer:
+  Validate the answer (`gh api "repos/<owner/repo>" --jq .full_name`; on failure,
+  say what failed and ask again — never continue with an unvalidated slug), then
+  `export GITHUB_REPO="<owner/repo>"` for this session. The durable copy is written
+  to `work/CONFIG.md` as `github_repo:` in Step 4 (the env var, when later set on
+  the platform — still the recommended setup — always wins over the stored value;
+  see `CLAUDE.md` → **Load configuration once per run**).
 
-  1. **Validate it** — the slug must exist and be reachable with the current token:
+### 0.4 Durable state (`GITHUB_REPO_WORK`) — inform, don't block
 
-     ```bash
-     gh api "repos/<owner/repo>" --jq .full_name
-     ```
+```bash
+echo "${GITHUB_REPO_WORK:-<unset>}"
+```
 
-     If this fails (404, no access), tell the operator what failed and ask again.
-     Do not continue with an unvalidated slug.
-  2. **Set it for this session** so the rest of this runbook (Steps 4, 5) and
-     the rest of this run can use `$GITHUB_REPO` normally:
+If unset, tell the operator once:
 
-     ```bash
-     export GITHUB_REPO="<owner/repo>"
-     ```
+> `GITHUB_REPO_WORK` is not set, so my state (config, memory, review history) will
+> live only on this volume. For durable, versioned state, create an empty repo and
+> set `GITHUB_REPO_WORK=<owner/repo>` before onboarding. Should I continue
+> local-only, or do you want to set it first?
 
-  3. **Persist it** — an exported variable dies with the session, and the agent
-     cannot set platform environment variables itself. The durable copy goes into
-     `work/CONFIG.md` as `github_repo: <owner/repo>` — but `work/` is not
-     provisioned yet at this point, so **remember the value and write it in
-     Step 4** (which creates `CONFIG.md` anyway). Runtime resolution order is:
-     `$GITHUB_REPO` env var → `github_repo` in `work/CONFIG.md` → `gh repo view`
-     fallback (see `CLAUDE.md` → **Load configuration once per run**), so the
-     env var — if the operator later sets it on the platform, which is still
-     the recommended setup — always wins over the stored value.
+If they want to set it, stop and let them re-trigger onboarding afterwards. If they
+say continue — or don't reply — proceed local-only.
 
-## Step 1 — Make `/home/agent` the code-guardian repo (safely, at HOME root)
+## Step 1 — Make `/home/agent` the definition repo (safely, at HOME root)
 
 `/home/agent` is the agent's `$HOME`: it holds secrets and runtime dirs (`.ssh`,
 `.claude`, `.config`, `work/`, …). We want a real git repo here so the agent can
-edit its own definition and push it back to `dam-agents/code-guardian` — **without**
-git ever tracking those secrets. The `.gitignore` in this repo is an *allowlist*
-(`/*` ignores everything, then specific files are re-included), which is what makes
-a repo-at-`$HOME` safe.
+edit its own definition and push it back to `$DEFINITION_REPO` — **without** git
+ever tracking those secrets. The `.gitignore` in this repo is an *allowlist* (`/*`
+ignores everything, then specific files are re-included), which is what makes a
+repo-at-`$HOME` safe.
 
 Establish the repo in place (do **not** `git clone` into `$HOME` — clone needs an
 empty dir; instead init + fetch + hard-reset, which never touches untracked files):
 
 ```bash
-REPO="dam-agents/code-guardian"
 cd /home/agent
 
 if [ ! -d /home/agent/.git ]; then
   git init -q
-  git remote add origin "https://github.com/$REPO.git"
+  git remote add origin "https://github.com/$DEFINITION_REPO.git"
+else
+  git remote set-url origin "https://github.com/$DEFINITION_REPO.git"
 fi
 git fetch -q origin main
-git reset --hard origin/main      # syncs tracked files (CLAUDE.md, etc.) to canonical main
+git reset --hard origin/main      # syncs tracked files (CLAUDE.md, etc.) to the definition repo's main
 git branch --set-upstream-to=origin/main main 2>/dev/null || true
 ```
 
@@ -108,46 +132,37 @@ git branch --set-upstream-to=origin/main main 2>/dev/null || true
 > — both could capture or delete `.ssh`, `.claude`, `work/`, etc. `git reset --hard`
 > only rewrites *tracked* files and leaves untracked HOME contents alone, which is
 > why it is safe here. The allowlist `.gitignore` keeps `git status` / `git add -A`
-> scoped to the four definition files.
+> scoped to the definition files.
 
 ## Step 2 — Detach `work/` from the outer repo (locally)
 
-The canonical code-guardian repo still tracks the `work/` seed files (`MEMORY.md`,
-`REVIEWS.md`) — that keeps the repo self-documenting and its in-repo links valid.
-But on this volume `work/` is runtime state managed independently (Step 3), so the
-outer repo must stop *reacting* to changes under it. Two mechanisms, both local and
-neither of which stages a deletion (so they can never leak into a definition commit):
+The definition repo still tracks the `work/` seed files (`MEMORY.md`, `REVIEWS.md`)
+— that keeps the repo self-documenting and its in-repo links valid. But on this
+volume `work/` is runtime state managed independently (Step 3), so the outer repo
+must stop *reacting* to changes under it:
 
 ```bash
 cd /home/agent
-# 1. Tell git to ignore local modifications to the tracked seed files.
+# 1. Ignore local modifications to the tracked seed files.
 git update-index --skip-worktree work/MEMORY.md work/REVIEWS.md 2>/dev/null || true
 # 2. The committed allowlist .gitignore (`/*`) already ignores every *untracked*
-#    path under work/ (reviews/, an inner .git, etc.) and all HOME secrets. Verify:
+#    path under work/ and all HOME secrets. Verify:
 git status --porcelain
 ```
 
 `git status` must show a **clean** outer tree — nothing under `work/`, `.ssh`,
-`.claude`, or `.config`. If anything there appears, the allowlist `.gitignore` is
-wrong (or skip-worktree didn't take) — **stop and fix it before continuing**; do not
-write the sentinel.
+`.claude`, or `.config`. If anything there appears, **stop and fix it before
+continuing**; do not write the sentinel.
 
 > Why `--skip-worktree` instead of `git rm --cached`: `rm --cached` would stage a
-> deletion of `work/` in the outer index, which a later definition commit could
-> accidentally push (re-removing the seeds and breaking the repo's links).
-> `--skip-worktree` leaves the index untouched and simply makes git ignore local
-> edits to those tracked files.
+> deletion of `work/` that a later definition commit could accidentally push.
+> `--skip-worktree` leaves the index untouched.
 
 ## Step 3 — Provision `work/` (runtime state)
 
-`work/` holds `CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, and `reviews/`. How it is
-provisioned depends on whether a dedicated state repo is configured.
+`work/` holds `CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, and `reviews/`.
 
 ### 3a — `GITHUB_REPO_WORK` IS set → clone it as the inner repo
-
-Replace `work/` with a fresh clone so the agent starts from the latest committed
-state and so end-of-run commit/push works (see `CLAUDE.md` → **Persisting `work/`
-to `GITHUB_REPO_WORK`**):
 
 ```bash
 if [ -n "$GITHUB_REPO_WORK" ]; then
@@ -170,10 +185,7 @@ fi
 ```bash
 if [ -z "$GITHUB_REPO_WORK" ]; then
   mkdir -p /home/agent/work/reviews
-  # MEMORY.md is NOT reconstructable. Step 1 already checked out the repo's seed
-  # scaffold (default strictness, focus areas, empty Ignore/Custom/Feedback
-  # sections) into work/MEMORY.md — keep it as the starting point. Only create an
-  # empty file if the seed is somehow missing.
+  # MEMORY.md is NOT reconstructable — keep the seed scaffold Step 1 checked out.
   [ -f /home/agent/work/MEMORY.md ] || : > /home/agent/work/MEMORY.md
 fi
 ```
@@ -195,25 +207,24 @@ the file.
 missing. Never silently overwrite operator-set configuration (especially
 `review_marker` — see below).
 
-1. **`github_repo`** — write it **only if Step 0 had to ask** (no `$GITHUB_REPO`
-   env var): the validated slug from Step 0. Omit the key when the env var is set —
-   the env var is authoritative and a stored copy would only drift.
+1. **`github_repo`** — write it **only if Step 0.3 had to ask** (no `$GITHUB_REPO`
+   env var): the validated slug. Omit the key when the env var is set — the env var
+   is authoritative and a stored copy would only drift.
 
-2. **`bot_login`** — auto-detect the GitHub account this agent acts as:
+2. **`definition_repo`** — always write the value derived in Step 0.2.
 
-   ```bash
-   gh api user --jq .login
-   ```
+3. **`bot_login`** — the login from Step 0.1 (`gh api user --jq .login`). Confirm it
+   with the operator and say the consequence out loud:
 
-   Show it to the operator for confirmation — this is the login humans will assign
-   to a PR to request a visual artifact, and the login excluded from "independent
-   reviewer" classification.
+   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this
+   > account, and assigning it to a PR requests a visual artifact. If this is a
+   > personal account, consider a dedicated machine/bot account instead.
 
-3. **`bot_display_name`** — ask:
+4. **`bot_display_name`** — ask:
 
    > What name should I sign my reviews with? (Default: `Code Guardian`.)
 
-4. **`review_marker`** — the identity prefix of the hidden dedup marker
+5. **`review_marker`** — the identity prefix of the hidden dedup marker
    (`<!-- <review_marker> headRefOid=<sha> -->`) embedded in every posted review.
    Default: `code-guardian:review`. Ask:
 
@@ -225,57 +236,39 @@ missing. Never silently overwrite operator-set configuration (especially
    it later makes every past review invisible to dedup and the agent would
    re-review every open PR. Say this to the operator when confirming the value.
 
-5. **`skills_repo`** — ask:
-
-   > Do you have a skills repository — an `owner/repo` that hosts
-   > `.agents/skills/doc-drift/` and `.agents/skills/pr-artifact/` on `main`?
-   > It powers the per-PR Documentation Check and the visual PR artifact. Answer
-   > `none` to run without those two features.
-
-   When a slug is given, validate it:
-
-   ```bash
-   gh api "repos/<owner/repo>/contents/.agents/skills" --jq '.[].name'
-   ```
-
-   If the path is missing or unreachable, tell the operator and ask again (or
-   accept `none`). Write `skills_repo: none` explicitly when declined.
-
-6. **Review skills (`## Review skills` table) and `artifact_skill`** — the
-   per-PR review skills and the visual-artifact skill are fully config-driven
-   (see `CLAUDE.md` → **Per-PR Review Skills** for the exact table semantics:
-   `skill` / `source` / `trigger` / `section`, ordering = routing priority +
-   section order). **Default to the current public set** — present this table
-   to the operator and let them adjust (add rows for their own skills, remove
-   rows, change triggers); most operators keep the default:
+6. **Review skills (`## Review skills` table) and `artifact_skill`** — fully
+   config-driven (see `CLAUDE.md` → **Per-PR Review Skills**). **Each skill carries
+   its own `source`**: `harness` (provided by the platform) or an `owner/repo` the
+   skill installs from (`.agents/skills/<skill>/` on `main`). Present the default
+   public set and let the operator adjust (add their own skills, remove rows,
+   change triggers or sources):
 
    ```markdown
    ## Review skills
 
    | skill | source | trigger | section |
    | --- | --- | --- | --- |
-   | doc-drift | skills_repo | always | Documentation Check (doc-drift) |
+   | doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
    | typescript-engineering | harness | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
    | react-ui-engineering | harness | .tsx,.jsx | React UI Engineering Review |
    ```
 
-   And the artifact skill default:
+   And the artifact skill default (format `<skill>@<owner/repo>`, or `none`):
 
    ```markdown
-   - artifact_skill: pr-artifact
+   - artifact_skill: pr-artifact@dam-agents/dam
    ```
 
-   Consistency rules to enforce before writing:
-   - When `skills_repo` is `none`, drop every `source: skills_repo` row from
-     the default table (with the default set that removes `doc-drift`) and set
-     `artifact_skill: none` — those skills have no install source.
-   - For every remaining `source: skills_repo` skill (including
-     `artifact_skill`), verify it exists in the skills repo:
-     `gh api "repos/$SKILLS_REPO/contents/.agents/skills/<skill>"`. If missing,
-     tell the operator and let them fix the row or drop it.
-   - `source: harness` rows are kept as-is — they need no validation here (the
-     harness provides them; if one is genuinely unavailable at runtime, the
-     per-PR loop logs it as `skill-errored`).
+   **Validate every row before writing:**
+   - **Repo-sourced rows (and the artifact skill):** the skill must exist at its
+     source — `gh api "repos/<source>/contents/.agents/skills/<skill>"`. If missing
+     or unreachable, tell the operator and let them fix the row or drop it.
+   - **Harness rows:** the skill must actually be present in your available-skills
+     list. If it isn't (this platform doesn't provide it), tell the operator and
+     drop the row after confirmation — a configured-but-missing harness skill would
+     just log `skill-errored` on every PR.
+   - The operator may end up with an empty table and `artifact_skill: none` — valid;
+     the agent then does plain reviews only.
 
 7. **`slack_notifications`** — Slack delivery (the **PR Shepherd** reviewer
    nudging — see `CLAUDE.md` → **PR Shepherd: reviewer nudging via Slack**) is
@@ -287,10 +280,9 @@ missing. Never silently overwrite operator-set configuration (especially
    > roster — I'll walk you through building one.
 
    - **"No" — or no reply in this session** → `slack_notifications: disabled`.
-     Everything else (reviews, artifacts, pruning) works normally; only the PR
-     Shepherd sweep is skipped. The operator can enable it later by saying so in
-     chat — then re-run just this sub-step (ask, update `CONFIG.md`, build the
-     roster below, pick the escalation owner).
+     Everything else works normally; only the PR Shepherd sweep is skipped. The
+     operator can enable it later in chat — then re-run just this sub-step (ask,
+     update `CONFIG.md`, build the roster below, pick the escalation owner).
    - **"Yes"** → `slack_notifications: enabled`, then build the developer roster
      and pick the escalation owner (below) before continuing.
 
@@ -309,11 +301,11 @@ Then write `work/CONFIG.md` and show the final content to the operator:
 # Configuration
 
 - github_repo: acme/widgets            # only when the env var was unset
+- definition_repo: acme/code-guardian
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
-- skills_repo: acme/agent-skills       # or: none
-- artifact_skill: pr-artifact          # or: none
+- artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - slack_notifications: enabled         # or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
 
@@ -321,7 +313,7 @@ Then write `work/CONFIG.md` and show the final content to the operator:
 
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
-| doc-drift | skills_repo | always | Documentation Check (doc-drift) |
+| doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
 | typescript-engineering | harness | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
 | react-ui-engineering | harness | .tsx,.jsx | React UI Engineering Review |
 ```
@@ -402,9 +394,8 @@ review-tracking state already lives on the target repo itself: each posted agent
 review carries a `<!-- <review_marker> headRefOid=... -->` marker (using the
 `review_marker` just written to `work/CONFIG.md`) plus a verdict and a timestamp.
 Rebuild the tracking files from those — **everything is recoverable except
-long-term memory (`MEMORY.md`)**, which is learned preferences, not derivable from
-PRs. Skip this step entirely when `$GITHUB_REPO_WORK` is set (Step 3a already
-hydrated the state).
+long-term memory (`MEMORY.md`)**. Skip this step entirely when `$GITHUB_REPO_WORK`
+is set (Step 3a already hydrated the state).
 
 1. List open PRs: `gh pr list --repo "$GITHUB_REPO" --state open --json number`.
 2. For each PR, fetch its reviews/comments, filter to those whose body contains
@@ -416,21 +407,26 @@ hydrated the state).
 4. Recreate `reviews/pr-<number>.md` from the review body where one exists. Do **not**
    fabricate bodies for reviews that GitHub doesn't have. Leave `## PR-local
    overrides` empty unless the PR thread contains an explicit dispute resolution
-   (those are recoverable from comments; tag them `[from PR comments]`).
+   (tag those `[from PR comments]`).
 
-The result is a `work/` that lets the agent skip already-reviewed SHAs correctly on
-the very first heartbeat, with only `MEMORY.md` starting fresh. Note `work/` here is
-a plain directory (no inner `.git`); nothing is pushed anywhere, and end-of-run
-persistence (CLAUDE.md step 8) is skipped because `$GITHUB_REPO_WORK` is unset.
+The result lets the agent skip already-reviewed SHAs correctly on the very first
+heartbeat, with only `MEMORY.md` starting fresh. `work/` here is a plain directory
+(no inner `.git`); end-of-run persistence (CLAUDE.md step 8) is skipped.
 
-## Step 6 — Ensure a scheduled review job exists (every 10 minutes)
+## Step 6 — Ensure a scheduled review job exists
+
+Ask the operator how often reviews should run:
+
+> How often should I check for new PRs? Default is every 10 minutes.
+
+Use the answer as `<cadence>` below (default `*/10 * * * *`).
 
 1. Call **`mcp__platform-outbound__list_schedules`** (no arguments).
-2. If a schedule with `cron` = `*/10 * * * *` **or** `name` = `code-guardian-review-10m`
-   already exists, do nothing.
+2. If a schedule whose `name` starts with `code-guardian-review` already exists,
+   do nothing.
 3. Otherwise call **`mcp__platform-outbound__create_schedule`** with:
-   - `name`: `code-guardian-review-10m`
-   - `cron`: `*/10 * * * *`
+   - `name`: `code-guardian-review-<cadence-shorthand>` (e.g. `code-guardian-review-10m`)
+   - `cron`: the chosen cadence
    - `sessionMode`: `fresh`
    - `task`:
      > Code-review heartbeat. Run the full code-guardian review pipeline exactly as
@@ -441,12 +437,12 @@ persistence (CLAUDE.md step 8) is skipped because `$GITHUB_REPO_WORK` is unset.
      > in-progress locks. When GITHUB_REPO_WORK is set, commit and push work/ at
      > the end of the run per CLAUDE.md.
 
-Other schedule MCP tools if needed: `mcp__platform-outbound__toggle_schedule`
-(enable/disable by `id`), `mcp__platform-outbound__delete_schedule` (remove by `id`).
-Do not use any in-process cron tool — only these platform schedules survive process
-restarts and are visible to the human operator.
+Other schedule MCP tools if needed: `mcp__platform-outbound__toggle_schedule`,
+`mcp__platform-outbound__delete_schedule`. Do not use any in-process cron tool —
+only these platform schedules survive process restarts and are visible to the
+operator.
 
-## Step 7 — Write the sentinel
+## Step 7 — Write the sentinel and report
 
 Only after Steps 1–6 succeeded:
 
@@ -454,5 +450,19 @@ Only after Steps 1–6 succeeded:
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
+
+Then give the operator a short **onboarding summary** in the chat UI:
+
+1. The final `work/CONFIG.md` content (verbatim).
+2. What runs where: target repo, review cadence, state persistence
+   (`GITHUB_REPO_WORK` or local-only), Slack on/off.
+3. How to use the agent day-to-day:
+   - Reviews land automatically on every open non-draft PR (chat UI + GitHub).
+   - **Visual artifact:** assign **`<bot_login>`** to a PR — the next heartbeat
+     generates and links it (only when `artifact_skill` is configured).
+   - **Feedback:** dismiss findings or set preferences by just saying so in chat —
+     global feedback lands in `MEMORY.md`, PR-specific in that PR's overrides.
+   - **Config changes:** ask in chat any time (e.g. enabling Slack later) — only
+     `review_marker` is immutable once reviews exist.
 
 From now on the guard at the top short-circuits, and normal runs follow `CLAUDE.md`.

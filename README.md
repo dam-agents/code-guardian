@@ -13,9 +13,8 @@ On every run, the agent:
 
 1. Loads `work/CONFIG.md` and installs (or refreshes) the configured skills —
    the per-PR review skills (`## Review skills` table) and the artifact skill —
-   from the configured skills repository (`skills_repo`; when not configured,
-   the repo-sourced skills are simply disabled, harness-provided ones still
-   run).
+   each from **its own source repo** (`source` column / the `@owner/repo` suffix;
+   harness-provided skills need no install).
 2. Reads learned review preferences from `work/MEMORY.md`.
 3. Reads the review history from `work/REVIEWS.md`.
 4. Lists open, non-draft PRs in the configured repository (`$GITHUB_REPO`, or
@@ -65,11 +64,15 @@ Bringing up a new code-guardian agent takes four steps:
    onboarding and stores it in `work/CONFIG.md`), and optionally
    `GITHUB_REPO_WORK` (a repo to back the agent's persistent state). See the
    table below.
-3. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — it is:
-   `https://github.com/dam-agents/code-guardian/blob/main/ONBOARDING.md`
+3. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — **from the repo (or
+   fork) you actually deploy from**, e.g.
+   `https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md`.
+   The agent derives its *definition repo* from this URL (stored as
+   `definition_repo` in `work/CONFIG.md`), so a fork's agent stays pinned to the
+   fork — it never resets itself to upstream.
 4. **Tell the agent**, in its first message:
 
-   > Here is a file — read it and set yourself up according to it: https://github.com/dam-agents/code-guardian/blob/main/ONBOARDING.md
+   > Here is a file — read it and set yourself up according to it: https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md
 
 That is enough for a complete initialization. The agent reads the runbook and,
 in one pass, checks out its own definition, wires up `work/`, walks you through
@@ -119,20 +122,39 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
 | `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo slug; the env var always wins. |
-| `bot_login` | auto-detected via `gh api user` | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
+| `definition_repo` | derived from the ONBOARDING.md URL | The repo this agent definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
+| `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
-| `skills_repo` | asked (`none` to disable) | Repo hosting installable skills under `.agents/skills/<name>/`; unset/`none` disables every repo-sourced skill. |
-| `artifact_skill` | defaulted to `pr-artifact` (`none` when no skills repo) | Skill generating the visual PR artifact for assigned PRs; `none` disables the feature. |
-| `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable | Per-PR review skills: name, source (`skills_repo`/`harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when*. |
+| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
+| `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
+
+### Runtime requirements
+
+- **Platform:** the agent assumes the DAM agent infrastructure — `$HOME` at
+  `/home/agent` on a persistent `/workspace` volume, the platform's outbound
+  auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
+  schedules and Slack. Running elsewhere requires adapting those assumptions.
+- **GitHub identity:** the agent posts reviews, comments, and gists as the
+  account behind its token. Use a **dedicated machine/bot account** (not a
+  personal one) that is a collaborator on the target repo with permission to
+  review PRs. Note that GitHub ignores review requests/approvals from a PR's
+  own author — the bot account must not be the one opening the PRs it reviews.
+- **Token scopes:** the token must be able to read/write PRs, reviews, and
+  comments on `GITHUB_REPO` (`repo`), push to `GITHUB_REPO_WORK` and the
+  definition repo, create/delete **gists** (visual artifacts), and list org
+  teams (`read:org`) for the roster import.
+- **External services:** artifact links render via `htmlpreview.github.io`, a
+  third-party service; "secret" gists are unlisted but publicly reachable by
+  URL (see `CLAUDE.md` → **Visual PR Artifact**).
 
 ### Connections
 
 - A **GitHub** connection must be granted so that `gh` can authenticate (the
   Envoy sidecar injects the OAuth token on outbound GitHub requests). The same
-  token is used for `GITHUB_REPO`, `GITHUB_REPO_WORK`, and this definition repo.
+  token is used for `GITHUB_REPO`, `GITHUB_REPO_WORK`, and the definition repo.
 - A **Slack** connection is **optional** — it is only needed when Slack
   notifications are enabled during onboarding (see **Setup** above), so that
   `mcp__platform-outbound__send_channel_message` can reach the shared channel.
@@ -166,3 +188,8 @@ at the top level), so the two never collide — see `CLAUDE.md` →
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
 - [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
 - [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.
+- [`LICENSE`](LICENSE) — Apache License 2.0.
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](LICENSE).

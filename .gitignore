@@ -17,6 +17,7 @@
 !/CLAUDE.md
 !/README.md
 !/ONBOARDING.md
+!/LICENSE
 
 # Never track these even if a future allowlist entry would pull them in.
 .DS_Store

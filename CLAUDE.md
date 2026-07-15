@@ -12,11 +12,11 @@ You are a code review agent for one GitHub repository, resolved at runtime — n
 # Configuration
 
 - github_repo: acme/widgets            # only when the GITHUB_REPO env var is unset
+- definition_repo: acme/code-guardian  # the repo this agent definition came from
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
-- skills_repo: acme/agent-skills       # or: none
-- artifact_skill: pr-artifact          # or: none
+- artifact_skill: pr-artifact@dam-agents/dam   # <skill>@<owner/repo>, or: none
 - slack_notifications: enabled         # or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
 
@@ -24,7 +24,7 @@ You are a code review agent for one GitHub repository, resolved at runtime — n
 
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
-| doc-drift | skills_repo | always | Documentation Check (doc-drift) |
+| doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
 | typescript-engineering | harness | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
 | react-ui-engineering | harness | .tsx,.jsx | React UI Engineering Review |
 ```
@@ -32,12 +32,12 @@ You are a code review agent for one GitHub repository, resolved at runtime — n
 Keys (ONBOARDING gathers all of them at init):
 
 - **`github_repo`** — target-repo fallback, written only when the `$GITHUB_REPO` env var was unset. The env var always wins; absent otherwise.
+- **`definition_repo`** — `owner/repo` this agent definition was installed from, derived at onboarding from the URL of the `ONBOARDING.md` the operator pasted (fork-aware — a fork's agent points at the fork, never at upstream). Used as the outer-repo `origin`, the target of definition PRs (**Evolving the agent definition**), and the link in the review footer. Fallback when missing: `git -C "$HOME" remote get-url origin`.
 - **`bot_login`** — the GitHub login this agent acts as (`gh api user --jq .login`). Used for the artifact **assignee gate**, the gist URL, and excluding the agent's own reviews from "independent reviewer" classification. **Required** — if missing, log `bot_login missing from work/CONFIG.md — artifact gate and shepherd disabled this run` once and skip those two features; plain review still runs.
 - **`bot_display_name`** — name the agent signs reviews with (header line, footer). Cosmetic only — never used for dedup/identity. Default: `Code Guardian`.
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` embedded in every posted review. **Required and immutable once the first review is posted** — dedup, self-heal, and state reconstruction all grep for this exact string; changing it would make every past review invisible. If asked to change it after reviews exist, refuse and explain.
-- **`skills_repo`** — optional `owner/repo` hosting installable skills under `.agents/skills/<name>/` on `main`; install source for every `source: skills_repo` skill. Unset/`none` → all such skills are permanently `install-failed` (log `skills_repo not configured — <names> disabled` once); `harness` skills unaffected.
-- **`artifact_skill`** — skill (from `skills_repo`) that generates the visual PR artifact. `none`/missing disables the whole artifact feature (assignee gate never evaluated).
-- **`## Review skills` table** — the per-PR review skills; column semantics in **Per-PR Review Skills**. Missing/empty table → no review skills run (log `no review skills configured` once).
+- **`artifact_skill`** — the visual-PR-artifact skill **with its own source**, in the form `<skill>@<owner/repo>` (installed from `.agents/skills/<skill>/` on `main` of that repo). `none`/missing disables the whole artifact feature (assignee gate never evaluated).
+- **`## Review skills` table** — the per-PR review skills; column semantics in **Per-PR Review Skills**. **Each skill carries its own `source`**: `harness` (provided by the platform) or an `owner/repo` slug (installed from that repo's `.agents/skills/<skill>/`). Missing/empty table → no review skills run (log `no review skills configured` once).
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack (the PR Shepherd sweep is the only consumer). **Missing file/key = `disabled`** — never send Slack messages without recorded opt-in.
 - **`escalation_owner`** — roster login the shepherd widens to at nudge level 4; must be in `work/DEVELOPERS.md` with a `slack_id`. **Slack-only key** — legitimately absent when Slack is disabled (as are `work/DEVELOPERS.md` and `work/SHEPHERD.md`; don't create, require, or log-about them then). If missing/unresolvable when level 4 fires, send the widen message without the extra mention and log it.
 
@@ -57,8 +57,12 @@ REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 BOT_LOGIN="$(cfg bot_login)"           # required — artifact gate, shepherd classification
 BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"   # required — dedup identity; never changes
-SKILLS_REPO="$(cfg skills_repo)"       # optional — install source for skills_repo skills
-ARTIFACT_SKILL="$(cfg artifact_skill)" # optional — none/empty disables artifacts
+DEFINITION_REPO="$(cfg definition_repo)"
+DEFINITION_REPO="${DEFINITION_REPO:-$(git -C "$HOME" remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')}"
+
+ARTIFACT="$(cfg artifact_skill)"       # format <skill>@<owner/repo>, or none/empty = disabled
+ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
+[ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ] && ARTIFACT_SKILL=""
 ```
 
 Parse the `## Review skills` table directly (it's a markdown table, not a bullet). Every snippet below assumes these variables. All `gh` commands use `--repo "$REPO"`. If `REPO` resolves empty, stop and ask the operator for the slug (persist per ONBOARDING) — never guess.
@@ -67,7 +71,7 @@ Parse the `## Review skills` table directly (it's a markdown table, not a bullet
 
 The output channels are the chat UI and GitHub PR reviews. Every reviewed PR must produce a structured review in both. On every run:
 
-1. **Load `work/CONFIG.md`, then install/refresh every `source: skills_repo` skill** (review skills + artifact skill) — see **Skill Setup**. Install failures are logged and scoped per skill; never abort the run over them. `source: harness` skills need no action — just invoke them in step 6d.
+1. **Load `work/CONFIG.md`, then install/refresh every repo-sourced skill** (review skills with an `owner/repo` source + the artifact skill, each from its own source repo) — see **Skill Setup**. Install failures are logged and scoped per skill; never abort the run over them. `source: harness` skills need no action — just invoke them in step 6d.
 2. Read preferences from [MEMORY.md](work/MEMORY.md).
 3. Read the review history from [REVIEWS.md](work/REVIEWS.md).
 4. Fetch open PRs (see **Fetch PRs**).
@@ -92,23 +96,25 @@ If all open PRs are already reviewed at their current HEAD, report "no new chang
 
 ## Skill Setup
 
-At run start — before anything else — prepare the skills declared in `work/CONFIG.md` (review-skills table + `artifact_skill`), by `source`:
+At run start — before anything else — prepare the skills declared in `work/CONFIG.md` (review-skills table + `artifact_skill`). **Each skill carries its own source**:
 
-- **`skills_repo`** → install (refresh) on every run from `.agents/skills/<skill>/` on `main` of `$SKILLS_REPO`, mirroring the **entire** directory tree. If `skills_repo` is unset/`none`, treat all such skills as `install-failed` for the run (log once) and continue.
-- **`harness`** → nothing; the harness auto-installs and refreshes it. Never mirror, refresh, or wipe it — only invoke it. (The `artifact_skill` is always `skills_repo`-sourced.)
+- **`owner/repo` source** → install (refresh) on every run from `.agents/skills/<skill>/` on `main` of **that skill's** source repo, mirroring the **entire** directory tree. Different skills may come from different repos.
+- **`harness`** → nothing; the harness auto-installs and refreshes it. Never mirror, refresh, or wipe it — only invoke it. (The `artifact_skill` always has an `owner/repo` source — the part after `@`.)
 
-### Install procedure (per `skills_repo` skill, once per run)
+### Install procedure (per repo-sourced skill, once per run)
+
+With `<skill>` = the skill name and `SRC` = its source `owner/repo`:
 
 1. `rm -rf "$HOME/.claude/skills/<skill>"` — no stale partial installs.
-2. Enumerate all files: `gh api "repos/$SKILLS_REPO/git/trees/main?recursive=1" --jq '.tree[] | select(.type == "blob") | select(.path | startswith(".agents/skills/<skill>/")) | .path'`
-3. Fetch each path from `https://raw.githubusercontent.com/$SKILLS_REPO/main/<path>` and write it under `~/.claude/skills/<skill>/`, stripping the `.agents/skills/<skill>/` prefix, preserving subdirectories (`mkdir -p` + `curl -sSfL`).
+2. Enumerate all files: `gh api "repos/$SRC/git/trees/main?recursive=1" --jq '.tree[] | select(.type == "blob") | select(.path | startswith(".agents/skills/<skill>/")) | .path'`
+3. Fetch each path from `https://raw.githubusercontent.com/$SRC/main/<path>` and write it under `~/.claude/skills/<skill>/`, stripping the `.agents/skills/<skill>/` prefix, preserving subdirectories (`mkdir -p` + `curl -sSfL`).
 4. Log one line per skill with the file count, e.g. `doc-drift skill installed (3 files)` — makes silent partial installs obvious.
 
 **On install failure** (network, 404, write error, partial fetch): log it and continue. A failed review skill is `install-failed` for every PR this run (section omitted, audit line `skipped (install-failed)`); a failed artifact skill disables steps 6i/6b for the run. Installs are mutually independent; `harness` skills are unaffected.
 
 ## Per-PR Review Skills
 
-Every reviewed PR is additionally checked by the review skills configured in the `## Review skills` table. Each row: **skill** (name invoked via the Skill tool), **source** (`skills_repo` | `harness`), **trigger**, **section** (exact `###` heading for its output). Table order = routing priority for extension triggers **and** section order in the output.
+Every reviewed PR is additionally checked by the review skills configured in the `## Review skills` table. Each row: **skill** (name invoked via the Skill tool), **source** (`harness`, or the `owner/repo` the skill installs from), **trigger**, **section** (exact `###` heading for its output). Table order = routing priority for extension triggers **and** section order in the output.
 
 Triggers:
 - **`always`** — runs on every reviewed PR, against the whole clone (`$PR_DIR`) with the PR's base branch for diffing.
@@ -168,7 +174,7 @@ gh repo clone "$REPO" "$PR_DIR" -- --depth 50 --branch "<headRefName>" --single-
 
 ## Visual PR Artifact
 
-Generated by the configured `$ARTIFACT_SKILL`. `artifact_skill: none`/missing → the whole feature is off (no assignee checks, no sweep, no logs). When configured, it runs **only on PRs where `$BOT_LOGIN` is assigned**, reached from step 6i (reviewed PRs — clone still on disk) and step 6b (skipped PRs — no clone; the skill fetches everything via `gh` from the PR number). Flow: generate HTML → secret gist → link comment on the PR → record gist id → unassign `$BOT_LOGIN`. The unassign makes it one artifact per assignment; because the gate runs every heartbeat, an assignment added at any time is picked up within one run.
+Generated by the configured `$ARTIFACT_SKILL` (installed from its `@<owner/repo>` source at run start). `artifact_skill: none`/missing → the whole feature is off (no assignee checks, no sweep, no logs). When configured, it runs **only on PRs where `$BOT_LOGIN` is assigned**, reached from step 6i (reviewed PRs — clone still on disk) and step 6b (skipped PRs — no clone; the skill fetches everything via `gh` from the PR number). Flow: generate HTML → secret gist → link comment on the PR → record gist id → unassign `$BOT_LOGIN`. The unassign makes it one artifact per assignment; because the gate runs every heartbeat, an assignment added at any time is picked up within one run.
 
 > ⚠️ **Publishes to a public surface.** A "secret" gist is unlisted, not private — anyone with the URL (or the htmlpreview link) can read it. That's intended, gated behind the explicit human assignment of `$BOT_LOGIN`.
 
@@ -418,7 +424,7 @@ Same content as the chat UI, plus header and trailing marker:
 <the full structured review — same sections as Output format>
 
 ---
-_Review by [<bot_display_name>](https://github.com/dam-agents/code-guardian) · automated code guardian_
+_Review by [<bot_display_name>](https://github.com/<definition_repo>) · automated code guardian_
 
 
 <!-- <review_marker> headRefOid=<full-sha> -->
@@ -453,22 +459,22 @@ Optional `owner/repo` backing the runtime state. When set, `work/` is a git clon
 
 | Path | Remote | Tracks |
 | --- | --- | --- |
-| `/home/agent` (outer) | `code-guardian` (`origin`) | Definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `.gitignore`. |
+| `/home/agent` (outer) | `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `.gitignore`, `LICENSE`. |
 | `/home/agent/work` (inner) | `$GITHUB_REPO_WORK` | Runtime state. Exists as a repo only when the var is set. |
 
-The outer `.gitignore` is an allowlist (`/*` then re-include the four definition files), so untracked `work/` content and HOME secrets (`.ssh`, `.claude`, `.config`) are invisible to the outer repo — no embedded-repo issues, and `git add -A` can't stage secrets. The tracked `work/MEMORY.md`/`work/REVIEWS.md` seeds are marked `skip-worktree` at onboarding. Scope commands: inner state → `git -C /home/agent/work`, definition → `git -C /home/agent`. **Never run `git clean` in `/home/agent`** and never `git add` outside the allowlist.
+The outer `.gitignore` is an allowlist (`/*` then re-include the definition files), so untracked `work/` content and HOME secrets (`.ssh`, `.claude`, `.config`) are invisible to the outer repo — no embedded-repo issues, and `git add -A` can't stage secrets. The tracked `work/MEMORY.md`/`work/REVIEWS.md` seeds are marked `skip-worktree` at onboarding. Scope commands: inner state → `git -C /home/agent/work`, definition → `git -C /home/agent`. **Never run `git clean` in `/home/agent`** and never `git add` outside the allowlist.
 
 ### Evolving the agent definition (outer repo)
 
-Definition changes (CLAUDE.md, ONBOARDING.md, README.md) go through **branch + PR on `code-guardian` — never a direct push to `main`, never auto-merge**, and only when deliberately asked — never as part of a heartbeat or step 8:
+Definition changes (CLAUDE.md, ONBOARDING.md, README.md) go through **branch + PR on `$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and only when deliberately asked — never as part of a heartbeat or step 8:
 
 ```bash
 git -C /home/agent fetch origin main
 git -C /home/agent checkout -b "fix/<short-slug>" origin/main
-git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md .gitignore
+git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md .gitignore LICENSE
 git -C /home/agent commit -m "<describe the change>"
 git -C /home/agent push -u origin "fix/<short-slug>"
-gh pr create --repo dam-agents/code-guardian --base main --head "fix/<short-slug>" \
+gh pr create --repo "$DEFINITION_REPO" --base main --head "fix/<short-slug>" \
   --title "<title>" --body "<what and why>"
 ```
 
@@ -614,7 +620,7 @@ Prune a PR's `SHEPHERD.md` row when it closes/merges — inside the same verifie
 
 Walk through this before declaring the run complete; any "no" means the run is not done. `N` = PRs actually reviewed this run.
 
-1. Loaded `work/CONFIG.md` (incl. the Review skills table) and installed/refreshed every `source: skills_repo` skill (full tree mirror) — or logged the failure / the `skills_repo`-unset skip?
+1. Loaded `work/CONFIG.md` (incl. the Review skills table) and installed/refreshed every repo-sourced skill from its own source repo (full tree mirror) — or logged each failure?
 2. No literal `$GITHUB_REPO` or hard-coded slug leaked into any output?
 3. Every reviewed PR got one GitHub PR review with the trailing full-SHA marker, skill sections per the inclusion rule, and inline comments per the mapping rules (carryovers summary-only on re-reviews, `🆕 New` only, cap ~25)?
 4. Ran both halves of the remote dedup check before every post, and only posted on no match?
