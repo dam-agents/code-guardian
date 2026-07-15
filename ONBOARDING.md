@@ -142,8 +142,8 @@ Final shape:
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
 | doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
-| typescript-engineering | harness | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
-| react-ui-engineering | harness | .tsx,.jsx | React UI Engineering Review |
+| typescript-engineering | dam-agents/dam | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
+| react-ui-engineering | dam-agents/dam | .tsx,.jsx | React UI Engineering Review |
 ```
 
 ### Build the developer roster (`work/DEVELOPERS.md`) — only when Slack is enabled
