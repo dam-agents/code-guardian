@@ -92,7 +92,7 @@ if [ -n "$GITHUB_REPO_WORK" ]; then
 fi
 ```
 
-**3b — unset** → `mkdir -p /home/agent/work/reviews`; keep the seed `MEMORY.md` from Step 1 (not reconstructable; create empty only if missing). Review-tracking state is reconstructed in Step 5 — it needs the `review_marker` from Step 4 first.
+**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`; keep the seed `MEMORY.md` from Step 1 (not reconstructable; create empty only if missing). Review-tracking state is reconstructed in Step 5 — it needs the `review_marker` from Step 4 first.
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 
@@ -169,9 +169,9 @@ The roster is the **only** set of people the agent may ever @-mention (`CLAUDE.m
 
 5. Confirm the result (members imported, how many have a Slack id), then return to Step 4 item 8.
 
-## Step 5 — Reconstruct review state (only when `GITHUB_REPO_WORK` is unset)
+## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
 
-Skip when Step 3a hydrated the state. Otherwise rebuild the tracking files from the target repo — every posted agent review carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value) plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
+Skip when Step 3a hydrated the state from `$GITHUB_REPO_WORK`; run it on the 3b path (env var unset, or the clone failed). Otherwise rebuild the tracking files from the target repo — every posted agent review carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value) plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
 
 1. `gh pr list --repo "$GITHUB_REPO" --state open --json number`.
 2. Per PR, fetch reviews/comments, filter by the marker, take the latest one's `headRefOid`, verdict, and `submitted_at`/`createdAt`.

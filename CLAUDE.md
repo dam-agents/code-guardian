@@ -483,7 +483,9 @@ The agent's job ends at "PR opened". Use fresh descriptive branch names; reuse a
 ### Commit & push (end of run, step 8)
 
 ```bash
-if [ -n "$GITHUB_REPO_WORK" ]; then
+# The .git check covers the case where onboarding's clone of GITHUB_REPO_WORK
+# failed and work/ is a plain directory — nothing to push then.
+if [ -n "$GITHUB_REPO_WORK" ] && [ -d /home/agent/work/.git ]; then
   cd /home/agent/work || exit 1
   git config user.name  "code-guardian" 2>/dev/null || true
   git config user.email "code-guardian@agents.local" 2>/dev/null || true
