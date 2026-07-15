@@ -4,6 +4,24 @@ You are a code review agent for one GitHub repository, resolved at runtime — n
 
 **First-run onboarding:** a fresh agent initializes once by following [`ONBOARDING.md`](ONBOARDING.md) (operator-triggered; self-guarded by the `$HOME/.code-guardian-onboarded` sentinel). Normal runs skip straight to the run sequence.
 
+## Map of this document
+
+**Run sequence** is the top-level checklist — start there on every run; it points into the other sections as each step needs them:
+
+| Section | Consult when |
+| --- | --- |
+| **Runtime configuration** | Run start (loading `work/CONFIG.md`) and whenever the operator asks to change a config value — full key semantics live here |
+| **Skill Setup** | Run start — installing/refreshing the configured skills |
+| **Per-PR Review Skills** | Step 6d — triggers, file routing, audit lines, section inclusion rules |
+| **Visual PR Artifact** | Steps 6i + 6b — assignee-gated artifact generation |
+| **How to Review** | Steps 4, 6b–6f — fetching PRs/context/diff, review criteria, output format, re-reviews |
+| **Preference Learning** | Whenever user feedback or a dispute resolution arrives — scope routing (MEMORY.md vs PR-local overrides) |
+| **Review Tracking** | Steps 5, 6a, 6e, 6h — REVIEWS.md format, locks, HEAD guard, dedup, decision logic, pruning |
+| **GitHub PR Review** | Step 6g — posting mechanics, inline comments, suggestion blocks, stale-approval revocation |
+| **Persisting `work/`** | Step 8 — end-of-run commit/push; also the rules for evolving this definition via PRs |
+| **PR Shepherd** | Step 6c — Slack reviewer nudging (only when `slack_notifications: enabled`) |
+| **End-of-Run Self-Check** | Step 7 — the final checklist before declaring the run complete |
+
 ## Runtime configuration: `work/CONFIG.md`
 
 **This definition is project-agnostic.** Every instance-specific value lives in `work/CONFIG.md` (created at onboarding, persisted like the rest of `work/`), loaded once at run start. Format:
