@@ -1,18 +1,15 @@
 # Onboarding — first-run initialization
 
-This runbook bootstraps a fresh code-guardian agent. **Run it only once per agent
-instance**, at initialization. It is self-guarding: the first successful pass writes
-a sentinel file, and every later run is a no-op.
+Bootstraps a fresh code-guardian agent, **once per agent instance**. Self-guarding via a sentinel; all steps are idempotent, so a failed run is safe to re-run from the top.
 
-Two git repositories exist after onboarding, and they must never overlap:
+Two git repositories exist after onboarding and must never overlap:
 
 | Path | Repo | Purpose |
 | --- | --- | --- |
-| `/home/agent` | `dam-agents/code-guardian` (`origin`) | The agent's **definition** (`CLAUDE.md`, `ONBOARDING.md`, `README.md`). Edit + push back to evolve the agent. |
-| `/home/agent/work` | `$GITHUB_REPO_WORK` (when set) | The agent's **runtime state** (`MEMORY.md`, `REVIEWS.md`, `reviews/`). |
+| `/home/agent` | the **definition repo** (`origin`) — derived in Step 0 from this file's URL | Agent definition (`CLAUDE.md`, `ONBOARDING.md`, `README.md`, `LICENSE`). Evolved via PRs. |
+| `/home/agent/work` | `$GITHUB_REPO_WORK` (when set) | Runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
 
-`work/` is **git-ignored by the outer repo** (see `.gitignore`), so the inner repo
-is never an embedded/nested repo of code-guardian — they are fully independent.
+`work/` is git-ignored by the outer repo (allowlist `.gitignore`), so the two stay fully independent.
 
 ## Guard — skip if already onboarded
 
@@ -23,174 +20,190 @@ if [ -f "$HOME/.code-guardian-onboarded" ]; then
 fi
 ```
 
-If the sentinel exists, **stop here**. It lives in `$HOME`, which persists across
-pod restarts, so onboarding runs once per persistent volume (once per real agent
-instance), not once per heartbeat.
+Sentinel exists → **stop here**. It lives in persistent `$HOME`, so onboarding runs once per volume, not per heartbeat.
 
-First make sure git auth is routed through `gh` (idempotent — same helper used for
-PR clones and for both repos, since both are on github.com):
+Then route git auth through `gh` (idempotent; used for all github.com repos):
 
 ```bash
 git config --global --replace-all credential."https://github.com".helper "" \
   && git config --global --add credential."https://github.com".helper "!gh auth git-credential"
 ```
 
----
+## Step 0 — Prerequisites & repository resolution
 
-## Step 1 — Make `/home/agent` the code-guardian repo (safely, at HOME root)
+1. **Sanity check:** `gh api user --jq .login` must succeed (it prints the bot login, needed in Step 4). If it fails, **stop** and tell the operator the GitHub connection/token is broken — nothing else can proceed.
+2. **Definition repo** — derive `OWNER/REPO` from the URL of this runbook as given by the operator (`https://github.com/OWNER/REPO/blob/main/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api "repos/<owner/repo>" --jq .full_name`) and `export DEFINITION_REPO="<owner/repo>"`. Persisted as `definition_repo` in Step 4; drives the outer-repo `origin`, definition PRs, and the review footer.
+3. **`GITHUB_REPO`** — if the env var is unset, ask:
 
-`/home/agent` is the agent's `$HOME`: it holds secrets and runtime dirs (`.ssh`,
-`.claude`, `.config`, `work/`, …). We want a real git repo here so the agent can
-edit its own definition and push it back to `dam-agents/code-guardian` — **without**
-git ever tracking those secrets. The `.gitignore` in this repo is an *allowlist*
-(`/*` ignores everything, then specific files are re-included), which is what makes
-a repo-at-`$HOME` safe.
+   > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`).
 
-Establish the repo in place (do **not** `git clone` into `$HOME` — clone needs an
-empty dir; instead init + fetch + hard-reset, which never touches untracked files):
+   Validate the answer the same way (on failure explain and ask again — never continue unvalidated), then `export GITHUB_REPO=…` for this session. The durable copy goes to `work/CONFIG.md` (`github_repo:`) in Step 4; the env var, when later set on the platform (still the recommended setup), always wins.
+4. **`GITHUB_REPO_WORK`** — if unset, inform once, don't block:
+
+   > `GITHUB_REPO_WORK` is not set, so my state (config, memory, review history) will live only on this volume. For durable, versioned state, create an empty repo and set `GITHUB_REPO_WORK=<owner/repo>` before onboarding. Should I continue local-only, or do you want to set it first?
+
+   "Set it first" → stop and let them re-trigger onboarding. Otherwise (or no reply) → proceed local-only.
+
+## Step 1 — Make `/home/agent` the definition repo (safely, at HOME root)
+
+`/home/agent` is `$HOME` — it holds secrets (`.ssh`, `.claude`, `.config`) and `work/`. The repo's allowlist `.gitignore` (`/*`, then re-include only the definition files) is what makes a repo-at-`$HOME` safe. Do **not** `git clone` into `$HOME` (needs an empty dir) — init + fetch + hard-reset instead, which never touches untracked files:
 
 ```bash
-REPO="dam-agents/code-guardian"
 cd /home/agent
-
 if [ ! -d /home/agent/.git ]; then
   git init -q
-  git remote add origin "https://github.com/$REPO.git"
+  git remote add origin "https://github.com/$DEFINITION_REPO.git"
+else
+  git remote set-url origin "https://github.com/$DEFINITION_REPO.git"
 fi
 git fetch -q origin main
-git reset --hard origin/main      # syncs tracked files (CLAUDE.md, etc.) to canonical main
+git reset --hard origin/main
 git branch --set-upstream-to=origin/main main 2>/dev/null || true
 ```
 
-> **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths
-> — both could capture or delete `.ssh`, `.claude`, `work/`, etc. `git reset --hard`
-> only rewrites *tracked* files and leaves untracked HOME contents alone, which is
-> why it is safe here. The allowlist `.gitignore` keeps `git status` / `git add -A`
-> scoped to the four definition files.
+> **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths — either could capture or delete `.ssh`, `.claude`, `work/`, etc.
 
 ## Step 2 — Detach `work/` from the outer repo (locally)
 
-The canonical code-guardian repo still tracks the `work/` seed files (`MEMORY.md`,
-`REVIEWS.md`) — that keeps the repo self-documenting and its in-repo links valid.
-But on this volume `work/` is runtime state managed independently (Step 3), so the
-outer repo must stop *reacting* to changes under it. Two mechanisms, both local and
-neither of which stages a deletion (so they can never leak into a definition commit):
+The definition repo tracks the `work/` seed files (keeps in-repo links valid), but on this volume `work/` is independent runtime state, so the outer repo must ignore its changes — via `skip-worktree`, which (unlike `git rm --cached`) stages no deletion that could leak into a definition commit:
 
 ```bash
 cd /home/agent
-# 1. Tell git to ignore local modifications to the tracked seed files.
 git update-index --skip-worktree work/MEMORY.md work/REVIEWS.md 2>/dev/null || true
-# 2. The committed allowlist .gitignore (`/*`) already ignores every *untracked*
-#    path under work/ (reviews/, an inner .git, etc.) and all HOME secrets. Verify:
-git status --porcelain
+git status --porcelain   # MUST be clean — nothing under work/, .ssh, .claude, .config
 ```
 
-`git status` must show a **clean** outer tree — nothing under `work/`, `.ssh`,
-`.claude`, or `.config`. If anything there appears, the allowlist `.gitignore` is
-wrong (or skip-worktree didn't take) — **stop and fix it before continuing**; do not
-write the sentinel.
-
-> Why `--skip-worktree` instead of `git rm --cached`: `rm --cached` would stage a
-> deletion of `work/` in the outer index, which a later definition commit could
-> accidentally push (re-removing the seeds and breaking the repo's links).
-> `--skip-worktree` leaves the index untouched and simply makes git ignore local
-> edits to those tracked files.
+If anything shows up, **stop and fix it before continuing** — do not write the sentinel.
 
 ## Step 3 — Provision `work/` (runtime state)
 
-`work/` holds `MEMORY.md`, `REVIEWS.md`, and `reviews/`. How it is provisioned
-depends on whether a dedicated state repo is configured.
-
-### 3a — `GITHUB_REPO_WORK` IS set → clone it as the inner repo
-
-Replace `work/` with a fresh clone so the agent starts from the latest committed
-state and so end-of-run commit/push works (see `CLAUDE.md` → **Persisting `work/`
-to `GITHUB_REPO_WORK`**):
+**3a — `GITHUB_REPO_WORK` set** → replace `work/` with a fresh clone (enables end-of-run commit/push per CLAUDE.md):
 
 ```bash
 if [ -n "$GITHUB_REPO_WORK" ]; then
   tmp="$(mktemp -d)"
   if git clone "https://github.com/$GITHUB_REPO_WORK" "$tmp/work"; then
-    rm -rf /home/agent/work
-    mv "$tmp/work" /home/agent/work            # work/ now has its own .git + remote
+    rm -rf /home/agent/work && mv "$tmp/work" /home/agent/work
     git -C /home/agent/work config user.name  "code-guardian"
-    git -C /home/agent/work config user.email "code-guardian@dam-agents.local"
-    echo "work/ hydrated from $GITHUB_REPO_WORK"
+    git -C /home/agent/work config user.email "code-guardian@agents.local"
   else
-    echo "WARNING: clone of $GITHUB_REPO_WORK failed; falling back to reconstruction (3b)."
-    rm -rf "$tmp"
+    echo "WARNING: clone failed; falling back to local-only (3b)."; rm -rf "$tmp"
   fi
 fi
 ```
 
-### 3b — `GITHUB_REPO_WORK` is NOT set → reconstruct state from `$GITHUB_REPO`
+**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`; keep the seed `MEMORY.md` from Step 1 (not reconstructable; create empty only if missing). Review-tracking state is reconstructed in Step 5 — it needs the `review_marker` from Step 4 first.
 
-Everything needed to reconstruct review-tracking state already lives on the target
-repo itself: each posted DAM review carries a `<!-- dam:review headRefOid=... -->`
-marker plus a verdict and a timestamp. Rebuild `work/` from those — **everything is
-recoverable except long-term memory (`MEMORY.md`)**, which is learned preferences,
-not derivable from PRs.
+## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 
-```bash
-if [ -z "$GITHUB_REPO_WORK" ]; then
-  mkdir -p /home/agent/work/reviews
-  # MEMORY.md is NOT reconstructable. Step 1 already checked out the repo's seed
-  # scaffold (default strictness, focus areas, empty Ignore/Custom/Feedback
-  # sections) into work/MEMORY.md — keep it as the starting point. Only create an
-  # empty file if the seed is somehow missing.
-  [ -f /home/agent/work/MEMORY.md ] || : > /home/agent/work/MEMORY.md
-fi
+The definition is project-agnostic: every instance-specific value lives in `work/CONFIG.md` — exact key semantics in `CLAUDE.md` → **Runtime configuration** (read it first). Gather the values below, then write the file and show it to the operator (target shape = the example at the end).
+
+**Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its values** and only ask for missing keys — never silently overwrite operator-set config (especially `review_marker`).
+
+1. **`github_repo`** — only if Step 0.3 had to ask (env var unset). Omit otherwise — a stored copy would only drift.
+2. **`definition_repo`** — always write the Step 0.2 value.
+3. **`bot_login`** — the login from Step 0.1. Confirm with the operator, stating the consequence:
+
+   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
+
+4. **`bot_display_name`** — ask: *What name should I sign my reviews with? (Default: `Code Guardian`.)*
+5. **`review_marker`** — dedup-marker prefix (`<!-- <review_marker> headRefOid=<sha> -->`), default `code-guardian:review`. Ask:
+
+   > Has this agent (or a predecessor bot) already posted reviews on the target repo? If yes, give me the exact marker prefix it used — reusing it keeps the old reviews visible to deduplication. If no, I'll use `code-guardian:review`.
+
+   ⚠️ Tell the operator the value is **immutable once the first review is posted** — changing it later would make every past review invisible to dedup.
+6. **Review skills + `artifact_skill`** — fully config-driven (`CLAUDE.md` → **Per-PR Review Skills**); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
+   - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
+   - Harness rows: the skill must appear in your available-skills list — otherwise drop the row after confirming (a missing harness skill would just log `skill-errored` on every PR).
+   - An empty table + `artifact_skill: none` is valid — plain reviews only.
+7. **`slack_notifications`** — strictly opt-in (gates the PR Shepherd nudging). Ask:
+
+   > Do you want Slack notifications? When enabled, I watch how long each open PR waits for human review and nudge reviewers/authors in the shared Slack channel, escalating over time. It needs a Slack connection and a developer roster — I'll walk you through building one.
+
+   **No / no reply** → `disabled`; everything else works, only the shepherd sweep is skipped (can be enabled later in chat — then re-run this sub-step + roster + item 8). **Yes** → `enabled`, then build the roster (below) and pick the escalation owner.
+8. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who should I escalate to when a PR stays unreviewed despite repeated reminders (nudge level 4)? Pick one person from the roster.* Must be a roster login **with a `slack_id`**.
+
+Final shape:
+
+```markdown
+# Configuration
+
+- github_repo: acme/widgets            # only when the env var was unset
+- definition_repo: acme/code-guardian
+- bot_login: acme-review-bot
+- bot_display_name: Code Guardian
+- review_marker: code-guardian:review
+- artifact_skill: pr-artifact@dam-agents/dam   # or: none
+- slack_notifications: enabled         # or: disabled
+- escalation_owner: alice              # only when slack_notifications: enabled
+
+## Review skills
+
+| skill | source | trigger | section |
+| --- | --- | --- | --- |
+| doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
+| typescript-engineering | dam-agents/dam | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
+| react-ui-engineering | dam-agents/dam | .tsx,.jsx | React UI Engineering Review |
 ```
 
-Then reconstruct the index and per-PR history (this is the same logic CLAUDE.md uses
-to self-heal after PVC loss — see **Deduplication via GitHub PR reviews** and the
-self-heal notes in **Review Tracking**):
+### Build the developer roster (`work/DEVELOPERS.md`) — only when Slack is enabled
 
-1. List open PRs: `gh pr list --repo "$GITHUB_REPO" --state open --json number`.
-2. For each PR, fetch its DAM reviews/comments and read the latest one's
-   `headRefOid` marker, verdict, and `submitted_at`/`createdAt` timestamp.
-3. Write one `REVIEWS.md` row per PR — `| <number> | <headRefOid> | <submitted_at> | <verdict> | done |` —
-   using the **GitHub-reported** timestamp (history, not "now"). PRs with no DAM
-   review get no row (they'll be reviewed on the next heartbeat).
-4. Recreate `reviews/pr-<number>.md` from the review body where one exists. Do **not**
-   fabricate bodies for reviews that GitHub doesn't have. Leave `## PR-local
-   overrides` empty unless the PR thread contains an explicit dispute resolution
-   (those are recoverable from comments; tag them `[from PR comments]`).
+The roster is the **only** set of people the agent may ever @-mention (`CLAUDE.md` → **Roster-only tagging**). One row per member: `login`, `slack_id`, name, seed expertise keywords.
 
-The result is a `work/` that lets the agent skip already-reviewed SHAs correctly on
-the very first heartbeat, with only `MEMORY.md` starting fresh. Note `work/` here is
-a plain directory (no inner `.git`); nothing is pushed anywhere, and end-of-run
-persistence (CLAUDE.md step 8) is skipped because `$GITHUB_REPO_WORK` is unset.
+1. **Fetch the team from GitHub** — prefer an org team; list them (`ORG="${GITHUB_REPO%%/*}"; gh api "orgs/$ORG/teams" --jq '.[] | "\(.slug)\t\(.name)"'`), let the operator pick one, then `gh api "orgs/$ORG/teams/<slug>/members?per_page=100" --jq '.[].login'`. **Fallback** (no org/teams/404): `gh api "repos/$GITHUB_REPO/contributors?per_page=15" --jq '.[].login'`. Show the logins; the operator removes bots/one-off contributors or adds missing people.
+2. **Draft the roster** — display names via `gh api "users/<login>" --jq '.name // .login'`; seed a few expertise keywords from each member's recent PRs in `$GITHUB_REPO` (rough is fine — the agent appends "Observed areas" over time; only the operator edits seed expertise). Present the draft.
+3. **Ask for Slack member IDs** (not resolvable automatically) — one `login = U0123ABCD` line per member; found in Slack: profile → **⋮ (More)** → **Copy member ID**. Validate against `^U[A-Z0-9]{6,}$`. A member without an id may stay (named in text) but is never @-mentioned.
+4. **Write `work/DEVELOPERS.md`:**
 
-## Step 4 — Ensure a scheduled review job exists (every 10 minutes)
+   ```markdown
+   # Developers roster
 
-1. Call **`mcp__platform-outbound__list_schedules`** (no arguments).
-2. If a schedule with `cron` = `*/10 * * * *` **or** `name` = `code-guardian-review-10m`
-   already exists, do nothing.
-3. Otherwise call **`mcp__platform-outbound__create_schedule`** with:
-   - `name`: `code-guardian-review-10m`
-   - `cron`: `*/10 * * * *`
-   - `sessionMode`: `fresh`
-   - `task`:
-     > Code-review heartbeat. Run the full code-guardian review pipeline exactly as
-     > described in CLAUDE.md: refresh the doc-drift skill, read work/MEMORY.md and
-     > work/REVIEWS.md, review every new or updated open non-draft PR in $GITHUB_REPO,
-     > and deliver each review to the chat UI and the GitHub PR thread. Honour
-     > the HEAD-freshness guards and in-progress locks. When GITHUB_REPO_WORK is set,
-     > commit and push work/ at the end of the run per CLAUDE.md.
+   _The only people the agent may @-mention in Slack (CLAUDE.md → PR Shepherd).
+   Seed expertise is operator-provided — never overwrite or remove it; "Observed
+   areas" are appended automatically by the agent._
 
-Other schedule MCP tools if needed: `mcp__platform-outbound__toggle_schedule`
-(enable/disable by `id`), `mcp__platform-outbound__delete_schedule` (remove by `id`).
-Do not use any in-process cron tool — only these platform schedules survive process
-restarts and are visible to the human operator.
+   | login | slack_id | name | expertise (seed) | observed areas |
+   | --- | --- | --- | --- | --- |
+   | alice | U0123ABCD | Alice K. | frontend, react, accessibility | |
+   ```
 
-## Step 5 — Write the sentinel
+5. Confirm the result (members imported, how many have a Slack id), then return to Step 4 item 8.
 
-Only after Steps 1–4 succeeded:
+## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
+
+Skip when Step 3a hydrated the state from `$GITHUB_REPO_WORK`; run it on the 3b path (env var unset, or the clone failed). Otherwise rebuild the tracking files from the target repo — every posted agent review carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value) plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
+
+1. `gh pr list --repo "$GITHUB_REPO" --state open --json number`.
+2. Per PR, fetch reviews/comments, filter by the marker, take the latest one's `headRefOid`, verdict, and `submitted_at`/`createdAt`.
+3. Write one `REVIEWS.md` row per PR — `| <number> | <headRefOid> | <submitted_at> | <verdict> | done |` — with the **GitHub-reported** timestamp (history, not "now"). PRs with no agent review get no row.
+4. Recreate `reviews/pr-<number>.md` from review bodies that exist — never fabricate. `## PR-local overrides` stays empty unless the thread contains an explicit dispute resolution (tag `[from PR comments]`).
+
+The agent then skips already-reviewed SHAs correctly on the very first heartbeat. `work/` stays a plain directory; end-of-run persistence is skipped.
+
+## Step 6 — Ensure a scheduled review job exists
+
+Ask: *How often should I check for new PRs? Default is every 10 minutes.* Use the answer as the cron cadence (default `*/10 * * * *`).
+
+1. `mcp__platform-outbound__list_schedules` — if a schedule whose `name` starts with `code-guardian-review` exists, do nothing.
+2. Otherwise `mcp__platform-outbound__create_schedule` with `name: code-guardian-review-<cadence-shorthand>` (e.g. `…-10m`), the chosen `cron`, `sessionMode: fresh`, and `task`:
+
+   > Code-review heartbeat. Run the full code-guardian review pipeline exactly as described in CLAUDE.md: load work/CONFIG.md, refresh the configured skills, read work/MEMORY.md and work/REVIEWS.md, review every new or updated open non-draft PR in the configured target repository, and deliver each review to the chat UI and the GitHub PR thread. Honour the HEAD-freshness guards and in-progress locks. When GITHUB_REPO_WORK is set, commit and push work/ at the end of the run per CLAUDE.md.
+
+(`toggle_schedule` / `delete_schedule` exist for management.) Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
+
+## Step 7 — Write the sentinel and report
+
+Only after Steps 1–6 succeeded:
 
 ```bash
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
 
-From now on the guard at the top short-circuits, and normal runs follow `CLAUDE.md`.
+Then give the operator a short **onboarding summary** in the chat UI:
+
+1. The final `work/CONFIG.md` (verbatim).
+2. What runs where: target repo, review cadence, state persistence (`GITHUB_REPO_WORK` or local-only), Slack on/off.
+3. Day-to-day usage: reviews land automatically on every open non-draft PR (chat UI + GitHub); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
+
+From now on the guard short-circuits and normal runs follow `CLAUDE.md`.
