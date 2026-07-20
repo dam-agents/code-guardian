@@ -112,16 +112,21 @@ The definition is project-agnostic: every instance-specific value lives in `work
    > Has this agent (or a predecessor bot) already posted reviews on the target repo? If yes, give me the exact marker prefix it used — reusing it keeps the old reviews visible to deduplication. If no, I'll use `code-guardian:review`.
 
    ⚠️ Tell the operator the value is **immutable once the first review is posted** — changing it later would make every past review invisible to dedup.
-6. **Review skills + `artifact_skill`** — fully config-driven (`CLAUDE.md` → **Per-PR Review Skills**); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
+6. **`rereview_label`** — the PR label that requests a re-review (`CLAUDE.md` → **Label-gated re-reviews**), default `code-guardian-review`. Ask:
+
+   > First reviews are automatic, but re-reviews after new commits run **only** when someone adds a label to the PR — I remove it once the re-review is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
+
+   If the label doesn't exist on the target repo yet, create it: `gh label create "<label>" --repo "$GITHUB_REPO" --description "Request a code-guardian re-review" --color FBCA04` (failure = tell the operator to create it manually; not blocking).
+7. **Review skills + `artifact_skill`** — fully config-driven (`CLAUDE.md` → **Per-PR Review Skills**); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
    - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list — otherwise drop the row after confirming (a missing harness skill would just log `skill-errored` on every PR).
    - An empty table + `artifact_skill: none` is valid — plain reviews only.
-7. **`slack_notifications`** — strictly opt-in (gates the PR Shepherd nudging). Ask:
+8. **`slack_notifications`** — strictly opt-in (gates the PR Shepherd nudging). Ask:
 
    > Do you want Slack notifications? When enabled, I watch how long each open PR waits for human review and nudge reviewers/authors in the shared Slack channel, escalating over time. It needs a Slack connection and a developer roster — I'll walk you through building one.
 
-   **No / no reply** → `disabled`; everything else works, only the shepherd sweep is skipped (can be enabled later in chat — then re-run this sub-step + roster + item 8). **Yes** → `enabled`, then build the roster (below) and pick the escalation owner.
-8. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who should I escalate to when a PR stays unreviewed despite repeated reminders (nudge level 4)? Pick one person from the roster.* Must be a roster login **with a `slack_id`**.
+   **No / no reply** → `disabled`; everything else works, only the shepherd sweep is skipped (can be enabled later in chat — then re-run this sub-step + roster + item 9). **Yes** → `enabled`, then build the roster (below) and pick the escalation owner.
+9. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who should I escalate to when a PR stays unreviewed despite repeated reminders (nudge level 4)? Pick one person from the roster.* Must be a roster login **with a `slack_id`**.
 
 Final shape:
 
@@ -133,6 +138,7 @@ Final shape:
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
+- rereview_label: code-guardian-review # PR label that requests a re-review
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - slack_notifications: enabled         # or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
@@ -167,7 +173,7 @@ The roster is the **only** set of people the agent may ever @-mention (`CLAUDE.m
    | alice | U0123ABCD | Alice K. | frontend, react, accessibility | |
    ```
 
-5. Confirm the result (members imported, how many have a Slack id), then return to Step 4 item 8.
+5. Confirm the result (members imported, how many have a Slack id), then return to Step 4 item 9.
 
 ## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
 
@@ -187,7 +193,7 @@ Ask: *How often should I check for new PRs? Default is every 10 minutes.* Use th
 1. `mcp__platform-outbound__list_schedules` — if a schedule whose `name` starts with `code-guardian-review` exists, do nothing.
 2. Otherwise `mcp__platform-outbound__create_schedule` with `name: code-guardian-review-<cadence-shorthand>` (e.g. `…-10m`), the chosen `cron`, `sessionMode: fresh`, and `task`:
 
-   > Code-review heartbeat. Run the full code-guardian review pipeline exactly as described in CLAUDE.md: load work/CONFIG.md, refresh the configured skills, read work/MEMORY.md and work/REVIEWS.md, review every new or updated open non-draft PR in the configured target repository, and deliver each review to the chat UI and the GitHub PR thread. Honour the HEAD-freshness guards and in-progress locks. When GITHUB_REPO_WORK is set, commit and push work/ at the end of the run per CLAUDE.md.
+   > Code-review heartbeat. Run the full code-guardian review pipeline exactly as described in CLAUDE.md: load work/CONFIG.md, refresh the configured skills, read work/MEMORY.md and work/REVIEWS.md, review every new open non-draft PR in the configured target repository, and re-review already-reviewed PRs only when they carry the configured re-review label (removing the label afterwards). Deliver each review to the chat UI and the GitHub PR thread. Honour the HEAD-freshness guards, in-progress locks, and the label gate. When GITHUB_REPO_WORK is set, commit and push work/ at the end of the run per CLAUDE.md.
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
 
@@ -204,6 +210,6 @@ Then give the operator a short **onboarding summary** in the chat UI:
 
 1. The final `work/CONFIG.md` (verbatim).
 2. What runs where: target repo, review cadence, state persistence (`GITHUB_REPO_WORK` or local-only), Slack on/off.
-3. Day-to-day usage: reviews land automatically on every open non-draft PR (chat UI + GitHub); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
+3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

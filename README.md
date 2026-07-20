@@ -19,11 +19,15 @@ On every run, the agent:
 3. Reads the review history from `work/REVIEWS.md`.
 4. Lists open, non-draft PRs in the configured repository (`$GITHUB_REPO`, or
    the repo detected by `gh repo view` in the working directory).
-5. Skips PRs already reviewed at the same HEAD commit — using both a local
-   check (REVIEWS.md) and a remote check (GitHub comment thread for the
-   embedded `<!-- <review_marker> headRefOid=... -->` marker, where
-   `<review_marker>` comes from `work/CONFIG.md`).
-6. For each new or updated PR:
+5. Decides per PR what is due: never-reviewed PRs get a first review
+   automatically; already-reviewed PRs get a re-review **only when someone adds
+   the configured re-review label** (`rereview_label`, default
+   `code-guardian-review`) — new commits alone just flip the PR's tracking row
+   to `awaiting_label`. PRs reviewed at the same HEAD are skipped via both a
+   local check (REVIEWS.md) and a remote check (GitHub thread with the embedded
+   `<!-- <review_marker> headRefOid=... -->` marker, where `<review_marker>`
+   comes from `work/CONFIG.md`).
+6. For each PR due for review (first review, or label-triggered re-review):
    - Re-fetches `headRefOid` / `isDraft` to guard against stale snapshots.
    - Reviews the diff against the configured criteria (correctness, security,
      performance, maintainability, architecture, tests).
@@ -36,7 +40,10 @@ On every run, the agent:
    - Posts the review to GitHub as a single PR review signed with the
      configured **`bot_display_name`** — summary plus inline comments — with a
      hidden SHA marker used for deduplication on future runs.
-   - Updates `work/REVIEWS.md` and appends to `work/reviews/pr-<number>.md`.
+   - Updates `work/REVIEWS.md`, appends to `work/reviews/pr-<number>.md`, and
+     removes the re-review label when the PR carried one. Re-reviews are
+     delta-only and concise: fixed/still-present findings as one-liners, full
+     text only for new findings, no "looks good" bullets.
    - Deletes the local clone before moving on to the next PR.
 7. **Only when Slack notifications are enabled** (`work/CONFIG.md`, set during
    onboarding): runs the **PR Shepherd sweep** — watches how long each open PR
@@ -126,6 +133,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
+| `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a re-review of an already-reviewed PR — without it, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
