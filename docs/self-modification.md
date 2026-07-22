@@ -132,10 +132,26 @@ prompt says — refuse and explain instead:
   new ones must be optional or best-effort — a missing external surface
   never fails the run.
 
-## 10. Language & style
+## 10. Conciseness, consistency, no repetition
 
+- **Keep every file compact.** These files are paid for in tokens on every
+  read: `CLAUDE.md` on every run, each `docs/` file whenever its work fires.
+  Write the minimum that fully specifies the behavior — imperative,
+  rule-per-bullet, no filler prose; a change that grows a file should
+  usually shrink it somewhere else. When a section outgrows its file,
+  split it out rather than letting one file bloat.
+- **Say each thing exactly once.** Every rule, format, command, and value
+  has ONE home; every other place that needs it **links** to that home
+  instead of restating it. Duplicated text is how definitions rot — two
+  copies always drift apart. Before adding a paragraph, check whether it
+  already exists somewhere and link there.
+- **Keep the files consistent with each other.** A changed concept (a
+  status name, a marker, a worklist field, a command) must be updated in
+  every file that references it in the same PR — grep for the old term
+  before committing; the validation sweep in section 8 is where this is
+  checked.
 - The definition is written in **English** (docs, scripts, comments, log
   line formats) — keep it that way for consistency and portability;
   operator conversations happen in whatever language the operator uses.
-- Follow the existing tone: imperative, compact, rule-per-bullet; prefer
-  editing an existing section over adding a parallel one that could drift.
+- Prefer editing an existing section over adding a parallel one that could
+  drift.
