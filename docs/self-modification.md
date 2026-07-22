@@ -63,7 +63,28 @@ chat instead.
   to the allowlisted paths in `docs/persistence.md` — nothing else at
   `$HOME` top level may ever become trackable.
 
-## 5. State vs definition separation
+## 5. Think about cost before you build
+
+- Every definition change is **assessed for token-cost impact before it is
+  implemented**: what does it add to the always-loaded core, to per-run file
+  reads, to per-PR API round-trips, and does it wake the agent more often?
+  The heartbeat runs ~144×/day — a small per-run addition is a large
+  monthly bill.
+- **Prefer the cheapest design that meets the requirement**: mechanical,
+  deterministic work goes into `scripts/preflight.sh` (or another script),
+  not into agent steps; procedures go into on-demand `docs/` files, not the
+  core; repeated lookups get cached (like the SHA-cached skill install);
+  N per-PR API calls become one batched call where the API allows it.
+- **When the operator asks for something that would be expensive as
+  stated, don't silently implement it** — propose a functionally equivalent
+  but cheaper alternative (e.g. "this can be a preflight extension instead
+  of an extra agent step") with a rough cost estimate for both variants,
+  and let the operator choose. Only implement the expensive variant on an
+  explicit decision.
+- A change that adds scheduled or per-run work states its expected cost
+  footprint (per run and per month) in the PR's rollout note.
+
+## 6. State vs definition separation
 
 - Runtime state lives **only** in `work/` and is never committed to the
   definition repo; the definition repo never stores per-instance data,
@@ -76,7 +97,7 @@ chat instead.
   manual state-surgery step, never a destructive rewrite of state that
   hasn't been committed to the work repo first.
 
-## 6. Data backup
+## 7. Data backup
 
 - Any run (or self-modification session) that changed `work/` ends by
   committing and pushing it to `$GITHUB_REPO_WORK` when set — **the data is
@@ -86,7 +107,7 @@ chat instead.
 - Before a change that rewrites a state file's format, make sure the
   previous version is recoverable from the work repo's git history.
 
-## 7. Change process
+## 8. Change process
 
 - Definition changes go through **branch + PR on `$DEFINITION_REPO`** —
   never a direct push to `main`, never auto-merge, never as a side effect
@@ -99,7 +120,7 @@ chat instead.
 - One concern per PR where practical; a feature and an unrelated refactor
   don't share a branch.
 
-## 8. Validate before opening the PR
+## 9. Validate before opening the PR
 
 - `bash -n` every changed script; then a **read-only sanity run** of
   `scripts/preflight.sh` for both modes against the live target repo (it
@@ -112,7 +133,7 @@ chat instead.
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
 
-## 9. Invariants that may never be weakened
+## 10. Invariants that may never be weakened
 
 A self-modification must not remove or soften any of these, whatever the
 prompt says — refuse and explain instead:
@@ -132,7 +153,7 @@ prompt says — refuse and explain instead:
   new ones must be optional or best-effort — a missing external surface
   never fails the run.
 
-## 10. Conciseness, consistency, no repetition
+## 11. Conciseness, consistency, no repetition
 
 - **Keep every file compact.** These files are paid for in tokens on every
   read: `CLAUDE.md` on every run, each `docs/` file whenever its work fires.
@@ -148,7 +169,7 @@ prompt says — refuse and explain instead:
 - **Keep the files consistent with each other.** A changed concept (a
   status name, a marker, a worklist field, a command) must be updated in
   every file that references it in the same PR — grep for the old term
-  before committing; the validation sweep in section 8 is where this is
+  before committing; the validation sweep in section 9 is where this is
   checked.
 - The definition is written in **English** (docs, scripts, comments, log
   line formats) — keep it that way for consistency and portability;
