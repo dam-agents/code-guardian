@@ -18,8 +18,8 @@ Do these before the review loop; one log line each.
   live HEAD) or `awaiting_label` (marker found at an older SHA, no label).
   Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
 - **Same-SHA label cleanup** (`label_cleanups_due`): the label sits on a PR
-  whose live HEAD is already reviewed — nothing to review. Remove it:
-  `gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"`, log
+  whose live HEAD is already reviewed — nothing to review. Remove it (see
+  **Label removal** below for the command), log
   `PR #<n>: $REREVIEW_LABEL present but no new commits since <short-sha> — label removed, no re-review`.
   Post nothing. A failed removal is logged, not fatal (preflight re-emits it
   next run).
@@ -68,10 +68,9 @@ f. **Re-run the remote dedup check** for the reviewed SHA (both halves —
    failure + self-heal the row with the GitHub timestamp.
 g. Output the structured review to the chat UI.
 h. Post it to GitHub as a single PR review (below).
-i. **If `$REREVIEW_LABEL` is on the PR, remove it**:
-   `gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"` — after
-   every posted review, first reviews included (the request is served).
-   Failure = log, not fatal.
+i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Label removal**
+   below) — after every posted review, first reviews included (the request
+   is served). Failure = log, not fatal.
 j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
 k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
@@ -82,6 +81,16 @@ gh api "repos/$REPO/pulls/<n>/reviews" \
   --jq ".[] | select(.body != null) | select(.body | contains(\"$MARKER\")) | .submitted_at"
 gh pr view <n> --repo "$REPO" --json comments \
   --jq ".comments[] | select(.body | contains(\"$MARKER\")) | .createdAt"
+```
+
+### Label removal
+
+Prefer the REST call — `gh pr edit` goes through GraphQL, which 401s in this
+pod (the platform's auth proxy doesn't rewrite that code path):
+
+```bash
+gh api -X DELETE "repos/$REPO/issues/<n>/labels/$REREVIEW_LABEL" >/dev/null \
+  || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
 ```
 
 ## PR context: body, comments, reviews
