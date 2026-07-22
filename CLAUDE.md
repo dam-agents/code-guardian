@@ -49,7 +49,8 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 
 ```bash
 CONFIG=/home/agent/work/CONFIG.md
-cfg() { awk -F': ' -v k="$1" '$0 ~ "^- "k":" {print $2}' "$CONFIG" 2>/dev/null; }
+# awk is not available in the pod — sed/grep/cut only
+cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
 REPO="${GITHUB_REPO:-$(cfg github_repo)}"; REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"; DEFINITION_REPO="$(cfg definition_repo)"

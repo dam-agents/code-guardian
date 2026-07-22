@@ -24,7 +24,8 @@
 #   .nothing_to_do == true  -> end the run immediately.
 #   otherwise               -> process the arrays per CLAUDE.md + docs/.
 #
-# Requires: bash, gh (authenticated), jq, git, GNU date (Linux pod).
+# Requires: bash, gh (authenticated), jq, git, sed/grep/cut/tr, GNU date
+# (Linux pod). Deliberately awk-free — awk is not available in the pod.
 
 set -u
 export LC_ALL=C
@@ -43,7 +44,10 @@ NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 LOGS=()
 log() { LOGS+=("$1"); }
 
-cfg() { awk -F': ' -v k="$1" '$0 ~ "^- "k":" {sub(/[[:space:]]*#.*$/,"",$2); gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); print $2}' "$CONFIG" 2>/dev/null; }
+cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
+        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
+
+trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
@@ -82,17 +86,14 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 
 # ------------------------------------------------------- REVIEWS.md access ----
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
-row_for()      { reviews_rows | awk -F'|' -v n="$1" '{k=$2; gsub(/ /,"",k)} k==n {print; exit}'; }
-row_field()    { printf '%s' "$1" | awk -F'|' -v i="$2" '{gsub(/^ +| +$/,"",$i); print $i}'; }
+row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
+row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
 
 # the ONE local REVIEWS.md write the script performs: done -> awaiting_label
 # (keeps the last review's SHA/verdict/timestamp; only the status cell changes)
 flip_awaiting_label() { # number
-  awk -F'|' -v n="$1" -v OFS='|' '{
-    k=$2; gsub(/ /,"",k)
-    if (k==n) { sub(/ *done *\|$/," awaiting_label |") }
-    print
-  }' "$REVIEWS" > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
+  sed -E "s/^(\| *$1 *\|.*\|) *done *\|[[:space:]]*$/\1 awaiting_label |/" "$REVIEWS" \
+    > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
 }
 
 # marker-based remote dedup, anchored at one SHA -> prints GitHub timestamp
@@ -165,13 +166,13 @@ if [ "$MODE" = "review" ]; then
   }
 
   # --- prune detection (verified per PR; the agent executes the prune) ---
-  for n in $(reviews_rows | awk -F'|' '{k=$2; gsub(/ /,"",k); print k}'); do
+  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
     open_numbers | grep -qx "$n" && continue
     if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
     state="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end')"
     case "$state" in
       CLOSED|MERGED)
-        gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | awk '{print $3}')"
+        gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
         PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" \
           '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end)}')" '. + [$e]')"
         log "PR #$n: $state — prune due";;
@@ -254,10 +255,10 @@ if [ "$MODE" = "review" ]; then
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
      || [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
     while IFS='|' read -r _ skill src _rest; do
-      skill="$(printf '%s' "$skill" | xargs)"; src="$(printf '%s' "$src" | xargs)"
-      { [ -z "$skill" ] || [ "$skill" = "skill" ] || [ "$skill" = "---" ]; } && continue
+      skill="$(trim "$skill")"; src="$(trim "$src")"
+      case "$skill" in ''|skill|-*) continue;; esac
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$skill" --arg v "$(install_skill "$skill" "$src")" '. + {($k):$v}')"
-    done < <(awk '/^## Review skills/,0' "$CONFIG" 2>/dev/null | grep -E '^\|')
+    done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
     fi
@@ -273,29 +274,44 @@ if [ "$MODE" = "shepherd" ]; then
   [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
 
   # roster: login -> slack_id (table or bullet format)
-  ROSTER="$(awk -F'|' '/^\|/ {l=$2; s=$3; gsub(/[` ]/,"",l); gsub(/ /,"",s); if (l!="" && l!="login" && l!~/^-+$/) print l"\t"s}' "$DEVELOPERS")"
-  [ -z "$ROSTER" ] && ROSTER="$(awk '/login:/ {gsub(/`/,""); login=$NF} /slack_id:/ {gsub(/`/,""); print login"\t"$NF}' "$DEVELOPERS")"
+  ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
+      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
+      case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
+    done)"
+  if [ -z "$ROSTER" ]; then
+    ROSTER="$(login=""; while IFS= read -r line; do
+        case "$line" in
+          (*slack_id:*) sid="$(printf '%s' "${line#*slack_id:}" | tr -d '\` ')"
+                        [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
+          (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
+        esac
+      done < "$DEVELOPERS")"
+  fi
   roster_has() { printf '%s\n' "$ROSTER" | cut -f1 | grep -qx "$1"; }
-  slack_id()   { printf '%s\n' "$ROSTER" | awk -F'\t' -v l="$1" '$1==l {print $2; exit}'; }
+  slack_id() {
+    while IFS=$'\t' read -r l sid; do
+      [ "$l" = "$1" ] && { printf '%s' "$sid"; return; }
+    done <<< "$ROSTER"
+  }
 
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
-  shep_row()  { shep_rows | awk -F'|' -v n="$1" '{k=$2; gsub(/ /,"",k)} k==n {print; exit}'; }
+  shep_row()  { shep_rows | grep -E "^\| *$1 *\|" | head -1; }
 
   NEW_TABLE=""; NUDGES_DUE='[]'
   while IFS=$'\t' read -r n title author created labels requested url; do
     row="$(shep_row "$n")"
-    eligible="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$3); print $3}')"
+    eligible="$(row_field "$row" 3)"
     if [ -z "$eligible" ]; then
       eligible="$(gh api "repos/$REPO/issues/$n/timeline?per_page=100" 2>/dev/null | jq -r '[.[] | select(.event=="ready_for_review") | .created_at] | last // empty')"
       [ -z "$eligible" ] && eligible="$created"
     fi
-    reviewers="$(printf '%s' "$row" | awk -F'|' '{gsub(/^ +| +$/,"",$4); print $4}')"
-    prev_state="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$5); print $5}')"
+    reviewers="$(row_field "$row" 4)"
+    prev_state="$(row_field "$row" 5)"
     case "$prev_state" in approved|changes_requested|awaiting_review) ;; *) prev_state="";; esac  # legacy formats
-    nudges="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$6); print $6}')"; nudges="${nudges:-0}"; [ "$nudges" = "-" ] && nudges=0
-    last="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$7); print $7}')"; last="${last:--}"
-    level="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$8); print $8}')"; level="${level:-1}"; case "$level" in ''|*[!0-9]*) level=1;; esac
-    status="$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$9); print $9}')"
+    nudges="$(row_field "$row" 6)"; nudges="${nudges:-0}"; [ "$nudges" = "-" ] && nudges=0
+    last="$(row_field "$row" 7)"; last="${last:--}"
+    level="$(row_field "$row" 8)"; level="${level:-1}"; case "$level" in ''|*[!0-9]*) level=1;; esac
+    status="$(row_field "$row" 9)"
 
     # classification from independent reviews (bot + author excluded, marker-carrying excluded)
     cls="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null \
@@ -362,7 +378,7 @@ if [ "$MODE" = "shepherd" ]; then
   # their nudge history; closed PRs wait for the verified prune (review mode).
   while IFS= read -r old; do
     [ -z "$old" ] && continue
-    onum="$(printf '%s' "$old" | awk -F'|' '{k=$2; gsub(/ /,"",k); print k}')"
+    onum="$(printf '%s' "$old" | cut -d'|' -f2 | tr -d ' ')"
     printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson nn "$onum" 'any(.[]; .number==$nn)' >/dev/null \
       || NEW_TABLE="$NEW_TABLE$old"$'\n'
   done < <(shep_rows)
