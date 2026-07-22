@@ -49,6 +49,10 @@ a run failure.
 
 ## Evolving the agent definition (outer repo)
 
+**First read [self-modification.md](self-modification.md)** — it defines the
+rules every definition change must obey (project-agnosticism, config
+discipline, onboarding completeness, protected invariants, validation).
+
 Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`,
 `README.md`) go through **branch + PR on `$DEFINITION_REPO` — never a direct
 push to `main`, never auto-merge**, and only when deliberately asked — never

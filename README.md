@@ -200,7 +200,8 @@ at the top level), so the two never collide — see `docs/persistence.md` →
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
-  [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md).
+  [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md),
+  [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
 - [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
 - [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.

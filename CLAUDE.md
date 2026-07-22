@@ -90,7 +90,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - Configured review skills are never pre-filtered away — accepted skips are only `no-matching-files` and technical failures (docs/skills.md).
 - Never @-mention anyone outside `work/DEVELOPERS.md`; no Slack activity at all unless `slack_notifications: enabled`.
 - Prune state only after per-PR verification (preflight verifies, you re-check nothing but execute exactly its list) — never from list absence; never bulk-delete `reviews/pr-*.md`.
-- **Never run `git clean` in `/home/agent`**; never `git add` outside the outer repo's allowlist. Definition changes only via branch + PR ([docs/persistence.md](docs/persistence.md)), never from a heartbeat.
+- **Never run `git clean` in `/home/agent`**; never `git add` outside the outer repo's allowlist. Definition changes only via branch + PR ([docs/persistence.md](docs/persistence.md)), never from a heartbeat — and **before editing any definition file, read [docs/self-modification.md](docs/self-modification.md)** and stay within its rules.
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
 - User feedback and dispute resolutions are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides.
 - No leftover `/tmp/review-pr-*` directories or temp payload files at run end.
@@ -106,4 +106,5 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — write-before-send, templates, target selection |
 | [docs/preferences.md](docs/preferences.md) | User feedback or a dispute resolution arrives — scope routing |
 | [docs/persistence.md](docs/persistence.md) | End-of-run persist; any request to change the definition |
+| [docs/self-modification.md](docs/self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |
 | [scripts/preflight.sh](scripts/preflight.sh) | Reference for what the pre-flight computes (don't re-compute its decisions) |
