@@ -9,48 +9,48 @@ wait too long for human review (the **PR Shepherd** role).
 
 ## How it works
 
-On every run, the agent:
+Two independent schedules exist, and **both start with a deterministic
+pre-flight script** ([`scripts/preflight.sh`](scripts/preflight.sh)). The
+script only *detects* — it makes no GitHub writes and computes the run's
+worklist; when the worklist is empty the agent never wakes up (idle
+heartbeats are nearly free), and when there is work the agent performs all
+of it per the `docs/` procedures:
 
-1. Loads `work/CONFIG.md` and installs (or refreshes) the configured skills —
-   the per-PR review skills (`## Review skills` table) and the artifact skill —
-   each from **its own source repo** (`source` column / the `@owner/repo` suffix;
-   harness-provided skills need no install).
-2. Reads learned review preferences from `work/MEMORY.md`.
-3. Reads the review history from `work/REVIEWS.md`.
-4. Lists open, non-draft PRs in the configured repository (`$GITHUB_REPO`, or
-   the repo detected by `gh repo view` in the working directory).
-5. Decides per PR what is due: never-reviewed PRs get a first review
-   automatically; already-reviewed PRs get a re-review **only when someone adds
-   the configured re-review label** (`rereview_label`, default
-   `code-guardian-review`) — new commits alone just flip the PR's tracking row
-   to `awaiting_label`. PRs reviewed at the same HEAD are skipped via both a
-   local check (REVIEWS.md) and a remote check (GitHub thread with the embedded
-   `<!-- <review_marker> headRefOid=... -->` marker, where `<review_marker>`
-   comes from `work/CONFIG.md`).
-6. For each PR due for review (first review, or label-triggered re-review):
-   - Re-fetches `headRefOid` / `isDraft` to guard against stale snapshots.
-   - Reviews the diff against the configured criteria (correctness, security,
-     performance, maintainability, architecture, tests).
-   - Clones the PR branch into `/tmp/review-pr-<number>/` and runs every
-     configured review skill against it per its trigger (`always` skills on the
-     whole clone, extension-triggered skills on their routed changed files);
-     each skill's output becomes its own section in the review.
-   - Re-verifies HEAD freshness one more time right before posting.
-   - Outputs the structured review to the chat UI.
-   - Posts the review to GitHub as a single PR review signed with the
-     configured **`bot_display_name`** — summary plus inline comments — with a
-     hidden SHA marker used for deduplication on future runs.
-   - Updates `work/REVIEWS.md`, appends to `work/reviews/pr-<number>.md`, and
-     removes the re-review label when the PR carried one. Re-reviews are
-     delta-only and concise: fixed/still-present findings as one-liners, full
-     text only for new findings, no "looks good" bullets.
-   - Deletes the local clone before moving on to the next PR.
-7. **Only when Slack notifications are enabled** (`work/CONFIG.md`, set during
-   onboarding): runs the **PR Shepherd sweep** — watches how long each open PR
-   has waited for human review and nudges reviewers/authors in Slack,
-   escalating over time. With notifications disabled the sweep is skipped
-   entirely and the agent never touches Slack.
-8. Walks through an end-of-run self-check to verify every step was completed.
+- **Review heartbeat** (default every 10 minutes, 24/7): `preflight.sh
+  review` lists open non-draft PRs in one REST call and decides per PR what
+  is due — never-reviewed PRs get a first review automatically;
+  already-reviewed PRs get a re-review **only when someone adds the
+  configured re-review label** (`rereview_label`, default
+  `code-guardian-review`; new commits alone just flip the tracking row to
+  `awaiting_label`). Same-HEAD PRs are skipped via `work/REVIEWS.md` plus the
+  remote check for the embedded `<!-- <review_marker> headRefOid=... -->`
+  marker (with self-heal when local state is missing); closed/merged PRs are
+  verified per PR and queued for pruning; the artifact assignee gate is
+  evaluated; the configured skills are installed only when a review is due,
+  cached by their source repo's HEAD SHA. The agent then reads
+  [`docs/review.md`](docs/review.md) + [`docs/skills.md`](docs/skills.md),
+  fetches context and the diff, clones the branch, runs every configured
+  review skill per its trigger, re-verifies HEAD freshness right before
+  posting, posts one GitHub review (summary + inline comments, signed with
+  **`bot_display_name`**, carrying the hidden dedup marker), removes the
+  re-review label when the PR carried one, and records the review in
+  `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Re-reviews are
+  delta-only and concise: fixed/still-present findings as one-liners, full
+  text only for new findings, no "looks good" bullets.
+- **Shepherd sweep** (default hourly, working days/hours; exists only when
+  Slack notifications were enabled at onboarding): `preflight.sh shepherd`
+  classifies every open non-draft PR from independent reviews and applies
+  the age gate / cooldown / escalation ladder; the agent applies each due
+  nudge's ledger update (write-before-send) and sends it to the shared Slack
+  channel (roster-only mentions, per
+  [`docs/shepherd.md`](docs/shepherd.md)). The nudge rules are
+  hour-granular, so the hourly work-hours cadence loses nothing versus a
+  continuous one.
+
+The agent definition is split so the always-loaded part stays small:
+[`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
+the hard invariants, while the detailed procedures live in [`docs/`](docs/)
+and are read only when the corresponding work actually happens.
 
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
@@ -85,8 +85,9 @@ That is enough for a complete initialization. The agent reads the runbook and,
 in one pass, checks out its own definition, wires up `work/`, walks you through
 a short configuration dialog (bot name, review marker, skills repo, Slack —
 each value lands in `work/CONFIG.md`, see **Configuration** below), registers
-the every-10-minutes review schedule, and marks itself onboarded so it never
-repeats the process. From then on it runs the review pipeline on schedule.
+the schedules (the every-10-minutes review heartbeat, plus the hourly
+work-hours shepherd sweep when Slack is enabled), and marks itself onboarded
+so it never repeats the process. From then on it runs on schedule.
 
 ### Slack notifications (optional, chosen at onboarding)
 
@@ -156,7 +157,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   teams (`read:org`) for the roster import.
 - **External services:** artifact links render via `htmlpreview.github.io`, a
   third-party service; "secret" gists are unlisted but publicly reachable by
-  URL (see `CLAUDE.md` → **Visual PR Artifact**).
+  URL (see `docs/artifact.md`).
 
 ### Connections
 
@@ -187,12 +188,20 @@ seeded depends on `GITHUB_REPO_WORK` (see above):
   repo.
 
 `work/` is kept independent of this definition repo (it is git-ignored / detached
-at the top level), so the two never collide — see `CLAUDE.md` →
+at the top level), so the two never collide — see `docs/persistence.md` →
 **Two repos, one inside the other**.
 
 ## Files
 
-- [`CLAUDE.md`](CLAUDE.md) — full operating manual loaded by the agent.
+- [`CLAUDE.md`](CLAUDE.md) — the slim core manual loaded by the agent on every
+  run (run types, pre-flight contract, config semantics, hard invariants).
+- [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
+  both run types; detects work, never acts on GitHub.
+- [`docs/`](docs/) — detailed procedures, read on demand:
+  [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
+  [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
+  [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md),
+  [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
 - [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
 - [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.
