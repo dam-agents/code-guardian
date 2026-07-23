@@ -19,6 +19,10 @@
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder already computed; the agent
 #                             applies each row_update before sending)
+#   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
+#                             checks (auth, state consistency, log gaps/errors,
+#                             orphaned gists, disk, skills); the agent adds the
+#                             judgment checks and sends the report (docs/audit.md)
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
@@ -396,4 +400,194 @@ if [ "$MODE" = "shepherd" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd)"
+# ============================================================ AUDIT MODE ====
+if [ "$MODE" = "audit" ]; then
+  AUDIT_ENABLED="$(cfg audit_report)"; AUDIT_ENABLED="${AUDIT_ENABLED:-enabled}"
+  if [ "$AUDIT_ENABLED" != "enabled" ]; then
+    log "audit_report disabled — audit skipped"
+    printf '%s\n' "$NOW_ISO audit nothing_to_do=true audit_report=disabled" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+    jq -n --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+      '{mode:"audit", nothing_to_do:true, logs:$logs}'
+    exit 0
+  fi
+
+  SINCE_EPOCH=$((NOW_EPOCH - 7*86400))
+  SINCE_ISO="$(date -u -d "@$SINCE_EPOCH" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$SINCE_EPOCH" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  CHECKS='[]'
+  check() { CHECKS="$(printf '%s' "$CHECKS" | jq --arg i "$1" --arg s "$2" --arg d "$3" '. + [{id:$i, status:$s, detail:$d}]')"; }
+
+  # --- connectivity -----------------------------------------------------
+  me="$(gh api user 2>/dev/null | jq -r '.login // empty')"
+  if [ -z "$me" ]; then check github_auth fail "gh api user failed — token broken"
+  elif [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ]; then check github_auth warn "authenticated as $me, expected $BOT_LOGIN"
+  else check github_auth ok "authenticated as $me"; fi
+
+  rl="$(gh api rate_limit 2>/dev/null | jq -r '.resources.core.remaining // empty')"
+  if [ -z "$rl" ]; then check rate_limit warn "rate_limit endpoint unreadable"
+  elif [ "$rl" -lt 500 ]; then check rate_limit warn "only $rl core API calls remaining this hour"
+  else check rate_limit ok "$rl core API calls remaining"; fi
+
+  check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
+
+  if [ -n "${GITHUB_REPO_WORK:-}" ]; then
+    if [ -d "$WORK/.git" ]; then
+      git -C "$WORK" fetch -q origin 2>/dev/null
+      ahead="$(git -C "$WORK" rev-list --count '@{u}..HEAD' 2>/dev/null || echo '?')"
+      dirty="$(git -C "$WORK" status --porcelain 2>/dev/null | grep -c . || true)"
+      if [ "$ahead" != "?" ] && [ "$ahead" -gt 3 ]; then check work_repo warn "$ahead unpushed commits, $dirty dirty files — pushes may be failing"
+      else check work_repo ok "ahead=$ahead unpushed, dirty=$dirty (swept up next active run)"; fi
+    else check work_repo fail "GITHUB_REPO_WORK set but work/ is not a git clone"; fi
+  else check work_repo ok "local-only persistence (GITHUB_REPO_WORK unset)"; fi
+
+  # --- heartbeat cadence & log errors ------------------------------------
+  hb_total=0; hb_idle=0; max_gap=0; prev=0; last_e=0
+  while IFS= read -r line; do
+    ts="${line%% *}"; e="$(iso2epoch "$ts")"
+    { [ "$e" -eq 0 ] || [ "$e" -lt "$SINCE_EPOCH" ]; } && continue
+    case "$line" in (*" review "*) ;; (*) continue;; esac
+    hb_total=$((hb_total+1))
+    case "$line" in (*"nothing_to_do=true"*) hb_idle=$((hb_idle+1));; esac
+    [ "$prev" -gt 0 ] && { g=$((e-prev)); [ "$g" -gt "$max_gap" ] && max_gap=$g; }
+    prev="$e"; last_e="$e"
+  done < "$WORK/HEARTBEAT.log" 2>/dev/null
+  last_age_m=$(( last_e > 0 ? (NOW_EPOCH - last_e) / 60 : -1 ))
+  if [ "$hb_total" -eq 0 ]; then check heartbeats fail "no review heartbeats logged in the last 7 days"
+  elif [ "$max_gap" -gt 3600 ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min; last ${last_age_m}m ago"
+  else check heartbeats ok "$hb_total heartbeats, largest gap $((max_gap/60)) min, last ${last_age_m}m ago"; fi
+
+  if [ "$SLACK" = "enabled" ]; then
+    sw=0
+    while IFS= read -r line; do
+      ts="${line%% *}"; e="$(iso2epoch "$ts")"
+      [ "$e" -ge "$SINCE_EPOCH" ] && sw=$((sw+1))
+    done < "$WORK/SHEPHERD.log" 2>/dev/null
+    if [ "$sw" -eq 0 ]; then check shepherd_sweeps warn "no shepherd sweeps logged in the last 7 days"
+    else check shepherd_sweeps ok "$sw shepherd sweeps this week"; fi
+  fi
+
+  err_lines="$( { grep -hiE 'fail|error|anomal' "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
+    | while IFS= read -r l; do ts="${l%% *}"; e="$(iso2epoch "$ts")"; [ "$e" -ge "$SINCE_EPOCH" ] && printf '%s\n' "$l"; done)"
+  err_count="$(printf '%s' "$err_lines" | grep -c . || true)"
+  if [ "$err_count" -gt 0 ]; then check log_errors warn "$err_count error-ish log lines this week; last: $(printf '%s\n' "$err_lines" | tail -1 | cut -c1-160)"
+  else check log_errors ok "no error lines in the weekly logs"; fi
+
+  # --- state consistency --------------------------------------------------
+  stale_locks=""
+  while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    st="$(row_field "$row" 6)"; [ "$st" = "in_progress" ] || continue
+    ts="$(row_field "$row" 4)"; age=$(( (NOW_EPOCH - $(iso2epoch "$ts")) / 60 ))
+    [ "$age" -gt 30 ] && stale_locks="${stale_locks:+$stale_locks, }#$(row_field "$row" 2) (${age}m)"
+  done < <(reviews_rows)
+  [ -n "$stale_locks" ] && check stale_locks warn "stale in_progress locks: $stale_locks" || check stale_locks ok "no stale locks"
+
+  dups="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | sort | uniq -d | tr '\n' ' ')"
+  [ -n "${dups// /}" ] && check duplicate_rows fail "duplicate REVIEWS.md rows for: $dups" || check duplicate_rows ok "no duplicate rows"
+
+  ghost=0
+  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do open_numbers | grep -qx "$n" || ghost=$((ghost+1)); done
+  [ "$ghost" -gt 0 ] && check closed_rows warn "$ghost rows for non-open PRs (prune pending next heartbeat)" || check closed_rows ok "every row maps to an open PR"
+
+  orphan_files=0
+  for f in "$WORK"/reviews/pr-*.md; do
+    [ -f "$f" ] || continue
+    n="${f##*/pr-}"; n="${n%.md}"
+    [ -n "$(row_for "$n")" ] || orphan_files=$((orphan_files+1))
+  done
+  [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row" || check orphan_history ok "history files all match rows"
+
+  drift=""; verified=0
+  while IFS=$'\t' read -r n sha; do
+    row="$(row_for "$n")"; [ -z "$row" ] && continue
+    st="$(row_field "$row" 6)"; { [ "$st" = "done" ] || [ "$st" = "awaiting_label" ]; } || continue
+    [ "$verified" -ge 25 ] && break
+    verified=$((verified+1))
+    rsha="$(row_field "$row" 3)"
+    [ -z "$(remote_reviewed_at "$n" "$rsha")" ] && drift="${drift:+$drift, }#$n"
+  done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha] | @tsv')
+  [ -n "$drift" ] && check state_drift fail "rows whose SHA has no marker on GitHub: $drift" \
+    || check state_drift ok "$verified open-PR rows verified against GitHub markers"
+
+  # --- artifacts & hygiene --------------------------------------------------
+  if [ -n "$ARTIFACT_SKILL" ]; then
+    gist_ids="$(gh api "gists?per_page=100" 2>/dev/null | jq -r '.[] | select((.description // "") | test("review artifact")) | .id')"
+    markers="$(grep -ho '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK"/reviews/pr-*.md 2>/dev/null | cut -d' ' -f3 | sort -u)"
+    orphans=""
+    for g in $gist_ids; do printf '%s\n' "$markers" | grep -qx "$g" || orphans="${orphans:+$orphans, }$g"; done
+    [ -n "$orphans" ] && check orphan_gists warn "artifact gists with no marker (leaked, never pruned): $orphans" \
+      || check orphan_gists ok "every artifact gist is tracked by a marker"
+  fi
+
+  tmp_left="$(ls -d /tmp/review-pr-* 2>/dev/null | grep -c . || true)"
+  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left leftover /tmp/review-pr-* directories" || check tmp_leftovers ok "no clone leftovers"
+
+  disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
+  if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
+
+  while IFS='|' read -r _ skill src _rest; do
+    skill="$(trim "$skill")"; src="$(trim "$src")"
+    case "$skill" in (''|skill|-*) continue;; esac
+    [ "$src" = "harness" ] && continue
+    remote_sha="$(gh api "repos/$src/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+    cached="$(cat "$SKILL_CACHE/$skill.sha" 2>/dev/null || true)"
+    if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
+    elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
+    else check "skill_$skill" ok "installed and current"; fi
+  done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
+
+  if [ "$SLACK" = "enabled" ]; then
+    if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"
+    elif [ -n "$ESCALATION_OWNER" ] && ! grep -q "$ESCALATION_OWNER" "$DEVELOPERS"; then check roster warn "escalation_owner '$ESCALATION_OWNER' not found in the roster"
+    else check roster ok "roster present, escalation owner listed"; fi
+  fi
+
+  if [ -d "$HOME_DIR/.git" ]; then
+    def_dirty="$(git -C "$HOME_DIR" status --porcelain 2>/dev/null | grep -c . || true)"
+    [ "$def_dirty" -gt 0 ] && check definition warn "$def_dirty uncommitted changes in the definition checkout" \
+      || check definition ok "definition checkout clean ($(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null))"
+  fi
+
+  # --- 7-day stats -----------------------------------------------------------
+  rv_total=0; rv_first=0; rv_re=0; v_app=0; v_com=0; v_req=0
+  for f in "$WORK"/reviews/pr-*.md; do
+    [ -f "$f" ] || continue
+    idx=0
+    while IFS= read -r line; do
+      idx=$((idx+1))
+      ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)"
+      [ -z "$ts" ] && continue
+      [ "$(iso2epoch "$ts")" -lt "$SINCE_EPOCH" ] && continue
+      rv_total=$((rv_total+1))
+      [ "$idx" -eq 1 ] && rv_first=$((rv_first+1)) || rv_re=$((rv_re+1))
+      case "$line" in
+        (*REQUEST_CHANGES*) v_req=$((v_req+1));;
+        (*APPROVE*)         v_app=$((v_app+1));;
+        (*COMMENT*)         v_com=$((v_com+1));;
+      esac
+    done < <(grep '^## Review at ' "$f")
+  done
+  nudges_wk=0
+  while IFS= read -r l; do
+    ts="${l%% *}"; [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
+    m="$(printf '%s' "$l" | grep -oE '[0-9]+ nudges due' | cut -d' ' -f1)"
+    nudges_wk=$((nudges_wk + ${m:-0}))
+  done < "$WORK/SHEPHERD.log" 2>/dev/null
+
+  STATS="$(jq -n --arg since "$SINCE_ISO" \
+    --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
+    --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
+    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
+    '{since:$since, open_prs:$open,
+      reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
+      heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd}')"
+
+  # wording note: never write the substring "fail"/"error" into this line —
+  # the next audit's log_errors grep would flag it as a false positive
+  printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+  jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
+    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks, logs:$logs}'
+  exit 0
+fi
+
+fail_out "unknown mode '$MODE' (use review|shepherd|audit)"

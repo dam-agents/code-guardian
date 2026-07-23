@@ -141,6 +141,7 @@ Final shape:
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - slack_notifications: enabled         # or: disabled
+- audit_report: enabled                # weekly health report; or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
 
 ## Review skills
@@ -198,6 +199,10 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
    > Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, apply each nudge's row_update to the ledger before sending (write-before-send), send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), and commit & push work/ when GITHUB_REPO_WORK is set.
 
+**6c — Weekly audit.** Ask: *When should I send the weekly health report? Default is Friday 07:00 (platform timezone).* Create `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`, `sessionMode: fresh`, `task`:
+
+   > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, lost nudges), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and commit & push work/ when GITHUB_REPO_WORK is set.
+
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
 ## Step 7 — Write the sentinel and report
@@ -212,7 +217,7 @@ echo "Onboarding complete."
 Then give the operator a short **onboarding summary** in the chat UI:
 
 1. The final `work/CONFIG.md` (verbatim).
-2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), state persistence (`GITHUB_REPO_WORK` or local-only).
+2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
 3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.
