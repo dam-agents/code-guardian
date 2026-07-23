@@ -9,7 +9,7 @@ wait too long for human review (the **PR Shepherd** role).
 
 ## How it works
 
-Two independent schedules exist, and **both start with a deterministic
+Three independent schedules exist, and **all start with a deterministic
 pre-flight script** ([`scripts/preflight.sh`](scripts/preflight.sh)). The
 script only *detects* — it makes no GitHub writes and computes the run's
 worklist; when the worklist is empty the agent never wakes up (idle
@@ -46,6 +46,15 @@ of it per the `docs/` procedures:
   [`docs/shepherd.md`](docs/shepherd.md)). The nudge rules are
   hour-granular, so the hourly work-hours cadence loses nothing versus a
   continuous one.
+- **Weekly audit** (default Friday morning): `preflight.sh audit` computes
+  7-day statistics (reviews, verdicts, nudges, heartbeat cadence) and
+  deterministic health checks — GitHub auth and rate limit, missed
+  heartbeats, error log lines, state consistency against the GitHub markers,
+  stale locks, orphaned artifact gists, disk usage, skill freshness, roster
+  sanity. The agent adds judgment checks (schedules, memory-rule compliance,
+  lost nudges) and sends a traffic-light report to Slack (when enabled) and
+  the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
+  `audit_report` config key (default `enabled`).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
@@ -85,8 +94,9 @@ That is enough for a complete initialization. The agent reads the runbook and,
 in one pass, checks out its own definition, wires up `work/`, walks you through
 a short configuration dialog (bot name, review marker, skills repo, Slack —
 each value lands in `work/CONFIG.md`, see **Configuration** below), registers
-the schedules (the every-10-minutes review heartbeat, plus the hourly
-work-hours shepherd sweep when Slack is enabled), and marks itself onboarded
+the schedules (the every-10-minutes review heartbeat, the Friday audit, plus
+the hourly work-hours shepherd sweep when Slack is enabled), and marks itself
+onboarded
 so it never repeats the process. From then on it runs on schedule.
 
 ### Slack notifications (optional, chosen at onboarding)
@@ -138,6 +148,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
+| `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
 
 ### Runtime requirements
@@ -200,7 +211,7 @@ at the top level), so the two never collide — see `docs/persistence.md` →
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
-  [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md),
+  [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
 - [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
