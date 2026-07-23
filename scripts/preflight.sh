@@ -173,8 +173,9 @@ if [ "$MODE" = "review" ]; then
     case "$state" in
       CLOSED|MERGED)
         gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-        PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" \
-          '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end)}')" '. + [$e]')"
+        did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
+        PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" --arg d "${did:-}" \
+          '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end), dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
         log "PR #$n: $state — prune due";;
       *) : ;;  # OPEN / API error -> leave the row alone
     esac
@@ -242,7 +243,7 @@ if [ "$MODE" = "review" ]; then
     # artifact assignee gate (independent of the review decision)
     if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qx "$BOT_LOGIN"; then
       action="generate"
-      grep -q '<!-- artifact-gist:' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
+      grep -qE '<!-- artifact-(gist|dam):' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
       ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
         '{number:$n, action:$a}')" '. + [$e]')"
       log "PR #$n: artifact $action due"
