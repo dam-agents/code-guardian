@@ -75,6 +75,20 @@ j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
 k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
 
+**Progress logging (stall diagnosis, opt-in).** A run otherwise only writes
+`HEARTBEAT.log` at its end, so a session that dies mid-review (e.g. ending the
+turn after a skill report — [skills.md](skills.md)) leaves no trace of where it
+stopped. When **`review_progress_log: enabled`** in `work/CONFIG.md` (default
+`disabled` — see CLAUDE.md → Runtime configuration), append one line to
+`work/REVIEW-DEBUG.log` as each milestone of this sequence completes:
+`<UTC> PR #<n> <sha-short> <step>` — step ∈ `locked` (a) · `cloned` (d) ·
+`skill:<name> done` (d, one per configured skill) · `posted <verdict>` (h) ·
+`done` (j) · `aborted <reason>` (e). The last line logged for a PR then pins
+the exact step a stall stopped at. One line each, append-only
+(`>> "$HOME/work/REVIEW-DEBUG.log"`); negligible cost, swept up by the run-end
+persist. When the key is `disabled` or absent, skip all progress logging — no
+`REVIEW-DEBUG.log` is created and behavior is unchanged.
+
 ```bash
 MARKER="<!-- $REVIEW_MARKER headRefOid=<full-sha> -->"
 gh api "repos/$REPO/pulls/<n>/reviews" \
@@ -327,5 +341,9 @@ removed after every posted review on a labeled PR · re-reviews delta-only
 (Findings = 🆕 only, one-line carryovers, no ✅ Looks good) · full review
 appended to `reviews/pr-<n>.md` · overrides applied from that PR's file only ·
 PR context fetched and used · stale approval dismissed when the verdict
-dropped below APPROVE · clone deleted · all errors logged · no literal repo
-slug in any output.
+dropped below APPROVE · clone deleted · when `review_progress_log: enabled`,
+per-PR progress lines were logged to `REVIEW-DEBUG.log` (`locked` →
+`skill:… done` → `posted`/`aborted`/`done`) so a mid-review stall is
+diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
+state — the run was never ended mid-pipeline (e.g. after a skill report)** ·
+all errors logged · no literal repo slug in any output.
