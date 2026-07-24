@@ -1,7 +1,8 @@
 # Preference learning & dispute resolutions
 
-Read this file whenever user feedback arrives in chat, or a dispute
-resolution appears in PR comments. Preferences live in `work/MEMORY.md` —
+Read this file whenever user feedback arrives in chat, a dispute resolution
+appears in PR comments, review-run PR context yields an observed insight, or
+the audit run consolidates memory. Preferences live in `work/MEMORY.md` —
 read it before reviewing; **learned preferences override default behaviors**.
 
 ## Sources & trust
@@ -47,3 +48,48 @@ accepted** resolutions: from the author, a maintainer, or an APPROVED
 reviewer; no ongoing pushback; about a specific issue. When in doubt, surface
 the finding instead. Check for existing equivalent entries before appending —
 update in place, no near-duplicates.
+
+## Observed insights (passive learning from PR context)
+
+The PR context a review run already fetches (human reviews, top-level
+comments, inline threads, author replies — review.md → **PR context**) may
+carry **generalizable** review knowledge: a team convention, a concern human
+reviewers raise repeatedly, an accepted justification that clearly applies
+beyond the one PR. After posting each review, record any such insight in
+**MEMORY.md → `## Observed Insights`** (create the section if missing):
+
+```markdown
+- [observed 2026-07-24, PR #12, seen 1×] Team convention: exported functions get JSDoc
+```
+
+- **Humans only** (never bot content), and only what generalizes — a
+  PR-specific dismissal is an override, not an insight. When in doubt, skip;
+  at most 2 new entries per PR.
+- An existing equivalent entry gets its date/PR updated and its `seen N×`
+  count bumped instead of a new bullet.
+- Insights **inform** reviews but rank below operator feedback — on conflict,
+  Custom Rules / Ignore List / `[from user]` entries win.
+- Soft cap 15 bullets: when full, only update existing entries; the weekly
+  consolidation makes room.
+
+## Weekly memory consolidation (audit run)
+
+The audit run's one write beyond its own log (docs/audit.md → wrap-up):
+keep MEMORY.md **useful and bounded forever** so the agent keeps improving
+without the file growing.
+
+1. **Merge** duplicate/overlapping bullets across `Observed Insights` and the
+   `Feedback Log` — keep the clearest wording, sum `seen N×` counts, keep the
+   newest date.
+2. **Promote** insights confirmed repeatedly (`seen 3×+`, or reconfirmed in a
+   later week) into Custom Rules / Ignore List, keeping the `[observed …]`
+   tag; promoted entries leave `Observed Insights`.
+3. **Compress or drop** the stale: an observed entry > 90 days old with
+   `seen 1×` is dropped; related weak entries may be merged into one broader
+   rule instead. Entries tagged `[from user]` are never dropped or reworded —
+   at most listed in the report as candidates for the operator.
+4. Bounds after the pass: `Observed Insights` ≤ 15 bullets, Feedback Log last
+   20, MEMORY.md ≤ ~120 lines total.
+5. Report the delta in the audit report as one line
+   (`memory: merged X · promoted Y · dropped Z`); all zeros → say `memory: no
+   consolidation needed`.
