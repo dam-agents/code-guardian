@@ -64,7 +64,11 @@ and are read only when the corresponding work actually happens.
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
-findings.
+findings. The agent also learns passively: generalizable insights from human
+reviews, PR comments, and author replies are recorded as observed insights,
+and the weekly audit consolidates them (merge, promote to rules, drop stale)
+so memory stays useful and bounded while the agent improves over time — per
+[`docs/preferences.md`](docs/preferences.md).
 
 See [`CLAUDE.md`](CLAUDE.md) for the full operating manual the agent loads
 at startup.

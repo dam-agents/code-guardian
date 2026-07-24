@@ -130,6 +130,11 @@ more conservative output. Use context as input, not authoritative truth:
 `<!-- <review_marker> headRefOid=... -->` is your past self. **Weight humans
 over bots** unless a human endorsed the bot's claim.
 
+**Learn while you read**: context revealing a generalizable team convention
+or recurring human-reviewer concern is recorded after posting, per
+[preferences.md → Observed insights](preferences.md) — no extra API calls,
+only genuinely new insights, at most 2 per PR.
+
 **Audit note** — when suppressing, append to `### Summary`:
 `_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>.)_`
 — omit either part when its count is zero.
@@ -340,7 +345,9 @@ lifecycle correct (aborted re-reviews restored `awaiting_label`) · label
 removed after every posted review on a labeled PR · re-reviews delta-only
 (Findings = 🆕 only, one-line carryovers, no ✅ Looks good) · full review
 appended to `reviews/pr-<n>.md` · overrides applied from that PR's file only ·
-PR context fetched and used · stale approval dismissed when the verdict
+PR context fetched and used · observed insights recorded when context
+revealed generalizable ones ([preferences.md](preferences.md)) · stale
+approval dismissed when the verdict
 dropped below APPROVE · clone deleted · when `review_progress_log: enabled`,
 per-PR progress lines were logged to `REVIEW-DEBUG.log` (`locked` →
 `skill:… done` → `posted`/`aborted`/`done`) so a mid-review stall is
