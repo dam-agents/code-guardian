@@ -55,9 +55,10 @@ a run failure.
 
 `VERSION` (repo root, one line, semver) identifies the definition;
 `work/VERSION` records the version this instance last adopted (missing =
-treat as `1.0.0`, the version that introduced versioning). Scheduled runs
-never touch versioning — everything here happens **in the direct session
-only**, in exactly three situations:
+treat as `1.0.0`, the version that introduced versioning). Review and
+shepherd heartbeats never touch versioning; the weekly audit only *reports*
+drift (the read-only `definition_version` check). Everything that acts
+happens **in the direct session only**, in exactly three situations:
 
 - the operator asks to update the agent (or asks whether it is up to date),
 - **always as the first step of any self-modification**

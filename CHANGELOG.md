@@ -17,8 +17,10 @@ changelog**.
 - Versioning introduced: `VERSION` file, this changelog, the version check +
   upgrade procedure in docs/persistence.md (runs at operator-requested
   updates, on demand, and before every self-modification — never from
-  scheduled runs), authoring rules in docs/self-modification.md §12, and
-  `work/VERSION` written at ONBOARDING Step 7.
+  review/shepherd heartbeats), authoring rules in docs/self-modification.md
+  §12, and `work/VERSION` written at ONBOARDING Step 7. The weekly audit
+  gains the `definition_version` check — an outdated or half-adopted
+  definition surfaces as a `warn` in the audit report (Slack when enabled).
 
 **Upgrade:**
 - Nothing to apply — the check serving this migration just records the

@@ -23,7 +23,12 @@ if one is impossible this week (missing data, API error), report it as
    backlog, heartbeat gaps, weekly log errors, stale locks, duplicate rows,
    prune backlog, orphan history files, marker cross-verification
    (state drift), orphaned gists, `/tmp` leftovers, disk, skill freshness,
-   roster presence, definition cleanliness. Anything below is **yours**.
+   roster presence, definition cleanliness, and **definition version
+   currency** (`definition_version`: checkout vs `origin/main` `VERSION` vs
+   adopted `work/VERSION` — an outdated or half-adopted definition is a
+   `warn` the report must surface, telling the operator to update/migrate
+   in the direct session per docs/persistence.md). Anything below is
+   **yours**.
 
 ### B. Platform & schedules
 
