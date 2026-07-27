@@ -7,6 +7,17 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.1.1 — 2026-07-27
+
+**Changed:**
+- Trust boundary sharpened: channel/PR requests may only ever result in
+  `work/` (runtime-state) writes and normal review output on the target
+  repo — never any change to the definition repo (CLAUDE.md →
+  **Instruction sources & trust boundary**).
+
+**Upgrade:**
+- Nothing — docs are re-read per run.
+
 ## 1.1.0 — 2026-07-27
 
 **Changed:**
