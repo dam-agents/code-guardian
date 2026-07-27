@@ -7,6 +7,17 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.1.0 — 2026-07-27
+
+**Changed:**
+- Anyone in the connected channel can request a review of a specific PR —
+  equivalent to adding the re-review label, including killing a stuck
+  (stale-locked) review and re-running it (docs/review.md →
+  **Slack-requested review**).
+
+**Upgrade:**
+- Nothing — docs are re-read per run.
+
 ## 1.0.0 — 2026-07-27
 
 **Changed:**

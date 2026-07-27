@@ -107,6 +107,29 @@ gh api -X DELETE "repos/$REPO/issues/<n>/labels/$REREVIEW_LABEL" >/dev/null \
   || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
 ```
 
+## Slack-requested review (on-demand)
+
+The one channel request that triggers work (CLAUDE.md → **Instruction
+sources & trust boundary**): **anyone** in the connected channel may ask for
+a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`. Nothing
+else about the agent is changeable from a channel.
+
+1. Resolve the PR reference (number or URL); `gh pr view` — not found /
+   closed / draft → reply so in the channel, done.
+2. Row `in_progress`: fresh (< 30 min) → reply "review already running",
+   done. Stale → the review is stuck: log
+   `PR #<n>: stale lock killed on Slack request` and continue (the lock is
+   overwritten in the next step).
+3. Live HEAD already reviewed (row SHA or remote marker — snippet above) →
+   reply "already reviewed at <short-sha>"; same-SHA dedup always holds.
+4. Otherwise run the full per-PR sequence above (kind = `re-review` when a
+   prior review exists, else `first`; install missing skills per the
+   fallback in skills.md → Installation), reply in the channel with a link to
+   the posted review, and persist `work/` (persistence.md).
+
+Replying to the requesting channel is responsive, not proactive — it does
+not require `slack_notifications: enabled` (that gates outbound nudging).
+
 ## PR context: body, comments, reviews
 
 ```bash

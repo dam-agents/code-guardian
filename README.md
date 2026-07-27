@@ -132,6 +132,11 @@ The decision is stored in `work/CONFIG.md` and can be changed later simply by
 telling the agent — it will flip the flag (and build the roster on first
 enable).
 
+Independently of this opt-in, **anyone** in the connected channel can ask the
+agent to review a specific PR (equivalent to adding the re-review label),
+including restarting a stuck review — see `docs/review.md` →
+**Slack-requested review**.
+
 ## Configuration
 
 ### Environment variables
