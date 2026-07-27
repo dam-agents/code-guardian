@@ -94,8 +94,9 @@ in the chat UI instead.
 
 - Runtime state lives **only** in `work/` and is never committed to the
   definition repo; the definition repo never stores per-instance data,
-  history, credentials, or logs. The tracked `work/` seeds stay minimal
-  scaffolds.
+  history, credentials, or logs. Nothing under `work/` is tracked — the
+  `MEMORY.md`/`REVIEWS.md` seeds live as templates in `ONBOARDING.md`
+  (Step 3b), keeping definition updates from colliding with runtime state.
 - **Backward compatibility with live state:** a change must tolerate the
   `work/` files an existing deployment already has (REVIEWS.md rows,
   SHEPHERD.md ledgers, history files, markers). New formats need tolerant

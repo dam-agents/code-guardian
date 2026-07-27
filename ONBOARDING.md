@@ -63,17 +63,16 @@ git branch --set-upstream-to=origin/main main 2>/dev/null || true
 
 > **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths — either could capture or delete `.ssh`, `.claude`, `work/`, etc.
 
-## Step 2 — Detach `work/` from the outer repo (locally)
+## Step 2 — Confirm `work/` is invisible to the outer repo
 
-The definition repo tracks the `work/` seed files (keeps in-repo links valid), but on this volume `work/` is independent runtime state, so the outer repo must ignore its changes — via `skip-worktree`, which (unlike `git rm --cached`) stages no deletion that could leak into a definition commit:
+`work/` is independent runtime state and is **not** tracked by the definition repo — the allowlist `.gitignore` (`/*`, then re-include only the definition files) hides everything under `work/`. No detach step is needed; just confirm nothing leaks:
 
 ```bash
 cd /home/agent
-git update-index --skip-worktree work/MEMORY.md work/REVIEWS.md 2>/dev/null || true
 git status --porcelain   # MUST be clean — nothing under work/, .ssh, .claude, .config
 ```
 
-If anything shows up, **stop and fix it before continuing** — do not write the sentinel.
+If anything under `work/` (or `.ssh`, `.claude`, `.config`) shows up, **stop and fix `.gitignore` before continuing** — do not write the sentinel.
 
 ## Step 3 — Provision `work/` (runtime state)
 
@@ -92,7 +91,49 @@ if [ -n "$GITHUB_REPO_WORK" ]; then
 fi
 ```
 
-**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`; keep the seed `MEMORY.md` from Step 1 (not reconstructable; create empty only if missing). Review-tracking state is reconstructed in Step 5 — it needs the `review_marker` from Step 4 first.
+**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
+
+```bash
+mkdir -p /home/agent/work/reviews
+if [ ! -f /home/agent/work/MEMORY.md ]; then
+  cat > /home/agent/work/MEMORY.md <<'EOF'
+# Review Preferences
+
+## Review Style
+- Default strictness: medium
+- Default verbosity: concise (suitable for chat UI)
+- Tone: professional, constructive
+
+## Focus Areas
+- Correctness
+- Security
+- Performance
+- Maintainability
+- Architecture
+- Tests
+
+## Ignore List
+_(Nothing ignored yet — user feedback will populate this)_
+
+## Custom Rules
+_(No custom rules yet — user feedback will populate this)_
+
+## Observed Insights
+_(Learned from human reviews, PR comments, and author replies — consolidated weekly at audit)_
+
+## Feedback Log
+_(No feedback yet — entries will be added as the user provides feedback)_
+EOF
+fi
+if [ ! -f /home/agent/work/REVIEWS.md ]; then
+  cat > /home/agent/work/REVIEWS.md <<'EOF'
+# Reviewed PRs
+
+| PR | Commit | Timestamp | Verdict | Status |
+|----|--------|-----------|---------|--------|
+EOF
+fi
+```
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 

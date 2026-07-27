@@ -4,12 +4,13 @@
 # ignore EVERYTHING at the top level by default, then re-include only the
 # agent-definition files this repo actually tracks.
 #
-# NOTE: this repo still TRACKS work/MEMORY.md and work/REVIEWS.md as seeds (so the
-# in-repo links stay valid). .gitignore does not untrack files already in the index,
-# so those seeds remain versioned here; the `/*` rule only hides *untracked* paths
-# (HOME secrets, work/reviews/, an inner work/.git, ...). On the agent volume,
-# onboarding additionally runs `git update-index --skip-worktree` on the two seed
-# files so their local runtime changes are ignored.
+# NOTE: NOTHING under work/ is tracked — it is all runtime state, seeded on a
+# fresh volume from the templates in ONBOARDING.md (Step 3b), not from this repo.
+# The `/*` rule hides every untracked top-level path (HOME secrets, all of work/,
+# an inner work/.git, ...); only the definition files re-included below are
+# versioned. This keeps `git add -A` at $HOME safe and lets a deployed instance
+# update the definition (`git reset --hard origin/main`) without ever colliding
+# with its live work/ state.
 
 /*
 
