@@ -11,9 +11,12 @@ when the operator asks for a change to the agent definition itself.
 | `/home/agent/work` (inner) | `$GITHUB_REPO_WORK` | Runtime state. Exists as a repo only when the var is set. |
 
 The outer `.gitignore` is an allowlist (`/*` then re-include the definition
-files), so untracked `work/` content and HOME secrets (`.ssh`, `.claude`,
-`.config`) are invisible to the outer repo. The tracked seed files are
-`skip-worktree` since onboarding. Scope commands: inner state →
+files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
+`.config`) are invisible to the outer repo — nothing under `work/` is tracked.
+A fresh volume seeds `work/MEMORY.md` and `work/REVIEWS.md` from the templates in
+`ONBOARDING.md` (Step 3b); this keeps a definition update
+(`git reset --hard origin/main`) from ever colliding with live runtime state.
+Scope commands: inner state →
 `git -C /home/agent/work`, definition → `git -C /home/agent`.
 **Never run `git clean` in `/home/agent`** and never `git add` outside the
 allowlist.
