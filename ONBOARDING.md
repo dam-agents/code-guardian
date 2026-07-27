@@ -162,6 +162,7 @@ The definition is project-agnostic: every instance-specific value lives in `work
    - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list — otherwise drop the row after confirming (a missing harness skill would just log `skill-errored` on every PR).
    - An empty table + `artifact_skill: none` is valid — plain reviews only.
+   - When the artifact skill is enabled, ask which surfaces to publish to — `artifact_targets` (default `gist`; `gist,dam` also publishes to the DAM Artifact Library, best-effort behind the owner's experimental flag — [docs/artifact.md](docs/artifact.md)). Omit the key with `artifact_skill: none`.
 8. **`slack_notifications`** — strictly opt-in (gates the PR Shepherd nudging). Ask:
 
    > Do you want Slack notifications? When enabled, I watch how long each open PR waits for human review and nudge reviewers/authors in the shared Slack channel, escalating over time. It needs a Slack connection and a developer roster — I'll walk you through building one.
@@ -181,6 +182,7 @@ Final shape:
 - review_marker: code-guardian:review
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
+- artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled

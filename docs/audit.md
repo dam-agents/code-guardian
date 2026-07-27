@@ -36,9 +36,10 @@ if one is impossible this week (missing data, API error), report it as
    check — the heartbeat-gap check catches the past, this catches the future).
 5. Slack connectivity — no separate probe: sending the report *is* the test
    (send failure → fail + fall back to chat UI).
-6. Artifact feature (when `artifact_skill` configured): are the DAM MCP tools
-   (`create_artifact*`) registered this session? Absent → **info**, not a
-   failure (the DAM half is best-effort by design) — but report the flag
+6. Artifact feature (when `artifact_skill` configured): report the configured
+   `artifact_targets` (default `gist`). When it lists `dam`, are the DAM MCP
+   tools (`create_artifact*`) registered this session? Absent → **info**, not
+   a failure (the DAM surface is best-effort by design) — but report the flag
    state so the operator knows which surfaces artifacts currently get.
 
 ### C. Review pipeline correctness (sample up to 3 reviews posted this week)

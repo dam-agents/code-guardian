@@ -26,10 +26,17 @@ Do these before the review loop; one log line each.
 
 ## Pruning (`prunes_due`)
 
-Each entry `{number, state, gist_id}` was verified CLOSED/MERGED by preflight
-this run — execute exactly this list, nothing more:
+Each entry `{number, state, gist_id, dam_id}` was verified CLOSED/MERGED by
+preflight this run — execute exactly this list, nothing more. Both artifact
+ids come from the entry (preflight reads them from the history file's
+`<!-- artifact-gist: ... -->` / `<!-- artifact-dam: ... -->` markers); if an
+entry omits them, read the markers from `work/reviews/pr-<n>.md` yourself
+before step 2 deletes it:
 
-1. `gist_id` non-null → `gh gist delete <gist_id>` (failure = log, continue).
+1. Artifact cleanup (each failure = log, continue — never blocks the prune):
+   - `gist_id` non-null → `gh gist delete <gist_id>`.
+   - `dam_id` non-null → `delete_artifact {id: <dam_id>}` via the MCP tool
+     (skip silently when the tool isn't registered this session — flag off).
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-artifacts/pr-<n>.html`.
 3. Delete the PR's row from REVIEWS.md, and its row from `work/SHEPHERD.md`
    when that file exists.
@@ -259,6 +266,7 @@ format), append `(no prior review on file)` to `### Summary`.
 ```markdown
 # PR #<number>: <title>
 <!-- artifact-gist: <GIST_ID> -->
+<!-- artifact-dam: <DAM_ID> -->
 
 ## PR-local overrides
 
@@ -272,7 +280,12 @@ format), append `(no prior review on file)` to `### Summary`.
 ```
 
 Title header + overrides stay at the top; reviews append below, oldest first,
-separated by `---`. On title change, update the header.
+separated by `---`. On title change, update the header. The
+`<!-- artifact-gist: ... -->` and `<!-- artifact-dam: ... -->` markers (when
+present) sit right after the title, each on its own line, overwritten in place
+by the artifact step ([artifact.md](artifact.md)); pruning reads both to clean
+up the gist and the DAM artifact. Omit a marker line when that surface wasn't
+published.
 
 ### Applying PR-local overrides
 
@@ -372,7 +385,12 @@ appended to `reviews/pr-<n>.md` · overrides applied from that PR's file only ·
 PR context fetched and used · observed insights recorded when context
 revealed generalizable ones ([preferences.md](preferences.md)) · stale
 approval dismissed when the verdict
-dropped below APPROVE · clone deleted · when `review_progress_log: enabled`,
+dropped below APPROVE · clone deleted · artifacts (`artifacts_due`, see
+[artifact.md](artifact.md)) published to each target in `artifact_targets`
+with all surviving links in one comment (DAM best-effort — skipped-with-log
+when the flag is off, never failing the run), every published surface's marker
+recorded, and gist/DAM/HTML all cleaned up on prune · when
+`review_progress_log: enabled`,
 per-PR progress lines were logged to `REVIEW-DEBUG.log` (`locked` →
 `skill:… done` → `posted`/`aborted`/`done`) so a mid-review stall is
 diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
