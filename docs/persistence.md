@@ -54,18 +54,13 @@ a run failure.
 ## Definition version & upgrade
 
 `VERSION` (repo root, one line, semver) identifies the definition;
-`work/VERSION` records the version this instance last adopted (missing =
-treat as `1.0.0`, the version that introduced versioning). Review and
-shepherd heartbeats never touch versioning; the weekly audit only *reports*
-drift (the read-only `definition_version` check). Everything that acts
-happens **in the direct session only**, in exactly three situations:
+`work/VERSION` is the version this instance last adopted (missing =
+`1.0.0`). Heartbeats never touch versioning (the weekly audit only
+*reports* drift — its `definition_version` check); acting happens **in the
+direct session only**: an operator-requested update or version check, and
+always before any self-modification (self-modification.md §8).
 
-- the operator asks to update the agent (or asks whether it is up to date),
-- **always as the first step of any self-modification**
-  (self-modification.md → section 8),
-- the operator explicitly asks for a version/migration check.
-
-**Version check:**
+**Check:**
 
 ```bash
 git -C /home/agent fetch -q origin main
@@ -74,37 +69,25 @@ head -1 /home/agent/VERSION                                         # checked ou
 head -1 /home/agent/work/VERSION 2>/dev/null                        # adopted
 ```
 
-- checked-out < latest → **tell the operator the agent is not up to date**
-  (state both versions); update only when they ask — never silently.
-- adopted ≠ checked-out → an update was pulled but its migration never ran →
-  apply the migration (below) now.
-- all three equal → report "up to date", done.
+Checked-out < latest → **tell the operator the agent is not up to date**
+(state both versions); update only when they ask, never silently —
+`git -C /home/agent reset --hard origin/main` (never `git clean`), then
+migrate in the same session. Adopted ≠ checked-out → migrate now. All
+equal → report "up to date".
 
-**Updating** (on the operator's request; never from a heartbeat):
+**Migration** (`from` = adopted, `to` = checked-out):
 
-```bash
-git -C /home/agent reset --hard origin/main
-```
+1. Apply the `CHANGELOG.md` **Upgrade** blocks of every version in
+   `(from, to]`, oldest first. Steps are idempotent (check before create),
+   so re-running a partial attempt is safe; an operator-only step is
+   surfaced, never guessed at.
+2. Only after every applicable step succeeded, write `to` into
+   `work/VERSION` and log `definition upgraded <from> → <to> (<n> step(s))`.
+   A failed step: log + tell the operator, leave `work/VERSION` unchanged
+   (re-offered at the next check).
+3. Rollback (`to` < `from`) → apply nothing; just write `to`.
 
-(never `git clean` — CLAUDE.md → Hard invariants), then apply the migration
-immediately in the same session.
-
-**Applying the migration** (`from` = adopted version, `to` = checked-out):
-
-1. Read `CHANGELOG.md`; collect the **Upgrade** blocks of every version
-   greater than `from` and up to `to`, oldest first.
-2. Apply them in order. Steps are idempotent (check before create), so a
-   partially applied earlier attempt is safe to re-run. A step marked
-   operator-only is not guessed at — surface it and continue with the rest.
-3. Only after every applicable step succeeded, write `to` into
-   `work/VERSION` (one line) and log
-   `definition upgraded <from> → <to> (<n> step(s) applied)`. A failed
-   step: log it, leave `work/VERSION` unchanged (the next check re-offers
-   the migration), and tell the operator what failed.
-4. `to` older than `from` (rollback) → apply nothing; just write `to`.
-
-Then commit & push `work/` (the end-of-run persist above) so
-`work/VERSION` is backed up like any other state file.
+Commit & push `work/` afterwards (section above).
 
 ## Evolving the agent definition (outer repo)
 
@@ -115,9 +98,7 @@ discipline, onboarding completeness, protected invariants, validation).
 Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`,
 `README.md`, `VERSION`, `CHANGELOG.md`) go through **branch + PR on
 `$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and
-only when deliberately asked — never as part of a heartbeat. Every change
-bumps `VERSION` and adds its `CHANGELOG.md` entry
-(self-modification.md → **Versioning & changelog**):
+only when deliberately asked — never as part of a heartbeat:
 
 ```bash
 git -C /home/agent fetch origin main

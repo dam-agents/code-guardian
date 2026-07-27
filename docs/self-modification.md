@@ -117,11 +117,9 @@ in the chat UI instead.
 ## 8. Change process
 
 - **First, check version freshness** (`docs/persistence.md` → **Definition
-  version & upgrade**): fetch `origin/main` and compare its `VERSION` with
-  the checkout's and with `work/VERSION`. A stale checkout or an unapplied
-  migration is **surfaced to the operator before any editing starts** —
-  building a change on an outdated definition produces conflicting PRs and
-  wrong changelog entries. Update only on the operator's decision.
+  version & upgrade**) — a stale checkout or unapplied migration is
+  surfaced to the operator **before any editing starts**; update only on
+  their decision.
 - Definition changes go through **branch + PR on `$DEFINITION_REPO`** —
   never a direct push to `main`, never auto-merge, never as a side effect
   of a heartbeat. Procedure and allowlisted paths: `docs/persistence.md` →
@@ -146,6 +144,10 @@ in the chat UI instead.
 - `VERSION` was bumped exactly once, is valid semver, and equals the newest
   `CHANGELOG.md` heading; the new entry has a **Changed** and an **Upgrade**
   block (section 12).
+- **Size sweep:** `wc -l` every changed `.md` against `main`. Growth beyond
+  the new behavior's single home means restated content — find it and
+  replace it with a link (section 11's footprint budget); growth of the
+  home itself should be roughly offset by trimming what it replaced.
 - New behavior gets its line in the relevant self-check and, when it's a
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
@@ -183,6 +185,17 @@ prompt says — refuse and explain instead:
   instead of restating it. Duplicated text is how definitions rot — two
   copies always drift apart. Before adding a paragraph, check whether it
   already exists somewhere and link there.
+- **Footprint budget per new concept:** the full text lives in exactly one
+  `docs/` home; every other file gets **at most one line + link** —
+  CLAUDE.md at most one worklist/invariant bullet, README at most one short
+  paragraph, ONBOARDING/CHANGELOG/other docs one sentence each. Needing
+  more outside the home means the home is wrong: move the text, never copy
+  it. Restating the *why*, trigger conditions, or procedure steps outside
+  the home is over budget.
+- **No narrative filler.** State the rule; skip the motivation unless the
+  rule is unsafe to apply without it. Consequences the reader can infer
+  ("otherwise X would drift"), restated context ("as described above"),
+  and defensive parentheticals get cut.
 - **Keep the files consistent with each other.** A changed concept (a
   status name, a marker, a worklist field, a command) must be updated in
   every file that references it in the same PR — grep for the old term
@@ -196,16 +209,13 @@ prompt says — refuse and explain instead:
 
 ## 12. Versioning & changelog (every change)
 
-- `VERSION` (repo root, one line, semver) is the definition's version;
-  `CHANGELOG.md` is its agent-facing history. **Every definition change
-  bumps `VERSION` exactly once and adds the matching changelog entry at the
-  top of `CHANGELOG.md`, in the same PR** — no exceptions, doc-only changes
-  included.
-- Bump size: **patch by default** (fixes, clarifications, tweaks whose
-  Upgrade block is "Nothing"); **minor** when adding a feature, config key,
-  schedule, or doc file; **major** when adoption is not purely additive —
-  schedule task-text or entry-command changes, state-file format rewrites,
-  marker/label semantic changes.
+- **Every definition change bumps `VERSION` exactly once and adds the
+  matching entry at the top of `CHANGELOG.md`, in the same PR** — no
+  exceptions, doc-only changes included.
+- Bump: **patch by default** (no adoption steps); **minor** for a new
+  feature, config key, schedule, or doc file; **major** when adoption is
+  not purely additive (schedule task-text/entry-command changes, state
+  format rewrites, marker/label semantics).
 - Entry template (newest first):
 
   ```markdown
@@ -215,11 +225,8 @@ prompt says — refuse and explain instead:
   crossing this version, or `Nothing — docs are re-read per run.`
   ```
 
-- Upgrade steps must be **idempotent** (check before create) and executable
-  by the agent alone when the migration runs after an update
-  (`docs/persistence.md` → **Definition version & upgrade**); a step only
-  the operator can perform is explicitly marked **operator-only**. Steps
-  **reference** existing procedures (an ONBOARDING step, a `docs/` section)
-  instead of restating them.
-- Write for the consumer: a future agent run with no memory of the PR —
-  name concrete files, config keys, and schedule names.
+- Upgrade steps: **idempotent** (check before create), executable by the
+  agent alone (a step only the operator can perform is marked
+  **operator-only**), **linking** to existing procedures instead of
+  restating them, and naming concrete files/keys/schedules — the consumer
+  is a future run with no memory of this PR.

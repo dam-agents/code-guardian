@@ -1,31 +1,23 @@
 # Changelog
 
-Agent-facing changelog of this definition. Every entry records what changed
-and — in its **Upgrade** block — the idempotent steps a deployed instance
-applies when crossing that version. Consumed by the version check that runs
-on an operator-requested update, on demand, and always before any
-self-modification: when `work/VERSION` is behind `VERSION`, the agent applies
-the Upgrade blocks oldest-first per
-[docs/persistence.md](docs/persistence.md) → **Definition version & upgrade**.
-Authoring rules (bump semantics, entry template):
-[docs/self-modification.md](docs/self-modification.md) → **Versioning &
-changelog**.
+Agent-facing history: per version, a **Changed** block and an **Upgrade**
+block — the idempotent steps a deployed instance applies when crossing that
+version. Consumed by the version check
+([docs/persistence.md](docs/persistence.md) → **Definition version &
+upgrade**); authoring rules:
+[docs/self-modification.md](docs/self-modification.md) §12.
 
 ## 1.0.0 — 2026-07-27
 
 **Changed:**
-- Versioning introduced: `VERSION` file, this changelog, the version check +
-  upgrade procedure in docs/persistence.md (runs at operator-requested
-  updates, on demand, and before every self-modification — never from
-  review/shepherd heartbeats), authoring rules in docs/self-modification.md
-  §12, and `work/VERSION` written at ONBOARDING Step 7. The weekly audit
-  gains the `definition_version` check — an outdated or half-adopted
-  definition surfaces as a `warn` in the audit report (Slack when enabled).
+- Versioning introduced: `VERSION`, this changelog, the check + migration
+  procedure (docs/persistence.md), authoring rules
+  (docs/self-modification.md §12), `work/VERSION` at ONBOARDING Step 7, and
+  the weekly audit's `definition_version` drift check.
 
 **Upgrade:**
 - Nothing to apply — the check serving this migration just records the
-  version (writes `work/VERSION`). A missing `work/VERSION` is treated as
-  version `1.0.0`.
+  version (writes `work/VERSION`).
 
 ---
 

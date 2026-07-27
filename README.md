@@ -62,14 +62,11 @@ the hard invariants, while the detailed procedures live in [`docs/`](docs/)
 and are read only when the corresponding work actually happens.
 
 The definition is **versioned** ([`VERSION`](VERSION) +
-[`CHANGELOG.md`](CHANGELOG.md)): when the operator updates a deployed
-instance (or asks for a version check, and always before the agent modifies
-its own definition), the agent compares the adopted version (`work/VERSION`)
-against the definition and applies the changelog's upgrade steps — schedule
-updates, config additions, state migrations — warning the operator when the
-instance is not up to date. Scheduled runs never touch versioning. See
-[`docs/persistence.md`](docs/persistence.md) → **Definition version &
-upgrade**.
+[`CHANGELOG.md`](CHANGELOG.md)): at updates, on demand, and before any
+self-modification the agent checks version freshness, applies the
+changelog's upgrade steps, and warns the operator when the instance is
+outdated — see [`docs/persistence.md`](docs/persistence.md) → **Definition
+version & upgrade**.
 
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
@@ -230,10 +227,9 @@ state. See `docs/persistence.md` → **Two repos, one inside the other**.
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
   also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
-- [`VERSION`](VERSION) — the definition's semver, bumped with every change
-  (default: patch).
-- [`CHANGELOG.md`](CHANGELOG.md) — agent-facing history: per version, what
-  changed and the upgrade steps a deployed instance applies automatically.
+- [`VERSION`](VERSION) + [`CHANGELOG.md`](CHANGELOG.md) — definition semver
+  (bumped with every change) and the per-version upgrade steps instances
+  apply.
 - [`LICENSE`](LICENSE) — Apache License 2.0.
 
 ## License
