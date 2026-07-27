@@ -545,6 +545,16 @@ if [ "$MODE" = "audit" ]; then
     def_dirty="$(git -C "$HOME_DIR" status --porcelain 2>/dev/null | grep -c . || true)"
     [ "$def_dirty" -gt 0 ] && check definition warn "$def_dirty uncommitted changes in the definition checkout" \
       || check definition ok "definition checkout clean ($(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null))"
+
+    # definition version currency: latest (origin/main) vs checkout vs adopted
+    git -C "$HOME_DIR" fetch -q origin main 2>/dev/null
+    latest_v="$(git -C "$HOME_DIR" show origin/main:VERSION 2>/dev/null | head -1 | tr -d '[:space:]')"
+    checkout_v="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
+    adopted_v="$(head -1 "$WORK/VERSION" 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "$latest_v" ]; then check definition_version warn "origin/main VERSION unreadable (fetch blocked, or main predates versioning)"
+    elif [ "$checkout_v" != "$latest_v" ]; then check definition_version warn "definition outdated: running ${checkout_v:-pre-versioning}, latest is $latest_v — ask the agent to update in the direct session"
+    elif [ "$adopted_v" != "$checkout_v" ]; then check definition_version warn "update pulled but not adopted: work/VERSION is ${adopted_v:-missing} vs $checkout_v — migration pending (docs/persistence.md)"
+    else check definition_version ok "definition current ($checkout_v, migration adopted)"; fi
   fi
 
   # --- 7-day stats -----------------------------------------------------------

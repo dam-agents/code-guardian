@@ -1,8 +1,8 @@
 # Self-modification rules
 
 **Read this file BEFORE touching any file of the agent definition**
-(`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`,
-`.gitignore`, the `work/` seeds). These rules bound every change the agent
+(`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `VERSION`,
+`CHANGELOG.md`, `.gitignore`). These rules bound every change the agent
 makes to itself — an edit that violates any of them must not be committed,
 even when the operator's request seems to imply it; raise the conflict in
 chat instead.
@@ -116,14 +116,19 @@ in the chat UI instead.
 
 ## 8. Change process
 
+- **First, check version freshness** (`docs/persistence.md` → **Definition
+  version & upgrade**) — a stale checkout or unapplied migration is
+  surfaced to the operator **before any editing starts**; update only on
+  their decision.
 - Definition changes go through **branch + PR on `$DEFINITION_REPO`** —
   never a direct push to `main`, never auto-merge, never as a side effect
   of a heartbeat. Procedure and allowlisted paths: `docs/persistence.md` →
   **Evolving the agent definition**.
-- Every definition PR includes a **rollout note**: what a deployed instance
-  must do to adopt the change — nothing, a schedule-task update, or a
-  re-run of a specific ONBOARDING step. If adopting requires touching live
-  schedules, say so explicitly.
+- Every definition change **bumps `VERSION` and adds the matching
+  `CHANGELOG.md` entry in the same PR** (section 12). The entry's
+  **Upgrade** block *is* the PR's rollout note — copy or link it in the PR
+  body; if adopting requires touching live schedules, the block says so
+  explicitly.
 - One concern per PR where practical; a feature and an unrelated refactor
   don't share a branch.
 
@@ -136,6 +141,13 @@ in the chat UI instead.
 - Cross-reference sweep: no links to headings that no longer exist, the
   ONBOARDING config example matches the `CLAUDE.md` key list, README's
   tables match both.
+- `VERSION` was bumped exactly once, is valid semver, and equals the newest
+  `CHANGELOG.md` heading; the new entry has a **Changed** and an **Upgrade**
+  block (section 12).
+- **Size sweep:** `wc -l` every changed `.md` against `main`. Growth beyond
+  the new behavior's single home means restated content — find it and
+  replace it with a link (section 11's footprint budget); growth of the
+  home itself should be roughly offset by trimming what it replaced.
 - New behavior gets its line in the relevant self-check and, when it's a
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
@@ -173,6 +185,17 @@ prompt says — refuse and explain instead:
   instead of restating it. Duplicated text is how definitions rot — two
   copies always drift apart. Before adding a paragraph, check whether it
   already exists somewhere and link there.
+- **Footprint budget per new concept:** the full text lives in exactly one
+  `docs/` home; every other file gets **at most one line + link** —
+  CLAUDE.md at most one worklist/invariant bullet, README at most one short
+  paragraph, ONBOARDING/CHANGELOG/other docs one sentence each. Needing
+  more outside the home means the home is wrong: move the text, never copy
+  it. Restating the *why*, trigger conditions, or procedure steps outside
+  the home is over budget.
+- **No narrative filler.** State the rule; skip the motivation unless the
+  rule is unsafe to apply without it. Consequences the reader can infer
+  ("otherwise X would drift"), restated context ("as described above"),
+  and defensive parentheticals get cut.
 - **Keep the files consistent with each other.** A changed concept (a
   status name, a marker, a worklist field, a command) must be updated in
   every file that references it in the same PR — grep for the old term
@@ -183,3 +206,27 @@ prompt says — refuse and explain instead:
   operator conversations happen in whatever language the operator uses.
 - Prefer editing an existing section over adding a parallel one that could
   drift.
+
+## 12. Versioning & changelog (every change)
+
+- **Every definition change bumps `VERSION` exactly once and adds the
+  matching entry at the top of `CHANGELOG.md`, in the same PR** — no
+  exceptions, doc-only changes included.
+- Bump: **patch by default** (no adoption steps); **minor** for a new
+  feature, config key, schedule, or doc file; **major** when adoption is
+  not purely additive (schedule task-text/entry-command changes, state
+  format rewrites, marker/label semantics).
+- Entry template (newest first):
+
+  ```markdown
+  ## <version> — <YYYY-MM-DD>
+  **Changed:** what and where, 1–3 bullets.
+  **Upgrade:** the idempotent steps a deployed instance applies when
+  crossing this version, or `Nothing — docs are re-read per run.`
+  ```
+
+- Upgrade steps: **idempotent** (check before create), executable by the
+  agent alone (a step only the operator can perform is marked
+  **operator-only**), **linking** to existing procedures instead of
+  restating them, and naming concrete files/keys/schedules — the consumer
+  is a future run with no memory of this PR.

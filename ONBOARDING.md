@@ -246,11 +246,12 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
-## Step 7 — Write the sentinel and report
+## Step 7 — Record the version, write the sentinel, report
 
-Only after Steps 1–6 succeeded:
+Only after Steps 1–6 succeeded. `work/VERSION` records the adopted definition version (used by the version check — `docs/persistence.md` → **Definition version & upgrade**):
 
 ```bash
+head -1 "$HOME/VERSION" > "$HOME/work/VERSION"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
@@ -259,6 +260,6 @@ Then give the operator a short **onboarding summary** in the chat UI:
 
 1. The final `work/CONFIG.md` (verbatim).
 2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
-3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
+3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted) or asks for it in the connected Slack channel (docs/review.md → **Slack-requested review**); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

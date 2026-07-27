@@ -61,6 +61,13 @@ The agent definition is split so the always-loaded part stays small:
 the hard invariants, while the detailed procedures live in [`docs/`](docs/)
 and are read only when the corresponding work actually happens.
 
+The definition is **versioned** ([`VERSION`](VERSION) +
+[`CHANGELOG.md`](CHANGELOG.md)): at updates, on demand, and before any
+self-modification the agent checks version freshness, applies the
+changelog's upgrade steps, and warns the operator when the instance is
+outdated — see [`docs/persistence.md`](docs/persistence.md) → **Definition
+version & upgrade**.
+
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
@@ -124,6 +131,11 @@ the PR Shepherd reviewer nudging.
 The decision is stored in `work/CONFIG.md` and can be changed later simply by
 telling the agent — it will flip the flag (and build the roster on first
 enable).
+
+Independently of this opt-in, **anyone** in the connected channel can ask the
+agent to review a specific PR (equivalent to adding the re-review label),
+including restarting a stuck review — see `docs/review.md` →
+**Slack-requested review**.
 
 ## Configuration
 
@@ -220,6 +232,9 @@ state. See `docs/persistence.md` → **Two repos, one inside the other**.
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
   also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
+- [`VERSION`](VERSION) + [`CHANGELOG.md`](CHANGELOG.md) — definition semver
+  (bumped with every change) and the per-version upgrade steps instances
+  apply.
 - [`LICENSE`](LICENSE) — Apache License 2.0.
 
 ## License
