@@ -62,11 +62,12 @@ the hard invariants, while the detailed procedures live in [`docs/`](docs/)
 and are read only when the corresponding work actually happens.
 
 The definition is **versioned** ([`VERSION`](VERSION) +
-[`CHANGELOG.md`](CHANGELOG.md)): after a deployed instance updates its
-definition checkout, the next review heartbeat detects the version change
-(`migration_due`) and automatically applies the changelog's upgrade steps —
-schedule updates, config additions, state migrations — recording the adopted
-version in `work/VERSION`. See
+[`CHANGELOG.md`](CHANGELOG.md)): when the operator updates a deployed
+instance (or asks for a version check, and always before the agent modifies
+its own definition), the agent compares the adopted version (`work/VERSION`)
+against the definition and applies the changelog's upgrade steps — schedule
+updates, config additions, state migrations — warning the operator when the
+instance is not up to date. Scheduled runs never touch versioning. See
 [`docs/persistence.md`](docs/persistence.md) → **Definition version &
 upgrade**.
 

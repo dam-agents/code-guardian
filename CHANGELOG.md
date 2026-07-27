@@ -2,9 +2,10 @@
 
 Agent-facing changelog of this definition. Every entry records what changed
 and — in its **Upgrade** block — the idempotent steps a deployed instance
-applies when crossing that version. Consumed automatically: the review
-preflight emits `migration_due` when `VERSION` differs from `work/VERSION`,
-and the agent applies the Upgrade blocks oldest-first per
+applies when crossing that version. Consumed by the version check that runs
+on an operator-requested update, on demand, and always before any
+self-modification: when `work/VERSION` is behind `VERSION`, the agent applies
+the Upgrade blocks oldest-first per
 [docs/persistence.md](docs/persistence.md) → **Definition version & upgrade**.
 Authoring rules (bump semantics, entry template):
 [docs/self-modification.md](docs/self-modification.md) → **Versioning &
@@ -13,15 +14,16 @@ changelog**.
 ## 1.0.0 — 2026-07-27
 
 **Changed:**
-- Versioning introduced: `VERSION` file, this changelog, `migration_due`
-  detection in `scripts/preflight.sh` (review mode), the upgrade procedure in
-  docs/persistence.md, authoring rules in docs/self-modification.md §12, and
+- Versioning introduced: `VERSION` file, this changelog, the version check +
+  upgrade procedure in docs/persistence.md (runs at operator-requested
+  updates, on demand, and before every self-modification — never from
+  scheduled runs), authoring rules in docs/self-modification.md §12, and
   `work/VERSION` written at ONBOARDING Step 7.
 
 **Upgrade:**
-- Nothing to apply — the run serving this migration just records the version
-  (writes `work/VERSION`). A missing `work/VERSION` is treated as version
-  `1.0.0`.
+- Nothing to apply — the check serving this migration just records the
+  version (writes `work/VERSION`). A missing `work/VERSION` is treated as
+  version `1.0.0`.
 
 ---
 

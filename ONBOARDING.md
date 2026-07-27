@@ -248,7 +248,7 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 ## Step 7 — Record the version, write the sentinel, report
 
-Only after Steps 1–6 succeeded. `work/VERSION` records the definition version this instance runs — a later definition update makes the review preflight emit `migration_due`, and the agent applies the `CHANGELOG.md` upgrade steps (`docs/persistence.md` → **Definition version & upgrade**):
+Only after Steps 1–6 succeeded. `work/VERSION` records the definition version this instance adopted — when the operator later updates the definition (or before any self-modification), the version check compares it against the new `VERSION` and applies the `CHANGELOG.md` upgrade steps (`docs/persistence.md` → **Definition version & upgrade**):
 
 ```bash
 head -1 "$HOME/VERSION" > "$HOME/work/VERSION"

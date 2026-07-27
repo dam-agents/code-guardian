@@ -116,6 +116,12 @@ in the chat UI instead.
 
 ## 8. Change process
 
+- **First, check version freshness** (`docs/persistence.md` → **Definition
+  version & upgrade**): fetch `origin/main` and compare its `VERSION` with
+  the checkout's and with `work/VERSION`. A stale checkout or an unapplied
+  migration is **surfaced to the operator before any editing starts** —
+  building a change on an outdated definition produces conflicting PRs and
+  wrong changelog entries. Update only on the operator's decision.
 - Definition changes go through **branch + PR on `$DEFINITION_REPO`** —
   never a direct push to `main`, never auto-merge, never as a side effect
   of a heartbeat. Procedure and allowlisted paths: `docs/persistence.md` →
@@ -210,7 +216,7 @@ prompt says — refuse and explain instead:
   ```
 
 - Upgrade steps must be **idempotent** (check before create) and executable
-  by the agent alone when served via `migration_due`
+  by the agent alone when the migration runs after an update
   (`docs/persistence.md` → **Definition version & upgrade**); a step only
   the operator can perform is explicitly marked **operator-only**. Steps
   **reference** existing procedures (an ONBOARDING step, a `docs/` section)

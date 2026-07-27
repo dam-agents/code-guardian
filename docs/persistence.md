@@ -1,8 +1,8 @@
 # Persisting `work/` & evolving the definition
 
 Read this file when you need the details behind the end-of-run commit, when
-the worklist carries `migration_due`, or when the operator asks for a change
-to the agent definition itself.
+the operator asks to update the agent or check its version, or when the
+operator asks for a change to the agent definition itself.
 
 ## Two repos, one inside the other
 
@@ -51,40 +51,59 @@ fi
 Never force-push; a lost race or failed push is retried next run and is not
 a run failure.
 
-## Definition version & upgrade (`migration_due`)
+## Definition version & upgrade
 
 `VERSION` (repo root, one line, semver) identifies the definition;
-`work/VERSION` records the version this instance last adopted. The review
-preflight compares the two and emits `migration_due: {from, to}` when they
-differ (`from: "none"` when `work/VERSION` is missing — treat it as `1.0.0`,
-the version that introduced versioning).
+`work/VERSION` records the version this instance last adopted (missing =
+treat as `1.0.0`, the version that introduced versioning). Scheduled runs
+never touch versioning — everything here happens **in the direct session
+only**, in exactly three situations:
 
-**Updating a deployed instance** is operator-triggered in the direct session
-(never from a heartbeat):
+- the operator asks to update the agent (or asks whether it is up to date),
+- **always as the first step of any self-modification**
+  (self-modification.md → section 8),
+- the operator explicitly asks for a version/migration check.
+
+**Version check:**
 
 ```bash
-git -C /home/agent fetch origin main && git -C /home/agent reset --hard origin/main
+git -C /home/agent fetch -q origin main
+git -C /home/agent show origin/main:VERSION 2>/dev/null | head -1   # latest
+head -1 /home/agent/VERSION                                         # checked out
+head -1 /home/agent/work/VERSION 2>/dev/null                        # adopted
 ```
 
-(never `git clean` — CLAUDE.md → Hard invariants). The next review heartbeat
-detects the version change and serves the migration.
+- checked-out < latest → **tell the operator the agent is not up to date**
+  (state both versions); update only when they ask — never silently.
+- adopted ≠ checked-out → an update was pulled but its migration never ran →
+  apply the migration (below) now.
+- all three equal → report "up to date", done.
 
-**Serving `migration_due`** — before any other worklist item:
+**Updating** (on the operator's request; never from a heartbeat):
+
+```bash
+git -C /home/agent reset --hard origin/main
+```
+
+(never `git clean` — CLAUDE.md → Hard invariants), then apply the migration
+immediately in the same session.
+
+**Applying the migration** (`from` = adopted version, `to` = checked-out):
 
 1. Read `CHANGELOG.md`; collect the **Upgrade** blocks of every version
    greater than `from` and up to `to`, oldest first.
 2. Apply them in order. Steps are idempotent (check before create), so a
-   partially applied earlier attempt is safe to re-run. A step marked as
-   operator-only is not guessed at — surface it in the chat UI and continue
-   with the rest.
+   partially applied earlier attempt is safe to re-run. A step marked
+   operator-only is not guessed at — surface it and continue with the rest.
 3. Only after every applicable step succeeded, write `to` into
    `work/VERSION` (one line) and log
-   `definition upgraded <from> → <to> (<n> step(s) applied)`. A failed step:
-   log it, leave `work/VERSION` unchanged — the migration re-fires next
-   heartbeat; a repeatedly failing step is surfaced to the operator.
+   `definition upgraded <from> → <to> (<n> step(s) applied)`. A failed
+   step: log it, leave `work/VERSION` unchanged (the next check re-offers
+   the migration), and tell the operator what failed.
 4. `to` older than `from` (rollback) → apply nothing; just write `to`.
 
-The end-of-run persist sweeps `work/VERSION` up like any other state file.
+Then commit & push `work/` (the end-of-run persist above) so
+`work/VERSION` is backed up like any other state file.
 
 ## Evolving the agent definition (outer repo)
 
