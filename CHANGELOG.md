@@ -7,6 +7,24 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.2.0 — 2026-07-27
+
+**Changed:**
+- Visual PR artifacts can dual-publish: a new `artifact_targets` config key
+  (default `gist`; `gist,dam`) publishes the one on-disk HTML to a secret
+  gist and/or the platform's DAM Artifact Library. DAM is best-effort behind
+  the owner's experimental MCP flag — listed-but-unavailable logs and skips,
+  never failing the run; pruning cleans up both surfaces
+  (docs/artifact.md, docs/review.md → **Pruning**). Tracking files gain an
+  `<!-- artifact-dam: <id> -->` marker alongside the gist marker; preflight
+  reads both for prune ids and the `retry_unassign` idempotency guard.
+
+**Upgrade:**
+- Nothing required — `artifact_targets` missing = `gist`, the prior behavior.
+  To opt this instance into the DAM surface, set `artifact_targets: gist,dam`
+  in `work/CONFIG.md` (operator, in the direct session); DAM publishing then
+  activates automatically whenever the artifact-library MCP tools are present.
+
 ## 1.1.1 — 2026-07-27
 
 **Changed:**

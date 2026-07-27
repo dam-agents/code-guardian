@@ -45,6 +45,7 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` in every posted review. **Required and immutable once the first review is posted** — if asked to change it after reviews exist, refuse and explain.
 - **`rereview_label`** — GitHub label a human adds to an already-reviewed PR to request a re-review (default `code-guardian-review`). First reviews never need it; re-reviews never run without it; the agent removes it once the request is served. New commits without it flip the tracking row to `awaiting_label`.
 - **`artifact_skill`** — `<skill>@<owner/repo>`, or `none`/missing = the artifact feature is off entirely.
+- **`artifact_targets`** — comma-separated publish surfaces for the artifact: any of `gist`, `dam`. **Missing/empty = `gist`** (the historical default). `dam` (DAM Artifact Library) is always best-effort — its MCP tools exist only under the owner's experimental flag, so `dam` listed-but-unavailable logs and is skipped, never failing the run ([docs/artifact.md](docs/artifact.md)). No relation to `artifact_skill`, which gates the feature as a whole.
 - **`## Review skills` table** — per-PR review skills; semantics in [docs/skills.md](docs/skills.md). Missing/empty → no review skills run (log once).
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack. **Missing file/key = `disabled`** — never send Slack messages without recorded opt-in.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit run. The report goes to Slack only under `slack_notifications: enabled`; otherwise to the chat UI.
@@ -59,6 +60,7 @@ REPO="${GITHUB_REPO:-$(cfg github_repo)}"; REPO="${REPO:-$(gh repo view --json n
 BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"; DEFINITION_REPO="$(cfg definition_repo)"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+ARTIFACT_TARGETS="$(cfg artifact_targets)"; ARTIFACT_TARGETS="${ARTIFACT_TARGETS:-gist}"
 ```
 
 All `gh` commands use `--repo "$REPO"`. If `REPO` resolves empty, stop and ask the operator for the slug — never guess. When the operator asks in chat to change a config value, update the file and confirm — except `review_marker` after the first posted review (refuse). On first Slack enablement, build the roster and register the shepherd schedule per ONBOARDING; on disablement, remove/disable that schedule.

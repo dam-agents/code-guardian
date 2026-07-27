@@ -162,6 +162,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a re-review of an already-reviewed PR — without it, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
+| `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
@@ -184,7 +185,10 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   teams (`read:org`) for the roster import.
 - **External services:** artifact links render via `htmlpreview.github.io`, a
   third-party service; "secret" gists are unlisted but publicly reachable by
-  URL (see `docs/artifact.md`).
+  URL. With `artifact_targets: gist,dam` the artifact is also published to the
+  platform's DAM Artifact Library (best-effort, behind the owner's
+  experimental flag), whose `visibility:"public"` share URL is likewise
+  reachable by anyone holding it (see `docs/artifact.md`).
 
 ### Connections
 
