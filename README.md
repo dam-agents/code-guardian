@@ -64,7 +64,11 @@ and are read only when the corresponding work actually happens.
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
-findings.
+findings. The agent also learns passively: generalizable insights from human
+reviews, PR comments, and author replies are recorded as observed insights,
+and the weekly audit consolidates them (merge, promote to rules, drop stale)
+so memory stays useful and bounded while the agent improves over time — per
+[`docs/preferences.md`](docs/preferences.md).
 
 See [`CLAUDE.md`](CLAUDE.md) for the full operating manual the agent loads
 at startup.
@@ -195,12 +199,13 @@ seeded depends on `GITHUB_REPO_WORK` (see above):
   and pushed back after every run, giving durable, versioned, cross-pod history.
 - **`GITHUB_REPO_WORK` unset** — `REVIEWS.md` and `reviews/` are reconstructed from
   the agent's marker-carrying reviews on `GITHUB_REPO`; `MEMORY.md` (long-term
-  memory, not derivable from PRs) starts from the seed scaffold committed to this
-  repo.
+  memory, not derivable from PRs) starts from the seed template embedded in
+  `ONBOARDING.md` (Step 3b).
 
-`work/` is kept independent of this definition repo (it is git-ignored / detached
-at the top level), so the two never collide — see `docs/persistence.md` →
-**Two repos, one inside the other**.
+`work/` is **not tracked** by this definition repo — the allowlist `.gitignore`
+hides everything under `work/` at the top level, so the two never collide and a
+definition update (`git reset --hard origin/main`) never touches live runtime
+state. See `docs/persistence.md` → **Two repos, one inside the other**.
 
 ## Files
 
@@ -213,9 +218,8 @@ at the top level), so the two never collide — see `docs/persistence.md` →
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
   [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
   [`self-modification.md`](docs/self-modification.md).
-- [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above).
-- [`work/MEMORY.md`](work/MEMORY.md) — seed file for learned review preferences.
-- [`work/REVIEWS.md`](work/REVIEWS.md) — seed file for the per-PR review index.
+- [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
+  also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
 - [`LICENSE`](LICENSE) — Apache License 2.0.
 
 ## License

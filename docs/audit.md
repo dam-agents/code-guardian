@@ -4,9 +4,10 @@ Read this file on every **audit run** (`preflight.sh audit` returned
 `nothing_to_do: false`). Division of labor: the script gathered the
 deterministic facts (7-day `stats` + `checks`); you walk the task list
 below — verify, add the judgment checks, compute the derived metrics, and
-send the report. The audit is **read-only + report**: it fixes nothing;
-routine findings (pending prunes, stale locks) heal on the next heartbeat,
-everything else goes to the operator. A skipped task = an incomplete audit —
+send the report. The audit is **read-only toward GitHub + report**: it fixes
+nothing there; its one local write beyond `AUDIT.log` is the memory
+consolidation in the wrap-up. Routine findings (pending prunes, stale locks)
+heal on the next heartbeat, everything else goes to the operator. A skipped task = an incomplete audit —
 if one is impossible this week (missing data, API error), report it as
 `warn` with the reason instead of dropping it silently.
 
@@ -106,6 +107,11 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 ### H. Report & wrap-up
 
+25. **Memory consolidation** — before composing the report, run
+    [preferences.md → Weekly memory consolidation](preferences.md)
+    (merge / promote / compress-or-drop, bounds, `[from user]` protection)
+    and put its one-line delta into the report under *Week in numbers*.
+
 One message, this shape (tight — counts and one-liners, no prose):
 
 ```
@@ -116,6 +122,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
 • Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
+• Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*
 🔴 <id> — <detail>          ← every fail (script + tasks above)
@@ -131,5 +138,5 @@ One message, this shape (tight — counts and one-liners, no prose):
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then commit & push
-  `work/` per CLAUDE.md. No GitHub writes, no state repairs — findings are
-  reported, not fixed.
+  `work/` per CLAUDE.md. No GitHub writes, no state repairs beyond the memory
+  consolidation (task 25) — findings are reported, not fixed.
