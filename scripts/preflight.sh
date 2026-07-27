@@ -77,6 +77,20 @@ fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
 [ -z "$REPO" ] && fail_out "target repo unresolved (GITHUB_REPO / CONFIG.md github_repo missing)"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
 
+# ------------------------------------------------------ definition version ----
+# VERSION (definition) vs work/VERSION (last adopted). Review mode only — the
+# most frequent schedule serves the migration: the agent applies CHANGELOG.md
+# Upgrade blocks per docs/persistence.md -> Definition version & upgrade.
+MIGRATION='null'
+DEF_VERSION="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
+if [ "$MODE" = "review" ] && [ -n "$DEF_VERSION" ]; then
+  APPLIED_VERSION="$(head -1 "$WORK/VERSION" 2>/dev/null | tr -d '[:space:]')"
+  if [ "$DEF_VERSION" != "$APPLIED_VERSION" ]; then
+    MIGRATION="$(jq -n --arg f "${APPLIED_VERSION:-none}" --arg t "$DEF_VERSION" '{from:$f, to:$t}')"
+    log "definition ${APPLIED_VERSION:-<unversioned>} -> $DEF_VERSION — migration due"
+  fi
+fi
+
 # ------------------------------------------------------------ open PR set ----
 OPEN_JSON="$(gh api "repos/$REPO/pulls?state=open&per_page=100" 2>/dev/null)"
 [ -z "$OPEN_JSON" ] && fail_out "could not list open PRs (API error) — skipping run"
@@ -148,12 +162,15 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges skills
   for a in "$1" "$2" "$3" "$4" "$5" "$6"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
+  [ "$MIGRATION" != "null" ] && nothing=false
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" --argjson skills "$7" \
+    --argjson migration "$MIGRATION" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+    '{mode:$mode, nothing_to_do:$nothing, migration_due:$migration,
+      reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, skills:$skills, logs:$logs}'
 }

@@ -246,11 +246,12 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
-## Step 7 — Write the sentinel and report
+## Step 7 — Record the version, write the sentinel, report
 
-Only after Steps 1–6 succeeded:
+Only after Steps 1–6 succeeded. `work/VERSION` records the definition version this instance runs — a later definition update makes the review preflight emit `migration_due`, and the agent applies the `CHANGELOG.md` upgrade steps (`docs/persistence.md` → **Definition version & upgrade**):
 
 ```bash
+head -1 "$HOME/VERSION" > "$HOME/work/VERSION"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```

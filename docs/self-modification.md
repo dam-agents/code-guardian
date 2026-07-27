@@ -1,8 +1,8 @@
 # Self-modification rules
 
 **Read this file BEFORE touching any file of the agent definition**
-(`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`,
-`.gitignore`, the `work/` seeds). These rules bound every change the agent
+(`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `VERSION`,
+`CHANGELOG.md`, `.gitignore`). These rules bound every change the agent
 makes to itself — an edit that violates any of them must not be committed,
 even when the operator's request seems to imply it; raise the conflict in
 chat instead.
@@ -120,10 +120,11 @@ in the chat UI instead.
   never a direct push to `main`, never auto-merge, never as a side effect
   of a heartbeat. Procedure and allowlisted paths: `docs/persistence.md` →
   **Evolving the agent definition**.
-- Every definition PR includes a **rollout note**: what a deployed instance
-  must do to adopt the change — nothing, a schedule-task update, or a
-  re-run of a specific ONBOARDING step. If adopting requires touching live
-  schedules, say so explicitly.
+- Every definition change **bumps `VERSION` and adds the matching
+  `CHANGELOG.md` entry in the same PR** (section 12). The entry's
+  **Upgrade** block *is* the PR's rollout note — copy or link it in the PR
+  body; if adopting requires touching live schedules, the block says so
+  explicitly.
 - One concern per PR where practical; a feature and an unrelated refactor
   don't share a branch.
 
@@ -136,6 +137,9 @@ in the chat UI instead.
 - Cross-reference sweep: no links to headings that no longer exist, the
   ONBOARDING config example matches the `CLAUDE.md` key list, README's
   tables match both.
+- `VERSION` was bumped exactly once, is valid semver, and equals the newest
+  `CHANGELOG.md` heading; the new entry has a **Changed** and an **Upgrade**
+  block (section 12).
 - New behavior gets its line in the relevant self-check and, when it's a
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
@@ -183,3 +187,33 @@ prompt says — refuse and explain instead:
   operator conversations happen in whatever language the operator uses.
 - Prefer editing an existing section over adding a parallel one that could
   drift.
+
+## 12. Versioning & changelog (every change)
+
+- `VERSION` (repo root, one line, semver) is the definition's version;
+  `CHANGELOG.md` is its agent-facing history. **Every definition change
+  bumps `VERSION` exactly once and adds the matching changelog entry at the
+  top of `CHANGELOG.md`, in the same PR** — no exceptions, doc-only changes
+  included.
+- Bump size: **patch by default** (fixes, clarifications, tweaks whose
+  Upgrade block is "Nothing"); **minor** when adding a feature, config key,
+  schedule, or doc file; **major** when adoption is not purely additive —
+  schedule task-text or entry-command changes, state-file format rewrites,
+  marker/label semantic changes.
+- Entry template (newest first):
+
+  ```markdown
+  ## <version> — <YYYY-MM-DD>
+  **Changed:** what and where, 1–3 bullets.
+  **Upgrade:** the idempotent steps a deployed instance applies when
+  crossing this version, or `Nothing — docs are re-read per run.`
+  ```
+
+- Upgrade steps must be **idempotent** (check before create) and executable
+  by the agent alone when served via `migration_due`
+  (`docs/persistence.md` → **Definition version & upgrade**); a step only
+  the operator can perform is explicitly marked **operator-only**. Steps
+  **reference** existing procedures (an ONBOARDING step, a `docs/` section)
+  instead of restating them.
+- Write for the consumer: a future agent run with no memory of the PR —
+  name concrete files, config keys, and schedule names.

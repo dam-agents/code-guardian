@@ -61,6 +61,15 @@ The agent definition is split so the always-loaded part stays small:
 the hard invariants, while the detailed procedures live in [`docs/`](docs/)
 and are read only when the corresponding work actually happens.
 
+The definition is **versioned** ([`VERSION`](VERSION) +
+[`CHANGELOG.md`](CHANGELOG.md)): after a deployed instance updates its
+definition checkout, the next review heartbeat detects the version change
+(`migration_due`) and automatically applies the changelog's upgrade steps —
+schedule updates, config additions, state migrations — recording the adopted
+version in `work/VERSION`. See
+[`docs/persistence.md`](docs/persistence.md) → **Definition version &
+upgrade**.
+
 Feedback the user gives is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
@@ -220,6 +229,10 @@ state. See `docs/persistence.md` → **Two repos, one inside the other**.
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
   also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
+- [`VERSION`](VERSION) — the definition's semver, bumped with every change
+  (default: patch).
+- [`CHANGELOG.md`](CHANGELOG.md) — agent-facing history: per version, what
+  changed and the upgrade steps a deployed instance applies automatically.
 - [`LICENSE`](LICENSE) — Apache License 2.0.
 
 ## License
