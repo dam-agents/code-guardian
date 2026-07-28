@@ -33,7 +33,18 @@ resp() { printf '%s' "$INPUT" \
   | tr '\n' ' ' | cut -c1-"$1"; }
 
 if [ "$evt" = "PostToolUseFailure" ]; then
-  err="$(resp 400)"
+  # capture whatever the harness gave us: tool_response is often null on a
+  # failure, so fall back through the common error/output fields, then to the
+  # raw hook payload — a failure with no context is what makes stalls
+  # undiagnosable (docs/logging.md → tool_failure). Wider cap than success.
+  err="$(printf '%s' "$INPUT" | jq -r '
+      [ (.tool_response | if .==null then empty
+                          elif type=="string" then . else tojson end),
+        .error, .message, .tool_response.error, .tool_response.stderr,
+        .tool_response.stdout ]
+      | map(select(. != null and . != "")) | .[0] // empty' 2>/dev/null \
+    | tr '\n' ' ' | cut -c1-800)"
+  [ -z "$err" ] && err="$(printf '%s' "$INPUT" | jq -c '{tool_input, tool_response}' 2>/dev/null | cut -c1-800)"
   logev error tool_failure "$tool${cmd:+ [$cmd]}: ${err:-unknown error}"
 else
   case "$tool:$cmd" in

@@ -367,11 +367,18 @@ New verdict `APPROVE` → leave it. A failed dismissal is logged, not fatal.
 
 ### Error handling
 
+- **Transient tool failure** (context fetch, clone, skill run, post — network
+  error, timeout, 5xx, rate-limit) → **retry once**. Still failing → **abort
+  the PR and release its lock** exactly as a Check 2 failure does (step e:
+  `first` deletes the row, `re-review` restores `awaiting_label`), delete the
+  clone, log `PR #<n>: <step> failed after retry — aborted, lock released`,
+  continue with the next PR. Never leave an `in_progress` lock behind on a
+  failure, and never retry a call more than once (a stuck call must not burn
+  the run — the next heartbeat picks the PR up fresh).
 - **422 line-not-in-diff** → move the named entries to summary-only, retry
   the POST; never retry the same payload blindly. Note dropped comments once
   in the chat UI.
 - **422 commit_id mismatch** → HEAD moved: same handling as Check 2 failure.
-- **Auth/network/rate-limit** → log and continue with the next PR.
 
 ## Review-run self-check
 
@@ -396,4 +403,6 @@ events were logged (`locked` → `skill:… done` → `posted`/`aborted`/`done` 
 [logging.md](logging.md)) so a mid-review stall is
 diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
 state — the run was never ended mid-pipeline (e.g. after a skill report)** ·
-all errors logged · no literal repo slug in any output.
+every transient tool failure retried once then aborted-with-lock-released (no
+`in_progress` lock left behind) · all errors logged · no literal repo slug in
+any output.

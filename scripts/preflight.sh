@@ -56,6 +56,17 @@ LOG_DIR="${LOG_DIR:-$WORK/logs}"
 LOGS=()
 log() { LOGS+=("$1"); logev info preflight "$1"; }
 
+# Pod-restart marker: $HOME persists across restarts but the rest of the
+# filesystem is reset, so an ephemeral sentinel outside $HOME is absent iff the
+# pod restarted since the last run. Detect-and-log only; never gates behavior
+# (docs/logging.md → pod_boot). Best-effort: any failure is swallowed.
+BOOT_SENTINEL="${TMPDIR:-/tmp}/.code-guardian-pod-boot"
+if [ ! -e "$BOOT_SENTINEL" ]; then
+  up="$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"
+  logev warn pod_boot "pod restarted since last run (no sentinel)${up:+ — uptime=${up}s}"
+  : > "$BOOT_SENTINEL" 2>/dev/null || true
+fi
+
 cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
         | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
 
