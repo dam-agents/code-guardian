@@ -17,8 +17,9 @@ untouched** — advancing them is your write-before-send step.
 - **Send only what's in `nudges_due`, at most once each.** For every entry,
   **first** apply its `row_update` (`nudges`, `level`, `status`) plus
   `last_nudge_at` = the current UTC time to the PR's ledger row, **then**
-  send. Write-before-send: a failed send after the write is logged (chat UI)
-  and NOT retried this run — under-sending beats double-sending. Never
+  send. Write-before-send: a failed send after the write is logged (chat UI
+  + `nudge_send` error event — [logging.md](logging.md)) and NOT retried
+  this run — under-sending beats double-sending. Never
   re-fire a nudge preflight didn't emit.
 - **Roster-only tagging.** Never @-mention anyone not in
   `work/DEVELOPERS.md`; the only `<@…>` ids ever emitted are roster

@@ -11,7 +11,9 @@
 #   - writes locally only: the REVIEWS.md `done`->`awaiting_label` status flip
 #     (pure bookkeeping mandated by the label gate — keeps transition logs
 #     one-shot), shepherd-ledger bookkeeping for rows with no nudge due,
-#     HEARTBEAT.log / SHEPHERD.log lines, and the skill install cache.
+#     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
+#     (via scripts/log.sh — docs/logging.md), the skill install cache, and
+#     the 14-day log retention cleanup in audit mode.
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / artifacts_due (+ skill install,
@@ -45,8 +47,14 @@ SKILL_CACHE="$HOME_DIR/.claude/skills/.cache"
 NOW_EPOCH=$(date -u +%s)
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# structured events log (docs/logging.md); no-op fallback keeps set -u safe
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_JOB="$MODE"
+if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
+LOG_DIR="${LOG_DIR:-$WORK/logs}"
+
 LOGS=()
-log() { LOGS+=("$1"); }
+log() { LOGS+=("$1"); logev info preflight "$1"; }
 
 cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
         | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
@@ -68,6 +76,7 @@ SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 
 fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
+  logev error preflight "$1"
   jq -n --arg mode "$MODE" --arg err "$1" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:true, error:$err, logs:$logs}'
@@ -134,11 +143,12 @@ install_skill() { # name source -> status string (local writes only)
     [ -z "$p" ] && continue
     rel="${p#.agents/skills/$name/}"
     mkdir -p "$HOME_DIR/.claude/skills/$name/$(dirname "$rel")"
-    curl -sSfL "https://raw.githubusercontent.com/$src/main/$p" -o "$HOME_DIR/.claude/skills/$name/$rel" || { printf 'install-failed'; return; }
+    curl -sSfL "https://raw.githubusercontent.com/$src/main/$p" -o "$HOME_DIR/.claude/skills/$name/$rel" \
+      || { logev error skill_install "$name from $src: fetch of $p did not succeed"; printf 'install-failed'; return; }
     count=$((count+1))
   done < <(gh api "repos/$src/git/trees/main?recursive=1" 2>/dev/null \
            | jq -r --arg pre ".agents/skills/$name/" '.tree[] | select(.type=="blob") | select(.path | startswith($pre)) | .path')
-  [ "$count" -eq 0 ] && { printf 'install-failed'; return; }
+  [ "$count" -eq 0 ] && { logev error skill_install "$name from $src: no files found (tree listing empty or unreachable)"; printf 'install-failed'; return; }
   [ -n "$sha" ] && printf '%s' "$sha" > "$SKILL_CACHE/$name.sha"
   printf 'installed (%s files)' "$count"
 }
@@ -149,6 +159,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges skills
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" --argjson skills "$7" \
@@ -174,6 +185,7 @@ if [ "$MODE" = "review" ]; then
     open_numbers | grep -qx "$n" && continue
     if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
     state="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end')"
+    [ -z "$state" ] && logev warn gh_api "PR #$n: state check did not respond — prune skipped this run"
     case "$state" in
       CLOSED|MERGED)
         gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
@@ -327,7 +339,7 @@ if [ "$MODE" = "shepherd" ]; then
           | if any(. == "APPROVED") then "approved"
             elif any(. == "CHANGES_REQUESTED") then "changes_requested"
             else "awaiting_review" end')"
-    [ -z "$cls" ] && cls="awaiting_review"
+    [ -z "$cls" ] && { logev warn gh_api "PR #$n: review classification did not respond — defaulting to awaiting_review"; cls="awaiting_review"; }
 
     # class transition resets the ladder (never the clock)
     [ -n "$prev_state" ] && [ "$prev_state" != "$cls" ] && level=1
@@ -450,7 +462,7 @@ if [ "$MODE" = "audit" ]; then
     case "$line" in (*"nothing_to_do=true"*) hb_idle=$((hb_idle+1));; esac
     [ "$prev" -gt 0 ] && { g=$((e-prev)); [ "$g" -gt "$max_gap" ] && max_gap=$g; }
     prev="$e"; last_e="$e"
-  done < "$WORK/HEARTBEAT.log" 2>/dev/null
+  done < <(cat "$WORK/HEARTBEAT.log" 2>/dev/null)
   last_age_m=$(( last_e > 0 ? (NOW_EPOCH - last_e) / 60 : -1 ))
   if [ "$hb_total" -eq 0 ]; then check heartbeats fail "no review heartbeats logged in the last 7 days"
   elif [ "$max_gap" -gt 3600 ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min; last ${last_age_m}m ago"
@@ -461,7 +473,7 @@ if [ "$MODE" = "audit" ]; then
     while IFS= read -r line; do
       ts="${line%% *}"; e="$(iso2epoch "$ts")"
       [ "$e" -ge "$SINCE_EPOCH" ] && sw=$((sw+1))
-    done < "$WORK/SHEPHERD.log" 2>/dev/null
+    done < <(cat "$WORK/SHEPHERD.log" 2>/dev/null)
     if [ "$sw" -eq 0 ]; then check shepherd_sweeps warn "no shepherd sweeps logged in the last 7 days"
     else check shepherd_sweeps ok "$sw shepherd sweeps this week"; fi
   fi
@@ -558,6 +570,60 @@ if [ "$MODE" = "audit" ]; then
     else check definition_version ok "definition current ($checkout_v, migration adopted)"; fi
   fi
 
+  # --- events log: triage, harness adapter, 14-day retention (docs/logging.md)
+  ev_jsonl() { cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null; }
+  ev_err=0; ev_warn=0; recurring=""
+  if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
+    ev_err="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="error")] | length' 2>/dev/null)"; ev_err="${ev_err:-0}"
+    ev_warn="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="warn")] | length' 2>/dev/null)"; ev_warn="${ev_warn:-0}"
+    recurring="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" \
+      '[.[] | select(.ts >= $s and (.level=="error" or .level=="warn"))] | group_by(.event)
+       | map(select(length >= 3) | "\(.[0].event)×\(length)") | join(", ")' 2>/dev/null)"
+  fi
+  if [ "$ev_err" -gt 0 ]; then
+    last_err="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" \
+      '[.[] | select(.ts >= $s and .level=="error")] | last | "\(.event): \(.msg)"' 2>/dev/null | cut -c1-160)"
+    check events_errors warn "$ev_err error events this week; last: ${last_err:-?}"
+  else check events_errors ok "no error events this week ($ev_warn warns)"; fi
+  [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
+    || check recurring_errors ok "no recurring error/warn signatures"
+
+  # weekly token totals from `tokens` events (best-effort; msg format written
+  # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
+  TOKENS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    [.[] | select(.ts >= $s and .event=="tokens") | .msg
+     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)")]
+    | {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
+       cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)}' 2>/dev/null)"
+  [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
+
+  if [ "${CLAUDECODE:-}" = "1" ]; then
+    if grep -q "harness/claude-code/log-tool-event.sh" "$HOME_DIR/.claude/settings.json" 2>/dev/null; then
+      check harness_adapter ok "Claude Code hooks registered (automatic tool-failure logging)"
+    else
+      check harness_adapter warn "Claude Code harness but hooks not registered — run scripts/harness/claude-code/install.sh"
+    fi
+  else
+    check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"
+  fi
+
+  # retention: weekly cleanup keeping >= 14 days (files are 14-21 days old when
+  # deleted). The line-log trim below is read->tmp->mv: a heartbeat appending in
+  # that window loses its line — accepted best-effort, one cadence data point.
+  removed=0
+  [ -d "$LOG_DIR" ] && removed="$(find "$LOG_DIR" -name 'events-*.jsonl' -mtime +14 -print -delete 2>/dev/null | grep -c . || true)"
+  KEEP_EPOCH=$((NOW_EPOCH - 14*86400))
+  for lf in "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log"; do
+    [ -f "$lf" ] || continue
+    : > "$lf.tmp"
+    while IFS= read -r line; do
+      e="$(iso2epoch "${line%% *}")"
+      { [ "$e" -eq 0 ] || [ "$e" -ge "$KEEP_EPOCH" ]; } && printf '%s\n' "$line" >> "$lf.tmp"
+    done < "$lf"
+    mv "$lf.tmp" "$lf"
+  done
+  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD to 14d"
+
   # --- 7-day stats -----------------------------------------------------------
   rv_total=0; rv_first=0; rv_re=0; v_app=0; v_com=0; v_req=0
   for f in "$WORK"/reviews/pr-*.md; do
@@ -582,15 +648,17 @@ if [ "$MODE" = "audit" ]; then
     ts="${l%% *}"; [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
     m="$(printf '%s' "$l" | grep -oE '[0-9]+ nudges due' | cut -d' ' -f1)"
     nudges_wk=$((nudges_wk + ${m:-0}))
-  done < "$WORK/SHEPHERD.log" 2>/dev/null
+  done < <(cat "$WORK/SHEPHERD.log" 2>/dev/null)
 
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
+    --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
-      heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd}')"
+      heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
+      log_events:{errors:$le, warns:$lw}, tokens:$tw}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

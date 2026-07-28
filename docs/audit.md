@@ -16,11 +16,17 @@ if one is impossible this week (missing data, API error), report it as
 ### A. Script findings (from the worklist — don't recompute, do triage)
 
 1. Walk every `checks[]` entry; every `fail` and `warn` must appear in the
-   report — never summarize a `fail` away.
+   report — never summarize a `fail` away. For each `recurring_errors`
+   signature, give the report one line with count + sample message + likely
+   cause — read the matching events in `work/logs/` ([logging.md](logging.md))
+   when the cause isn't obvious.
 2. `stats` sanity: zero reviews in a week with open PRs and heartbeats
    running → investigate (label gate stuck? decision bug?) and report.
 3. The script's checks cover: GitHub auth + rate limit, work-repo push
-   backlog, heartbeat gaps, weekly log errors, stale locks, duplicate rows,
+   backlog, heartbeat gaps, weekly log errors, structured-events triage
+   (`events_errors`, `recurring_errors`) + harness adapter presence +
+   14-day log retention cleanup ([logging.md](logging.md)), stale locks,
+   duplicate rows,
    prune backlog, orphan history files, marker cross-verification
    (state drift), orphaned gists, `/tmp` leftovers, disk, skill freshness,
    roster presence, definition cleanliness, and definition version currency
@@ -125,6 +131,8 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
 • Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
+• Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*
