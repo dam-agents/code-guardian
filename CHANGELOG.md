@@ -7,6 +7,33 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.0.0 — 2026-07-28
+
+**Changed:**
+- `work/` is now a **plain data directory (no `.git`)**. Backup to
+  `$GITHUB_REPO_WORK` moved to the new `scripts/work-backup.sh`
+  (`persist` | `restore`), which runs entirely inside a disposable `/dev/shm`
+  tmpfs clone — the shared virtiofs/NFS volume is never git-mutated, eliminating
+  the `Stale file handle` (ESTALE) + `.nfs*` silly-rename corruption from
+  concurrent runs. Nothing authoritative lives on tmpfs (re-seeded from the
+  remote every call; robust to pod restart). Concurrency is resolved at the
+  remote with an in-run push retry, so reviews still run fully in parallel — no
+  run-lock, no waiting.
+- Onboarding provisions `work/` as a data dir and restores via
+  `work-backup.sh restore`; all end-of-run "commit & push" steps
+  (CLAUDE.md review/shepherd/audit, docs) now call `work-backup.sh persist`;
+  the preflight `work_repo` audit check asserts the no-`.git` invariant;
+  persistence.md / README.md updated to the new model.
+
+**Upgrade:**
+1. If `$GITHUB_REPO_WORK` is set **and** `work/.git` exists (pre-2.0.0 layout):
+   back up once with `bash "$HOME/scripts/work-backup.sh" persist`, then remove
+   the on-volume git dir — `rm -rf /home/agent/work/.git` (best-effort; leftover
+   `.nfs*` held open by another pod can be left in place). The `work/` **data
+   files are untouched** and remain the source of truth.
+2. Thereafter every run's persist uses the tmpfs clone automatically (CLAUDE.md
+   run sequences). Nothing else — docs and scripts are re-read per run.
+
 ## 1.4.0 — 2026-07-28
 
 **Changed:**

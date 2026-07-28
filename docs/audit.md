@@ -148,6 +148,6 @@ One message, this shape (tight — counts and one-liners, no prose):
   + log. **Slack disabled** → chat UI only. Always echo to the chat UI.
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
-  "fail"/"error", the log-grep would flag them next week), then commit & push
+  "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No GitHub writes, no state repairs beyond the memory
   consolidation (task 25) — findings are reported, not fixed.

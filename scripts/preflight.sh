@@ -454,13 +454,11 @@ if [ "$MODE" = "audit" ]; then
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
 
   if [ -n "${GITHUB_REPO_WORK:-}" ]; then
-    if [ -d "$WORK/.git" ]; then
-      git -C "$WORK" fetch -q origin 2>/dev/null
-      ahead="$(git -C "$WORK" rev-list --count '@{u}..HEAD' 2>/dev/null || echo '?')"
-      dirty="$(git -C "$WORK" status --porcelain 2>/dev/null | grep -c . || true)"
-      if [ "$ahead" != "?" ] && [ "$ahead" -gt 3 ]; then check work_repo warn "$ahead unpushed commits, $dirty dirty files — pushes may be failing"
-      else check work_repo ok "ahead=$ahead unpushed, dirty=$dirty (swept up next active run)"; fi
-    else check work_repo fail "GITHUB_REPO_WORK set but work/ is not a git clone"; fi
+    if [ -e "$WORK/.git" ]; then
+      check work_repo warn "work/.git present — work/ must be a plain data dir (backup runs in a tmpfs clone); remove it per docs/persistence.md"
+    else
+      check work_repo ok "work/ plain data dir; durable backup via tmpfs clone (any work_backup push errors surface in the log triage below)"
+    fi
   else check work_repo ok "local-only persistence (GITHUB_REPO_WORK unset)"; fi
 
   # --- heartbeat cadence & log errors ------------------------------------

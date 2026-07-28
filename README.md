@@ -144,7 +144,7 @@ including restarting a stuck review — see `docs/review.md` →
 | Variable | Required | Description |
 | --- | --- | --- |
 | `GITHUB_REPO` | Recommended | `owner/repo` slug of the repository whose PRs are reviewed. **If unset, the agent asks for the slug at the very start of onboarding**, validates it, and persists it to `work/CONFIG.md` (`github_repo:` key) — the env var, when later set, always takes precedence over the stored value. Last-resort fallback is the repo detected via `gh repo view` in the working directory. |
-| `GITHUB_REPO_WORK` | No | `owner/repo` slug of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a git clone of this repo and the agent commits & pushes its state there after every run. **When unset**, the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
+| `GITHUB_REPO_WORK` | No | `owner/repo` slug of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a plain data directory that the agent backs up to this repo after every run via a disposable tmpfs clone (never a `.git` on the shared volume — see `docs/persistence.md`). **When unset**, the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
 
 ### `work/CONFIG.md` — instance configuration
 
@@ -212,8 +212,9 @@ same way. They live on the `/workspace` PVC at runtime
 (mounted as `/home/agent/work/`), so they survive pod restarts. How `work/` is
 seeded depends on `GITHUB_REPO_WORK` (see above):
 
-- **`GITHUB_REPO_WORK` set** — `work/` is a clone of that repo; state is committed
-  and pushed back after every run, giving durable, versioned, cross-pod history.
+- **`GITHUB_REPO_WORK` set** — `work/` is a plain data directory backed up to that
+  repo after every run (via a disposable tmpfs clone, never a `.git` on the shared
+  volume), giving durable, versioned, cross-pod history.
 - **`GITHUB_REPO_WORK` unset** — `REVIEWS.md` and `reviews/` are reconstructed from
   the agent's marker-carrying reviews on `GITHUB_REPO`; `MEMORY.md` (long-term
   memory, not derivable from PRs) starts from the seed template embedded in
@@ -222,7 +223,7 @@ seeded depends on `GITHUB_REPO_WORK` (see above):
 `work/` is **not tracked** by this definition repo — the allowlist `.gitignore`
 hides everything under `work/` at the top level, so the two never collide and a
 definition update (`git reset --hard origin/main`) never touches live runtime
-state. See `docs/persistence.md` → **Two repos, one inside the other**.
+state. See `docs/persistence.md` → **Two stores: shared live state + durable backup**.
 
 ## Files
 

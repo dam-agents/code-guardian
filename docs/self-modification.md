@@ -107,10 +107,11 @@ in the chat UI instead.
 ## 7. Data backup
 
 - Any run (or self-modification session) that changed `work/` ends by
-  committing and pushing it to `$GITHUB_REPO_WORK` when set — **the data is
-  backed up, not the definition** (the definition travels only via its own
-  repo). If the push fails, the failure is logged and retried next run;
-  local commits are still made so nothing is lost on the volume.
+  backing it up to `$GITHUB_REPO_WORK` when set (`scripts/work-backup.sh
+  persist`, [persistence.md](persistence.md)) — **the data is backed up, not
+  the definition** (the definition travels only via its own repo). If the push
+  fails, the failure is logged and retried next run; the live data stays on the
+  volume (`work/` is the source of truth), so nothing is lost.
 - Before a change that rewrites a state file's format, make sure the
   previous version is recoverable from the work repo's git history.
 
