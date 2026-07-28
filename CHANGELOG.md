@@ -7,6 +7,26 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.4.0 — 2026-07-28
+
+**Changed:**
+- `scripts/harness/claude-code/log-tool-event.sh`: `tool_failure` events now
+  capture the fullest error context available (falling back through
+  `tool_response` → error/stderr/stdout fields → the raw payload) so a failed
+  call is never logged as bare `null` (docs/logging.md).
+- `scripts/preflight.sh`: emits a once-per-restart `pod_boot` warn event via an
+  ephemeral `/tmp` sentinel, making pod restarts (previously invisible)
+  diagnosable (docs/logging.md).
+- `docs/review.md` → **Error handling**: a transient tool failure (context
+  fetch, clone, skill, post) is retried once; still failing → abort the PR
+  **releasing its lock** (as a Check 2 failure), never leaving an
+  `in_progress` lock behind, never retrying a call more than once. New
+  CLAUDE.md invariant + review-run self-check line.
+
+**Upgrade:** Nothing — the hook command path is unchanged, so the richer
+`tool_failure` capture applies automatically from the next session; preflight
+and docs are re-read per run.
+
 ## 1.3.0 — 2026-07-28
 
 **Changed:**

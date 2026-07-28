@@ -21,7 +21,7 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
   only when `work/CONFIG.md` has `log_level: debug` (missing key = `info`).
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `tool_failure`, `tool_use`, `review_step`,
-  `log_cleanup`, …); the audit groups recurring errors by it.
+  `pod_boot`, `log_cleanup`, …); the audit groups recurring errors by it.
 - **msg** — the human-readable message / error.
 
 Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`.
@@ -35,10 +35,17 @@ on first write.
    line (`preflight`, info), and errors it would otherwise swallow —
    unresolvable repo/API-list failures (`preflight`, error), silent GitHub
    API failures at decision sites (`gh_api`, warn), skill install failures
-   (`skill_install`, error).
+   (`skill_install`, error), and — once per pod restart — a `pod_boot` warn
+   (an ephemeral `/tmp` sentinel is absent iff the pod restarted since the
+   last run; $HOME persists, the rest of the filesystem is reset). Detect-only,
+   never gates behavior; a run with no matching `heartbeat`/session activity
+   after a `pod_boot` is a restart that interrupted work.
 2. **Harness adapter (automatic)** — every **failed tool call** of the agent
-   becomes a `tool_failure` error event (tool name, truncated input and
-   error). Under `log_level: debug`, successful external calls (Bash
+   becomes a `tool_failure` error event (tool name, truncated input, and the
+   fullest error context available — `tool_response`, then error/stderr/stdout
+   fields, then the raw `tool_input`/`tool_response` payload, so a failure is
+   never logged as bare `null`). Under `log_level: debug`, successful external
+   calls (Bash
    `gh`/`git`/`curl` commands, `mcp__*` tools) also land as `tool_use`
    debug events with a truncated result. At session end, one **`tokens`**
    event records the run's API usage
