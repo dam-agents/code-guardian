@@ -588,7 +588,8 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
     || check recurring_errors ok "no recurring error/warn signatures"
 
-  # weekly token totals from `tokens` events (best-effort — {} when none)
+  # weekly token totals from `tokens` events (best-effort; msg format written
+  # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
   TOKENS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
     [.[] | select(.ts >= $s and .event=="tokens") | .msg
      | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)")]
@@ -606,7 +607,9 @@ if [ "$MODE" = "audit" ]; then
     check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"
   fi
 
-  # retention: weekly cleanup keeping >= 14 days (files are 14-21 days old when deleted)
+  # retention: weekly cleanup keeping >= 14 days (files are 14-21 days old when
+  # deleted). The line-log trim below is read->tmp->mv: a heartbeat appending in
+  # that window loses its line — accepted best-effort, one cadence data point.
   removed=0
   [ -d "$LOG_DIR" ] && removed="$(find "$LOG_DIR" -name 'events-*.jsonl' -mtime +14 -print -delete 2>/dev/null | grep -c . || true)"
   KEEP_EPOCH=$((NOW_EPOCH - 14*86400))

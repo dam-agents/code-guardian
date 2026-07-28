@@ -81,6 +81,14 @@ adapter is active, duty 3 above extends to logging tool failures manually.
   change the adapter; effective from the next session). On a non-Claude-Code
   harness it prints a notice and exits 0.
 
+Registration is user-global, so both hook scripts no-op unless
+`$WORK/CONFIG.md` exists — they only ever log sessions of a deployed
+instance (nothing is logged until onboarding Step 4 writes the config, and
+running `install.sh` on a developer machine stays harmless). Messages pass
+`log_redact` (log.sh) before writing — well-known credential shapes
+(GitHub/Slack tokens, bearer headers) are masked, per the no-secrets-in-logs
+invariant.
+
 The weekly audit verifies the adapter matches the detected harness
 (`harness_adapter` check) — a Claude Code pod without registered hooks is a
 warn.

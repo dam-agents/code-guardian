@@ -5,7 +5,8 @@
 # into: input / output / cache_read / cache_creation / msgs. The run id is the
 # session id, so the event joins 1:1 with the run's other events. Best-effort:
 # a hard-crashed session never fires SessionEnd and simply has no tokens event.
-# Never blocks the agent: always exits 0.
+# No-op unless work/CONFIG.md exists (same deployed-instance guard as
+# log-tool-event.sh). Never blocks the agent: always exits 0.
 set -u
 INPUT="$(cat 2>/dev/null || true)"
 [ -z "$INPUT" ] && exit 0
@@ -16,7 +17,9 @@ tp="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)"
 { [ -n "$tp" ] && [ -f "$tp" ]; } || exit 0
 [ -n "$sid" ] && export LOG_RUN_ID="$sid"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
+[ -f "$LOG_WORK/CONFIG.md" ] || exit 0
 
+# msg format is parsed by preflight.sh audit (TOKENS_WEEK capture) — keep in sync
 msg="$(jq -c -R 'fromjson? // empty' "$tp" 2>/dev/null | jq -rs '
   [.[] | select(.message.usage) | {id: (.message.id // .uuid), u: .message.usage}]
   | unique_by(.id)

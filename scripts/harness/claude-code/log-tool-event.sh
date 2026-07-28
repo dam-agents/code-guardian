@@ -8,17 +8,23 @@
 #                         only: Bash gh/git/curl commands and mcp__ tools;
 #                         written only under log_level: debug)
 #
+# No-op unless a deployed instance's work/CONFIG.md exists — the hook is
+# registered user-globally, and this guard keeps it from logging unrelated
+# sessions (e.g. a developer machine) into $HOME/work/logs.
 # Never blocks the agent: always exits 0.
 set -u
 INPUT="$(cat 2>/dev/null || true)"
 [ -z "$INPUT" ] && exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
+evt="$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)"
 sid="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)"
 [ -n "$sid" ] && export LOG_RUN_ID="$sid"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
+[ -f "$LOG_WORK/CONFIG.md" ] || exit 0
+# successful calls are debug-only — skip all parsing work at log_level: info
+{ [ "$evt" = "PostToolUseFailure" ] || [ "$LOG_LEVEL" = "debug" ]; } || exit 0
 
-evt="$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)"
 tool="$(printf '%s' "$INPUT" | jq -r '.tool_name // "unknown"' 2>/dev/null)"
 cmd="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // .tool_input.url // empty' 2>/dev/null \
       | tr '\n' ' ' | cut -c1-200)"
