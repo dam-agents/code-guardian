@@ -588,6 +588,14 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
     || check recurring_errors ok "no recurring error/warn signatures"
 
+  # weekly token totals from `tokens` events (best-effort — {} when none)
+  TOKENS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    [.[] | select(.ts >= $s and .event=="tokens") | .msg
+     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)")]
+    | {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
+       cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)}' 2>/dev/null)"
+  [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
+
   if [ "${CLAUDECODE:-}" = "1" ]; then
     if grep -q "harness/claude-code/log-tool-event.sh" "$HOME_DIR/.claude/settings.json" 2>/dev/null; then
       check harness_adapter ok "Claude Code hooks registered (automatic tool-failure logging)"
@@ -643,11 +651,11 @@ if [ "$MODE" = "audit" ]; then
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
-    --argjson le "$ev_err" --argjson lw "$ev_warn" \
+    --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
       heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
-      log_events:{errors:$le, warns:$lw}}')"
+      log_events:{errors:$le, warns:$lw}, tokens:$tw}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

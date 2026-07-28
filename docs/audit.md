@@ -132,6 +132,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*

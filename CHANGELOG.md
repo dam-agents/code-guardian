@@ -19,7 +19,10 @@ upgrade**); authoring rules:
   per-harness) auto-captures every failed tool call through
   `PostToolUseFailure`/`PostToolUse` hooks. New `log_level` config key
   (`info` default | `debug`); replaces `review_progress_log` — review
-  milestones are now always-on `review_step` events.
+  milestones are now always-on `review_step` events. A `SessionEnd` hook
+  additionally logs one `tokens` event per run (per-job API usage summed
+  from the session transcript); the audit aggregates weekly totals into
+  `stats.tokens` and the report.
 - The weekly audit triages the events log (`events_errors` +
   `recurring_errors` checks, `log_events` stats, harness-adapter check; the
   report surfaces recurring/severe errors) and performs the log retention

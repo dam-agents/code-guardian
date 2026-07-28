@@ -40,7 +40,14 @@ on first write.
    becomes a `tool_failure` error event (tool name, truncated input and
    error). Under `log_level: debug`, successful external calls (Bash
    `gh`/`git`/`curl` commands, `mcp__*` tools) also land as `tool_use`
-   debug events with a truncated result. See **Harness adapters** below.
+   debug events with a truncated result. At session end, one **`tokens`**
+   event records the run's API usage
+   (`input=… output=… cache_read=… cache_creation=… msgs=…`, summed from the
+   session transcript, deduped by message id) — since one scheduled run is
+   one fresh session, this is per-job consumption; join on `run` with the
+   `heartbeat` event for the job's mode. Best-effort: a hard-crashed session
+   has no tokens event; subagent transcripts are not included. See
+   **Harness adapters** below.
 3. **The agent (manual)** — two duties:
    - **Review milestones**: the `review_step` events of
      [review.md](review.md) → Progress logging.
@@ -67,7 +74,9 @@ adapter is active, duty 3 above extends to logging tool failures manually.
 
 - `log-tool-event.sh` — hook target for `PostToolUseFailure` (all tools)
   and `PostToolUse` (external calls, debug).
-- `install.sh` — registers both hooks in `~/.claude/settings.json`
+- `log-session-tokens.sh` — `SessionEnd` hook target: the per-run `tokens`
+  event (duty 2 above).
+- `install.sh` — registers the hooks in `~/.claude/settings.json`
   (idempotent; run at onboarding Step 1b and after definition updates that
   change the adapter; effective from the next session). On a non-Claude-Code
   harness it prints a notice and exits 0.
