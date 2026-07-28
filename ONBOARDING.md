@@ -63,6 +63,18 @@ git branch --set-upstream-to=origin/main main 2>/dev/null || true
 
 > **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths — either could capture or delete `.ssh`, `.claude`, `work/`, etc.
 
+## Step 1b — Harness adapter (automatic tool-call logging)
+
+Register the harness hooks that feed the agent's failed tool calls into the
+structured events log ([docs/logging.md](docs/logging.md)):
+
+```bash
+bash "$HOME/scripts/harness/claude-code/install.sh"
+```
+
+Idempotent; on a non-Claude-Code harness it prints a notice and exits 0 —
+the agent then logs tool failures manually per docs/logging.md.
+
 ## Step 2 — Confirm `work/` is invisible to the outer repo
 
 `work/` is independent runtime state and is **not** tracked by the definition repo — the allowlist `.gitignore` (`/*`, then re-include only the definition files) hides everything under `work/`. No detach step is needed; just confirm nothing leaks:

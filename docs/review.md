@@ -82,19 +82,21 @@ j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
 k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
 
-**Progress logging (stall diagnosis, opt-in).** A run otherwise only writes
-`HEARTBEAT.log` at its end, so a session that dies mid-review (e.g. ending the
-turn after a skill report — [skills.md](skills.md)) leaves no trace of where it
-stopped. When **`review_progress_log: enabled`** in `work/CONFIG.md` (default
-`disabled` — see CLAUDE.md → Runtime configuration), append one line to
-`work/REVIEW-DEBUG.log` as each milestone of this sequence completes:
-`<UTC> PR #<n> <sha-short> <step>` — step ∈ `locked` (a) · `cloned` (d) ·
-`skill:<name> done` (d, one per configured skill) · `posted <verdict>` (h) ·
-`done` (j) · `aborted <reason>` (e). The last line logged for a PR then pins
-the exact step a stall stopped at. One line each, append-only
-(`>> "$HOME/work/REVIEW-DEBUG.log"`); negligible cost, swept up by the run-end
-persist. When the key is `disabled` or absent, skip all progress logging — no
-`REVIEW-DEBUG.log` is created and behavior is unchanged.
+**Progress logging (stall diagnosis).** A session that dies mid-review (e.g.
+ending the turn after a skill report — [skills.md](skills.md)) must leave a
+trace of where it stopped: as each milestone of this sequence completes,
+append one `review_step` event to the structured log
+([logging.md](logging.md)) — chained onto the step's existing command, never
+as a separate tool call:
+
+```bash
+. "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
+```
+
+with step ∈ `locked` (a) · `cloned` (d) · `skill:<name> done` (d, one per
+configured skill) · `posted <verdict>` (h) · `done` (j) · `aborted <reason>`
+(e). The last event logged for a PR pins the exact step a stall stopped at;
+consecutive event timestamps give per-step durations.
 
 ```bash
 MARKER="<!-- $REVIEW_MARKER headRefOid=<full-sha> -->"
@@ -389,10 +391,9 @@ dropped below APPROVE · clone deleted · artifacts (`artifacts_due`, see
 [artifact.md](artifact.md)) published to each target in `artifact_targets`
 with all surviving links in one comment (DAM best-effort — skipped-with-log
 when the flag is off, never failing the run), every published surface's marker
-recorded, and gist/DAM/HTML all cleaned up on prune · when
-`review_progress_log: enabled`,
-per-PR progress lines were logged to `REVIEW-DEBUG.log` (`locked` →
-`skill:… done` → `posted`/`aborted`/`done`) so a mid-review stall is
+recorded, and gist/DAM/HTML all cleaned up on prune · per-PR `review_step`
+events were logged (`locked` → `skill:… done` → `posted`/`aborted`/`done` —
+[logging.md](logging.md)) so a mid-review stall is
 diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
 state — the run was never ended mid-pipeline (e.g. after a skill report)** ·
 all errors logged · no literal repo slug in any output.

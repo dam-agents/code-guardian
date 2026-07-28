@@ -7,6 +7,36 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.3.0 — 2026-07-28
+
+**Changed:**
+- Unified structured logging (new home: `docs/logging.md`): all diagnostic
+  events go to `work/logs/events-YYYY-MM-DD.jsonl` (`ts`/`run`/`job`/`level`/
+  `event`/`msg`) via the new harness-agnostic `scripts/log.sh`. Preflight now
+  logs a per-run heartbeat summary and its previously silent errors (API
+  decision sites, skill installs); the new Claude Code harness adapter
+  (`scripts/harness/claude-code/`, detected via `CLAUDECODE=1`, replaceable
+  per-harness) auto-captures every failed tool call through
+  `PostToolUseFailure`/`PostToolUse` hooks. New `log_level` config key
+  (`info` default | `debug`); replaces `review_progress_log` — review
+  milestones are now always-on `review_step` events.
+- The weekly audit triages the events log (`events_errors` +
+  `recurring_errors` checks, `log_events` stats, harness-adapter check; the
+  report surfaces recurring/severe errors) and performs the log retention
+  cleanup: events files older than 14 days deleted (weekly cadence → files
+  are 14–21 days old when removed), `HEARTBEAT.log`/`SHEPHERD.log` trimmed
+  in place to 14 days, `AUDIT.log` exempt.
+
+**Upgrade:**
+1. Run `bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent;
+   prints a notice and exits on non-Claude-Code harnesses; hooks take effect
+   from the next session).
+2. In `work/CONFIG.md`: remove the `review_progress_log` key if present
+   (replaced by `log_level`; if it was `enabled` and you want the extra
+   detail, set `log_level: debug`). Delete `work/REVIEW-DEBUG.log` if
+   present.
+3. Nothing else — `work/logs/` is created on first write.
+
 ## 1.2.0 — 2026-07-27
 
 **Changed:**

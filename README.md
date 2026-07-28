@@ -166,6 +166,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
+| `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
 
 ### Runtime requirements
@@ -229,10 +230,14 @@ state. See `docs/persistence.md` → **Two repos, one inside the other**.
   run (run types, pre-flight contract, config semantics, hard invariants).
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   both run types; detects work, never acts on GitHub.
+- [`scripts/log.sh`](scripts/log.sh) + [`scripts/harness/`](scripts/harness/) —
+  structured events log (`work/logs/events-*.jsonl`, 14-day retention) and the
+  per-harness adapters that auto-capture failed tool calls (`docs/logging.md`).
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
   [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
+  [`logging.md`](docs/logging.md),
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
   also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
