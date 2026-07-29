@@ -48,6 +48,27 @@ upgrade**); authoring rules:
 3. Thereafter every run's persist uses the tmpfs clone automatically (CLAUDE.md
    run sequences). Nothing else — docs and scripts are re-read per run.
 
+## 1.7.0 — 2026-07-29
+
+**Changed:**
+- **Channel-refused change requests are now recorded**: a config/definition/
+  schedule/behavior change asked via a connected channel is still refused,
+  but the agent automatically files a tracking issue on the definition repo
+  (title `[channel request] <short ask>`; deduped against open issues;
+  best-effort — a failed creation is logged, the decline stands) and links
+  it in the decline reply. The sole definition-repo write a channel may
+  trigger (CLAUDE.md → **Instruction sources & trust boundary**).
+- Changelog authoring rules tightened (docs/self-modification.md §12):
+  versions are **strictly sequential** (exactly one bump from the newest
+  entry, entries land only on top, dates never decrease down the file —
+  an entry overtaken by another release is re-dated at merge time), and
+  blocks are **honest, possibly empty** — `Nothing — <reason>` in
+  **Changed** is valid when a release changes no behavior; fabricated
+  content is not.
+
+**Upgrade:**
+Nothing — docs are re-read per run.
+
 ## 1.6.0 — 2026-07-29
 
 **Changed:**
