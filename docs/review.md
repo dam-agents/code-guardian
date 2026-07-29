@@ -74,7 +74,9 @@ f. **Re-run the remote dedup check** for the reviewed SHA (both halves —
    reviews and legacy comments; snippet below). A hit → treat as Check 2
    failure + self-heal the row with the GitHub timestamp.
 g. Output the structured review to the chat UI.
-h. Post it to GitHub as a single PR review (below).
+h. Post it to GitHub as a single PR review (below). Then evaluate any
+   configured watch rules against this PR and send due heads-ups per
+   [watches.md](watches.md).
 i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Label removal**
    below) — after every posted review, first reviews included (the request
    is served). Failure = log, not fatal.
@@ -287,7 +289,8 @@ separated by `---`. On title change, update the header. The
 present) sit right after the title, each on its own line, overwritten in place
 by the artifact step ([artifact.md](artifact.md)); pruning reads both to clean
 up the gist and the DAM artifact. Omit a marker line when that surface wasn't
-published.
+published. Watch-rule dedup markers (`<!-- watch-sent: <id> -->`,
+[watches.md](watches.md)) follow on their own lines when present.
 
 ### Applying PR-local overrides
 
@@ -398,9 +401,10 @@ dropped below APPROVE · clone deleted · artifacts (`artifacts_due`, see
 [artifact.md](artifact.md)) published to each target in `artifact_targets`
 with all surviving links in one comment (DAM best-effort — skipped-with-log
 when the flag is off, never failing the run), every published surface's marker
-recorded, and gist/DAM/HTML all cleaned up on prune · per-PR `review_step`
-events were logged (`locked` → `skill:… done` → `posted`/`aborted`/`done` —
-[logging.md](logging.md)) so a mid-review stall is
+recorded, and gist/DAM/HTML all cleaned up on prune · watch rules (when
+configured) evaluated marker-before-send per [watches.md](watches.md) · per-PR
+`review_step` events were logged (`locked` → `skill:… done` →
+`posted`/`aborted`/`done` — [logging.md](logging.md)) so a mid-review stall is
 diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
 state — the run was never ended mid-pipeline (e.g. after a skill report)** ·
 every transient tool failure retried once then aborted-with-lock-released (no
