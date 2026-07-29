@@ -21,7 +21,7 @@ if one is impossible this week (missing data, API error), report it as
    cause — read the matching events in `work/logs/` ([logging.md](logging.md))
    when the cause isn't obvious.
 2. `stats` sanity: zero reviews in a week with open PRs and heartbeats
-   running → investigate (label gate stuck? decision bug?) and report.
+   running → investigate (trigger gate stuck? decision bug?) and report.
 3. The script's checks cover: GitHub auth + rate limit, work-repo push
    backlog, heartbeat gaps, weekly log errors, structured-events triage
    (`events_errors`, `recurring_errors`) + harness adapter presence +
@@ -107,9 +107,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 22. **Verdict distribution**: ~100 % APPROVE across a busy week → possible
     rubber-stamping; ~100 % REQUEST_CHANGES → possible over-strictness.
     Either extreme → flag for the operator with examples.
-23. **`awaiting_label` backlog**: count + age of rows waiting for the
-    re-review label — a large/old backlog means the team isn't using the
-    label; suggest it in the report (process signal, not a defect).
+23. **`awaiting_label` backlog**: count + age of rows waiting for a
+    re-review trigger — a large/old backlog means the team isn't requesting
+    re-reviews (label / review request); suggest it in the report (process
+    signal, not a defect).
 24. **Cost pulse**: idle-heartbeat ratio from `stats` (idle/total). A falling
     ratio means rising spend; a ratio near zero with no reviews means
     something re-triggers work every run — investigate.

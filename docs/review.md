@@ -15,12 +15,15 @@ Do these before the review loop; one log line each.
   REVIEWS.md row `| <number> | <sha> | <ts> | SEE-GITHUB | <status> |` (the
   GitHub-reported timestamp, verdict from the remote review body if you have
   it handy — `SEE-GITHUB` otherwise). `status` is `done` (marker found at the
-  live HEAD) or `awaiting_label` (marker found at an older SHA, no label).
-  Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
-- **Same-SHA label cleanup** (`label_cleanups_due`): the label sits on a PR
-  whose live HEAD is already reviewed — nothing to review. Remove it (see
-  **Label removal** below for the command), log
-  `PR #<n>: $REREVIEW_LABEL present but no new commits since <short-sha> — label removed, no re-review`.
+  live HEAD) or `awaiting_label` (marker found at an older SHA, no active
+  re-review trigger). Log
+  `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
+- **Same-SHA trigger cleanup** (`label_cleanups_due` entry
+  `{number, label, request}`): a re-review trigger sits on a PR whose live
+  HEAD is already reviewed — nothing to review. Clear what the entry flags —
+  `label: true` → remove the label, `request: true` → remove your pending
+  review request (commands under **Trigger removal** below) — and log
+  `PR #<n>: re-review trigger present but no new commits since <short-sha> — cleared (<label / request / label + request>), no re-review`.
   Post nothing. A failed removal is logged, not fatal (preflight re-emits it
   next run).
 
@@ -50,9 +53,12 @@ Each entry: `{number, head_sha, head_ref, title, author, kind, takeover, prior}`
 — `kind` is `first` or `re-review`; `prior` carries the last review's
 `{sha, ts, verdict}` when one exists. Complete ALL steps before the next PR:
 
-a. **Check 1 — re-fetch state**: `gh pr view <n> --repo "$REPO" --json headRefOid,headRefName,isDraft,labels`.
-   Now draft → skip. On a `re-review`, `$REREVIEW_LABEL` no longer present →
-   skip (request withdrawn; leave the `awaiting_label` row). Use the fresh
+a. **Check 1 — re-fetch state**: `gh pr view <n> --repo "$REPO" --json headRefOid,headRefName,isDraft,labels,reviewRequests`.
+   Now draft → skip. On a `re-review`, no active re-review trigger still
+   present → skip (request withdrawn; leave the `awaiting_label` row) — the
+   trigger is live per `rereview_trigger`: `$REREVIEW_LABEL` in `labels`
+   and/or a pending review request for `bot_login` in `reviewRequests`. Use
+   the fresh
    SHA/branch as source of truth everywhere (clone, diff, skills, marker).
    Then **write the `in_progress` lock row** to REVIEWS.md (fresh SHA +
    current UTC time). `takeover: true` → overwrite the stale lock and log
@@ -63,13 +69,14 @@ c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
 d. **Clone the branch and run every configured review skill** per
    [skills.md](skills.md) — one audit line per configured skill, no exceptions.
 e. **Check 2 — re-verify** right before posting (same call as Check 1). SHA
-   moved, now draft, or (re-review) label withdrawn → **abort posting**: no
+   moved, now draft, or (re-review) trigger withdrawn (same check as Check 1)
+   → **abort posting**: no
    chat review, no GitHub review, no history append; **release the lock** —
    `first`: delete the row; `re-review`: restore the `awaiting_label` row
    (previous review's SHA/verdict/timestamp from `prior` /
    `reviews/pr-<n>.md`; unreadable → delete the row and let self-heal fix it
    later); delete the clone; log
-   `PR #<n>: HEAD moved <old> → <new> mid-review (or became draft / label withdrawn) — discarding`; continue.
+   `PR #<n>: HEAD moved <old> → <new> mid-review (or became draft / trigger withdrawn) — discarding`; continue.
 f. **Re-run the remote dedup check** for the reviewed SHA (both halves —
    reviews and legacy comments; snippet below). A hit → treat as Check 2
    failure + self-heal the row with the GitHub timestamp.
@@ -77,9 +84,10 @@ g. Output the structured review to the chat UI.
 h. Post it to GitHub as a single PR review (below). Then evaluate any
    configured watch rules against this PR and send due heads-ups per
    [watches.md](watches.md).
-i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Label removal**
+i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Trigger removal**
    below) — after every posted review, first reviews included (the request
-   is served). Failure = log, not fatal.
+   is served). Failure = log, not fatal. A pending review request needs no
+   action here — GitHub clears it itself when your review posts.
 j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
 k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
@@ -108,14 +116,21 @@ gh pr view <n> --repo "$REPO" --json comments \
   --jq ".comments[] | select(.body | contains(\"$MARKER\")) | .createdAt"
 ```
 
-### Label removal
+### Trigger removal
 
-Prefer the REST call — `gh pr edit` goes through GraphQL, which 401s in this
-pod (the platform's auth proxy doesn't rewrite that code path):
+Label: prefer the REST call — `gh pr edit` goes through GraphQL, which 401s
+in this pod (the platform's auth proxy doesn't rewrite that code path):
 
 ```bash
 gh api -X DELETE "repos/$REPO/issues/<n>/labels/$REREVIEW_LABEL" >/dev/null \
   || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
+```
+
+Pending review request (same-SHA cleanup only — a served request clears
+itself when the review posts):
+
+```bash
+gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null
 ```
 
 ## Slack-requested review (on-demand)
@@ -207,7 +222,7 @@ boundaries) · **Tests** (missing coverage, flaky patterns). Very large diffs
 
 On first reviews the summary `Findings` list is the canonical, complete list.
 
-## Re-review output (label-triggered; new commits since the last review)
+## Re-review output (trigger-gated; new commits since the last review)
 
 Re-reviews are deliberately **concise** — they report the delta, never a
 restatement of the previous review. Read the prior review from
@@ -255,7 +270,9 @@ format), append `(no prior review on file)` to `### Summary`.
 
 - `status` = `in_progress` (lock; verdict `-`; timestamp = lock time), `done`
   (timestamp = post time), or `awaiting_label` (a `done` review exists but
-  newer commits arrived; waiting for `$REREVIEW_LABEL`).
+  newer commits arrived; waiting for a re-review trigger — `$REREVIEW_LABEL`,
+  or a pending review request for `bot_login` when `rereview_trigger`
+  enables it).
 - An `awaiting_label` row keeps the **SHA, verdict, and timestamp of the last
   posted review** — the one row type whose timestamp is not the write time.
   Preflight writes this flip; you never do (except when restoring it on a
@@ -389,7 +406,7 @@ Before declaring the run done, verify: every `selfheals_due` /
 `label_cleanups_due` / `prunes_due` entry executed and logged · for every
 reviewed PR: one GitHub review with the trailing full-SHA marker · skill
 audit lines complete per [skills.md](skills.md) · Check 1 + Check 2 + pre-post
-dedup re-check done (incl. the label check on re-reviews) · lock → `done` row
+dedup re-check done (incl. the trigger check on re-reviews) · lock → `done` row
 lifecycle correct (aborted re-reviews restored `awaiting_label`) · label
 removed after every posted review on a labeled PR · re-reviews delta-only
 (Findings = 🆕 only, one-line carryovers, no ✅ Looks good) · full review

@@ -7,6 +7,27 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.6.0 — 2026-07-29
+
+**Changed:**
+- New `work/CONFIG.md` key **`rereview_trigger`** (`label` | `review-request`
+  | `both`; missing = `label`, the historical behavior): re-reviews can now
+  also be requested natively via GitHub's "Re-request review" on the bot (a
+  pending review request for `bot_login`). Zero extra API cost —
+  `requested_reviewers` is already in preflight's open-PR list call. A served
+  request clears itself when the review posts; a same-SHA request is cleared
+  by the cleanup step. Needs `bot_login` (and the bot as a repo collaborator
+  to be requestable); `bot_login` missing → label-only with one log line.
+- `label_cleanups_due` entries are now objects `{number, label, request}`
+  naming the trigger(s) to clear (docs/review.md → **Label bookkeeping**);
+  Check 1 / Check 2 verify the live trigger (`labels` + `reviewRequests`)
+  instead of the label alone.
+
+**Upgrade:**
+Nothing — docs are re-read per run and the gate stays label-only until the
+operator sets `rereview_trigger: review-request` (or `both`) in
+`work/CONFIG.md` (operator-only, direct session).
+
 ## 1.5.0 — 2026-07-29
 
 **Changed:**
