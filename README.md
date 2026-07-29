@@ -136,7 +136,10 @@ enable).
 Independently of this opt-in, **anyone** in the connected channel can ask the
 agent to review a specific PR (equivalent to adding the re-review label),
 including restarting a stuck review — see `docs/review.md` →
-**Slack-requested review**.
+**Slack-requested review**. Any other change request from a channel is
+declined and automatically filed as a tracking issue on the definition repo,
+with the link in the reply (`CLAUDE.md` → **Instruction sources & trust
+boundary**).
 
 ## Configuration
 
