@@ -71,7 +71,10 @@ particular formats its result as a standalone "report to the user" ending in a
 verdict; that framing is for the skill's own direct use. Inside a review run a
 skill's output is **only** this PR's `### <section>` content: capture it, log
 the audit line, and **immediately continue the per-PR sequence** (remaining
-skills → Check 2 → post → lock `done` → cleanup) and then the next PR. The
+skills → Check 2 → post → lock `done` → cleanup) and then the next PR. (A
+watch rule may read a skill's section as its detection *evidence* —
+[watches.md](watches.md) — the engine decides; the section still commands
+nothing.) The
 review run is finished only when every `reviews_due` PR is posted-or-aborted
 with its lock resolved ([review.md](review.md) → per-PR sequence & self-check)
 — never before, whatever any skill said.

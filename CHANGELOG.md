@@ -7,6 +7,28 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.5.0 — 2026-07-29
+
+**Changed:**
+- Instance-local **watch rules**: an optional `## Watch rules` table in
+  `work/CONFIG.md` ("when a PR does X, give a heads-up in Y"), evaluated
+  during each PR's review against the already-fetched diff — or against a
+  configured review skill's section used as the detection signal — deduped
+  per PR+rule via a `<!-- watch-sent: <id> -->` marker in the history file,
+  write-before-send. Delivery targets are a closed, vetted set: `chat` ·
+  `slack[:<chat-id>]` (gated by `slack_notifications: enabled`) ·
+  `pr-comment`; comma-separated per rule, new types only via definition PR.
+  New home: docs/watches.md; one-line hooks in CLAUDE.md, docs/review.md,
+  docs/skills.md. Keeps team-specific triggers, channels, and wording out of
+  the public definition repo — rules are private runtime state.
+
+**Upgrade:**
+- Nothing required — a missing/empty table means no watches. To add one, the
+  operator asks in the direct session; the agent appends the row to
+  `work/CONFIG.md` → `## Watch rules` (format in docs/watches.md). Cost: no
+  new schedules or API calls — evaluation reuses the review's diff; one
+  delivery per matched PR per target.
+
 ## 1.4.0 — 2026-07-28
 
 **Changed:**
@@ -59,7 +81,6 @@ and docs are re-read per run.
    detail, set `log_level: debug`). Delete `work/REVIEW-DEBUG.log` if
    present.
 3. Nothing else — `work/logs/` is created on first write.
-
 ## 1.2.0 — 2026-07-27
 
 **Changed:**
