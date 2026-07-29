@@ -22,8 +22,9 @@ if one is impossible this week (missing data, API error), report it as
    when the cause isn't obvious.
 2. `stats` sanity: zero reviews in a week with open PRs and heartbeats
    running → investigate (label gate stuck? decision bug?) and report.
-3. The script's checks cover: GitHub auth + rate limit, work-repo push
-   backlog, heartbeat gaps, weekly log errors, structured-events triage
+3. The script's checks cover: GitHub auth + rate limit, work/ layout (plain
+   data dir, no `.git`) + `.nfs*` junk count, heartbeat gaps, weekly log
+   errors, structured-events triage
    (`events_errors`, `recurring_errors`) + harness adapter presence +
    14-day log retention cleanup ([logging.md](logging.md)), stale locks,
    duplicate rows,

@@ -18,10 +18,15 @@
 #                       restart between commit and push) loses only the not-yet
 #                       -pushed snapshot; the data is still on work/ and the
 #                       next run re-snapshots and pushes it.
-# Concurrency is resolved at the remote: each pod backs up from its own tmpfs
-# clone and pushes; a rejected (non-fast-forward) push re-seeds from the new
-# remote tip and retries in-run. work/ files are only ever READ here (via tar),
-# never renamed, so no ESTALE.
+# Concurrency: reviews stay fully parallel — only the backup step itself is
+# serialized. Concurrent sessions in one pod share this clone, so persist takes
+# a mkdir lock next to it (lock-or-skip: finding a fresh lock means another
+# persist is running — skip; it snapshots the same shared work/ moments later,
+# and the next run sweeps up any remainder. Stale locks from crashed runs
+# expire by TTL). Across pods, concurrency is resolved at the remote: a
+# rejected (non-fast-forward) push re-seeds from the new remote tip and retries
+# in-run. work/ files are only ever READ here (via tar), never renamed, so no
+# ESTALE.
 #
 # Never fails the run: all error paths exit 0 (a missed backup is retried next
 # run). Requires: git, tar, coreutils. Sources scripts/log.sh for events.
@@ -34,6 +39,8 @@ WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 LOCAL="${WORK_BACKUP_LOCAL:-/dev/shm/cg-work-backup}"
 BRANCH="${WORK_BACKUP_BRANCH:-main}"
 RETRIES="${WORK_BACKUP_RETRIES:-3}"
+LOCK="$LOCAL.lock"                                # sibling of the clone, tmpfs too
+LOCK_TTL_MIN="${WORK_BACKUP_LOCK_TTL_MIN:-10}"    # a persist takes seconds
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_JOB="${LOG_JOB:-session}"
@@ -88,7 +95,37 @@ sync_in() {
   return 0
 }
 
+# Serialize the persist step (lock-or-skip): concurrent sessions share $LOCAL,
+# and two persists over one clone would race (checkout -B and the worktree wipe
+# land under each other's git add). mkdir is atomic even on tmpfs/NFS; the lock
+# dir's mtime is the acquire time, so a crashed persist expires by TTL.
+acquire_lock() {
+  mkdir "$LOCK" 2>/dev/null && return 0
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin "+$LOCK_TTL_MIN" 2>/dev/null)" ]; then
+    rm -rf "$LOCK" 2>/dev/null
+    if mkdir "$LOCK" 2>/dev/null; then
+      say "stole a stale persist lock (>${LOCK_TTL_MIN}m — crashed persist)."
+      logev warn work_backup "stale persist lock stolen"
+      return 0
+    fi
+  fi
+  return 1
+}
+release_lock() { rm -rf "$LOCK" 2>/dev/null || true; }
+
 persist() {
+  local rc
+  if ! acquire_lock; then
+    say "another persist is running — skipping; state stays on work/ and the next run backs it up."
+    logev info work_backup "persist skipped — concurrent persist holds the lock"
+    return 0
+  fi
+  do_persist; rc=$?
+  release_lock
+  return "$rc"
+}
+
+do_persist() {
   local attempt=0 rc
   while [ "$attempt" -lt "$RETRIES" ]; do
     attempt=$((attempt + 1))
@@ -114,10 +151,11 @@ persist() {
 
 restore() {
   seed_clone || { say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; return 0; }
-  # copy data (never .git) from the local clone into work/. Restore targets a
-  # fresh/empty volume; it does not delete pre-existing local files.
+  # copy data into work/ — never .git, and never historical .nfs* junk a
+  # pre-2.0.0 layout may have committed. Restore targets a fresh/empty volume;
+  # it does not delete pre-existing local files.
   if ( cd "$LOCAL" && git rev-parse HEAD >/dev/null 2>&1 ); then
-    ( cd "$LOCAL" && tar -c --exclude='./.git' -f - . ) | ( cd "$WORK" && tar -xf - ) \
+    ( cd "$LOCAL" && tar -c --exclude='./.git' --exclude='.nfs*' -f - . ) | ( cd "$WORK" && tar -xf - ) \
       && { say "restored work/ from remote."; logev info work_backup "restored work/ from remote"; } \
       || { say "restore copy failed."; logev warn work_backup "restore copy failed"; }
   else

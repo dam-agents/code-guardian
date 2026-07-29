@@ -47,7 +47,11 @@ restart) never matters. Nothing authoritative lives on tmpfs: the live state is
 `work/` (persistent), the history is the remote (persistent). Concurrency is
 resolved at the remote — a rejected non-fast-forward push re-seeds from the new
 tip and retries in-run; `work/` (all pods write the same files) is authoritative
-and every push converges to it. Never force-push; a push that fails all retries
+and every push converges to it. Within one pod, concurrent sessions share the
+clone, so the persist step itself is serialized by a mkdir lock next to it
+(lock-or-skip: a skipped persist is safe — the running one snapshots the same
+shared `work/` moments later, and the next run sweeps up any remainder). Never
+force-push; a push that fails all retries
 is logged and retried next run — not a run failure, because the data is safe on
 `work/`.
 

@@ -99,7 +99,7 @@ fi
 
 If the remote is empty (first-ever deployment) the restore is a no-op — fall through to 3b to seed the templates; the first end-of-run `persist` creates the initial backup. Never make `work/` a git repo.
 
-**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
+**3b — unset, or the 3a restore was empty/failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
 
 ```bash
 mkdir -p /home/agent/work/reviews

@@ -18,7 +18,13 @@ upgrade**); authoring rules:
   concurrent runs. Nothing authoritative lives on tmpfs (re-seeded from the
   remote every call; robust to pod restart). Concurrency is resolved at the
   remote with an in-run push retry, so reviews still run fully in parallel — no
-  run-lock, no waiting.
+  run-lock. Only the persist step itself is serialized within the pod
+  (concurrent sessions share the clone): a mkdir lock next to the clone,
+  lock-or-skip with a stale-lock TTL — a skipped persist is safe, `work/` stays
+  the source of truth and the next run backs it up.
+- `restore` filters `.nfs*` junk a pre-2.0.0 layout may have committed to the
+  backup remote; a new `nfs_junk` audit check counts `.nfs*` files under
+  `work/` (docs/audit.md).
 - Onboarding provisions `work/` as a data dir and restores via
   `work-backup.sh restore`; all end-of-run "commit & push" steps
   (CLAUDE.md review/shepherd/audit, docs) now call `work-backup.sh persist`;
@@ -30,8 +36,16 @@ upgrade**); authoring rules:
    back up once with `bash "$HOME/scripts/work-backup.sh" persist`, then remove
    the on-volume git dir — `rm -rf /home/agent/work/.git` (best-effort; leftover
    `.nfs*` held open by another pod can be left in place). The `work/` **data
-   files are untouched** and remain the source of truth.
-2. Thereafter every run's persist uses the tmpfs clone automatically (CLAUDE.md
+   files are untouched** and remain the source of truth; any commits in the old
+   `work/.git` that never reached the remote are intentionally discarded as
+   history — the current files are what the first new persist backs up.
+2. The ONBOARDING Step 6 task texts changed (the closing "commit & push work/"
+   became "back up work/ (`scripts/work-backup.sh persist`)"). For each
+   registered schedule whose task text still says "commit & push work/",
+   re-register it with the Step 6 text — `delete_schedule` + `create_schedule`,
+   keeping the existing name and cron. Schedules already carrying the new text
+   are left alone.
+3. Thereafter every run's persist uses the tmpfs clone automatically (CLAUDE.md
    run sequences). Nothing else — docs and scripts are re-read per run.
 
 ## 1.4.0 — 2026-07-28

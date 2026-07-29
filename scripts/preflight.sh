@@ -461,6 +461,10 @@ if [ "$MODE" = "audit" ]; then
     fi
   else check work_repo ok "local-only persistence (GITHUB_REPO_WORK unset)"; fi
 
+  nfs_n="$(find "$WORK" -name '.nfs*' 2>/dev/null | grep -c . || true)"
+  if [ "${nfs_n:-0}" -gt 0 ]; then check nfs_junk warn "$nfs_n .nfs* silly-rename file(s) under work/ — something still deletes files another process holds open"
+  else check nfs_junk ok "no .nfs* silly-rename files under work/"; fi
+
   # --- heartbeat cadence & log errors ------------------------------------
   hb_total=0; hb_idle=0; max_gap=0; prev=0; last_e=0
   while IFS= read -r line; do
