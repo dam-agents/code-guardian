@@ -461,9 +461,13 @@ if [ "$MODE" = "audit" ]; then
     fi
   else check work_repo ok "local-only persistence (GITHUB_REPO_WORK unset)"; fi
 
+  # count only STUCK silly-renames (>5min): a fresh .nfs* is a normal transient
+  # from a concurrent data-file write and clears on its own; a stuck one means a
+  # process holds a file open across unlinks (the churn 2.0.0 removed).
   nfs_n="$(find "$WORK" -name '.nfs*' 2>/dev/null | grep -c . || true)"
-  if [ "${nfs_n:-0}" -gt 0 ]; then check nfs_junk warn "$nfs_n .nfs* silly-rename file(s) under work/ — something still deletes files another process holds open"
-  else check nfs_junk ok "no .nfs* silly-rename files under work/"; fi
+  nfs_stuck="$(find "$WORK" -name '.nfs*' -mmin +5 2>/dev/null | grep -c . || true)"
+  if [ "${nfs_stuck:-0}" -gt 0 ]; then check nfs_junk warn "$nfs_stuck stuck .nfs* (>5min) under work/ (total $nfs_n) — a process holds files open across unlinks"
+  else check nfs_junk ok "no stuck .nfs* under work/ (${nfs_n:-0} transient)"; fi
 
   # --- heartbeat cadence & log errors ------------------------------------
   hb_total=0; hb_idle=0; max_gap=0; prev=0; last_e=0

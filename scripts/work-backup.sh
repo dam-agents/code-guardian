@@ -95,23 +95,38 @@ sync_in() {
   return 0
 }
 
-# Serialize the persist step (lock-or-skip): concurrent sessions share $LOCAL,
-# and two persists over one clone would race (checkout -B and the worktree wipe
-# land under each other's git add). mkdir is atomic even on tmpfs/NFS; the lock
-# dir's mtime is the acquire time, so a crashed persist expires by TTL.
+# Serialize access to the shared clone $LOCAL (concurrent sessions share it, and
+# two writers over one clone would race: checkout -B and the worktree wipe land
+# under each other's git add). mkdir is atomic even on tmpfs/NFS; the lock dir's
+# mtime is the last-progress time, refreshed each attempt, so a crashed run
+# expires by TTL. HELD guards release so we only ever remove OUR lock (never a
+# lock another session acquired after we skipped/released).
+HELD=0
 acquire_lock() {
-  mkdir "$LOCK" 2>/dev/null && return 0
+  if mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
+  # Stale takeover must be atomic — a plain rm+mkdir lets two concurrent
+  # stealers both "win" (each rm's the other's fresh lock). rename IS atomic:
+  # of two `mv` on the same source, only the first succeeds (the source is gone
+  # for the second), so exactly one stealer claims it.
   if [ -n "$(find "$LOCK" -maxdepth 0 -mmin "+$LOCK_TTL_MIN" 2>/dev/null)" ]; then
-    rm -rf "$LOCK" 2>/dev/null
-    if mkdir "$LOCK" 2>/dev/null; then
-      say "stole a stale persist lock (>${LOCK_TTL_MIN}m — crashed persist)."
-      logev warn work_backup "stale persist lock stolen"
-      return 0
+    local dead="$LOCK.stale.$$"
+    if mv "$LOCK" "$dead" 2>/dev/null; then
+      rm -rf "$dead" 2>/dev/null
+      if mkdir "$LOCK" 2>/dev/null; then
+        HELD=1
+        say "stole a stale persist lock (>${LOCK_TTL_MIN}m — crashed persist)."
+        logev warn work_backup "stale persist lock stolen"
+        return 0
+      fi
     fi
   fi
   return 1
 }
-release_lock() { rm -rf "$LOCK" 2>/dev/null || true; }
+release_lock() { [ "$HELD" = 1 ] && rm -rf "$LOCK" 2>/dev/null; HELD=0; return 0; }
+# safety net: release on unexpected exit/signal (kill mid-run would otherwise
+# leave the lock until TTL; a pod restart wipes tmpfs anyway). Idempotent via HELD.
+trap 'release_lock' EXIT
+trap 'exit' INT TERM
 
 persist() {
   local rc
@@ -129,6 +144,7 @@ do_persist() {
   local attempt=0 rc
   while [ "$attempt" -lt "$RETRIES" ]; do
     attempt=$((attempt + 1))
+    touch "$LOCK" 2>/dev/null || true   # refresh mtime: a slow run must not look stale
     seed_clone || { logev warn work_backup "seed failed (attempt $attempt)"; continue; }
     sync_in    || { logev warn work_backup "sync failed (attempt $attempt)"; continue; }
     ( cd "$LOCAL" || exit 1
@@ -150,7 +166,15 @@ do_persist() {
 }
 
 restore() {
-  seed_clone || { say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; return 0; }
+  # restore also drives $LOCAL, so serialize against a concurrent persist. It is
+  # mandatory (onboarding), so wait briefly, then proceed best-effort rather than
+  # skip — in practice it runs on a fresh volume before any schedule exists.
+  local w=0
+  while ! acquire_lock; do
+    w=$((w + 1)); [ "$w" -ge 5 ] && { logev warn work_backup "restore proceeding without lock after wait"; break; }
+    sleep 1
+  done
+  seed_clone || { say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; release_lock; return 0; }
   # copy data into work/ — never .git, and never historical .nfs* junk a
   # pre-2.0.0 layout may have committed. Restore targets a fresh/empty volume;
   # it does not delete pre-existing local files.
@@ -161,6 +185,7 @@ restore() {
   else
     say "remote is empty — nothing to restore."
   fi
+  release_lock
   return 0
 }
 
