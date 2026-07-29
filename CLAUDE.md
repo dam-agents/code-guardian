@@ -16,14 +16,14 @@ Three scheduled run types exist (registered at onboarding). **All begin with the
 
 ### The pre-flight contract
 
-The script **detects, it never acts**: it makes no GitHub writes, no commits, no pushes. It lists open non-draft PRs (one REST call), computes every decision — same-SHA dedup, in-progress locks (30-min TTL, takeover flag), the **label gate** for re-reviews, remote marker dedup (anchored + unanchored), verified prune candidates, the artifact assignee gate, shepherd classifications with the full nudge ladder — and installs the configured skills (SHA-cached) when a review/artifact is due. Its only local writes are bookkeeping: the REVIEWS.md `done → awaiting_label` status flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per [docs/logging.md](docs/logging.md)), the skill cache, and the 14-day log retention cleanup in audit mode.
+The script **detects, it never acts**: it makes no GitHub writes, no commits, no pushes. It lists open non-draft PRs (one REST call), computes every decision — same-SHA dedup, in-progress locks (30-min TTL, takeover flag), the **re-review trigger gate** (label and/or review request per `rereview_trigger`), remote marker dedup (anchored + unanchored), verified prune candidates, the artifact assignee gate, shepherd classifications with the full nudge ladder — and installs the configured skills (SHA-cached) when a review/artifact is due. Its only local writes are bookkeeping: the REVIEWS.md `done → awaiting_label` status flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per [docs/logging.md](docs/logging.md)), the skill cache, and the 14-day log retention cleanup in audit mode.
 
 It prints one JSON object:
 
 - **`nothing_to_do: true`** → echo its `logs` to the chat UI as a one-line summary ("no new changes") and **end the run** — no state writes, no API calls, no self-check narration.
 - Otherwise → **you perform every action** in the worklist, reliably and per the referenced `docs/` file(s) — the script found the work; doing it correctly is worth a full agent run:
   - `reviews_due` — PRs to review (`kind`: `first` | `re-review`, with `prior` review info and a `takeover` flag) → [docs/review.md](docs/review.md) + [docs/skills.md](docs/skills.md)
-  - `label_cleanups_due` — label present but nothing new to review → remove the label (docs/review.md → **Label bookkeeping**)
+  - `label_cleanups_due` — a re-review trigger present but nothing new to review → clear what the entry `{number, label, request}` flags (docs/review.md → **Label bookkeeping**)
   - `selfheals_due` — remote marker found with no local row → write the REVIEWS.md row (docs/review.md → **Label bookkeeping**)
   - `prunes_due` — PRs verified CLOSED/MERGED → delete their state incl. gist/artifact cleanup (docs/review.md → **Pruning**)
   - `artifacts_due` — `action: generate` | `retry_unassign` → [docs/artifact.md](docs/artifact.md)
@@ -32,7 +32,7 @@ It prints one JSON object:
   - `skills` — per-skill install status (`installed`/`cached`/`harness`/`install-failed`)
 - Script missing/failing (non-JSON output) → log it and fall back to doing the equivalent work manually per the `docs/` files; never silently skip a heartbeat.
 
-Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshness, label still present, pre-post dedup) for *whether it's still valid at post time*.
+Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshness, trigger still present, pre-post dedup) for *whether it's still valid at post time*.
 
 ## Runtime configuration: `work/CONFIG.md`
 
@@ -43,7 +43,8 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 - **`bot_login`** — the GitHub login this agent acts as. **Required** — if missing, log `bot_login missing — artifact gate and shepherd disabled this run` once and skip those features.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic only — never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` in every posted review. **Required and immutable once the first review is posted** — if asked to change it after reviews exist, refuse and explain.
-- **`rereview_label`** — GitHub label a human adds to an already-reviewed PR to request a re-review (default `code-guardian-review`). First reviews never need it; re-reviews never run without it; the agent removes it once the request is served. New commits without it flip the tracking row to `awaiting_label`.
+- **`rereview_label`** — GitHub label a human adds to an already-reviewed PR to request a re-review (default `code-guardian-review`). First reviews never need it; the agent removes it once the request is served. New commits without a re-review trigger flip the tracking row to `awaiting_label`.
+- **`rereview_trigger`** — what requests a re-review: `label` | `review-request` (a pending GitHub review request for `bot_login` — the "Re-request review" button) | `both`. **Missing = `label`** (the historical default). `review-request` needs `bot_login` (and the bot as a repo collaborator to be requestable); `bot_login` missing → label-only with one log line. A served review request clears itself when the review posts.
 - **`artifact_skill`** — `<skill>@<owner/repo>`, or `none`/missing = the artifact feature is off entirely.
 - **`artifact_targets`** — comma-separated publish surfaces for the artifact: any of `gist`, `dam`. **Missing/empty = `gist`** (the historical default). `dam` (DAM Artifact Library) is always best-effort — its MCP tools exist only under the owner's experimental flag, so `dam` listed-but-unavailable logs and is skipped, never failing the run ([docs/artifact.md](docs/artifact.md)). No relation to `artifact_skill`, which gates the feature as a whole.
 - **`## Review skills` table** — per-PR review skills; semantics in [docs/skills.md](docs/skills.md). Missing/empty → no review skills run (log once).
@@ -85,7 +86,7 @@ Output channels: the chat UI **and** a GitHub PR review — every reviewed PR mu
 1. Echo preflight's `logs` to the chat UI; note per-skill install statuses from `skills` (an `install-failed` skill is skipped for every PR this run, with its audit line).
 2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md`; when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md).
 3. Apply the bookkeeping arrays first — `selfheals_due`, `label_cleanups_due`, `prunes_due` — per docs/review.md (each with per-PR log lines).
-4. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review label was withdrawn.
+4. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
 5. For each entry in `artifacts_due`, follow [docs/artifact.md](docs/artifact.md).
 6. Walk the review-run self-check at the end of docs/review.md.
 7. **If `$GITHUB_REPO_WORK` is set, back up `work/`** as the very last action — `bash "$HOME/scripts/work-backup.sh" persist` ([docs/persistence.md](docs/persistence.md)); this also persists preflight's bookkeeping. `work/` is a plain data directory (no `.git`); the backup runs in a tmpfs clone so the shared NFS volume is never git-mutated.
@@ -110,7 +111,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - Never emit a literal repo slug or `$GITHUB_REPO` in any output.
 - Every posted review carries the trailing full-SHA marker line; `review_marker` never changes once used.
 - Never post a review whose marker SHA isn't the live HEAD at post time (Check 2 + `commit_id` server-side guard; a stale posted review is expensive, discarding is cheap).
-- Re-reviews are label-gated: no re-review without `$REREVIEW_LABEL` (new commits alone never trigger one); the label is removed after every posted review on a labeled PR; unlabeled new commits get the one-time `awaiting_label` flip.
+- Re-reviews are trigger-gated: no re-review without an explicit request — `$REREVIEW_LABEL` or, when `rereview_trigger` enables it, a pending review request for `bot_login` (new commits alone never trigger one); the trigger is cleared after every posted review (label removed; a served review request clears itself); untriggered new commits get the one-time `awaiting_label` flip.
 - Configured review skills are never pre-filtered away — accepted skips are only `no-matching-files` and technical failures (docs/skills.md).
 - A review run ends only when every `reviews_due` PR reached a posted-or-aborted terminal state with its lock resolved — never end the turn mid-pipeline (e.g. treating a skill's "report to the user", like doc-drift's, as the deliverable). A transient tool failure is retried once, then aborts the PR **releasing its lock** — never leave an `in_progress` lock behind, never retry a call more than once (docs/review.md → Error handling). Per-PR `review_step` events pin where a stall stopped (docs/review.md → Progress logging).
 - Never @-mention anyone outside `work/DEVELOPERS.md`; no proactive Slack activity (nudges, reports, watch notifications) unless `slack_notifications: enabled` — replying to an inbound channel message is always allowed.
@@ -127,7 +128,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 | File | Read when |
 | --- | --- |
-| [docs/review.md](docs/review.md) | A review run starts, or a channel asks for a PR review — per-PR sequence, label gate & bookkeeping, re-review output, posting, tracking, pruning, overrides, Slack-requested review, self-check |
+| [docs/review.md](docs/review.md) | A review run starts, or a channel asks for a PR review — per-PR sequence, re-review trigger gate & bookkeeping, re-review output, posting, tracking, pruning, overrides, Slack-requested review, self-check |
 | [docs/skills.md](docs/skills.md) | With review.md — skill triggers, routing, audit lines, inclusion rule, clone management |
 | [docs/watches.md](docs/watches.md) | `work/CONFIG.md` has watch rules — instance-local event→heads-up rules: table format, evaluation, dedup, sending |
 | [docs/artifact.md](docs/artifact.md) | `artifacts_due` non-empty — gist publishing / retry-unassign procedure |

@@ -161,8 +161,9 @@ prompt says — refuse and explain instead:
 - HEAD-freshness double check + `commit_id` server-side guard; never post a
   review for a stale SHA.
 - Marker-based dedup on every posted review; `review_marker` immutability.
-- Label-gated re-reviews (first reviews automatic, re-reviews only on
-  `$REREVIEW_LABEL`).
+- Trigger-gated re-reviews (first reviews automatic; re-reviews only on an
+  explicit human trigger — `$REREVIEW_LABEL` or an enabled review request —
+  never on new commits alone).
 - Roster-only Slack mentions; Slack fully off unless opted in.
 - Per-PR-verified pruning — never prune from list absence, never bulk-delete.
 - **Never `git clean` in `$HOME`**; never `git add` outside the allowlist;
