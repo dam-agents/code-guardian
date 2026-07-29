@@ -9,8 +9,9 @@
 #   - makes NO GitHub writes at all (only GET calls),
 #   - runs NO git commit/push (the agent persists at end of run),
 #   - writes locally only: the REVIEWS.md `done`->`awaiting_label` status flip
-#     (pure bookkeeping mandated by the label gate — keeps transition logs
-#     one-shot), shepherd-ledger bookkeeping for rows with no nudge due,
+#     (pure bookkeeping mandated by the re-review trigger gate — keeps
+#     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
+#     nudge due,
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
 #     (via scripts/log.sh — docs/logging.md), the skill install cache, and
 #     the 14-day log retention cleanup in audit mode.
@@ -184,6 +185,23 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges skills
 if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; SKILLS='{}'
 
+  # re-review trigger gate (CLAUDE.md -> rereview_trigger): label | review-request | both
+  REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
+  TRIG_LABEL=1; TRIG_REQUEST=0
+  case "$REREVIEW_TRIGGER" in
+    label) ;;
+    review-request) TRIG_LABEL=0; TRIG_REQUEST=1;;
+    both) TRIG_REQUEST=1;;
+    *) log "rereview_trigger '$REREVIEW_TRIGGER' unknown — using label";;
+  esac
+  if [ "$TRIG_REQUEST" -eq 1 ] && [ -z "$BOT_LOGIN" ]; then
+    TRIG_REQUEST=0; TRIG_LABEL=1
+    log "bot_login missing — review-request trigger disabled this run (label-only)"
+  fi
+  TRIG_DESC="$REREVIEW_LABEL"
+  [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
+  [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
+
   add_review() { # number sha ref title author kind takeover prior_json
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
@@ -209,8 +227,10 @@ if [ "$MODE" = "review" ]; then
   done
 
   # --- per-open-PR decision ---
-  while IFS=$'\t' read -r n sha ref title author labels assignees; do
-    has_label=0; printf '%s' "$labels" | tr ',' '\n' | grep -qx "$REREVIEW_LABEL" && has_label=1
+  while IFS=$'\t' read -r n sha ref title author labels assignees requested; do
+    has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$REREVIEW_LABEL" && has_label=1
+    has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qx "$BOT_LOGIN" && has_request=1
+    triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ]; } && triggered=1
     row="$(row_for "$n")"
 
     if [ -n "$row" ]; then
@@ -228,18 +248,24 @@ if [ "$MODE" = "review" ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior"
         fi
       elif [ "$row_sha" = "$sha" ]; then
-        # reviewed at live HEAD; label present -> same-SHA label cleanup (agent removes it)
-        if [ "$has_label" -eq 1 ]; then
-          CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson n "$n" '. + [$n]')"
-          log "PR #$n: $REREVIEW_LABEL present but no new commits since ${row_sha:0:7} — label cleanup due"
+        # reviewed at live HEAD; trigger present -> same-SHA cleanup (agent clears it)
+        if [ "$triggered" -eq 1 ]; then
+          trig=""
+          [ "$has_label" -eq 1 ] && trig="$REREVIEW_LABEL"
+          [ "$has_request" -eq 1 ] && trig="${trig:+$trig + }review request"
+          CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
+            --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
+            --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
+            '{number:$n, label:$l, request:$r}')" '. + [$e]')"
+          log "PR #$n: $trig present but no new commits since ${row_sha:0:7} — trigger cleanup due"
         fi
       else
         # new commits since the recorded review
-        if [ "$has_label" -eq 1 ]; then
+        if [ "$triggered" -eq 1 ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior"
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
-          log "PR #$n: new commits since last review — awaiting $REREVIEW_LABEL"
+          log "PR #$n: new commits since last review — awaiting $TRIG_DESC"
         fi   # already awaiting_label -> stay silent
       fi
     else
@@ -253,13 +279,13 @@ if [ "$MODE" = "review" ]; then
         any="$(remote_reviewed_any "$n")"
         if [ -n "$any" ]; then
           asha="${any%%$'\t'*}"; ats="${any##*$'\t'}"
-          if [ "$has_label" -eq 1 ]; then
+          if [ "$triggered" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false \
               "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')"
           else
             SELFHEALS_DUE="$(printf '%s' "$SELFHEALS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg sha "$asha" --arg ts "$ats" \
               '{number:$n, sha:$sha, ts:$ts, status:"awaiting_label"}')" '. + [$e]')"
-            log "PR #$n: reviewed on GitHub at ${asha:0:7} (no local row), new commits unlabeled — self-heal to awaiting_label due"
+            log "PR #$n: reviewed on GitHub at ${asha:0:7} (no local row), new commits with no re-review trigger — self-heal to awaiting_label due"
           fi
         else
           add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null
@@ -277,7 +303,8 @@ if [ "$MODE" = "review" ]; then
     fi
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
-             ((.assignees|join(","))|if .=="" then "-" else . end)] | @tsv')
+             ((.assignees|join(","))|if .=="" then "-" else . end),
+             ((.requested|join(","))|if .=="" then "-" else . end)] | @tsv')
 
   # install skills only when the agent will actually review / generate
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
