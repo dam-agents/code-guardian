@@ -164,7 +164,8 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
-| `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging). |
+| `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to vetted targets — chat UI, a Slack channel, or a comment on the PR (`docs/watches.md`). Keeps team-specific triggers and channels out of this public definition — rules are private runtime state. |
+| `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
