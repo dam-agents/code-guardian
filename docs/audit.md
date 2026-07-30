@@ -51,8 +51,9 @@ if one is impossible this week (missing data, API error), report it as
 4. The script's checks cover: GitHub auth + rate limit, **token scopes**
    (`token_scopes` — the scopes README → **Token scopes** marks required;
    widening a token is **operator-only**, so report a missing scope with what it
-   breaks and never work around it) and **CLI dependencies** (`cli_deps`), work-repo push
-   backlog, heartbeat gaps, weekly log errors, structured-events triage
+   breaks and never work around it) and **CLI dependencies** (`cli_deps`),
+   `work/` layout (plain data dir, no `.git`) + `.nfs*` junk count, work-repo
+   push backlog, heartbeat gaps, weekly log errors, structured-events triage
    (`events_errors`, `recurring_errors`) + harness adapter presence +
    14-day log retention cleanup ([logging.md](logging.md)), stale locks,
    duplicate rows,
@@ -178,7 +179,7 @@ One message, this shape (tight — counts and one-liners, no prose):
   + log. **Slack disabled** → chat UI only. Always echo to the chat UI.
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
-  "fail"/"error", the log-grep would flag them next week), then commit & push
+  "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
   (task 26) and no GitHub writes except a task-3 tracking issue — findings are
   reported, not fixed.

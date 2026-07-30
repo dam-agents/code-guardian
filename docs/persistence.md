@@ -4,53 +4,61 @@ Read this file when you need the details behind the end-of-run commit, when
 the operator asks to update the agent or check its version, or when the
 operator asks for a change to the agent definition itself.
 
-## Two repos, one inside the other
+## Two stores: shared live state + durable backup
 
-| Path | Remote | Tracks |
+| Path | Kind | Holds |
 | --- | --- | --- |
-| `/home/agent` (outer) | `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `LICENSE`. |
-| `/home/agent/work` (inner) | `$GITHUB_REPO_WORK` | Runtime state. Exists as a repo only when the var is set. |
+| `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `LICENSE`. |
+| `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
+| `$GITHUB_REPO_WORK` | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone (below). |
+
+`work/` is **not** a git repo. The home volume is virtiofs over a host NFS
+export, and a `.git` there — rewritten by every commit while another concurrent
+run holds a ref open — is what produces `Stale file handle` (ESTALE) and
+`.nfs*` silly-rename corruption. So all git plumbing happens off the shared
+volume, in a private per-pod tmpfs clone under `/dev/shm`; `work/` itself is
+only ever read.
 
 The outer `.gitignore` is an allowlist (`/*` then re-include the definition
 files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
 `.config`) are invisible to the outer repo — nothing under `work/` is tracked.
-A fresh volume seeds `work/MEMORY.md` and `work/REVIEWS.md` from the templates in
-`ONBOARDING.md` (Step 3b); this keeps a definition update
-(`git reset --hard "origin/$DEF_BRANCH"`) from ever colliding with live runtime
-state.
-Scope commands: inner state →
-`git -C /home/agent/work`, definition → `git -C /home/agent`.
-**Never run `git clean` in `/home/agent`** and never `git add` outside the
-allowlist.
+A fresh volume seeds `work/` from the templates in `ONBOARDING.md` (Step 3b) or
+restores it from the backup remote; a definition update
+(`git reset --hard "origin/$DEF_BRANCH"`) never collides with live runtime
+state. **Never run `git clean` in `/home/agent`** and never `git add` outside
+the allowlist (the `work/` backup's `git add -A` is confined to the tmpfs clone,
+never the home tree).
 
-## Commit & push (end of run)
+## Backup & restore (`scripts/work-backup.sh`)
 
 `scripts/preflight.sh` never commits or pushes — its local bookkeeping
-(`awaiting_label` flips, shepherd table updates, log lines) sits uncommitted
-until the next agent-active run. At the end of every run where the agent did
-work, it commits & pushes as the very last action (this sweeps up the
-script's bookkeeping too; quiet heartbeats stay durable on the volume until
-then):
+(`awaiting_label` flips, shepherd table updates, log lines) is written straight
+to the `work/` files and stays on the volume until backed up. At the end of
+every run where the agent did work, it runs — as the very last action, only
+when `$GITHUB_REPO_WORK` is set:
 
 ```bash
-if [ -n "$GITHUB_REPO_WORK" ] && [ -d /home/agent/work/.git ]; then
-  cd /home/agent/work || exit 1
-  git config user.name  "code-guardian" 2>/dev/null || true
-  git config user.email "code-guardian@agents.local" 2>/dev/null || true
-  git add -A
-  if git diff --cached --quiet; then
-    echo "work/: nothing to persist."
-  else
-    git commit -m "chore(work): persist review state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    git pull --rebase --autostash origin "$(git rev-parse --abbrev-ref HEAD)" \
-      && git push origin "$(git rev-parse --abbrev-ref HEAD)" \
-      || echo "WARNING: work/ push failed; committed locally, retry next run."
-  fi
-fi
+LOG_JOB=<mode> bash "$HOME/scripts/work-backup.sh" persist
 ```
 
-Never force-push; a lost race or failed push is retried next run and is not
-a run failure.
+The script (full rationale in its header) snapshots the current `work/` files
+into a **disposable tmpfs clone**, commits, and pushes — re-seeding that clone
+from the remote on every call so a wiped tmpfs (RAM-backed, gone on pod
+restart) never matters. Nothing authoritative lives on tmpfs: the live state is
+`work/` (persistent), the history is the remote (persistent). Concurrency is
+resolved at the remote — a rejected non-fast-forward push re-seeds from the new
+tip and retries in-run; `work/` (all pods write the same files) is authoritative
+and every push converges to it. Within one pod, concurrent sessions share the
+clone, so the persist step itself is serialized by a mkdir lock next to it
+(lock-or-skip: a skipped persist is safe — the running one snapshots the same
+shared `work/` moments later, and the next run sweeps up any remainder). Never
+force-push; a push that fails all retries
+is logged and retried next run — not a run failure, because the data is safe on
+`work/`.
+
+`restore` is the inverse — remote → `work/` (data only, never a `.git`) — run
+once on a fresh volume when the templates aren't enough (`ONBOARDING.md`
+Step 3a).
 
 ## Tracked branch
 
