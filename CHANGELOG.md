@@ -16,12 +16,14 @@ upgrade**); authoring rules:
   `install-failed` on every review run and in the weekly `skill_*` checks. Both
   call sites now use one `cfg_table <heading>` helper that stops at the next
   `## ` heading.
-- Audit gains a **failed-tool-call diagnosis** pass: preflight groups the week's
-  `tool_failure` events into `tool_failures[]` signatures (command text stripped,
-  SHAs/numbers/`/tmp` normalized, each dated `first`/`last`) and the agent
-  diagnoses every one — cause + fix per signature, with a deduplicated `[audit]`
-  tracking issue on `definition_repo` when the cause is a definition bug
-  (docs/audit.md task 3). The issue is the audit's only GitHub write.
+- Audit gains a **failure diagnosis** pass: preflight groups **every `level:
+  error` event** of the past week — failed tool calls, skill installs, sends, API
+  decisions — into `failures[]` signatures (`event`/`tool`/`error`, volatile bits
+  normalized, each dated `first`/`last`), and the agent diagnoses every one:
+  cause + fix per signature, classified environment / agent mistake / definition
+  bug, with a deduplicated `[audit]` tracking issue on `definition_repo` for the
+  last kind (docs/audit.md task 3). The issue is the audit's only GitHub write.
+  Counting errors was never enough — nothing asked *why*.
 - Audit gains two precondition checks: `token_scopes` (asserts the scopes the
   scheduled runs actually need — a missing one is operator-only and breaks PR
   state/posting or artifact publishing) and `cli_deps` (required commands

@@ -653,36 +653,47 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
     || check recurring_errors ok "no recurring error/warn signatures"
 
-  # Failed tool calls from past runs (heartbeats included), grouped into
-  # signatures so the agent can diagnose classes instead of single lines: the
-  # command text is stripped and volatile bits (SHAs, numbers, /tmp paths) are
-  # normalized, so the same root cause collapses to one row however often it
-  # recurred. `first`/`last` bound each signature in time — a signature whose
-  # `last` predates a fix is already resolved and must not be re-reported.
-  # Emitted as `tool_failures` for the agent's diagnosis pass (docs/audit.md).
-  TOOL_FAILURES='[]'
+  # Every error event from past runs (heartbeats included) grouped into
+  # signatures, so the agent diagnoses classes instead of single lines: for
+  # `tool_failure` the command text is stripped and the tool name kept; for the
+  # rest (`skill_install`, `nudge_send`, `gh_api`, …) the whole message is the
+  # signature. Volatile bits (SHAs, numbers, /tmp paths) are normalized so one
+  # root cause collapses to one row however often it recurred. `first`/`last`
+  # bound each signature in time — a signature whose `last` predates a fix is
+  # already resolved and must not be re-reported. Emitted as `failures` for the
+  # agent's diagnosis pass (docs/audit.md task 3).
+  FAILURES='[]'
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
-    TOOL_FAILURES="$(ev_jsonl | jq -s --arg s "$SINCE_ISO" '
+    FAILURES="$(ev_jsonl | jq -s --arg s "$SINCE_ISO" '
       def norm: gsub("[0-9a-f]{7,40}";"<sha>") | gsub("[0-9]+";"<n>")
               | gsub("/tmp/[^ ]*";"<tmp>") | gsub("\\s+";" ") | .[0:120];
-      [ .[] | select(.ts >= $s and .level=="error" and .event=="tool_failure")
-            | { ts,
-                tool: ((.msg // "") | (capture("^(?<t>[A-Za-z_]+)")?.t // "?")),
-                err:  ((.msg // "")
-                       | ( (capture("\\]: (?<e>.*)$")?.e)
-                           // (capture("^[A-Za-z_]+: (?<e>.*)$")?.e) // . )
+      [ .[] | select(.ts >= $s and .level=="error")
+            | . as $e
+            | { ts, event,
+                tool: (if $e.event == "tool_failure"
+                       then (($e.msg // "") | (capture("^(?<t>[A-Za-z_]+)")?.t // "?"))
+                       else null end),
+                err:  (($e.msg // "")
+                       | (if $e.event == "tool_failure"
+                          then ( (capture("\\]: (?<e>.*)$")?.e)
+                                 // (capture("^[A-Za-z_]+: (?<e>.*)$")?.e) // . )
+                          else . end)
                        | norm ) } ]
-      | group_by(.tool + "|" + .err)
-      | map({ tool: .[0].tool, error: .[0].err, count: length,
+      | group_by([.event, (.tool // ""), .err])
+      | map({ event: .[0].event, tool: .[0].tool, error: .[0].err, count: length,
               first: (min_by(.ts).ts), last: (max_by(.ts).ts) })
-      | sort_by(-.count) | .[:12]' 2>/dev/null)"
-    [ -z "$TOOL_FAILURES" ] && TOOL_FAILURES='[]'
+      | sort_by(-.count) | .[:15]' 2>/dev/null)"
+    [ -z "$FAILURES" ] && FAILURES='[]'
   fi
-  tf_groups="$(printf '%s' "$TOOL_FAILURES" | jq 'length' 2>/dev/null || echo 0)"
-  tf_total="$(printf '%s' "$TOOL_FAILURES" | jq '[.[].count] | add // 0' 2>/dev/null || echo 0)"
-  if [ "${tf_groups:-0}" -gt 0 ]; then
-    check tool_failures warn "$tf_total failed tool calls in $tf_groups signature(s) this week — diagnose each (docs/audit.md task 3)"
-  else check tool_failures ok "no failed tool calls this week"; fi
+  f_groups="$(printf '%s' "$FAILURES" | jq 'length' 2>/dev/null || echo 0)"
+  f_total="$(printf '%s' "$FAILURES" | jq '[.[].count] | add // 0' 2>/dev/null || echo 0)"
+  if [ "${f_groups:-0}" -gt 0 ]; then
+    check failures warn "$f_total error events in $f_groups signature(s) this week — diagnose each (docs/audit.md task 3)"
+  elif [ "${ev_err:-0}" -gt 0 ]; then
+    # ev_err counted errors but grouping produced none: the jq pass broke, and a
+    # silent "all clear" would hide exactly what this check exists to surface.
+    check failures warn "$ev_err error events counted but could not be grouped — read work/logs/ directly (docs/logging.md)"
+  else check failures ok "no error events this week"; fi
 
   # weekly token totals from `tokens` events (best-effort; msg format written
   # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
@@ -760,10 +771,10 @@ if [ "$MODE" = "audit" ]; then
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
-    --argjson tool_failures "${TOOL_FAILURES:-[]}" \
+    --argjson failures "${FAILURES:-[]}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
-      tool_failures:$tool_failures, logs:$logs}'
+      failures:$failures, logs:$logs}'
   exit 0
 fi
 

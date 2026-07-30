@@ -22,9 +22,11 @@ if one is impossible this week (missing data, API error), report it as
    when the cause isn't obvious.
 2. `stats` sanity: zero reviews in a week with open PRs and heartbeats
    running → investigate (trigger gate stuck? decision bug?) and report.
-3. **Diagnose the week's failed tool calls** — the worklist's `tool_failures[]`,
-   one entry per signature (`tool`, `error`, `count`, `first`, `last`) grouped
-   from the `tool_failure` events every run writes, heartbeats included
+3. **Diagnose the week's failures** — the worklist's `failures[]`, one entry per
+   signature (`event`, `tool`, `error`, `count`, `first`, `last`) grouped from
+   **every `level: error` event** past runs wrote, heartbeats included: failed
+   tool calls (`tool_failure`, with the tool named), plus skill installs, sends,
+   API decisions and anything else that logged an error
    ([logging.md](logging.md)). This is the audit's one *investigative* task: the
    script groups, **you find the cause**. Per entry, cheapest-first:
    - **Already fixed?** `last` older than a fix that has since shipped → say so

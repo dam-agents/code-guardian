@@ -118,13 +118,17 @@ The audit also triages the week's events — error/warn counts into `stats`,
 week is flagged) — and the report surfaces every one of them
 ([audit.md](audit.md)).
 
-`tool_failure` events get a second pass: the script groups them into
-`tool_failures[]` (`tool`, `error`, `count`, `first`, `last`), stripping the
-command text and normalizing SHAs, numbers, and `/tmp` paths so one root cause
-is one entry. `first`/`last` date each signature — a `last` older than a shipped
-fix means it is already resolved. The agent diagnoses each and may file a
-tracking issue (audit.md task 3); this is why `tool_failure` messages must keep
-their real error text rather than a placeholder.
+**Every `level: error` event** gets a second pass: the script groups them into
+`failures[]` (`event`, `tool`, `error`, `count`, `first`, `last`), normalizing
+SHAs, numbers, and `/tmp` paths so one root cause is one entry — and for
+`tool_failure` also stripping the command text and keeping the tool name.
+`first`/`last` date each signature: a `last` older than a shipped fix means it is
+already resolved. The agent diagnoses each and may file a tracking issue
+(audit.md task 3).
+
+This is why **an error event's `msg` must carry its real error text** — a
+placeholder (or a bare `null`) makes the signature undiagnosable, which is what
+made the 1.4.0 `tool_failure` capture fix necessary.
 
 ## Reading the log
 
