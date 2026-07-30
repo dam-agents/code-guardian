@@ -47,9 +47,9 @@ if one is impossible this week (missing data, API error), report it as
      PRs; the fix itself takes the operator in the direct session
      ([self-modification.md](self-modification.md)).
 4. The script's checks cover: GitHub auth + rate limit, **token scopes**
-   (`token_scopes` — `repo`/`gist`; widening a token is
-   **operator-only**, so report a missing scope with what it breaks and never
-   work around it) and **CLI dependencies** (`cli_deps`), work-repo push
+   (`token_scopes` — the scopes README → **Token scopes** marks required;
+   widening a token is **operator-only**, so report a missing scope with what it
+   breaks and never work around it) and **CLI dependencies** (`cli_deps`), work-repo push
    backlog, heartbeat gaps, weekly log errors, structured-events triage
    (`events_errors`, `recurring_errors`) + harness adapter presence +
    14-day log retention cleanup ([logging.md](logging.md)), stale locks,

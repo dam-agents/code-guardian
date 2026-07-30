@@ -186,11 +186,17 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   personal one) that is a collaborator on the target repo with permission to
   review PRs. Note that GitHub ignores review requests/approvals from a PR's
   own author — the bot account must not be the one opening the PRs it reviews.
-- **Token scopes:** the token must be able to read/write PRs, reviews, and
-  comments on `GITHUB_REPO` (`repo`), push to `GITHUB_REPO_WORK` and the
-  definition repo, and create/delete **gists** (visual artifacts). These two
-  are what the audit's `token_scopes` check asserts; `read:org` is optional and
-  only widens the onboarding roster import to org teams.
+- **Token scopes:** the single place these are specified.
+
+  | Scope | Required? | What needs it |
+  | --- | --- | --- |
+  | `repo` | **yes** | PRs, reviews, comments, labels and issues on `GITHUB_REPO`; push to `GITHUB_REPO_WORK` and the definition repo |
+  | `gist` | yes, unless artifacts are off | Create/delete the **visual artifact** gists (`artifact_skill: none` → not needed) |
+  | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
+
+  The audit's `token_scopes` check asserts the required ones only. A missing
+  scope is **operator-only** to fix — the agent reports it and never works
+  around it.
 - **External services:** artifact links render via `htmlpreview.github.io`, a
   third-party service; "secret" gists are unlisted but publicly reachable by
   URL. With `artifact_targets: gist,dam` the artifact is also published to the

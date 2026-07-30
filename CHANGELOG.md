@@ -22,10 +22,10 @@ upgrade**); authoring rules:
   diagnoses every one — cause + fix per signature, with a deduplicated `[audit]`
   tracking issue on `definition_repo` when the cause is a definition bug
   (docs/audit.md task 3). The issue is the audit's only GitHub write.
-- Audit gains two precondition checks: `token_scopes` (`repo`/`gist` — a missing
-  scope is operator-only and breaks PR state/posting or artifact publishing) and
-  `cli_deps` (required commands present). `read:org` is **not** asserted: nothing
-  in the run loop needs it, and it is optional for the roster import.
+- Audit gains two precondition checks: `token_scopes` (asserts the scopes the
+  scheduled runs actually need — a missing one is operator-only and breaks PR
+  state/posting or artifact publishing) and `cli_deps` (required commands
+  present). Scopes are specified in one place only: README → **Token scopes**.
 - ONBOARDING Step 0 verifies both at setup, and records that OS packages cannot
   be installed on the pod — `awk`, `diff`, and a login-shell `python3` are
   deliberately not required by this definition.
