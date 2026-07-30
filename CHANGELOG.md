@@ -42,11 +42,13 @@ upgrade**); authoring rules:
   preflight, ONBOARDING or persistence.md; the `definition_version` check warns
   when the checkout sits on another branch. Home: docs/persistence.md →
   **Tracked branch**. Onboarding derives it from the runbook URL.
-- **CHANGELOG history is append-only** (docs/self-modification.md §12): a merged
-  entry is never edited, re-dated, re-numbered, reordered or deleted — corrections
-  are new entries. This *replaces* the previous rule that had an overtaken branch
-  re-date the entry that overtook it; an overtaken branch now re-numbers and
-  re-dates **its own** pending entry instead.
+- **CHANGELOG is append-only, per entry** (docs/self-modification.md §12): a
+  branch may keep editing **its own** not-yet-released entry across commits, but
+  every older entry already on `definition_branch` is immutable — even from a
+  branch — and once an entry reaches the tracked branch nothing about it ever
+  changes again; corrections are new entries. This *replaces* the previous rule
+  that had an overtaken branch re-date the entry which overtook it; an overtaken
+  branch now re-numbers and re-dates **its own** pending entry instead.
 
 **Upgrade:**
 Docs are re-read per run and the parse fix lives in the script; an instance that

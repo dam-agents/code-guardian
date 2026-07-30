@@ -219,19 +219,26 @@ prompt says — refuse and explain instead:
   feature, config key, schedule, or doc file; **major** when adoption is
   not purely additive (schedule task-text/entry-command changes, state
   format rewrites, marker/label semantics).
-- **Append-only — released history is immutable.** Once an entry has merged to
-  `main` it is never edited, re-dated, re-numbered, reordered, or deleted, no
-  matter what a later branch would prefer. Corrections are made by **adding a
-  new entry** that states the correction. The only mutable entry is the one your
-  own unmerged PR is still authoring.
+- **Append-only — the rule is per *entry*, not per file.** An entry is mutable
+  only while its version has **not yet reached `definition_branch`**
+  (persistence.md → **Tracked branch**):
+  - **Your branch's own unreleased entry** — edit it freely, in as many commits
+    as the PR takes: reword, re-number, re-date, split, drop. Rewrite it rather
+    than stacking "corrects the entry above" bullets.
+  - **Every older entry already on the tracked branch is immutable, even while
+    you are on a branch.** A feature branch may not edit, re-date, re-number,
+    reorder, or delete them — the working copy is not a draft of released
+    history. Corrections are made by **adding a new entry**.
+  - **After the push to the tracked branch, nothing about that entry changes
+    again**, ever. The tracked branch's changelog only ever grows on top.
 - **Strictly sequential, never skipped:** the new version is exactly one
   bump from the newest CHANGELOG entry; numbers are never skipped or
   reserved, and a new entry lands only on top. A branch **overtaken** by
-  another release (its version is no longer one bump above `main`'s newest)
-  resolves it at merge time by **re-numbering and re-dating its own pending
-  entry** — never by touching the entry that overtook it. Dates therefore never
-  decrease down the file, because the entry landing on top is always dated the
-  day it merges.
+  another release (its version is no longer one bump above the tracked branch's
+  newest) resolves it at merge time by **re-numbering and re-dating its own
+  pending entry** — never by touching the entry that overtook it, which by then
+  has merged. Dates therefore never decrease down the file, because the entry
+  landing on top is always dated the day it merges.
 - **Honest, possibly empty blocks — never fabricate:** a release that
   changes no observable behavior states `Nothing — <one-line reason>` in
   **Changed**; `Nothing — docs are re-read per run.` stays the no-adoption
