@@ -7,6 +7,27 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 1.8.0 — 2026-07-30
+
+**Changed:**
+- `scripts/preflight.sh`: **bug fix** — the `## Review skills` table was read
+  with an unbounded `sed` range, so every table *after* it in `work/CONFIG.md`
+  (e.g. `## Watch rules`) was parsed as skill rows; the phantom skills reported
+  `install-failed` on every review run and in the weekly `skill_*` checks. Both
+  call sites now use one `cfg_table <heading>` helper that stops at the next
+  `## ` heading.
+- Audit gains two precondition checks: `token_scopes` (`repo`/`read:org`/`gist`
+  — a missing scope is operator-only and breaks PR-state calls or artifact
+  publishing) and `cli_deps` (required commands present).
+- ONBOARDING Step 0 verifies both at setup, and records that OS packages cannot
+  be installed on the pod — `awk`, `diff`, and a login-shell `python3` are
+  deliberately not required by this definition.
+
+**Upgrade:**
+Nothing — docs are re-read per run and the fix lives in the script. An instance
+that saw phantom `install-failed` skills (one per non-skill CONFIG table row)
+stops seeing them; no state edit is needed.
+
 ## 1.7.0 — 2026-07-29
 
 **Changed:**

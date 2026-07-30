@@ -73,6 +73,12 @@ cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# Emit the table rows of one `## <heading>` CONFIG section, stopping at the next
+# `## ` heading — an unbounded `,$p` range would swallow the sections that follow
+# (e.g. `## Watch rules` rows parsed as skills). Header/separator rows are the
+# caller's to skip.
+cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/dev/null | grep -E '^\|'; }
+
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
 # ---------------------------------------------------------------- config ----
@@ -313,7 +319,7 @@ if [ "$MODE" = "review" ]; then
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$skill" --arg v "$(install_skill "$skill" "$src")" '. + {($k):$v}')"
-    done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
+    done < <(cfg_table 'Review skills')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
     fi
@@ -478,6 +484,29 @@ if [ "$MODE" = "audit" ]; then
   elif [ "$rl" -lt 500 ]; then check rate_limit warn "only $rl core API calls remaining this hour"
   else check rate_limit ok "$rl core API calls remaining"; fi
 
+  # Token scopes the pipeline depends on. `read:org` is needed by every
+  # `gh pr view --json` field that resolves a user login (reviewRequests,
+  # author, assignees) — i.e. Check 1/Check 2 and the review-request half of
+  # the trigger gate. Missing it fails those calls outright, so catch it here
+  # rather than per review. Scope-granting is operator-only.
+  scopes="$(gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
+  missing_scopes=""
+  for s in repo read:org gist; do
+    case ",$(printf '%s' "$scopes" | tr -d ' ')," in (*",$s,"*) ;; (*) missing_scopes="${missing_scopes:+$missing_scopes }$s";; esac
+  done
+  if [ -z "$scopes" ]; then check token_scopes warn "token scopes unreadable (X-OAuth-Scopes absent — fine-grained or app token?)"
+  elif [ -n "$missing_scopes" ]; then check token_scopes fail "token missing scope(s): $missing_scopes — operator-only fix; read:org breaks PR-state calls, gist breaks artifact publishing"
+  else check token_scopes ok "token carries repo, read:org, gist"; fi
+
+  # CLI dependencies (see the Requires header). A missing one is not fatal by
+  # itself — it makes ad-hoc commands fail mid-run in ways that read as bugs.
+  missing_cli=""
+  for c in gh jq git sed grep cut tr date find; do
+    command -v "$c" >/dev/null 2>&1 || missing_cli="${missing_cli:+$missing_cli }$c"
+  done
+  if [ -n "$missing_cli" ]; then check cli_deps fail "required command(s) unavailable: $missing_cli"
+  else check cli_deps ok "all required commands present (awk/diff/python are deliberately not required)"; fi
+
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
 
   if [ -n "${GITHUB_REPO_WORK:-}" ]; then
@@ -584,7 +613,7 @@ if [ "$MODE" = "audit" ]; then
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
     else check "skill_$skill" ok "installed and current"; fi
-  done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
+  done < <(cfg_table 'Review skills')
 
   if [ "$SLACK" = "enabled" ]; then
     if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"

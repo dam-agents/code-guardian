@@ -32,6 +32,15 @@ git config --global --replace-all credential."https://github.com".helper "" \
 ## Step 0 — Prerequisites & repository resolution
 
 1. **Sanity check:** `gh api user --jq .login` must succeed (it prints the bot login, needed in Step 4). If it fails, **stop** and tell the operator the GitHub connection/token is broken — nothing else can proceed.
+
+   Then verify the preconditions the pipeline silently depends on — the weekly audit re-checks both (`token_scopes`, `cli_deps`):
+
+   ```bash
+   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo, read:org, gist
+   for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
+   ```
+
+   A missing **scope** is **operator-only** — report it and ask them to widen the token, don't work around it (`read:org` is required by every `gh pr view --json` field that resolves a user login, e.g. `reviewRequests`/`author`; `gist` by artifact publishing). A missing **command** blocks onboarding: report and stop. Installing OS packages is not possible on the pod (no package manager, no sudo, read-only prefixes) — `awk`, `diff`, and a login-shell `python3` are deliberately **not** required anywhere in this definition; keep it that way.
 2. **Definition repo** — derive `OWNER/REPO` from the URL of this runbook as given by the operator (`https://github.com/OWNER/REPO/blob/main/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api "repos/<owner/repo>" --jq .full_name`) and `export DEFINITION_REPO="<owner/repo>"`. Persisted as `definition_repo` in Step 4; drives the outer-repo `origin`, definition PRs, and the review footer.
 3. **`GITHUB_REPO`** — if the env var is unset, ask:
 
