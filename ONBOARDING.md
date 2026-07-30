@@ -154,6 +154,17 @@ if [ ! -f /home/agent/work/REVIEWS.md ]; then
 |----|--------|-----------|---------|--------|
 EOF
 fi
+if [ ! -f /home/agent/work/LESSONS.md ]; then
+  cat > /home/agent/work/LESSONS.md <<'EOF'
+# Operational Lessons
+
+_Verified environment facts and recurring failure modes — written when a root
+cause is reproduced, read in review runs. Scope and rules:
+`docs/preferences.md` → **Operational lessons**._
+
+_(Nothing yet — entries are added as failures are diagnosed.)_
+EOF
+fi
 ```
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)

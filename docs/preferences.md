@@ -72,6 +72,25 @@ beyond the one PR. After posting each review, record any such insight in
 - Soft cap 15 bullets: when full, only update existing entries; the weekly
   consolidation makes room.
 
+## Operational lessons (`work/LESSONS.md`)
+
+Environment facts and recurring failure modes — what this pod lacks, which tool
+call shapes fail and the working alternative, which errors are expected and must
+not be "repaired". Separate from MEMORY.md: that file holds review *preferences*
+under the bounds above; mixing operational knowledge in would blow them.
+
+- **Write** an entry when a failure's root cause is **verified** (reproduced, not
+  guessed) and would otherwise be re-derived next run: the symptom, the cause,
+  and the command/approach that works. Never a raw error dump.
+- **Read** it in a review run (step 2) — most entries are review-time traps
+  (clone/diff, PR-state calls, quoting) — and whenever a tool call fails in a way
+  that looks environmental.
+- Update the existing entry instead of appending a near-duplicate; delete one
+  that a fix made obsolete. Soft cap ~10 sections; a definition-level fix belongs
+  in the definition (self-modification.md), leaving at most a pointer here.
+- It is runtime state: backed up with the rest of `work/`
+  ([persistence.md](persistence.md)), never committed to the definition repo.
+
 ## Weekly memory consolidation (audit run)
 
 The audit run's one write beyond its own log (docs/audit.md → wrap-up):

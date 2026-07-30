@@ -22,11 +22,18 @@ upgrade**); authoring rules:
 - ONBOARDING Step 0 verifies both at setup, and records that OS packages cannot
   be installed on the pod — `awk`, `diff`, and a login-shell `python3` are
   deliberately not required by this definition.
+- New runtime state file `work/LESSONS.md` — verified environment facts and
+  recurring failure modes, read in review runs (CLAUDE.md step 2), written when a
+  root cause is reproduced. Third memory route in
+  [docs/preferences.md](docs/preferences.md) → **Operational lessons**; seeded by
+  ONBOARDING Step 3b.
 
 **Upgrade:**
-Nothing — docs are re-read per run and the fix lives in the script. An instance
-that saw phantom `install-failed` skills (one per non-skill CONFIG table row)
-stops seeing them; no state edit is needed.
+Docs are re-read per run and the parse fix lives in the script; an instance that
+saw phantom `install-failed` skills (one per non-skill CONFIG table row) stops
+seeing them. One idempotent state step: if `work/LESSONS.md` is missing, create it
+from the ONBOARDING Step 3b template (an existing file is never overwritten — it
+holds diagnoses that aren't reconstructable).
 
 ## 1.7.0 — 2026-07-29
 

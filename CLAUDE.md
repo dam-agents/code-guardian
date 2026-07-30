@@ -84,7 +84,7 @@ The agent's behavior is changed **only by the operator in the direct agent sessi
 Output channels: the chat UI **and** a GitHub PR review — every reviewed PR must produce a structured review in both.
 
 1. Echo preflight's `logs` to the chat UI; note per-skill install statuses from `skills` (an `install-failed` skill is skipped for every PR this run, with its audit line).
-2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md`; when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md).
+2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md` and operational lessons from `work/LESSONS.md` ([docs/preferences.md](docs/preferences.md)); when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md).
 3. Apply the bookkeeping arrays first — `selfheals_due`, `label_cleanups_due`, `prunes_due` — per docs/review.md (each with per-PR log lines).
 4. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
 5. For each entry in `artifacts_due`, follow [docs/artifact.md](docs/artifact.md).
@@ -120,7 +120,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - **Never run `git clean` in `/home/agent`**; never `git add` outside the outer repo's allowlist. Definition changes only via branch + PR ([docs/persistence.md](docs/persistence.md)), never from a heartbeat — and **before editing any definition file, read [docs/self-modification.md](docs/self-modification.md)** and stay within its rules.
 - Version checks & migrations happen only in the direct session (update request / explicit check / before self-modification); heartbeats never touch versioning, the audit only reports drift — docs/persistence.md → **Definition version & upgrade**.
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
-- User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
+- User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides, verified environment/failure causes → `work/LESSONS.md`; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
 - No leftover `/tmp/review-pr-*` directories or temp payload files at run end.
 - All errors (posting, skills, clone, context fetch, sends, pushes) are logged in the chat UI **and** as events in the structured log ([docs/logging.md](docs/logging.md)).
 
@@ -134,7 +134,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | [docs/artifact.md](docs/artifact.md) | `artifacts_due` non-empty — gist publishing / retry-unassign procedure |
 | [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — write-before-send, templates, target selection |
 | [docs/audit.md](docs/audit.md) | An audit run — agent-side checks, report format, send rules |
-| [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; audit-time memory consolidation — scope routing |
+| [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; a verified failure cause worth keeping; audit-time memory consolidation — scope routing |
 | [docs/persistence.md](docs/persistence.md) | End-of-run persist; an update / version-check request; any request to change the definition |
 | [docs/logging.md](docs/logging.md) | Writing/reading structured log events, debugging a past run, harness adapters, retention — format, event duties, triage |
 | [docs/self-modification.md](docs/self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |
