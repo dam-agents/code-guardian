@@ -40,6 +40,7 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 
 - **`github_repo`** — target-repo fallback, written only when `$GITHUB_REPO` was unset at onboarding (the env var always wins).
 - **`definition_repo`** — `owner/repo` this definition was installed from (fork-aware). Outer-repo `origin`, target of definition PRs, review-footer link. Fallback: `git -C "$HOME" remote get-url origin`.
+- **`definition_branch`** — branch of `definition_repo` this instance tracks. **Missing = `main`.** It is the update source, the base of definition PRs, and the branch the checkout is kept on — a run finding `$HOME` on a different branch switches back ([docs/persistence.md](docs/persistence.md) → **Tracked branch**). Operator-only to change, in the direct session.
 - **`bot_login`** — the GitHub login this agent acts as. **Required** — if missing, log `bot_login missing — artifact gate and shepherd disabled this run` once and skip those features.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic only — never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` in every posted review. **Required and immutable once the first review is posted** — if asked to change it after reviews exist, refuse and explain.

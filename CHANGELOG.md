@@ -36,13 +36,29 @@ upgrade**); authoring rules:
   root cause is reproduced. Third memory route in
   [docs/preferences.md](docs/preferences.md) → **Operational lessons**; seeded by
   ONBOARDING Step 3b.
+- New `work/CONFIG.md` key **`definition_branch`** (missing = `main`): the branch
+  of `definition_repo` an instance tracks — update source, base of definition PRs,
+  and the branch `/home/agent` is kept on. `main` is no longer hard-coded in
+  preflight, ONBOARDING or persistence.md; the `definition_version` check warns
+  when the checkout sits on another branch. Home: docs/persistence.md →
+  **Tracked branch**. Onboarding derives it from the runbook URL.
+- **CHANGELOG history is append-only** (docs/self-modification.md §12): a merged
+  entry is never edited, re-dated, re-numbered, reordered or deleted — corrections
+  are new entries. This *replaces* the previous rule that had an overtaken branch
+  re-date the entry that overtook it; an overtaken branch now re-numbers and
+  re-dates **its own** pending entry instead.
 
 **Upgrade:**
 Docs are re-read per run and the parse fix lives in the script; an instance that
 saw phantom `install-failed` skills (one per non-skill CONFIG table row) stops
-seeing them. One idempotent state step: if `work/LESSONS.md` is missing, create it
-from the ONBOARDING Step 3b template (an existing file is never overwritten — it
-holds diagnoses that aren't reconstructable).
+seeing them. Two idempotent state steps:
+1. If `work/LESSONS.md` is missing, create it from the ONBOARDING Step 3b template
+   (an existing file is never overwritten — it holds diagnoses that aren't
+   reconstructable).
+2. If `work/CONFIG.md` has no `definition_branch:` key, append it with the branch
+   the checkout is currently on (`git -C /home/agent rev-parse --abbrev-ref HEAD`,
+   or `main` when that is detached/unavailable) — recording the status quo, never
+   switching branches as part of the upgrade.
 
 ## 1.7.0 — 2026-07-29
 

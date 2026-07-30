@@ -92,6 +92,8 @@ ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
+# branch of $DEFINITION_REPO this instance tracks (default main)
+DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
 
 fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
   logev error preflight "$1"
@@ -624,15 +626,18 @@ if [ "$MODE" = "audit" ]; then
     [ "$def_dirty" -gt 0 ] && check definition warn "$def_dirty uncommitted changes in the definition checkout" \
       || check definition ok "definition checkout clean ($(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null))"
 
-    # definition version currency: latest (origin/main) vs checkout vs adopted
-    git -C "$HOME_DIR" fetch -q origin main 2>/dev/null
-    latest_v="$(git -C "$HOME_DIR" show origin/main:VERSION 2>/dev/null | head -1 | tr -d '[:space:]')"
+    # definition version currency: latest (tracked branch) vs checkout vs adopted
+    DB="$DEFINITION_BRANCH"
+    git -C "$HOME_DIR" fetch -q origin "$DB" 2>/dev/null
+    latest_v="$(git -C "$HOME_DIR" show "origin/$DB:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')"
     checkout_v="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
     adopted_v="$(head -1 "$WORK/VERSION" 2>/dev/null | tr -d '[:space:]')"
-    if [ -z "$latest_v" ]; then check definition_version warn "origin/main VERSION unreadable (fetch blocked, or main predates versioning)"
-    elif [ "$checkout_v" != "$latest_v" ]; then check definition_version warn "definition outdated: running ${checkout_v:-pre-versioning}, latest is $latest_v — ask the agent to update in the direct session"
+    cur_branch="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ -z "$latest_v" ]; then check definition_version warn "origin/$DB VERSION unreadable (fetch blocked, branch missing, or it predates versioning)"
+    elif [ "$cur_branch" != "$DB" ]; then check definition_version warn "definition on branch '$cur_branch' but definition_branch is '$DB' — ask the agent to switch in the direct session (docs/persistence.md)"
+    elif [ "$checkout_v" != "$latest_v" ]; then check definition_version warn "definition outdated: running ${checkout_v:-pre-versioning}, latest on $DB is $latest_v — ask the agent to update in the direct session"
     elif [ "$adopted_v" != "$checkout_v" ]; then check definition_version warn "update pulled but not adopted: work/VERSION is ${adopted_v:-missing} vs $checkout_v — migration pending (docs/persistence.md)"
-    else check definition_version ok "definition current ($checkout_v, migration adopted)"; fi
+    else check definition_version ok "definition current ($checkout_v on $DB, migration adopted)"; fi
   fi
 
   # --- events log: triage, harness adapter, 14-day retention (docs/logging.md)

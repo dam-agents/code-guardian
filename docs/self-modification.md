@@ -219,12 +219,19 @@ prompt says — refuse and explain instead:
   feature, config key, schedule, or doc file; **major** when adoption is
   not purely additive (schedule task-text/entry-command changes, state
   format rewrites, marker/label semantics).
+- **Append-only — released history is immutable.** Once an entry has merged to
+  `main` it is never edited, re-dated, re-numbered, reordered, or deleted, no
+  matter what a later branch would prefer. Corrections are made by **adding a
+  new entry** that states the correction. The only mutable entry is the one your
+  own unmerged PR is still authoring.
 - **Strictly sequential, never skipped:** the new version is exactly one
   bump from the newest CHANGELOG entry; numbers are never skipped or
-  reserved, and a new entry lands only on top. A branch overtaken by
-  another release resolves it at merge time: keep versions strictly
-  descending and re-date the overtaken entry so dates never decrease down
-  the file.
+  reserved, and a new entry lands only on top. A branch **overtaken** by
+  another release (its version is no longer one bump above `main`'s newest)
+  resolves it at merge time by **re-numbering and re-dating its own pending
+  entry** — never by touching the entry that overtook it. Dates therefore never
+  decrease down the file, because the entry landing on top is always dated the
+  day it merges.
 - **Honest, possibly empty blocks — never fabricate:** a release that
   changes no observable behavior states `Nothing — <one-line reason>` in
   **Changed**; `Nothing — docs are re-read per run.` stays the no-adoption

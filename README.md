@@ -161,6 +161,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | --- | --- | --- |
 | `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo slug; the env var always wins. |
 | `definition_repo` | derived from the ONBOARDING.md URL | The repo this agent definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
+| `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` the instance tracks: update source, base of definition PRs, and the branch the checkout is kept on. |
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
