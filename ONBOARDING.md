@@ -32,7 +32,16 @@ git config --global --replace-all credential."https://github.com".helper "" \
 ## Step 0 — Prerequisites & repository resolution
 
 1. **Sanity check:** `gh api user --jq .login` must succeed (it prints the bot login, needed in Step 4). If it fails, **stop** and tell the operator the GitHub connection/token is broken — nothing else can proceed.
-2. **Definition repo** — derive `OWNER/REPO` from the URL of this runbook as given by the operator (`https://github.com/OWNER/REPO/blob/main/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api "repos/<owner/repo>" --jq .full_name`) and `export DEFINITION_REPO="<owner/repo>"`. Persisted as `definition_repo` in Step 4; drives the outer-repo `origin`, definition PRs, and the review footer.
+
+   Then verify the preconditions the pipeline silently depends on — the weekly audit re-checks both (`token_scopes`, `cli_deps`):
+
+   ```bash
+   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo, gist
+   for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
+   ```
+
+   A missing **scope** is **operator-only** — report it and ask them to widen the token, don't work around it; which scopes are required and what each is for is in README → **Token scopes** (the optional one only affects the roster import below). A missing **command** blocks onboarding: report and stop. Installing OS packages is not possible on the pod (no package manager, no sudo, read-only prefixes) — `awk`, `diff`, and a login-shell `python3` are deliberately **not** required anywhere in this definition; keep it that way.
+2. **Definition repo & branch** — derive `OWNER/REPO` **and the branch** from the URL of this runbook as given by the operator (`https://github.com/OWNER/REPO/blob/<branch>/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api "repos/<owner/repo>" --jq .full_name`) and `export DEFINITION_REPO="<owner/repo>"`. Then `export DEF_BRANCH="<branch from the URL, else main>"` and validate it exists (`gh api "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`) — invalid → say so and ask, never fall back silently. Persisted as `definition_repo` + `definition_branch` in Step 4; they drive the outer-repo `origin`, updates, definition PRs, and the review footer.
 3. **`GITHUB_REPO`** — if the env var is unset, ask:
 
    > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`).
@@ -48,17 +57,21 @@ git config --global --replace-all credential."https://github.com".helper "" \
 
 `/home/agent` is `$HOME` — it holds secrets (`.ssh`, `.claude`, `.config`) and `work/`. The repo's allowlist `.gitignore` (`/*`, then re-include only the definition files) is what makes a repo-at-`$HOME` safe. Do **not** `git clone` into `$HOME` (needs an empty dir) — init + fetch + hard-reset instead, which never touches untracked files:
 
+`$DEF_BRANCH` is the branch **this instance runs from** — the one in the runbook URL the operator gave you, or `main`. It is persisted as `definition_branch` in Step 4 and used for updates and for keeping the checkout in place (docs/persistence.md → **Tracked branch**); definition PRs are still based on `main`:
+
 ```bash
 cd /home/agent
+export DEF_BRANCH="${DEF_BRANCH:-main}"
 if [ ! -d /home/agent/.git ]; then
   git init -q
   git remote add origin "https://github.com/$DEFINITION_REPO.git"
 else
   git remote set-url origin "https://github.com/$DEFINITION_REPO.git"
 fi
-git fetch -q origin main
-git reset --hard origin/main
-git branch --set-upstream-to=origin/main main 2>/dev/null || true
+git fetch -q origin "$DEF_BRANCH" || { echo "branch '$DEF_BRANCH' not found on $DEFINITION_REPO"; exit 1; }
+git checkout -q -B "$DEF_BRANCH" "origin/$DEF_BRANCH"
+git reset --hard "origin/$DEF_BRANCH"
+git branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || true
 ```
 
 > **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths — either could capture or delete `.ssh`, `.claude`, `work/`, etc.
@@ -99,7 +112,7 @@ fi
 
 If the remote is empty (first-ever deployment) the restore is a no-op — fall through to 3b to seed the templates; the first end-of-run `persist` creates the initial backup. Never make `work/` a git repo.
 
-**3b — unset, or the 3a restore was empty/failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
+**3b — unset, or the 3a restore was empty/failed** → `mkdir -p /home/agent/work/reviews`, then create the seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` or `LESSONS.md` — they hold long-term knowledge that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
 
 ```bash
 mkdir -p /home/agent/work/reviews
@@ -141,6 +154,17 @@ if [ ! -f /home/agent/work/REVIEWS.md ]; then
 |----|--------|-----------|---------|--------|
 EOF
 fi
+if [ ! -f /home/agent/work/LESSONS.md ]; then
+  cat > /home/agent/work/LESSONS.md <<'EOF'
+# Operational Lessons
+
+_Verified environment facts and recurring failure modes — written when a root
+cause is reproduced, read in review runs. Scope and rules:
+`docs/preferences.md` → **Operational lessons**._
+
+_(Nothing yet — entries are added as failures are diagnosed.)_
+EOF
+fi
 ```
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
@@ -150,7 +174,7 @@ The definition is project-agnostic: every instance-specific value lives in `work
 **Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its values** and only ask for missing keys — never silently overwrite operator-set config (especially `review_marker`).
 
 1. **`github_repo`** — only if Step 0.3 had to ask (env var unset). Omit otherwise — a stored copy would only drift.
-2. **`definition_repo`** — always write the Step 0.2 value.
+2. **`definition_repo`** and **`definition_branch`** — always write both Step 0.2 values (write `definition_branch` even when it is `main`, so the tracked branch is explicit).
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator, stating the consequence:
 
    > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
@@ -187,6 +211,7 @@ Final shape:
 
 - github_repo: acme/widgets            # only when the env var was unset
 - definition_repo: acme/code-guardian
+- definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review

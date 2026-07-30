@@ -7,6 +7,63 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.1.0 — 2026-07-30
+
+**Changed:**
+- `scripts/preflight.sh`: **bug fix** — the `## Review skills` table was read
+  with an unbounded `sed` range, so every table *after* it in `work/CONFIG.md`
+  (e.g. `## Watch rules`) was parsed as skill rows; the phantom skills reported
+  `install-failed` on every review run and in the weekly `skill_*` checks. Both
+  call sites now use one `cfg_table <heading>` helper that stops at the next
+  `## ` heading.
+- Audit gains a **failure diagnosis** pass: preflight groups **every `level:
+  error` event** of the past week — failed tool calls, skill installs, sends, API
+  decisions — into `failures[]` signatures (`event`/`tool`/`error`, volatile bits
+  normalized, each dated `first`/`last`), and the agent diagnoses every one:
+  cause + fix per signature, classified environment / agent mistake / definition
+  bug, with a deduplicated `[audit]` tracking issue on `definition_repo` for the
+  last kind (docs/audit.md task 3). The issue is the audit's only GitHub write.
+  Counting errors was never enough — nothing asked *why*.
+- Audit gains two precondition checks: `token_scopes` (asserts the scopes the
+  scheduled runs actually need — a missing one is operator-only and breaks PR
+  state/posting or artifact publishing) and `cli_deps` (required commands
+  present). Scopes are specified in one place only: README → **Token scopes**.
+- ONBOARDING Step 0 verifies both at setup, and records that OS packages cannot
+  be installed on the pod — `awk`, `diff`, and a login-shell `python3` are
+  deliberately not required by this definition.
+- New runtime state file `work/LESSONS.md` — verified environment facts and
+  recurring failure modes, read in review runs (CLAUDE.md step 2), written when a
+  root cause is reproduced. Third memory route in
+  [docs/preferences.md](docs/preferences.md) → **Operational lessons**; seeded by
+  ONBOARDING Step 3b.
+- New `work/CONFIG.md` key **`definition_branch`** (missing = `main`): the branch
+  of `definition_repo` **an instance runs from** — its update source and the branch
+  `/home/agent` is kept on, so a deployment can follow something other than `main`.
+  The `definition_version` check warns when the checkout sits elsewhere. A per-agent
+  deployment choice only: `main` remains the repository's development branch, the
+  base of every definition PR, and the owner of the changelog. Home:
+  docs/persistence.md → **Tracked branch**; onboarding derives it from the runbook
+  URL.
+- **CHANGELOG is append-only, per entry** (docs/self-modification.md §12): a
+  branch may keep editing **its own** not-yet-released entry across commits, but
+  every older entry already on `main` is immutable — even from a branch — and once
+  an entry reaches `main` nothing about it ever changes again; corrections are new
+  entries. This *replaces* the previous rule that had an overtaken branch re-date
+  the entry which overtook it; an overtaken branch now re-numbers and re-dates
+  **its own** pending entry instead.
+
+**Upgrade:**
+Docs are re-read per run and the parse fix lives in the script; an instance that
+saw phantom `install-failed` skills (one per non-skill CONFIG table row) stops
+seeing them. Two idempotent state steps:
+1. If `work/LESSONS.md` is missing, create it from the ONBOARDING Step 3b template
+   (an existing file is never overwritten — it holds diagnoses that aren't
+   reconstructable).
+2. If `work/CONFIG.md` has no `definition_branch:` key, append it with the branch
+   the checkout is currently on (`git -C /home/agent rev-parse --abbrev-ref HEAD`,
+   or `main` when that is detached/unavailable) — recording the status quo, never
+   switching branches as part of the upgrade.
+
 ## 2.0.0 — 2026-07-29
 
 **Changed:**

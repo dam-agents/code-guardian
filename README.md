@@ -161,6 +161,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | --- | --- | --- |
 | `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo slug; the env var always wins. |
 | `definition_repo` | derived from the ONBOARDING.md URL | The repo this agent definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
+| `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from** — its update source and the branch the checkout is kept on. A per-agent deployment choice; definition PRs are still based on `main`. |
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
@@ -186,10 +187,17 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   personal one) that is a collaborator on the target repo with permission to
   review PRs. Note that GitHub ignores review requests/approvals from a PR's
   own author — the bot account must not be the one opening the PRs it reviews.
-- **Token scopes:** the token must be able to read/write PRs, reviews, and
-  comments on `GITHUB_REPO` (`repo`), push to `GITHUB_REPO_WORK` and the
-  definition repo, create/delete **gists** (visual artifacts), and list org
-  teams (`read:org`) for the roster import.
+- **Token scopes:** the single place these are specified.
+
+  | Scope | Required? | What needs it |
+  | --- | --- | --- |
+  | `repo` | **yes** | PRs, reviews, comments, labels and issues on `GITHUB_REPO`; push to `GITHUB_REPO_WORK` and the definition repo |
+  | `gist` | yes, unless artifacts are off | Create/delete the **visual artifact** gists (`artifact_skill: none` → not needed) |
+  | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
+
+  The audit's `token_scopes` check asserts the required ones only. A missing
+  scope is **operator-only** to fix — the agent reports it and never works
+  around it.
 - **External services:** artifact links render via `htmlpreview.github.io`, a
   third-party service; "secret" gists are unlisted but publicly reachable by
   URL. With `artifact_targets: gist,dam` the artifact is also published to the

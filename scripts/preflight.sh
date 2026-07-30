@@ -73,6 +73,12 @@ cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# Emit the table rows of one `## <heading>` CONFIG section, stopping at the next
+# `## ` heading — an unbounded `,$p` range would swallow the sections that follow
+# (e.g. `## Watch rules` rows parsed as skills). Header/separator rows are the
+# caller's to skip.
+cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/dev/null | grep -E '^\|'; }
+
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
 # ---------------------------------------------------------------- config ----
@@ -86,6 +92,8 @@ ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
+# branch of $DEFINITION_REPO this instance tracks (default main)
+DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
 
 fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
   logev error preflight "$1"
@@ -313,7 +321,7 @@ if [ "$MODE" = "review" ]; then
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$skill" --arg v "$(install_skill "$skill" "$src")" '. + {($k):$v}')"
-    done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
+    done < <(cfg_table 'Review skills')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
     fi
@@ -478,6 +486,27 @@ if [ "$MODE" = "audit" ]; then
   elif [ "$rl" -lt 500 ]; then check rate_limit warn "only $rl core API calls remaining this hour"
   else check rate_limit ok "$rl core API calls remaining"; fi
 
+  # Token scopes the pipeline depends on: `repo` for PR state and posting,
+  # `gist` for artifact publishing. A missing scope fails those calls outright,
+  # so catch it here rather than per review; granting is operator-only.
+  scopes="$(gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
+  missing_scopes=""
+  for s in repo gist; do
+    case ",$(printf '%s' "$scopes" | tr -d ' ')," in (*",$s,"*) ;; (*) missing_scopes="${missing_scopes:+$missing_scopes }$s";; esac
+  done
+  if [ -z "$scopes" ]; then check token_scopes warn "token scopes unreadable (X-OAuth-Scopes absent — fine-grained or app token?)"
+  elif [ -n "$missing_scopes" ]; then check token_scopes fail "token missing scope(s): $missing_scopes — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"
+  else check token_scopes ok "token carries repo, gist"; fi
+
+  # CLI dependencies (see the Requires header). A missing one is not fatal by
+  # itself — it makes ad-hoc commands fail mid-run in ways that read as bugs.
+  missing_cli=""
+  for c in gh jq git sed grep cut tr date find; do
+    command -v "$c" >/dev/null 2>&1 || missing_cli="${missing_cli:+$missing_cli }$c"
+  done
+  if [ -n "$missing_cli" ]; then check cli_deps fail "required command(s) unavailable: $missing_cli"
+  else check cli_deps ok "all required commands present (awk/diff/python are deliberately not required)"; fi
+
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
 
   if [ -n "${GITHUB_REPO_WORK:-}" ]; then
@@ -590,7 +619,7 @@ if [ "$MODE" = "audit" ]; then
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
     else check "skill_$skill" ok "installed and current"; fi
-  done < <(sed -n '/^## Review skills/,$p' "$CONFIG" 2>/dev/null | grep -E '^\|')
+  done < <(cfg_table 'Review skills')
 
   if [ "$SLACK" = "enabled" ]; then
     if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"
@@ -603,15 +632,18 @@ if [ "$MODE" = "audit" ]; then
     [ "$def_dirty" -gt 0 ] && check definition warn "$def_dirty uncommitted changes in the definition checkout" \
       || check definition ok "definition checkout clean ($(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null))"
 
-    # definition version currency: latest (origin/main) vs checkout vs adopted
-    git -C "$HOME_DIR" fetch -q origin main 2>/dev/null
-    latest_v="$(git -C "$HOME_DIR" show origin/main:VERSION 2>/dev/null | head -1 | tr -d '[:space:]')"
+    # definition version currency: latest (tracked branch) vs checkout vs adopted
+    DB="$DEFINITION_BRANCH"
+    git -C "$HOME_DIR" fetch -q origin "$DB" 2>/dev/null
+    latest_v="$(git -C "$HOME_DIR" show "origin/$DB:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')"
     checkout_v="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
     adopted_v="$(head -1 "$WORK/VERSION" 2>/dev/null | tr -d '[:space:]')"
-    if [ -z "$latest_v" ]; then check definition_version warn "origin/main VERSION unreadable (fetch blocked, or main predates versioning)"
-    elif [ "$checkout_v" != "$latest_v" ]; then check definition_version warn "definition outdated: running ${checkout_v:-pre-versioning}, latest is $latest_v — ask the agent to update in the direct session"
+    cur_branch="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ -z "$latest_v" ]; then check definition_version warn "origin/$DB VERSION unreadable (fetch blocked, branch missing, or it predates versioning)"
+    elif [ "$cur_branch" != "$DB" ]; then check definition_version warn "definition on branch '$cur_branch' but definition_branch is '$DB' — ask the agent to switch in the direct session (docs/persistence.md)"
+    elif [ "$checkout_v" != "$latest_v" ]; then check definition_version warn "definition outdated: running ${checkout_v:-pre-versioning}, latest on $DB is $latest_v — ask the agent to update in the direct session"
     elif [ "$adopted_v" != "$checkout_v" ]; then check definition_version warn "update pulled but not adopted: work/VERSION is ${adopted_v:-missing} vs $checkout_v — migration pending (docs/persistence.md)"
-    else check definition_version ok "definition current ($checkout_v, migration adopted)"; fi
+    else check definition_version ok "definition current ($checkout_v on $DB, migration adopted)"; fi
   fi
 
   # --- events log: triage, harness adapter, 14-day retention (docs/logging.md)
@@ -631,6 +663,48 @@ if [ "$MODE" = "audit" ]; then
   else check events_errors ok "no error events this week ($ev_warn warns)"; fi
   [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
     || check recurring_errors ok "no recurring error/warn signatures"
+
+  # Every error event from past runs (heartbeats included) grouped into
+  # signatures, so the agent diagnoses classes instead of single lines: for
+  # `tool_failure` the command text is stripped and the tool name kept; for the
+  # rest (`skill_install`, `nudge_send`, `gh_api`, …) the whole message is the
+  # signature. Volatile bits (SHAs, numbers, /tmp paths) are normalized so one
+  # root cause collapses to one row however often it recurred. `first`/`last`
+  # bound each signature in time — a signature whose `last` predates a fix is
+  # already resolved and must not be re-reported. Emitted as `failures` for the
+  # agent's diagnosis pass (docs/audit.md task 3).
+  FAILURES='[]'
+  if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
+    FAILURES="$(ev_jsonl | jq -s --arg s "$SINCE_ISO" '
+      def norm: gsub("[0-9a-f]{7,40}";"<sha>") | gsub("[0-9]+";"<n>")
+              | gsub("/tmp/[^ ]*";"<tmp>") | gsub("\\s+";" ") | .[0:120];
+      [ .[] | select(.ts >= $s and .level=="error")
+            | . as $e
+            | { ts, event,
+                tool: (if $e.event == "tool_failure"
+                       then (($e.msg // "") | (capture("^(?<t>[A-Za-z_]+)")?.t // "?"))
+                       else null end),
+                err:  (($e.msg // "")
+                       | (if $e.event == "tool_failure"
+                          then ( (capture("\\]: (?<e>.*)$")?.e)
+                                 // (capture("^[A-Za-z_]+: (?<e>.*)$")?.e) // . )
+                          else . end)
+                       | norm ) } ]
+      | group_by([.event, (.tool // ""), .err])
+      | map({ event: .[0].event, tool: .[0].tool, error: .[0].err, count: length,
+              first: (min_by(.ts).ts), last: (max_by(.ts).ts) })
+      | sort_by(-.count) | .[:15]' 2>/dev/null)"
+    [ -z "$FAILURES" ] && FAILURES='[]'
+  fi
+  f_groups="$(printf '%s' "$FAILURES" | jq 'length' 2>/dev/null || echo 0)"
+  f_total="$(printf '%s' "$FAILURES" | jq '[.[].count] | add // 0' 2>/dev/null || echo 0)"
+  if [ "${f_groups:-0}" -gt 0 ]; then
+    check failures warn "$f_total error events in $f_groups signature(s) this week — diagnose each (docs/audit.md task 3)"
+  elif [ "${ev_err:-0}" -gt 0 ]; then
+    # ev_err counted errors but grouping produced none: the jq pass broke, and a
+    # silent "all clear" would hide exactly what this check exists to surface.
+    check failures warn "$ev_err error events counted but could not be grouped — read work/logs/ directly (docs/logging.md)"
+  else check failures ok "no error events this week"; fi
 
   # weekly token totals from `tokens` events (best-effort; msg format written
   # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
@@ -708,8 +782,10 @@ if [ "$MODE" = "audit" ]; then
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
+    --argjson failures "${FAILURES:-[]}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks, logs:$logs}'
+    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
+      failures:$failures, logs:$logs}'
   exit 0
 fi
 

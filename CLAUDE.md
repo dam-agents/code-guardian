@@ -28,7 +28,7 @@ It prints one JSON object:
   - `prunes_due` — PRs verified CLOSED/MERGED → delete their state incl. gist/artifact cleanup (docs/review.md → **Pruning**)
   - `artifacts_due` — `action: generate` | `retry_unassign` → [docs/artifact.md](docs/artifact.md)
   - `nudges_due` — Slack nudges with precomputed `row_update` (write-before-send is yours) → [docs/shepherd.md](docs/shepherd.md)
-  - `stats` + `checks` (audit mode) — 7-day statistics and deterministic health checks → [docs/audit.md](docs/audit.md)
+  - `stats` + `checks` + `failures` (audit mode) — 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose → [docs/audit.md](docs/audit.md)
   - `skills` — per-skill install status (`installed`/`cached`/`harness`/`install-failed`)
 - Script missing/failing (non-JSON output) → log it and fall back to doing the equivalent work manually per the `docs/` files; never silently skip a heartbeat.
 
@@ -40,6 +40,7 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 
 - **`github_repo`** — target-repo fallback, written only when `$GITHUB_REPO` was unset at onboarding (the env var always wins).
 - **`definition_repo`** — `owner/repo` this definition was installed from (fork-aware). Outer-repo `origin`, target of definition PRs, review-footer link. Fallback: `git -C "$HOME" remote get-url origin`.
+- **`definition_branch`** — branch of `definition_repo` **this instance runs from**: its update source and the branch the checkout is kept on ([docs/persistence.md](docs/persistence.md) → **Tracked branch**). **Missing = `main`.** A per-agent deployment choice, not a repo convention — definition PRs are still based on `main`, and `main` still owns the changelog. Operator-only to change, in the direct session.
 - **`bot_login`** — the GitHub login this agent acts as. **Required** — if missing, log `bot_login missing — artifact gate and shepherd disabled this run` once and skip those features.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic only — never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` in every posted review. **Required and immutable once the first review is posted** — if asked to change it after reviews exist, refuse and explain.
@@ -84,7 +85,7 @@ The agent's behavior is changed **only by the operator in the direct agent sessi
 Output channels: the chat UI **and** a GitHub PR review — every reviewed PR must produce a structured review in both.
 
 1. Echo preflight's `logs` to the chat UI; note per-skill install statuses from `skills` (an `install-failed` skill is skipped for every PR this run, with its audit line).
-2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md`; when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md).
+2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md` and operational lessons from `work/LESSONS.md` ([docs/preferences.md](docs/preferences.md)); when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md).
 3. Apply the bookkeeping arrays first — `selfheals_due`, `label_cleanups_due`, `prunes_due` — per docs/review.md (each with per-PR log lines).
 4. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
 5. For each entry in `artifacts_due`, follow [docs/artifact.md](docs/artifact.md).
@@ -103,8 +104,8 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 ## Audit run (mode `audit`, weekly)
 
 1. Read [docs/audit.md](docs/audit.md).
-2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
-3. Append the `work/AUDIT.log` line; back up `work/` (`scripts/work-backup.sh persist`) as the very last action. The audit is read-only toward GitHub — it repairs nothing; its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
+2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), **diagnose each `failures[]` signature** — every error event past runs logged, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
+3. Append the `work/AUDIT.log` line; back up `work/` (`scripts/work-backup.sh persist`) as the very last action. The audit repairs nothing — its only GitHub write is that tracking issue, and its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
 
 ## Hard invariants (every run)
 
@@ -120,7 +121,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - **Never run `git clean` in `/home/agent`**; never `git add` outside the outer repo's allowlist. Definition changes only via branch + PR ([docs/persistence.md](docs/persistence.md)), never from a heartbeat — and **before editing any definition file, read [docs/self-modification.md](docs/self-modification.md)** and stay within its rules.
 - Version checks & migrations happen only in the direct session (update request / explicit check / before self-modification); heartbeats never touch versioning, the audit only reports drift — docs/persistence.md → **Definition version & upgrade**.
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
-- User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
+- User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides, verified environment/failure causes → `work/LESSONS.md`; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
 - No leftover `/tmp/review-pr-*` directories or temp payload files at run end.
 - All errors (posting, skills, clone, context fetch, sends, pushes) are logged in the chat UI **and** as events in the structured log ([docs/logging.md](docs/logging.md)).
 
@@ -134,7 +135,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | [docs/artifact.md](docs/artifact.md) | `artifacts_due` non-empty — gist publishing / retry-unassign procedure |
 | [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — write-before-send, templates, target selection |
 | [docs/audit.md](docs/audit.md) | An audit run — agent-side checks, report format, send rules |
-| [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; audit-time memory consolidation — scope routing |
+| [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; a verified failure cause worth keeping; audit-time memory consolidation — scope routing |
 | [docs/persistence.md](docs/persistence.md) | End-of-run persist; an update / version-check request; any request to change the definition |
 | [docs/logging.md](docs/logging.md) | Writing/reading structured log events, debugging a past run, harness adapters, retention — format, event duties, triage |
 | [docs/self-modification.md](docs/self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |

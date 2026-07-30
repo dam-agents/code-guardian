@@ -21,12 +21,13 @@ only ever read.
 
 The outer `.gitignore` is an allowlist (`/*` then re-include the definition
 files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
-`.config`) are invisible to the outer repo. A fresh volume seeds `work/` from
-the templates in `ONBOARDING.md` (Step 3b) or restores it from the backup
-remote; a definition update (`git reset --hard origin/main`) never collides
-with live runtime state. **Never run `git clean` in `/home/agent`** and never
-`git add` outside the allowlist (the `work/` backup's `git add -A` is confined
-to the tmpfs clone, never the home tree).
+`.config`) are invisible to the outer repo — nothing under `work/` is tracked.
+A fresh volume seeds `work/` from the templates in `ONBOARDING.md` (Step 3b) or
+restores it from the backup remote; a definition update
+(`git reset --hard "origin/$DEF_BRANCH"`) never collides with live runtime
+state. **Never run `git clean` in `/home/agent`** and never `git add` outside
+the allowlist (the `work/` backup's `git add -A` is confined to the tmpfs clone,
+never the home tree).
 
 ## Backup & restore (`scripts/work-backup.sh`)
 
@@ -59,6 +60,42 @@ is logged and retried next run — not a run failure, because the data is safe o
 once on a fresh volume when the templates aren't enough (`ONBOARDING.md`
 Step 3a).
 
+## Tracked branch
+
+`definition_branch` in `work/CONFIG.md` (missing = `main`) is the branch of
+`$DEFINITION_REPO` **this instance runs from** — its update source and the branch
+`/home/agent` stays on. It is a deployment choice, per agent.
+
+It is **not** a repo-wide convention: `main` remains the repository's development
+branch and release history — the base of every definition PR (**Evolving the agent
+definition** below) and the changelog that only grows
+([self-modification.md](self-modification.md) §12). Use `DEF_BRANCH` for "where
+does this instance's code come from", `main` for "how does the repo evolve".
+
+```bash
+DEF_BRANCH="$(cfg definition_branch)"; DEF_BRANCH="${DEF_BRANCH:-main}"
+```
+
+**Staying on it.** The audit's `definition_version` check warns when the
+checkout sits on a different branch. Switching is a **direct-session** action
+(never a heartbeat) and must not destroy work:
+
+```bash
+git -C /home/agent status --porcelain          # must be empty; otherwise stop and ask
+git -C /home/agent fetch -q origin "$DEF_BRANCH"
+git -C /home/agent checkout "$DEF_BRANCH" 2>/dev/null \
+  || git -C /home/agent checkout -b "$DEF_BRANCH" "origin/$DEF_BRANCH"
+git -C /home/agent reset --hard "origin/$DEF_BRANCH"     # never `git clean`
+git -C /home/agent branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || true
+```
+
+Uncommitted changes or an unmerged local branch → **stop and surface it**; a
+switch never discards unpushed work. A missing remote branch is reported to the
+operator, not created. Working on a definition PR legitimately parks the
+checkout on a feature branch — that warn is expected until the PR merges.
+Changing the key itself is operator-only, and a version check follows it (the
+new branch may carry a different `VERSION`).
+
 ## Definition version & upgrade
 
 `VERSION` (repo root, one line, semver) identifies the definition;
@@ -71,15 +108,15 @@ always before any self-modification (self-modification.md §8).
 **Check:**
 
 ```bash
-git -C /home/agent fetch -q origin main
-git -C /home/agent show origin/main:VERSION 2>/dev/null | head -1   # latest
-head -1 /home/agent/VERSION                                         # checked out
-head -1 /home/agent/work/VERSION 2>/dev/null                        # adopted
+git -C /home/agent fetch -q origin "$DEF_BRANCH"
+git -C /home/agent show "origin/$DEF_BRANCH:VERSION" 2>/dev/null | head -1  # latest
+head -1 /home/agent/VERSION                                                 # checked out
+head -1 /home/agent/work/VERSION 2>/dev/null                                # adopted
 ```
 
 Checked-out < latest → **tell the operator the agent is not up to date**
 (state both versions); update only when they ask, never silently —
-`git -C /home/agent reset --hard origin/main` (never `git clean`), then
+`git -C /home/agent reset --hard "origin/$DEF_BRANCH"` (never `git clean`), then
 migrate in the same session. Adopted ≠ checked-out → migrate now. All
 equal → report "up to date".
 
@@ -105,8 +142,10 @@ discipline, onboarding completeness, protected invariants, validation).
 
 Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`,
 `README.md`, `VERSION`, `CHANGELOG.md`) go through **branch + PR on
-`$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and
-only when deliberately asked — never as part of a heartbeat:
+`$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and only
+when deliberately asked — never as part of a heartbeat. **`main` is the
+repository's development branch and the base of every definition PR**, whatever
+`definition_branch` a given instance runs:
 
 ```bash
 git -C /home/agent fetch origin main
@@ -117,6 +156,9 @@ git -C /home/agent push -u origin "fix/<short-slug>"
 gh pr create --repo "$DEFINITION_REPO" --base main --head "fix/<short-slug>" \
   --title "<title>" --body "<what and why>"
 ```
+
+After the PR merges, return the checkout to this instance's `definition_branch`
+(**Tracked branch** above) so the next run isn't left on a feature branch.
 
 The agent's job ends at "PR opened". Use fresh descriptive branch names;
 runtime state never goes to this repo.
