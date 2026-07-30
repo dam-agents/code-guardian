@@ -7,9 +7,9 @@ Two git repositories exist after onboarding and must never overlap:
 | Path | Repo | Purpose |
 | --- | --- | --- |
 | `/home/agent` | the **definition repo** (`origin`) — derived in Step 0 from this file's URL | Agent definition (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `LICENSE`). Evolved via PRs. |
-| `/home/agent/work` | `$GITHUB_REPO_WORK` (when set) | Runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
+| `/home/agent/work` | **plain data directory** (not a repo); backed up to `$GITHUB_REPO_WORK` when set | Runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
 
-`work/` is git-ignored by the outer repo (allowlist `.gitignore`), so the two stay fully independent.
+`work/` is git-ignored by the outer repo (allowlist `.gitignore`) and holds no `.git` of its own — backup runs off-volume via a tmpfs clone (`docs/persistence.md` → **Backup & restore**), so the two stay fully independent.
 
 ## Guard — skip if already onboarded
 
@@ -88,22 +88,18 @@ If anything under `work/` (or `.ssh`, `.claude`, `.config`) shows up, **stop and
 
 ## Step 3 — Provision `work/` (runtime state)
 
-**3a — `GITHUB_REPO_WORK` set** → replace `work/` with a fresh clone (enables end-of-run commit/push per CLAUDE.md):
+**3a — `GITHUB_REPO_WORK` set** → restore prior state from the backup remote. `work/` is a **plain data directory, not a git clone** — backup happens off-volume via a tmpfs clone (`docs/persistence.md`), so restore just copies the remote's files in:
 
 ```bash
 if [ -n "$GITHUB_REPO_WORK" ]; then
-  tmp="$(mktemp -d)"
-  if git clone "https://github.com/$GITHUB_REPO_WORK" "$tmp/work"; then
-    rm -rf /home/agent/work && mv "$tmp/work" /home/agent/work
-    git -C /home/agent/work config user.name  "code-guardian"
-    git -C /home/agent/work config user.email "code-guardian@agents.local"
-  else
-    echo "WARNING: clone failed; falling back to local-only (3b)."; rm -rf "$tmp"
-  fi
+  mkdir -p /home/agent/work
+  LOG_JOB=session bash "$HOME/scripts/work-backup.sh" restore
 fi
 ```
 
-**3b — unset, or the 3a clone failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
+If the remote is empty (first-ever deployment) the restore is a no-op — fall through to 3b to seed the templates; the first end-of-run `persist` creates the initial backup. Never make `work/` a git repo.
+
+**3b — unset, or the 3a restore was empty/failed** → `mkdir -p /home/agent/work/reviews`, then create the two seed files from the **templates below** only if missing (never overwrite an existing `MEMORY.md` — it holds long-term memory that isn't reconstructable). Review-tracking rows are reconstructed in Step 5 (needs the `review_marker` from Step 4 first); the empty `REVIEWS.md` header just needs to exist.
 
 ```bash
 mkdir -p /home/agent/work/reviews
@@ -236,7 +232,7 @@ The roster is the **only** set of people the agent may ever @-mention (`docs/she
 
 ## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
 
-Skip when Step 3a hydrated the state from `$GITHUB_REPO_WORK`; run it on the 3b path (env var unset, or the clone failed). Otherwise rebuild the tracking files from the target repo — every posted agent review carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value) plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
+Skip when Step 3a restored the state from `$GITHUB_REPO_WORK`; run it on the 3b path (env var unset, or the restore was empty/failed). Otherwise rebuild the tracking files from the target repo — every posted agent review carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value) plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
 
 1. `gh pr list --repo "$GITHUB_REPO" --state open --json number`.
 2. Per PR, fetch reviews/comments, filter by the marker, take the latest one's `headRefOid`, verdict, and `submitted_at`/`createdAt`.
@@ -251,15 +247,15 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 **6a — Review heartbeat.** Ask: *How often should I check for new PRs? Default is every 10 minutes.* Create `name: code-guardian-review-<cadence-shorthand>` (e.g. `…-10m`), cron default `*/10 * * * *`, `sessionMode: fresh`, `task`:
 
-   > Review heartbeat. Run `bash "$HOME/scripts/preflight.sh" review` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and commit & push work/ at the end when GITHUB_REPO_WORK is set.
+   > Review heartbeat. Run `bash "$HOME/scripts/preflight.sh" review` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6b — Shepherd sweep** (only when Slack is enabled; create it later if Slack is enabled in chat). Ask: *During which hours and days should I nudge reviewers on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).* Create `name: code-guardian-shepherd-<cadence-shorthand>` (e.g. `…-1h-workdays`), cron default `0 7-18 * * 1-5`, `sessionMode: fresh`, `task`:
 
-   > Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, apply each nudge's row_update to the ledger before sending (write-before-send), send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), and commit & push work/ when GITHUB_REPO_WORK is set.
+   > Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, apply each nudge's row_update to the ledger before sending (write-before-send), send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6c — Weekly audit.** Ask: *When should I send the weekly health report? Default is Friday 07:00 (platform timezone).* Create `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`, `sessionMode: fresh`, `task`:
 
-   > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, lost nudges), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and commit & push work/ when GITHUB_REPO_WORK is set.
+   > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, lost nudges), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 

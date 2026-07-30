@@ -89,14 +89,14 @@ Output channels: the chat UI **and** a GitHub PR review — every reviewed PR mu
 4. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
 5. For each entry in `artifacts_due`, follow [docs/artifact.md](docs/artifact.md).
 6. Walk the review-run self-check at the end of docs/review.md.
-7. **If `$GITHUB_REPO_WORK` is set, commit & push `work/`** as the very last action (snippet in [docs/persistence.md](docs/persistence.md)) — this also persists preflight's bookkeeping.
+7. **If `$GITHUB_REPO_WORK` is set, back up `work/`** as the very last action — `bash "$HOME/scripts/work-backup.sh" persist` ([docs/persistence.md](docs/persistence.md)); this also persists preflight's bookkeeping. `work/` is a plain data directory (no `.git`); the backup runs in a tmpfs clone so the shared NFS volume is never git-mutated.
 
 ## Shepherd run (worklist has `nudges_due`)
 
 1. Read [docs/shepherd.md](docs/shepherd.md) and `work/DEVELOPERS.md`.
 2. For each entry: select + persist targets when `needs_target_selection`, **apply its `row_update` to the ledger row first (write-before-send)**, then send. A failed send is logged, never retried this run; nothing beyond the worklist is ever sent.
 3. Append observed-areas refinements.
-4. Commit & push `work/` as the very last action.
+4. Back up `work/` (`scripts/work-backup.sh persist`, [docs/persistence.md](docs/persistence.md)) as the very last action.
 
 When `slack_notifications` is not `enabled`, there is no shepherd schedule and nothing Slack-related ever runs; if a shepherd run fires anyway, preflight returns `nothing_to_do` with a log line.
 
@@ -104,7 +104,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 1. Read [docs/audit.md](docs/audit.md).
 2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
-3. Append the `work/AUDIT.log` line; commit & push `work/` as the very last action. The audit is read-only toward GitHub — it repairs nothing; its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
+3. Append the `work/AUDIT.log` line; back up `work/` (`scripts/work-backup.sh persist`) as the very last action. The audit is read-only toward GitHub — it repairs nothing; its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
 
 ## Hard invariants (every run)
 
