@@ -16,9 +16,16 @@ upgrade**); authoring rules:
   `install-failed` on every review run and in the weekly `skill_*` checks. Both
   call sites now use one `cfg_table <heading>` helper that stops at the next
   `## ` heading.
-- Audit gains two precondition checks: `token_scopes` (`repo`/`read:org`/`gist`
-  — a missing scope is operator-only and breaks PR-state calls or artifact
-  publishing) and `cli_deps` (required commands present).
+- Audit gains a **failed-tool-call diagnosis** pass: preflight groups the week's
+  `tool_failure` events into `tool_failures[]` signatures (command text stripped,
+  SHAs/numbers/`/tmp` normalized, each dated `first`/`last`) and the agent
+  diagnoses every one — cause + fix per signature, with a deduplicated `[audit]`
+  tracking issue on `definition_repo` when the cause is a definition bug
+  (docs/audit.md task 3). The issue is the audit's only GitHub write.
+- Audit gains two precondition checks: `token_scopes` (`repo`/`gist` — a missing
+  scope is operator-only and breaks PR state/posting or artifact publishing) and
+  `cli_deps` (required commands present). `read:org` is **not** asserted: nothing
+  in the run loop needs it, and it is optional for the roster import.
 - ONBOARDING Step 0 verifies both at setup, and records that OS packages cannot
   be installed on the pod — `awk`, `diff`, and a login-shell `python3` are
   deliberately not required by this definition.

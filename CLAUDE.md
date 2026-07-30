@@ -28,7 +28,7 @@ It prints one JSON object:
   - `prunes_due` — PRs verified CLOSED/MERGED → delete their state incl. gist/artifact cleanup (docs/review.md → **Pruning**)
   - `artifacts_due` — `action: generate` | `retry_unassign` → [docs/artifact.md](docs/artifact.md)
   - `nudges_due` — Slack nudges with precomputed `row_update` (write-before-send is yours) → [docs/shepherd.md](docs/shepherd.md)
-  - `stats` + `checks` (audit mode) — 7-day statistics and deterministic health checks → [docs/audit.md](docs/audit.md)
+  - `stats` + `checks` + `tool_failures` (audit mode) — 7-day statistics, deterministic health checks, and the week's failed tool calls grouped into signatures for you to diagnose → [docs/audit.md](docs/audit.md)
   - `skills` — per-skill install status (`installed`/`cached`/`harness`/`install-failed`)
 - Script missing/failing (non-JSON output) → log it and fall back to doing the equivalent work manually per the `docs/` files; never silently skip a heartbeat.
 
@@ -103,8 +103,8 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 ## Audit run (mode `audit`, weekly)
 
 1. Read [docs/audit.md](docs/audit.md).
-2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
-3. Append the `work/AUDIT.log` line; commit & push `work/` as the very last action. The audit is read-only toward GitHub — it repairs nothing; its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
+2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), **diagnose each `tool_failures[]` signature** — past runs' failed tool calls, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
+3. Append the `work/AUDIT.log` line; commit & push `work/` as the very last action. The audit repairs nothing — its only GitHub write is that tracking issue, and its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
 
 ## Hard invariants (every run)
 

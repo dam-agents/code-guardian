@@ -484,19 +484,17 @@ if [ "$MODE" = "audit" ]; then
   elif [ "$rl" -lt 500 ]; then check rate_limit warn "only $rl core API calls remaining this hour"
   else check rate_limit ok "$rl core API calls remaining"; fi
 
-  # Token scopes the pipeline depends on. `read:org` is needed by every
-  # `gh pr view --json` field that resolves a user login (reviewRequests,
-  # author, assignees) — i.e. Check 1/Check 2 and the review-request half of
-  # the trigger gate. Missing it fails those calls outright, so catch it here
-  # rather than per review. Scope-granting is operator-only.
+  # Token scopes the pipeline depends on: `repo` for PR state and posting,
+  # `gist` for artifact publishing. A missing scope fails those calls outright,
+  # so catch it here rather than per review; granting is operator-only.
   scopes="$(gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
   missing_scopes=""
-  for s in repo read:org gist; do
+  for s in repo gist; do
     case ",$(printf '%s' "$scopes" | tr -d ' ')," in (*",$s,"*) ;; (*) missing_scopes="${missing_scopes:+$missing_scopes }$s";; esac
   done
   if [ -z "$scopes" ]; then check token_scopes warn "token scopes unreadable (X-OAuth-Scopes absent — fine-grained or app token?)"
-  elif [ -n "$missing_scopes" ]; then check token_scopes fail "token missing scope(s): $missing_scopes — operator-only fix; read:org breaks PR-state calls, gist breaks artifact publishing"
-  else check token_scopes ok "token carries repo, read:org, gist"; fi
+  elif [ -n "$missing_scopes" ]; then check token_scopes fail "token missing scope(s): $missing_scopes — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"
+  else check token_scopes ok "token carries repo, gist"; fi
 
   # CLI dependencies (see the Requires header). A missing one is not fatal by
   # itself — it makes ad-hoc commands fail mid-run in ways that read as bugs.
@@ -655,6 +653,37 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$recurring" ] && check recurring_errors warn "recurring error/warn signatures this week: $recurring" \
     || check recurring_errors ok "no recurring error/warn signatures"
 
+  # Failed tool calls from past runs (heartbeats included), grouped into
+  # signatures so the agent can diagnose classes instead of single lines: the
+  # command text is stripped and volatile bits (SHAs, numbers, /tmp paths) are
+  # normalized, so the same root cause collapses to one row however often it
+  # recurred. `first`/`last` bound each signature in time — a signature whose
+  # `last` predates a fix is already resolved and must not be re-reported.
+  # Emitted as `tool_failures` for the agent's diagnosis pass (docs/audit.md).
+  TOOL_FAILURES='[]'
+  if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
+    TOOL_FAILURES="$(ev_jsonl | jq -s --arg s "$SINCE_ISO" '
+      def norm: gsub("[0-9a-f]{7,40}";"<sha>") | gsub("[0-9]+";"<n>")
+              | gsub("/tmp/[^ ]*";"<tmp>") | gsub("\\s+";" ") | .[0:120];
+      [ .[] | select(.ts >= $s and .level=="error" and .event=="tool_failure")
+            | { ts,
+                tool: ((.msg // "") | (capture("^(?<t>[A-Za-z_]+)")?.t // "?")),
+                err:  ((.msg // "")
+                       | ( (capture("\\]: (?<e>.*)$")?.e)
+                           // (capture("^[A-Za-z_]+: (?<e>.*)$")?.e) // . )
+                       | norm ) } ]
+      | group_by(.tool + "|" + .err)
+      | map({ tool: .[0].tool, error: .[0].err, count: length,
+              first: (min_by(.ts).ts), last: (max_by(.ts).ts) })
+      | sort_by(-.count) | .[:12]' 2>/dev/null)"
+    [ -z "$TOOL_FAILURES" ] && TOOL_FAILURES='[]'
+  fi
+  tf_groups="$(printf '%s' "$TOOL_FAILURES" | jq 'length' 2>/dev/null || echo 0)"
+  tf_total="$(printf '%s' "$TOOL_FAILURES" | jq '[.[].count] | add // 0' 2>/dev/null || echo 0)"
+  if [ "${tf_groups:-0}" -gt 0 ]; then
+    check tool_failures warn "$tf_total failed tool calls in $tf_groups signature(s) this week — diagnose each (docs/audit.md task 3)"
+  else check tool_failures ok "no failed tool calls this week"; fi
+
   # weekly token totals from `tokens` events (best-effort; msg format written
   # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
   TOKENS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
@@ -731,8 +760,10 @@ if [ "$MODE" = "audit" ]; then
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
+    --argjson tool_failures "${TOOL_FAILURES:-[]}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks, logs:$logs}'
+    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
+      tool_failures:$tool_failures, logs:$logs}'
   exit 0
 fi
 

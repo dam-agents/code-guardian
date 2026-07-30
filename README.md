@@ -188,8 +188,9 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   own author — the bot account must not be the one opening the PRs it reviews.
 - **Token scopes:** the token must be able to read/write PRs, reviews, and
   comments on `GITHUB_REPO` (`repo`), push to `GITHUB_REPO_WORK` and the
-  definition repo, create/delete **gists** (visual artifacts), and list org
-  teams (`read:org`) for the roster import.
+  definition repo, and create/delete **gists** (visual artifacts). These two
+  are what the audit's `token_scopes` check asserts; `read:org` is optional and
+  only widens the onboarding roster import to org teams.
 - **External services:** artifact links render via `htmlpreview.github.io`, a
   third-party service; "secret" gists are unlisted but publicly reachable by
   URL. With `artifact_targets: gist,dam` the artifact is also published to the
