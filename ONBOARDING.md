@@ -57,7 +57,7 @@ git config --global --replace-all credential."https://github.com".helper "" \
 
 `/home/agent` is `$HOME` — it holds secrets (`.ssh`, `.claude`, `.config`) and `work/`. The repo's allowlist `.gitignore` (`/*`, then re-include only the definition files) is what makes a repo-at-`$HOME` safe. Do **not** `git clone` into `$HOME` (needs an empty dir) — init + fetch + hard-reset instead, which never touches untracked files:
 
-`$DEF_BRANCH` is the branch to track — the one in the runbook URL the operator gave you, or `main`. It is persisted as `definition_branch` in Step 4 and used everywhere afterwards (docs/persistence.md → **Tracked branch**):
+`$DEF_BRANCH` is the branch **this instance runs from** — the one in the runbook URL the operator gave you, or `main`. It is persisted as `definition_branch` in Step 4 and used for updates and for keeping the checkout in place (docs/persistence.md → **Tracked branch**); definition PRs are still based on `main`:
 
 ```bash
 cd /home/agent
@@ -215,7 +215,7 @@ Final shape:
 
 - github_repo: acme/widgets            # only when the env var was unset
 - definition_repo: acme/code-guardian
-- definition_branch: main              # branch of definition_repo this instance tracks
+- definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review

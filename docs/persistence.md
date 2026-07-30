@@ -55,9 +55,14 @@ a run failure.
 ## Tracked branch
 
 `definition_branch` in `work/CONFIG.md` (missing = `main`) is the branch of
-`$DEFINITION_REPO` this instance follows — **the update source, the base of
-definition PRs, and the branch `/home/agent` stays on**. Use it wherever a
-branch name is needed; never hard-code `main`:
+`$DEFINITION_REPO` **this instance runs from** — its update source and the branch
+`/home/agent` stays on. It is a deployment choice, per agent.
+
+It is **not** a repo-wide convention: `main` remains the repository's development
+branch and release history — the base of every definition PR (**Evolving the agent
+definition** below) and the changelog that only grows
+([self-modification.md](self-modification.md) §12). Use `DEF_BRANCH` for "where
+does this instance's code come from", `main` for "how does the repo evolve".
 
 ```bash
 DEF_BRANCH="$(cfg definition_branch)"; DEF_BRANCH="${DEF_BRANCH:-main}"
@@ -129,22 +134,23 @@ discipline, onboarding completeness, protected invariants, validation).
 
 Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`,
 `README.md`, `VERSION`, `CHANGELOG.md`) go through **branch + PR on
-`$DEFINITION_REPO` — never a direct push to the tracked branch, never
-auto-merge**, and only when deliberately asked — never as part of a heartbeat.
-The base is always `definition_branch` (**Tracked branch** above):
+`$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and only
+when deliberately asked — never as part of a heartbeat. **`main` is the
+repository's development branch and the base of every definition PR**, whatever
+`definition_branch` a given instance runs:
 
 ```bash
-git -C /home/agent fetch origin "$DEF_BRANCH"
-git -C /home/agent checkout -b "fix/<short-slug>" "origin/$DEF_BRANCH"
+git -C /home/agent fetch origin main
+git -C /home/agent checkout -b "fix/<short-slug>" origin/main
 git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts
 git -C /home/agent commit -m "<describe the change>"
 git -C /home/agent push -u origin "fix/<short-slug>"
-gh pr create --repo "$DEFINITION_REPO" --base "$DEF_BRANCH" --head "fix/<short-slug>" \
+gh pr create --repo "$DEFINITION_REPO" --base main --head "fix/<short-slug>" \
   --title "<title>" --body "<what and why>"
 ```
 
-After the PR merges, return the checkout to the tracked branch (**Tracked
-branch** above) so the next run isn't left on a feature branch.
+After the PR merges, return the checkout to this instance's `definition_branch`
+(**Tracked branch** above) so the next run isn't left on a feature branch.
 
 The agent's job ends at "PR opened". Use fresh descriptive branch names;
 runtime state never goes to this repo.

@@ -37,18 +37,20 @@ upgrade**); authoring rules:
   [docs/preferences.md](docs/preferences.md) → **Operational lessons**; seeded by
   ONBOARDING Step 3b.
 - New `work/CONFIG.md` key **`definition_branch`** (missing = `main`): the branch
-  of `definition_repo` an instance tracks — update source, base of definition PRs,
-  and the branch `/home/agent` is kept on. `main` is no longer hard-coded in
-  preflight, ONBOARDING or persistence.md; the `definition_version` check warns
-  when the checkout sits on another branch. Home: docs/persistence.md →
-  **Tracked branch**. Onboarding derives it from the runbook URL.
+  of `definition_repo` **an instance runs from** — its update source and the branch
+  `/home/agent` is kept on, so a deployment can follow something other than `main`.
+  The `definition_version` check warns when the checkout sits elsewhere. A per-agent
+  deployment choice only: `main` remains the repository's development branch, the
+  base of every definition PR, and the owner of the changelog. Home:
+  docs/persistence.md → **Tracked branch**; onboarding derives it from the runbook
+  URL.
 - **CHANGELOG is append-only, per entry** (docs/self-modification.md §12): a
   branch may keep editing **its own** not-yet-released entry across commits, but
-  every older entry already on `definition_branch` is immutable — even from a
-  branch — and once an entry reaches the tracked branch nothing about it ever
-  changes again; corrections are new entries. This *replaces* the previous rule
-  that had an overtaken branch re-date the entry which overtook it; an overtaken
-  branch now re-numbers and re-dates **its own** pending entry instead.
+  every older entry already on `main` is immutable — even from a branch — and once
+  an entry reaches `main` nothing about it ever changes again; corrections are new
+  entries. This *replaces* the previous rule that had an overtaken branch re-date
+  the entry which overtook it; an overtaken branch now re-numbers and re-dates
+  **its own** pending entry instead.
 
 **Upgrade:**
 Docs are re-read per run and the parse fix lives in the script; an instance that
