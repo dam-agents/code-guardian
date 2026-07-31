@@ -1,0 +1,42 @@
+# CI for the agent definition — mechanizes the validation sweep of
+# docs/self-modification.md §9 on every PR. Runs on GitHub only; the deployed
+# pod never executes this (zero runtime cost).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax (bash -n)
+        run: |
+          set -e
+          find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          bash -n scripts/tests/bin/gh scripts/tests/bin/curl
+
+      - name: Preflight stub tests
+        run: bash scripts/tests/run.sh
+
+      - name: VERSION matches the newest CHANGELOG entry
+        run: |
+          v="$(head -1 VERSION | tr -d '[:space:]')"
+          top="$(grep -m1 -E '^## [0-9]+\.[0-9]+\.[0-9]+ ' CHANGELOG.md | sed -E 's/^## ([0-9.]+).*/\1/')"
+          echo "VERSION=$v, newest CHANGELOG entry=$top"
+          [ "$v" = "$top" ]
+
+      - name: Internal doc links resolve
+        run: |
+          rc=0
+          for f in CLAUDE.md README.md ONBOARDING.md docs/*.md; do
+            base="$(dirname "$f")"
+            for t in $(grep -oE '\]\([^)#]+(#[^)]*)?\)' "$f" | sed -E 's/^\]\(//; s/\)$//; s/#.*$//'); do
+              [ -z "$t" ] && continue
+              case "$t" in http*|mailto:*) continue;; *'<'*|*'$'*|*…*) continue;; esac  # placeholders
+              [ -e "$base/$t" ] || [ -e "$t" ] || { echo "broken link in $f -> $t"; rc=1; }
+            done
+          done
+          exit $rc

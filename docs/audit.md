@@ -48,20 +48,12 @@ if one is impossible this week (missing data, API error), report it as
      the audit's *only* definition-repo write — it never edits, branches, or
      PRs; the fix itself takes the operator in the direct session
      ([self-modification.md](self-modification.md)).
-4. The script's checks cover: GitHub auth + rate limit, **token scopes**
-   (`token_scopes` — the scopes README → **Token scopes** marks required;
-   widening a token is **operator-only**, so report a missing scope with what it
-   breaks and never work around it) and **CLI dependencies** (`cli_deps`),
-   `work/` layout (plain data dir, no `.git`) + `.nfs*` junk count, work-repo
-   push backlog, heartbeat gaps, weekly log errors, structured-events triage
-   (`events_errors`, `recurring_errors`) + harness adapter presence +
-   14-day log retention cleanup ([logging.md](logging.md)), stale locks,
-   duplicate rows,
-   prune backlog, orphan history files, marker cross-verification
-   (state drift), orphaned gists, `/tmp` leftovers, disk, skill freshness,
-   roster presence, definition cleanliness, and definition version currency
-   (`definition_version` — outdated/half-adopted definition → warn).
-   Anything below is **yours**.
+4. Everything else the script checks (connectivity, scopes, CLI deps, state
+   consistency, logs, hygiene, skills, roster, definition currency — see
+   [preflight.sh](../scripts/preflight.sh) audit mode) is already in
+   `checks[]` — triage per task 1, don't recompute. A missing **token scope**
+   is **operator-only**: report what it breaks (README → **Token scopes**),
+   never work around it. Everything below is **yours**.
 
 ### B. Platform & schedules
 
@@ -144,10 +136,14 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 25. **Cost pulse**: idle-heartbeat ratio from `stats` (idle/total). A falling
     ratio means rising spend; a ratio near zero with no reviews means
     something re-triggers work every run — investigate.
+26. **Findings acceptance**: `stats.findings` counts this week's re-review
+    `✅ Fixed` vs `🔁 Still present` bullets. Report `fixed/(fixed+still)`;
+    a persistently low ratio means findings the team doesn't act on — flag
+    it with examples (a process signal for the operator, not a defect).
 
 ### H. Report & wrap-up
 
-26. **Memory consolidation** — before composing the report, run
+27. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
@@ -159,6 +155,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 
 *Week in numbers* (since <stats.since>)
 • Reviews: <total> (<first> first / <re_review> re) — ✅<approve> ⚠️<comment> ❌<request_changes>
+• Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
 • Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
@@ -181,5 +178,5 @@ One message, this shape (tight — counts and one-liners, no prose):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
-  (task 26) and no GitHub writes except a task-3 tracking issue — findings are
+  (task 27) and no GitHub writes except a task-3 tracking issue — findings are
   reported, not fixed.

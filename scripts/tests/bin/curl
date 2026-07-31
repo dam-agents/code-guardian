@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fake `curl` for scripts/tests — creates the -o target (skill install path)
+# and succeeds; never touches the network.
+out=""; prev=""
+for a in "$@"; do
+  [ "$prev" = "-o" ] && out="$a"
+  prev="$a"
+done
+if [ -n "$out" ]; then
+  mkdir -p "$(dirname "$out")" 2>/dev/null
+  printf 'stub file from tests/bin/curl\n' > "$out"
+fi
+exit 0

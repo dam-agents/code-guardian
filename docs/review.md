@@ -2,10 +2,10 @@
 
 Read this file at the start of every **review run** (a run whose preflight
 worklist has any of `reviews_due` / `label_cleanups_due` / `selfheals_due` /
-`prunes_due` non-empty). Preflight already made every decision — you perform
-the actions. Keep the two HEAD-freshness checks and the pre-post dedup
-re-check below; they guard the race windows that open between preflight and
-post time.
+`prunes_due` / `urgent_alerts_due` non-empty). Preflight already made every
+decision — you perform the actions. Keep the two HEAD-freshness checks and
+the pre-post dedup re-check below; they guard the race windows that open
+between preflight and post time.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
 
@@ -49,26 +49,36 @@ Never prune anything not in `prunes_due`; never bulk-delete.
 
 ## Per-PR review sequence (`reviews_due`)
 
-Each entry: `{number, head_sha, head_ref, title, author, kind, takeover, prior}`
-— `kind` is `first` or `re-review`; `prior` carries the last review's
-`{sha, ts, verdict}` when one exists. Complete ALL steps before the next PR:
+Each entry: `{number, head_sha, head_ref, title, author, kind, takeover,
+prior, urgent, closed}` — `kind` is `first` or `re-review`; `prior` carries
+the last review's `{sha, ts, verdict}` when one exists; `urgent`/`closed`
+route through **Urgent PRs** / **PR closed mid-review** below (urgent entries
+come first in the worklist — keep that order). Complete ALL steps before the
+next PR:
 
-a. **Check 1 — re-fetch state**: `gh pr view <n> --repo "$REPO" --json headRefOid,headRefName,isDraft,labels,reviewRequests`.
-   Now draft → skip. On a `re-review`, no active re-review trigger still
+a. **Check 1 — re-fetch state** (REST, never the GraphQL `reviewRequests`
+   field — it intermittently needs `read:org` the token doesn't carry):
+   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
+   Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
+   prunes). On a `re-review`, no active re-review trigger still
    present → skip (request withdrawn; leave the `awaiting_label` row) — the
    trigger is live per `rereview_trigger`: `$REREVIEW_LABEL` in `labels`
-   and/or a pending review request for `bot_login` in `reviewRequests`. Use
-   the fresh
-   SHA/branch as source of truth everywhere (clone, diff, skills, marker).
-   Then **write the `in_progress` lock row** to REVIEWS.md (fresh SHA +
-   current UTC time). `takeover: true` → overwrite the stale lock and log
-   `PR #<n>: taking over stale in_progress lock`. Never lock a PR you're
-   about to skip.
+   and/or `bot_login` in `requested`.
+   Re-verify `urgent` from the live labels (`$URGENT_LABEL` present). Use the
+   fresh SHA/branch as source of truth everywhere (clone, diff, skills,
+   marker). Then **write the `in_progress` lock row** to REVIEWS.md (fresh
+   SHA + current UTC time). `takeover: true` → overwrite the stale lock and
+   log `PR #<n>: taking over stale in_progress lock`. Never lock a PR you're
+   about to skip. Entries flagged `closed: true` skip these gates — see
+   **PR closed mid-review** below. Urgent entries now run **phase 1 (rapid
+   preliminary review)** per **Urgent PRs** below, then continue with b.
 b. **Fetch PR context** (see below).
 c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
 d. **Clone the branch and run every configured review skill** per
    [skills.md](skills.md) — one audit line per configured skill, no exceptions.
-e. **Check 2 — re-verify** right before posting (same call as Check 1). SHA
+e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
+   closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
+   become an issue, never a review). SHA
    moved, now draft, or (re-review) trigger withdrawn (same check as Check 1)
    → **abort posting**: no
    chat review, no GitHub review, no history append; **release the lock** —
@@ -103,7 +113,8 @@ as a separate tool call:
 . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
 ```
 
-with step ∈ `locked` (a) · `cloned` (d) · `skill:<name> done` (d, one per
+with step ∈ `locked` (a) · `rapid posted` (Urgent PRs phase 1) · `cloned` (d)
+· `skill:<name> done` (d, one per
 configured skill) · `posted <verdict>` (h) · `done` (j) · `aborted <reason>`
 (e). The last event logged for a PR pins the exact step a stall stopped at;
 consecutive event timestamps give per-step durations.
@@ -132,6 +143,98 @@ itself when the review posts):
 ```bash
 gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null
 ```
+
+## Urgent PRs — rapid-first delivery
+
+`urgent_label` in `work/CONFIG.md` (missing = feature off) names a
+**human-managed** GitHub label — the agent never adds or removes it. While
+the label is on a PR, every due review of it (any `kind`) runs rapid-first:
+preflight flags the entry `urgent: true` and orders urgent entries ahead of
+the rest; Check 1 re-verifies the label (gone → review normally).
+
+**Immediate Slack alert (`urgent_alerts_due`, once per PR).** Preflight emits
+`{number, title, author, url}` for every open urgent PR whose history file
+lacks an `urgent-announced` marker — only under `slack_notifications:
+enabled`. Send these **first, before any other run work**:
+
+1. **Write the marker first**: `<!-- urgent-announced: <ISO timestamp> -->`
+   into `reviews/pr-<n>.md` (create the file with its title heading if
+   missing). Write-before-send: a failed send is logged, never retried.
+2. Mentions: roster members (`work/DEVELOPERS.md`) with a `slack_id` —
+   filtered to those currently online when a Slack presence lookup is
+   available this session, otherwise all of them. **Never anyone outside the
+   roster** ([shepherd.md](shepherd.md) → Hard rules).
+3. Send via `mcp__platform-outbound__send_channel_message`:
+   `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). <@id1> <@id2> … Rapid review incoming. <url>`
+4. Log `PR #<n>: urgent alert sent (<k> mentioned)`.
+
+**Phase 1 — rapid preliminary review.** Optimize for delivery speed; skip
+everything skippable:
+
+1. Dedup: run the marker check (snippet above) with the **rapid marker**
+   `<!-- <review_marker>:rapid headRefOid=<full-sha> -->` at the live HEAD —
+   found (or `prior.verdict` = `RAPID` at this SHA) → phase 1 already
+   delivered, go straight to phase 2.
+2. No clone, no skills, no artifact, no full context fetch. Review the diff
+   only (`gh pr diff`; on re-reviews prefer the range since the prior review
+   — `gh api "repos/$REPO/compare/<prior-sha>...<head-sha>"` — full diff as
+   fallback) for **🔴 Critical findings only**.
+3. Post immediately: single review, `event: COMMENT`, `commit_id` = reviewed
+   HEAD, body only (no inline comments):
+
+   ```
+   ⚡ **<bot_display_name>** — ⏱️ Rapid preliminary review @ `<sha-short>`
+
+   > Fast pass triggered by the `<urgent_label>` label — critical checks
+   > only. **The full review follows.**
+
+   ### Critical findings
+   - 🔴 **Critical:** <one-liner> (`file:line`)
+
+   <!-- <review_marker>:rapid headRefOid=<full-sha> -->
+   ```
+
+   No criticals → the section body is the single line
+   `_None found at rapid-review depth._`
+4. Update the PR's REVIEWS.md row in place: status stays `in_progress`,
+   verdict cell `RAPID`, fresh UTC timestamp (extends the lock). Log
+   `review_step` `rapid posted`.
+
+**Phase 2 — full review, immediately after** — the normal per-PR sequence
+from step b. The `:rapid` marker is invisible to the normal dedup (different
+prefix), so the full review posts as usual; watch rules evaluate once, after
+the full review. A rapid post is **never** terminal: the PR is done only when
+the full review posted or the entry aborted (a died run is recovered by the
+stale-lock takeover — verdict `RAPID` tells the next run to skip phase 1).
+
+## PR closed mid-review — critical findings become an issue
+
+Applies to **every** review, urgent or not. When Check 2 (or the POST itself)
+finds the PR `CLOSED`/`MERGED`, never post the review; instead:
+
+- **≥1 🔴 Critical finding** (yours + skill sections) → deliver them as one
+  GitHub issue:
+  1. Dedup: `gh api "repos/$REPO/issues?state=all&per_page=100"` — any body
+     containing `<!-- <review_marker>:issue headRefOid=<sha> -->` → already
+     filed, skip creation.
+  2. `gh api "repos/$REPO/issues" -X POST -f title="Critical findings from review of closed PR #<n>" -f body=… -f "assignees[]=<author>"`
+     — body: the 🔴 findings in full, a `#<n>` reference (links the issue to
+     the PR), and the trailing `:issue` marker line. A failed assignment is
+     logged; the issue stands.
+  3. Append the review to `reviews/pr-<n>.md` with a
+     `_Delivered as issue #<id> — PR closed before posting._` note; replace
+     the lock with a `done` row. Log
+     `PR #<n>: closed mid-review — <k> critical finding(s) filed as issue #<id>`.
+     The next heartbeat prunes the closed PR's state as usual.
+- **No 🔴 findings** → discard exactly like a Check 2 abort (release the lock
+  per kind); log `PR #<n>: closed mid-review — discarded (no critical findings)`.
+
+Crash recovery: preflight emits a closed PR whose row is an `in_progress`
+lock with verdict `RAPID` (rapid posted, full review still owed) as a review
+entry flagged `closed: true` instead of a prune. Run it as phase 2 in
+diff-only mode — refresh the lock (keep verdict `RAPID`), no clone, no skills
+(the branch may be gone), Check 1 gates don't apply — then the two bullets
+above.
 
 ## Slack-requested review (on-demand)
 
@@ -189,14 +292,35 @@ only genuinely new insights, at most 2 per PR.
 `_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>.)_`
 — omit either part when its count is zero.
 
-## Criteria
+## Criteria & review style
 
 Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
 risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
-**Performance** (allocations, N+1, missing indexes) · **Maintainability**
-(dead code, naming, error handling) · **Architecture** (coupling, SRP, layer
-boundaries) · **Tests** (missing coverage, flaky patterns). Very large diffs
-(>2000 lines): focus on the most critical files but still post a full review.
+**Performance** (allocations, N+1, missing indexes) · **Architecture**
+(coupling, layer boundaries, broken contracts) · **Tests** (missing coverage,
+flaky patterns) · **Maintainability** (dead code, error handling). Very large
+diffs (>2000 lines): focus on the most critical files but still post a full
+review.
+
+**Audience: agent-written, agent-read code.** Assume the code under review
+was written by AI agents and will be read and modified by AI agents.
+Human-readability is not a review goal — naming taste, cosmetic structure,
+comment density, file layout, and "this would be clearer as…" restructuring
+are flagged **only** when they create a real defect risk (a misleading name
+that hides a bug, dead code that changes behavior, an abstraction that breaks
+its contract). Never request restructuring purely for human readers.
+
+**Concise by default (all reviews, all channels):**
+
+- One finding = what is wrong, why it matters, where — in 1–2 sentences. No
+  essays, no restated diff context, no hedging filler.
+- 🟢 **Suggestion** only when the improvement is substantial (a real
+  correctness/security/performance/simplification win). Style nits,
+  micro-refactors, and "consider…" filler are dropped entirely, not demoted.
+- `✅ Looks good` — at most one bullet, only when it carries real information
+  (e.g. a risky-looking change verified safe); never filler. None on
+  re-reviews.
+- `### Summary` stays 1–2 sentences.
 
 ## Output format (first reviews)
 
@@ -220,14 +344,21 @@ boundaries) · **Tests** (missing coverage, flaky patterns). Very large diffs
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
 ```
 
-On first reviews the summary `Findings` list is the canonical, complete list.
+`### Findings` is the canonical, complete list on first reviews, but **never
+repeats inline text**: a finding that maps to an inline comment (rules below)
+appears here as one line — severity + short label + `file:line` — while its
+full description, rationale, and suggestion block live only in the inline
+comment. Summary-only findings keep their full text here. One format for
+every channel (chat UI, GitHub body, history file); the one-liners are enough
+for re-review delta matching.
 
 ## Re-review output (trigger-gated; new commits since the last review)
 
 Re-reviews are deliberately **concise** — they report the delta, never a
 restatement of the previous review. Read the prior review from
-`reviews/pr-<n>.md` first, then insert between `### Summary` and
-`### Findings`:
+`reviews/pr-<n>.md` first — match findings against its `findings-json` line
+when present (older reviews without one: parse the visible text) — then
+insert between `### Summary` and `### Findings`:
 
 ```
 ### Changes since last review
@@ -243,9 +374,10 @@ Conciseness rules (all output channels — chat UI, GitHub body, history file):
 - Include only non-empty buckets; every bucket entry is a **single line**.
   Never re-expand a carryover's full description, rationale, or suggestion —
   its original review and inline thread already carry them.
-- `### Findings` lists **only `🆕 New` findings**, in full. No `✅ Looks good`
-  bullets on re-reviews — ever. Nothing new → the section body is the single
-  line `_No new findings at this HEAD._`
+- `### Findings` lists **only `🆕 New` findings** (inline-carried ones as
+  one-liners — Output format above). No `✅ Looks good` bullets on re-reviews
+  — ever. Nothing new → the section body is the single line
+  `_No new findings at this HEAD._`
 - The **Verdict still weighs all current findings** — new *and*
   still-present, plus skill findings: an unfixed 🔴 keeps `REQUEST_CHANGES`
   even though it appears only as a one-liner under `### Changes since last
@@ -254,11 +386,8 @@ Conciseness rules (all output channels — chat UI, GitHub body, history file):
   way: findings unchanged from the prior review collapse into one line —
   `🔁 <N> finding(s) from the previous review still present (see review at <short-sha>)`
   — full text only for new findings; clean-run lines stay as-is.
-- `🔁 Still present` findings are **summary-only** — never re-posted inline
-  (their original thread persists; re-posting created duplicate threads);
-  only `🆕 New` findings are inline-eligible (mapping rule 5).
-- The canonical picture on a re-review is `### Changes since last review`
-  (fixes + one-line carryovers) plus `### Findings` (new findings only).
+- Inline eligibility: mapping rule 5 (only `🆕 New`; carryovers keep their
+  existing thread).
 
 Prior review file missing → skip the section, review as a first review (full
 format), append `(no prior review on file)` to `### Summary`.
@@ -268,7 +397,8 @@ format), append `(no prior review on file)` to `### Summary`.
 **REVIEWS.md** — one row per PR:
 `| <number> | <headRefOid> | <ISO timestamp> | <verdict> | <status> |`
 
-- `status` = `in_progress` (lock; verdict `-`; timestamp = lock time), `done`
+- `status` = `in_progress` (lock; verdict `-`, or `RAPID` once an urgent PR's
+  rapid preliminary review posted — timestamp = lock/rapid-post time), `done`
   (timestamp = post time), or `awaiting_label` (a `done` review exists but
   newer commits arrived; waiting for a re-review trigger — `$REREVIEW_LABEL`,
   or a pending review request for `bot_login` when `rereview_trigger`
@@ -350,11 +480,21 @@ rm -f "/tmp/review-post-<n>.json"
 _Review by [<bot_display_name>](https://github.com/<definition_repo>) · automated code guardian_
 
 
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with =="}] -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
 Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker line is
 **mandatory** (drives dedup) and uses the full 40-char SHA.
+
+**`findings-json`** — machine-readable copy of the review's `### Findings`
+(the code's authors are agents too), on one line right above the marker, in
+every posted full review. One object per finding: `status`
+(`new`|`still`|`fixed` — first reviews all `new`), `severity`
+(`critical`|`warning`|`suggestion`), `file`, `line` (null when not
+anchorable), `inline` (got an inline comment), `summary` (short label, ≤ ~10
+words). Keep the JSON free of `--` sequences (HTML-comment safety — use `–`).
+Empty findings → `[]`. Rapid preliminary reviews don't carry it.
 
 ### Mapping findings to inline comments
 
@@ -368,10 +508,10 @@ Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker lin
 5. **Re-reviews: only `🆕 New` findings inline** — carryovers keep their
    existing thread; `✅ Fixed` get nothing.
 
-**Suggestion blocks**: for 🟢 (occasionally 🟡) findings with a small,
-confident fix, append a ` ```suggestion ` block replacing exactly the
-anchored line(s) — matching indentation, replacement lines only, one block
-per comment.
+**Suggestion blocks**: for findings with a small, unambiguous fix, append a
+` ```suggestion ` block replacing exactly the anchored line(s) — matching
+indentation, replacement lines only, one block per comment. Never for style
+preferences.
 
 ### Revoking a stale approval on re-review
 
@@ -402,28 +542,33 @@ New verdict `APPROVE` → leave it. A failed dismissal is logged, not fatal.
 
 ## Review-run self-check
 
-Before declaring the run done, verify: every `selfheals_due` /
-`label_cleanups_due` / `prunes_due` entry executed and logged · for every
-reviewed PR: one GitHub review with the trailing full-SHA marker · skill
-audit lines complete per [skills.md](skills.md) · Check 1 + Check 2 + pre-post
-dedup re-check done (incl. the trigger check on re-reviews) · lock → `done` row
-lifecycle correct (aborted re-reviews restored `awaiting_label`) · label
-removed after every posted review on a labeled PR · re-reviews delta-only
-(Findings = 🆕 only, one-line carryovers, no ✅ Looks good) · full review
-appended to `reviews/pr-<n>.md` · overrides applied from that PR's file only ·
-PR context fetched and used · observed insights recorded when context
-revealed generalizable ones ([preferences.md](preferences.md)) · stale
-approval dismissed when the verdict
-dropped below APPROVE · clone deleted · artifacts (`artifacts_due`, see
-[artifact.md](artifact.md)) published to each target in `artifact_targets`
-with all surviving links in one comment (DAM best-effort — skipped-with-log
-when the flag is off, never failing the run), every published surface's marker
-recorded, and gist/DAM/HTML all cleaned up on prune · watch rules (when
-configured) evaluated marker-before-send per [watches.md](watches.md) · per-PR
-`review_step` events were logged (`locked` → `skill:… done` →
-`posted`/`aborted`/`done` — [logging.md](logging.md)) so a mid-review stall is
-diagnosable · **every `reviews_due` PR ran to a posted-or-aborted terminal
-state — the run was never ended mid-pipeline (e.g. after a skill report)** ·
-every transient tool failure retried once then aborted-with-lock-released (no
-`in_progress` lock left behind) · all errors logged · no literal repo slug in
-any output.
+Before declaring the run done, verify:
+
+- Bookkeeping: every `selfheals_due` / `label_cleanups_due` / `prunes_due`
+  entry executed and logged.
+- Per reviewed PR: one GitHub review with the trailing full-SHA marker ·
+  Check 1 + Check 2 + pre-post dedup done (incl. the trigger check on
+  re-reviews) · lock → `done` lifecycle correct (aborted re-reviews restored
+  `awaiting_label`; no `in_progress` left behind) · label removed after every
+  posted review on a labeled PR · skill audit lines complete
+  ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
+  overrides applied from that PR's file only · PR context fetched and used;
+  observed insights recorded ([preferences.md](preferences.md)) · stale
+  approval dismissed when the verdict dropped below APPROVE · clone deleted ·
+  `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
+  [logging.md](logging.md)).
+- Style: findings concise, inline text never repeated in the summary,
+  re-reviews delta-only (Findings = 🆕 only, one-line carryovers, no ✅).
+- Urgent entries: rapid preliminary posted (or dedup-skipped) **before** the
+  full review; `RAPID` row + `rapid posted` step recorded; terminal = full
+  review posted (or closed-PR issue / abort). Closed entries: no review
+  posted; criticals → one deduped issue assigned to the author.
+- Artifacts (`artifacts_due`, [artifact.md](artifact.md)): published to each
+  target in `artifact_targets` (DAM best-effort, never failing the run), one
+  comment with the surviving links, markers recorded, cleanup on prune.
+- Watch rules (when configured) evaluated marker-before-send
+  ([watches.md](watches.md)).
+- **Every `reviews_due` PR reached a posted-or-aborted terminal state — the
+  run never ended mid-pipeline** (e.g. after a skill report); transient
+  failures retried once then aborted-with-lock-released · all errors logged ·
+  no literal repo slug in any output.

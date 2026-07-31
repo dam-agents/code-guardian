@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fake `gh` for scripts/tests — serves canned fixtures, never talks to GitHub.
+# Maps the invocation to a fixture file: $GH_FIXTURES/<slug>, where <slug> is
+# the full argument string with every character outside [A-Za-z0-9._-]
+# replaced by `_` (see fx_for in helpers.sh — keep the two in sync).
+# Unmatched calls return a safe default: `[]` for list-shaped endpoints
+# (anything with a query string), `{}` otherwise.
+args="$*"
+slug="$(printf '%s' "$args" | tr -c 'A-Za-z0-9._-' '_')"
+[ -n "${GH_CALLS_LOG:-}" ] && printf '%s\n' "$args" >> "$GH_CALLS_LOG"
+if [ -n "${GH_FIXTURES:-}" ] && [ -f "$GH_FIXTURES/$slug" ]; then
+  cat "$GH_FIXTURES/$slug"
+  exit 0
+fi
+case "$args" in
+  *'?'*) echo '[]';;
+  *)     echo '{}';;
+esac
+exit 0
