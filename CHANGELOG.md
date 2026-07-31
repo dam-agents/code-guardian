@@ -7,6 +7,19 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.3.0 — 2026-07-31
+
+**Changed:**
+- Weekly audit gains the **`definition_issues`** check: preflight counts open
+  issues on `definition_repo` (PRs filtered out) and reports them — `ok` at
+  zero, `warn` with numbers + titles otherwise, `warn` when the repo is
+  unresolvable or the list unreadable. The agent's own tracking issues
+  (`[audit]`, `[channel request]`) wait for the operator; this keeps them
+  from being forgotten (e.g. issue #31 sat unnoticed).
+
+**Upgrade:**
+Nothing — docs are re-read per run; the check lives in the script.
+
 ## 2.2.1 — 2026-07-31
 
 **Changed:**
