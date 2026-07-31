@@ -662,6 +662,27 @@ if [ "$MODE" = "audit" ]; then
     else check roster ok "roster present, escalation owner listed"; fi
   fi
 
+  # open-issue backlog on the definition repo: tracking issues the agent files
+  # ([audit], [channel request]) wait for the operator — surface them weekly
+  DEFINITION_REPO="$(cfg definition_repo)"
+  [ -z "$DEFINITION_REPO" ] && DEFINITION_REPO="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
+    | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
+  if [ -z "$DEFINITION_REPO" ]; then
+    check definition_issues warn "definition_repo unresolved — issue backlog not checked"
+  else
+    issue_line="$(gh api "repos/$DEFINITION_REPO/issues?state=open&per_page=100" 2>/dev/null \
+      | jq -r '[.[] | select(.pull_request | not)]
+               | (length | tostring) + "\t"
+                 + ([.[] | "#\(.number) \(.title | .[0:60])"] | join(" · ") | .[0:240])' 2>/dev/null)"
+    if [ -z "$issue_line" ]; then check definition_issues warn "definition-repo issue list unreadable"
+    else
+      issue_n="${issue_line%%$'\t'*}"
+      if [ "${issue_n:-0}" -gt 0 ]; then
+        check definition_issues warn "$issue_n open issue(s) awaiting the operator: ${issue_line#*$'\t'}"
+      else check definition_issues ok "no open issues on the definition repo"; fi
+    fi
+  fi
+
   if [ -d "$HOME_DIR/.git" ]; then
     def_dirty="$(git -C "$HOME_DIR" status --porcelain 2>/dev/null | grep -c . || true)"
     [ "$def_dirty" -gt 0 ] && check definition warn "$def_dirty uncommitted changes in the definition checkout" \
