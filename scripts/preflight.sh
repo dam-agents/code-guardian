@@ -95,6 +95,13 @@ ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
+# stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
+STALL_ALERT_THRESHOLD="$(cfg stall_alert_threshold)"
+STALL_ALERT_THRESHOLD="${STALL_ALERT_THRESHOLD:-4}"
+case "$STALL_ALERT_THRESHOLD" in
+  (off|none) STALL_ALERT_THRESHOLD=0;;
+  (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
+esac
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
 
@@ -181,16 +188,21 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts skill
   for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
+  # a due stall alert is work in its own right — never let it be swallowed by an
+  # otherwise idle heartbeat
+  [ -n "${STALL_ALERT:-}" ] && nothing=false
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson skills "$8" \
+    --argjson stall "${STALL_ALERT:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
-      nudges_due:$nudges, urgent_alerts_due:$alerts, skills:$skills, logs:$logs}'
+      nudges_due:$nudges, urgent_alerts_due:$alerts, skills:$skills, logs:$logs}
+     + (if $stall == null then {} else {stall_alert:$stall} end)'
 }
 
 # =========================================================== REVIEW MODE ====
@@ -359,6 +371,62 @@ if [ "$MODE" = "review" ]; then
     done < <(cfg_table 'Review skills')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
+    fi
+  fi
+
+  # ------------------------------------------- stalled-review rate alert ----
+  # A review that locked a PR and died before posting is invisible per-run: the
+  # lock's 30-min TTL hands the PR to the next heartbeat, which may repeat it.
+  # One stall is normal (HEAD moved, pod restart); a cluster is pathological, so
+  # count the last 24h of `stale in_progress lock` takeovers across the event
+  # log and emit ONE alert per UTC day when the threshold is reached.
+  # Cheap by construction: two small log files, no API calls, no extra run.
+  if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
+    STALL_SINCE="$(( NOW_EPOCH - 86400 ))"
+    STALL_N=0; STALL_PRS=""
+    for lf in "$LOG_DIR/events-$(date -u -d @"$STALL_SINCE" +%Y-%m-%d 2>/dev/null \
+                || date -u -r "$STALL_SINCE" +%Y-%m-%d 2>/dev/null)" \
+              "$LOG_DIR/events-$(date -u +%Y-%m-%d).jsonl"; do
+      case "$lf" in (*.jsonl) ;; (*) lf="$lf.jsonl";; esac
+      [ -f "$lf" ] || continue
+      while IFS="$(printf '\t')" read -r ets pr; do
+        [ -n "$pr" ] || continue
+        [ "$(iso2epoch "$ets")" -ge "$STALL_SINCE" ] || continue
+        STALL_N=$((STALL_N+1))
+        case " $STALL_PRS " in (*" $pr "*) ;; (*) STALL_PRS="$STALL_PRS $pr";; esac
+      done < <(jq -r 'select(.event == "preflight" and (.msg | test("stale in_progress lock")))
+                      | [.ts, (.msg | capture("PR #(?<n>[0-9]+)") | .n)] | @tsv' "$lf" 2>/dev/null)
+    done
+    STALL_PRS="${STALL_PRS# }"
+    # per-UTC-day counts over the retained log window — turns "22 today" into a
+    # trend the operator can read (is this new, or every day?)
+    STALL_WEEK="$(for f in "$LOG_DIR"/events-*.jsonl; do
+        [ -f "$f" ] || continue
+        d="$(basename "$f" .jsonl)"; d="${d#events-}"
+        c="$(jq -r 'select(.event == "preflight" and (.msg | test("stale in_progress lock"))) | 1' "$f" 2>/dev/null | grep -c . || true)"
+        [ "${c:-0}" -gt 0 ] && jq -nc --arg d "$d" --argjson c "${c:-0}" '{day:$d, stalls:$c}'
+      done | jq -sc 'sort_by(.day) | .[-7:]')"
+    [ -n "$STALL_WEEK" ] || STALL_WEEK='[]'
+    # dedup: the marker records the last UTC day an alert was emitted. Claimed
+    # with mkdir (atomic on the shared volume) so two concurrent heartbeats
+    # can't both alert; the day file inside it is what's compared.
+    STALL_MARKER="$WORK/.stall-alert-day"
+    STALL_TODAY="$(date -u +%Y-%m-%d)"
+    if [ "$STALL_N" -ge "$STALL_ALERT_THRESHOLD" ] \
+       && [ "$(cat "$STALL_MARKER" 2>/dev/null)" != "$STALL_TODAY" ] \
+       && mkdir "$WORK/.stall-alert.lock" 2>/dev/null; then
+      # re-read under the lock: a racing run may have just written today's day
+      if [ "$(cat "$STALL_MARKER" 2>/dev/null)" != "$STALL_TODAY" ]; then
+        printf '%s\n' "$STALL_TODAY" > "$STALL_MARKER" 2>/dev/null
+        STALL_ALERT="$(jq -n --argjson count "$STALL_N" \
+          --argjson threshold "$STALL_ALERT_THRESHOLD" \
+          --argjson week "$STALL_WEEK" \
+          --argjson prs "$(printf '%s' "$STALL_PRS" | tr ' ' '\n' | jq -R . | jq -s '[.[] | select(length>0) | tonumber]')" \
+          '{count:$count, threshold:$threshold, prs:$prs, window_hours:24, per_day_7d:$week}')"
+        log "stalled reviews: $STALL_N in the last 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS — alert due"
+        logev warn stall_rate "$STALL_N stalled review(s) in 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS"
+      fi
+      rmdir "$WORK/.stall-alert.lock" 2>/dev/null
     fi
   fi
 
@@ -772,10 +840,15 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
   if [ "${CLAUDECODE:-}" = "1" ]; then
-    if grep -q "harness/claude-code/log-tool-event.sh" "$HOME_DIR/.claude/settings.json" 2>/dev/null; then
-      check harness_adapter ok "Claude Code hooks registered (automatic tool-failure logging)"
+    hooks_missing=""
+    for h in log-tool-event.sh log-session-tokens.sh enforce-review-completion.sh; do
+      grep -q "harness/claude-code/$h" "$HOME_DIR/.claude/settings.json" 2>/dev/null \
+        || hooks_missing="$hooks_missing $h"
+    done
+    if [ -z "$hooks_missing" ]; then
+      check harness_adapter ok "Claude Code hooks registered (tool logging + review-completion enforcement)"
     else
-      check harness_adapter warn "Claude Code harness but hooks not registered — run scripts/harness/claude-code/install.sh"
+      check harness_adapter warn "Claude Code hooks not registered:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
   else
     check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"

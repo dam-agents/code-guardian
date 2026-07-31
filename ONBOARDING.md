@@ -76,10 +76,11 @@ git branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || t
 
 > **NEVER run `git clean` in `/home/agent`** and never `git add` un-allowlisted paths — either could capture or delete `.ssh`, `.claude`, `work/`, etc.
 
-## Step 1b — Harness adapter (automatic tool-call logging)
+## Step 1b — Harness adapter (tool-call logging, completion enforcement)
 
-Register the harness hooks that feed the agent's failed tool calls into the
-structured events log ([docs/logging.md](docs/logging.md)):
+Register the harness hooks — failed tool calls and per-run token usage into the
+structured events log, plus the `Stop` hook that refuses a stop leaving a review
+mid-pipeline ([docs/logging.md](docs/logging.md) → **Harness adapters**):
 
 ```bash
 bash "$HOME/scripts/harness/claude-code/install.sh"
@@ -225,6 +226,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
+- stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
 
 ## Review skills
 
