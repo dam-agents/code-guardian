@@ -7,6 +7,21 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.2.1 — 2026-07-31
+
+**Changed:**
+- docs/review.md Check 1 now states only the working REST form. The rationale
+  stays here and in issue #33: the GraphQL `reviewRequests` field of
+  `gh pr view --json` intermittently demands `read:org`, which the token
+  deliberately lacks (`repo` + `gist`), silently missing review-request
+  re-review triggers (9 `tool_failure` events in the 2026-07-31 audit week);
+  the REST endpoint (`requested_reviewers`) is what `scripts/preflight.sh`
+  has always used, with zero failures on record. The REST switch itself
+  shipped in 2.2.0; the trigger gate is unchanged. Fixes #33.
+
+**Upgrade:**
+Nothing — docs are re-read per run.
+
 ## 2.2.0 — 2026-07-31
 
 **Changed:**
