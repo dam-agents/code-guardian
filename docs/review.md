@@ -56,8 +56,7 @@ route through **Urgent PRs** / **PR closed mid-review** below (urgent entries
 come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
-a. **Check 1 — re-fetch state** (REST, never the GraphQL `reviewRequests`
-   field — it intermittently needs `read:org` the token doesn't carry):
+a. **Check 1 — re-fetch state**:
    `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
    Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
    prunes). On a `re-review`, no active re-review trigger still
