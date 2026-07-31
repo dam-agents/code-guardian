@@ -7,6 +7,26 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.4.1 — 2026-07-31
+
+**Changed:**
+- `scripts/preflight.sh`: a `work/.stall-alert.lock` directory left behind by a
+  run killed inside the claim section suppressed every future stall alert,
+  silently and permanently. A lock older than 5 minutes is now removed as stale
+  before the claim (the section is a few local commands, so a legitimate holder
+  is never that old).
+- `scripts/harness/claude-code/enforce-review-completion.sh`: the `Stop` hook
+  read only today's UTC event file, so a run that locked a PR before UTC
+  midnight and stopped after it escaped enforcement. It now also reads
+  yesterday's file — the run-id filter already scopes events to the current
+  run, so this only widens the window, never the runs considered.
+- Tests: stale/fresh claim-lock cases in `test_stall_alert.sh`,
+  midnight-spanning cases in `test_stop_hook.sh`.
+
+**Upgrade:**
+Nothing — scripts run from the updated checkout; the `Stop` hook is registered
+by path, so no re-registration is needed.
+
 ## 2.4.0 — 2026-07-31
 
 **Changed:**

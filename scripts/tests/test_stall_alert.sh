@@ -94,6 +94,21 @@ for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
 run_preflight review
 assert_jq '.stall_alert.threshold == 4' 'garbage threshold falls back to 4'
 
+# --- a stale claim lock (killed run) is removed, the alert still fires --------
+stall_case stall_stale_lock
+mkdir "$WORK/.stall-alert.lock"
+touch -t 202001010000 "$WORK/.stall-alert.lock"
+for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
+run_preflight review
+assert_jq '.stall_alert.count == 4' 'a lock left by a killed run does not suppress the alert'
+
+# --- a fresh claim lock (live concurrent run) still dedups ---------------------
+stall_case stall_fresh_lock
+mkdir "$WORK/.stall-alert.lock"
+for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
+run_preflight review
+assert_jq '.stall_alert == null' 'a live concurrent claim suppresses this run'
+
 # --- unrelated preflight lines are not counted --------------------------------
 stall_case stall_no_false_positives
 for s in 3600 7200 10800 14400; do
