@@ -412,6 +412,10 @@ if [ "$MODE" = "review" ]; then
     # can't both alert; the day file inside it is what's compared.
     STALL_MARKER="$WORK/.stall-alert-day"
     STALL_TODAY="$(date -u +%Y-%m-%d)"
+    # a claim lock left by a run killed mid-section would suppress every future
+    # alert — the section is a few local commands, so older than 5 minutes is
+    # stale; rmdir only (nothing is ever created inside the dir)
+    find "$WORK/.stall-alert.lock" -maxdepth 0 -mmin +5 -exec rmdir {} \; 2>/dev/null || true
     if [ "$STALL_N" -ge "$STALL_ALERT_THRESHOLD" ] \
        && [ "$(cat "$STALL_MARKER" 2>/dev/null)" != "$STALL_TODAY" ] \
        && mkdir "$WORK/.stall-alert.lock" 2>/dev/null; then

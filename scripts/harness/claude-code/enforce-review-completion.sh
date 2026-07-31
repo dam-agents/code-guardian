@@ -31,12 +31,20 @@ printf '%s' "$INPUT" | jq -e '.stop_hook_active == true' >/dev/null 2>&1 && exit
 
 sid="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)"
 [ -n "$sid" ] || exit 0
-[ -n "$sid" ] && export LOG_RUN_ID="$sid"
+export LOG_RUN_ID="$sid"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
 [ -f "$LOG_WORK/CONFIG.md" ] || exit 0   # not a deployed instance
 
-LOG_FILE="$LOG_DIR/events-$(date -u +%Y-%m-%d).jsonl"
-[ -f "$LOG_FILE" ] || exit 0
+# the run may span UTC midnight — read yesterday's file too; the run-id
+# filter below keeps other runs' events out
+YDAY_EPOCH="$(( $(date -u +%s) - 86400 ))"
+LOG_FILES=()
+for d in "$(date -u -d "@$YDAY_EPOCH" +%Y-%m-%d 2>/dev/null \
+            || date -u -r "$YDAY_EPOCH" +%Y-%m-%d 2>/dev/null)" \
+         "$(date -u +%Y-%m-%d)"; do
+  [ -f "$LOG_DIR/events-$d.jsonl" ] && LOG_FILES+=("$LOG_DIR/events-$d.jsonl")
+done
+[ "${#LOG_FILES[@]}" -gt 0 ] || exit 0
 
 # PRs this run locked but never drove to a terminal step. `rapid posted` is
 # explicitly NOT terminal: an urgent PR still owes its full review.
@@ -48,7 +56,7 @@ PENDING="$(jq -r --arg run "$sid" '
     | .msg
     | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")
     | .rest |= (sub("^[0-9a-f]{7,40}( +|$)"; ""))
-    | [.pr, .rest] | @tsv' "$LOG_FILE" 2>/dev/null \
+    | [.pr, .rest] | @tsv' "${LOG_FILES[@]}" 2>/dev/null \
   | { locked=""; term=""
       while IFS="$(printf '\t')" read -r pr rest; do
         case "$rest" in

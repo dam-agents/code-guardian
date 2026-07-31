@@ -100,6 +100,18 @@ step r1 "PR #15: pruned (MERGED) — no artifacts to clean up"
 run_hook r1
 assert_rc 0 'a run with no locks stops cleanly'
 
+# --- a run spanning UTC midnight: yesterday's lock still counts ---------------
+hook_case stop_spans_midnight
+YDAY="$(date -u -d yesterday +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)"
+jq -nc '{ts:"2026-07-30T23:58:00Z", run:"r1", job:"review", level:"info",
+         event:"review_step", msg:"PR #10 abc1234 locked"}' \
+  >> "$WORK/logs/events-$YDAY.jsonl"
+run_hook r1
+assert_rc 2 'a lock logged before UTC midnight still blocks'
+step r1 "PR #10 abc1234 done"
+run_hook r1
+assert_rc 0 "yesterday's lock terminated today stops cleanly"
+
 # --- not a deployed instance (no CONFIG.md) → no-op --------------------------
 hook_case stop_not_deployed
 rm -f "$WORK/CONFIG.md"
