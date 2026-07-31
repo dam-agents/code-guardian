@@ -128,6 +128,31 @@ enforces only what the log already proves — so it is a backstop for the
 invariant, never a substitute for driving each PR to its terminal state. Missing
 `review_step` events blind it: log them as the sequence says.
 
+**Stalled-review rate alert.** Per-run enforcement can't see a *pattern* of
+stalls, so preflight counts the `stale in_progress lock` takeovers of the last
+24 h. At or above `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it
+emits `stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once
+per UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock so
+concurrent heartbeats can't double-send). `per_day_7d` carries per-day counts
+over the retained window, so the report shows whether this is new or chronic. A
+single stall is normal (HEAD moved, pod restart); a cluster means reviews are
+being repeatedly redone at full cost.
+Deliver it **once per run, after the run's review work**, so the numbers include
+this run:
+
+1. Report it in the chat UI: count, threshold, affected PR numbers, and the
+   `per_day_7d` trend.
+2. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
+   that person (never the shared channel — this is operations, not team news;
+   roster-only mentions still apply). Slack off or no owner → chat UI only.
+3. Log `stall_alert_sent <count>` ([logging.md](logging.md)); a failed send is
+   logged and never retried this run (the marker is already written).
+
+The alert is a *signal, not a repair*: never bulk-clear locks, re-review, or
+change a threshold in response — investigate per [logging.md](logging.md) →
+triage, and treat a recurring cause as an operational lesson
+([preferences.md](preferences.md)).
+
 ```bash
 MARKER="<!-- $REVIEW_MARKER headRefOid=<full-sha> -->"
 gh api "repos/$REPO/pulls/<n>/reviews" \
@@ -577,6 +602,9 @@ Before declaring the run done, verify:
   comment with the surviving links, markers recorded, cleanup on prune.
 - Watch rules (when configured) evaluated marker-before-send
   ([watches.md](watches.md)).
+- `stall_alert` (when present): reported in the chat UI, DM'd to
+  `escalation_owner` under Slack, `stall_alert_sent` logged — and no state
+  "repaired" in response.
 - **Every `reviews_due` PR reached a posted-or-aborted terminal state — the
   run never ended mid-pipeline** (e.g. after a skill report); transient
   failures retried once then aborted-with-lock-released · all errors logged ·

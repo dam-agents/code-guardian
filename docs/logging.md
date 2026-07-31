@@ -21,8 +21,8 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
   only when `work/CONFIG.md` has `log_level: debug` (missing key = `info`).
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `tool_failure`, `tool_use`, `review_step`,
-  `review_incomplete`, `pod_boot`, `log_cleanup`, …); the audit groups
-  recurring errors by it.
+  `review_incomplete`, `stall_rate`, `stall_alert_sent`, `pod_boot`,
+  `log_cleanup`, …); the audit groups recurring errors by it.
 - **msg** — the human-readable message / error.
 
 Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`.

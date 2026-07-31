@@ -22,19 +22,42 @@ upgrade**); authoring rules:
   Fires once per turn (`stop_hook_active` guard), makes no GitHub calls and no
   state writes, logs one `review_incomplete` warn, and no-ops on a
   non-deployed instance. Home: docs/review.md → **Completion enforcement**.
+- The hook stops each *individual* stall but can't see a **pattern**, so
+  preflight gains the **stalled-review rate alert**: it counts `stale
+  in_progress lock` takeovers over the last 24 h and, at or above the new
+  `stall_alert_threshold` key (missing = `4`; `0`/`off` disables; unparseable
+  falls back to `4`), emits `stall_alert: {count, threshold, prs, window_hours,
+  per_day_7d}` — **once per UTC day** (`work/.stall-alert-day`, claimed under a
+  `mkdir` lock so concurrent heartbeats can't double-send); `per_day_7d` gives
+  the per-day trend, so one bad day reads differently from a chronic one. The
+  agent reports it after its review work (so the count includes this run): chat
+  UI always, plus a DM to `escalation_owner` under `slack_notifications:
+  enabled` — never the shared channel, since this is operations, not team news.
+  A due alert alone makes a run non-idle. The four days before this change ran
+  1 / 6 / 17 / 5 stalls a day, entirely unreported. The alert is a signal, never
+  a repair: no lock clearing, no re-review. Home: docs/review.md →
+  **Stalled-review rate alert**.
 - Audit `harness_adapter` check now verifies **all three** adapter hooks and
   names the missing ones — it passed on a partially-registered instance before,
   so an upgrade that never re-ran `install.sh` went unnoticed.
 - Tests: `scripts/tests/test_stop_hook.sh` (12 assertions over the hook's
-  terminal-step logic, loop guard and no-op paths) plus two
-  `harness_adapter` cases in `test_audit_stats.sh`.
+  terminal-step logic, loop guard and no-op paths), `test_stall_alert.sh`
+  (15 assertions — threshold boundary, distinct-PR list, per-day trend, marker
+  + released lock, once-per-day dedup, 24 h window edge, stale marker,
+  custom/off/garbage threshold values, and that ordinary fresh-lock skips never
+  count), plus two `harness_adapter` cases in `test_audit_stats.sh`.
 
 **Upgrade:**
-Docs are re-read per run, but the hook only exists once registered — one
-idempotent step:
+Docs are re-read per run and the default stall threshold needs no
+configuration. Two idempotent steps:
 1. Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"` (safe to
-   re-run; it rewrites only its own hook entries). Effective from the **next**
-   session; the audit's `harness_adapter` check warns until then.
+   re-run; it rewrites only its own hook entries) — the `Stop` hook only exists
+   once registered. Effective from the **next** session; the audit's
+   `harness_adapter` check warns until then.
+2. Optional: to tune or silence the rate alert, set `stall_alert_threshold:
+   <n|off>` in `work/CONFIG.md` (missing key = `4`). Slack delivery
+   additionally needs the existing `slack_notifications: enabled` +
+   `escalation_owner`; without them the alert still reaches the chat UI.
 
 ## 2.3.0 — 2026-07-31
 

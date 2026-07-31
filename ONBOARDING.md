@@ -226,6 +226,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - escalation_owner: alice              # only when slack_notifications: enabled
+- stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
 
 ## Review skills
 
