@@ -118,6 +118,16 @@ configured skill) · `posted <verdict>` (h) · `done` (j) · `aborted <reason>`
 (e). The last event logged for a PR pins the exact step a stall stopped at;
 consecutive event timestamps give per-step durations.
 
+**Completion enforcement.** These events are also read back, at end of turn, by
+the `Stop` harness hook ([logging.md](logging.md) → **Harness adapters**): a PR
+logged `locked` in this run with no later `done` / `aborted <reason>` means the
+turn is ending mid-pipeline, so the hook refuses the stop and names the PRs and
+the steps still owed. `rapid posted` and `skill:<name> done` are **not**
+terminal. It fires once per turn, makes no GitHub calls and no state writes, and
+enforces only what the log already proves — so it is a backstop for the
+invariant, never a substitute for driving each PR to its terminal state. Missing
+`review_step` events blind it: log them as the sequence says.
+
 ```bash
 MARKER="<!-- $REVIEW_MARKER headRefOid=<full-sha> -->"
 gh api "repos/$REPO/pulls/<n>/reviews" \

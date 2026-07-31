@@ -772,10 +772,15 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
   if [ "${CLAUDECODE:-}" = "1" ]; then
-    if grep -q "harness/claude-code/log-tool-event.sh" "$HOME_DIR/.claude/settings.json" 2>/dev/null; then
-      check harness_adapter ok "Claude Code hooks registered (automatic tool-failure logging)"
+    hooks_missing=""
+    for h in log-tool-event.sh log-session-tokens.sh enforce-review-completion.sh; do
+      grep -q "harness/claude-code/$h" "$HOME_DIR/.claude/settings.json" 2>/dev/null \
+        || hooks_missing="$hooks_missing $h"
+    done
+    if [ -z "$hooks_missing" ]; then
+      check harness_adapter ok "Claude Code hooks registered (tool logging + review-completion enforcement)"
     else
-      check harness_adapter warn "Claude Code harness but hooks not registered — run scripts/harness/claude-code/install.sh"
+      check harness_adapter warn "Claude Code hooks not registered:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
   else
     check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"

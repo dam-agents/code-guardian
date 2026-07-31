@@ -7,6 +7,35 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.4.0 — 2026-07-31
+
+**Changed:**
+- New harness adapter **`scripts/harness/claude-code/enforce-review-completion.sh`**,
+  registered by `install.sh` as a **`Stop` hook**: at end of turn it reads this
+  run's own `review_step` events and refuses the stop (exit 2, stderr shown to
+  the model) when a PR was `locked` without a later `done` / `aborted <reason>`,
+  naming the PRs and the steps still owed. `rapid posted` and `skill:<name>
+  done` are explicitly non-terminal, so an urgent PR's rapid pass and a skill's
+  "report to the user" can no longer end a run. This makes the existing
+  never-end-mid-pipeline invariant enforced rather than merely stated — a stall
+  used to leave an `in_progress` lock until the 30-min TTL and a takeover.
+  Fires once per turn (`stop_hook_active` guard), makes no GitHub calls and no
+  state writes, logs one `review_incomplete` warn, and no-ops on a
+  non-deployed instance. Home: docs/review.md → **Completion enforcement**.
+- Audit `harness_adapter` check now verifies **all three** adapter hooks and
+  names the missing ones — it passed on a partially-registered instance before,
+  so an upgrade that never re-ran `install.sh` went unnoticed.
+- Tests: `scripts/tests/test_stop_hook.sh` (12 assertions over the hook's
+  terminal-step logic, loop guard and no-op paths) plus two
+  `harness_adapter` cases in `test_audit_stats.sh`.
+
+**Upgrade:**
+Docs are re-read per run, but the hook only exists once registered — one
+idempotent step:
+1. Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"` (safe to
+   re-run; it rewrites only its own hook entries). Effective from the **next**
+   session; the audit's `harness_adapter` check warns until then.
+
 ## 2.3.0 — 2026-07-31
 
 **Changed:**

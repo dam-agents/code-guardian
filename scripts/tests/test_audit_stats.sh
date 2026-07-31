@@ -49,6 +49,32 @@ run_preflight audit
 assert_jq '[.checks[] | select(.id == "definition_issues")] | length == 1' 'backlog check present'
 assert_jq '.checks[] | select(.id == "definition_issues") | .status == "warn" and (.detail | contains("1 open issue") and contains("#31"))' 'counts issues only (PRs filtered), lists them'
 
+# --- harness_adapter: every hook must be registered ---------------------------
+# settings.json listing only some adapter hooks is a warn naming the missing
+# ones (an upgraded instance that never re-ran install.sh).
+write_settings() { mkdir -p "$FAKE_HOME/.claude"; cat > "$FAKE_HOME/.claude/settings.json"; }
+
+new_case audit_hooks_partial
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+write_settings <<'EOF'
+{"hooks":{"PostToolUseFailure":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-tool-event.sh"}]}],
+          "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}]}}
+EOF
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("enforce-review-completion.sh"))' 'missing Stop hook warns by name'
+
+new_case audit_hooks_complete
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+write_settings <<'EOF'
+{"hooks":{"PostToolUseFailure":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-tool-event.sh"}]}],
+          "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}],
+          "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}]}}
+EOF
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks registered → ok'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config
