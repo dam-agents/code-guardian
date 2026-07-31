@@ -17,8 +17,9 @@
 #     the 14-day log retention cleanup in audit mode.
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
-#                             / prunes_due / artifacts_due (+ skill install,
-#                             SHA-cached, only when a review/artifact is due)
+#                             / prunes_due / artifacts_due / urgent_alerts_due
+#                             (+ skill install, SHA-cached, only when a
+#                             review/artifact is due)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder already computed; the agent
 #                             applies each row_update before sending)
@@ -79,7 +80,8 @@ trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 # caller's to skip.
 cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/dev/null | grep -E '^\|'; }
 
-iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
+# GNU first; the BSD fallback needs -u or the trailing Z is read as local time
+iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
 # ---------------------------------------------------------------- config ----
 REPO="${GITHUB_REPO:-$(cfg github_repo)}"
@@ -174,25 +176,26 @@ install_skill() { # name source -> status string (local writes only)
   printf 'installed (%s files)' "$count"
 }
 
-emit() { # reviews label_cleanups selfheals prunes artifacts nudges skills
+emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts skills
   local nothing=true a
-  for a in "$1" "$2" "$3" "$4" "$5" "$6"; do
+  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
-    --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" --argjson skills "$7" \
+    --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
+    --argjson alerts "$7" --argjson skills "$8" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
-      nudges_due:$nudges, skills:$skills, logs:$logs}'
+      nudges_due:$nudges, urgent_alerts_due:$alerts, skills:$skills, logs:$logs}'
 }
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
-  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; SKILLS='{}'
+  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; SKILLS='{}'
 
   # re-review trigger gate (CLAUDE.md -> rereview_trigger): label | review-request | both
   REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
@@ -254,11 +257,20 @@ if [ "$MODE" = "review" ]; then
   done
 
   # --- per-open-PR decision ---
-  while IFS=$'\t' read -r n sha ref title author labels assignees requested; do
+  while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
     has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$REREVIEW_LABEL" && has_label=1
     has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qx "$BOT_LOGIN" && has_request=1
     triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ]; } && triggered=1
     URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$URGENT_LABEL" && URG=true
+
+    # one-time urgent Slack alert (agent sends; marker in the history file is
+    # the dedup — written by the agent before sending, docs/review.md)
+    if [ "$URG" = "true" ] && [ "$SLACK" = "enabled" ] \
+       && ! grep -q '<!-- urgent-announced:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then
+      ALERTS_DUE="$(printf '%s' "$ALERTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
+        '{number:$n, title:$t, author:$a, url:$u}')" '. + [$e]')"
+      log "PR #$n: $URGENT_LABEL label found — Slack alert due"
+    fi
     row="$(row_for "$n")"
 
     if [ -n "$row" ]; then
@@ -332,7 +344,7 @@ if [ "$MODE" = "review" ]; then
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
              ((.assignees|join(","))|if .=="" then "-" else . end),
-             ((.requested|join(","))|if .=="" then "-" else . end)] | @tsv')
+             ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
 
   # urgent entries first (stable sort — non-urgent keep their order)
   REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq 'sort_by(if .urgent then 0 else 1 end)')"
@@ -350,14 +362,14 @@ if [ "$MODE" = "review" ]; then
     fi
   fi
 
-  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$SKILLS"
+  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$SKILLS"
   exit 0
 fi
 
 # ========================================================= SHEPHERD MODE ====
 if [ "$MODE" = "shepherd" ]; then
-  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
-  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
 
   # roster: login -> slack_id (table or bullet format)
   ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
@@ -478,7 +490,7 @@ if [ "$MODE" = "shepherd" ]; then
   } > "$SHEPHERD"
   printf '%s shepherd sweep: %s open PRs, %s nudges due\n' "$NOW_ISO" "$OPEN_COUNT" "$(printf '%s' "$NUDGES_DUE" | jq length)" >> "$WORK/SHEPHERD.log"
 
-  emit '[]' '[]' '[]' '[]' '[]' "$NUDGES_DUE" '{}'
+  emit '[]' '[]' '[]' '[]' '[]' "$NUDGES_DUE" '[]' '{}'
   exit 0
 fi
 
@@ -791,13 +803,33 @@ if [ "$MODE" = "audit" ]; then
     nudges_wk=$((nudges_wk + ${m:-0}))
   done < <(cat "$WORK/SHEPHERD.log" 2>/dev/null)
 
+  # findings effectiveness: Fixed vs Still-present bullets inside this week's
+  # re-review sections (the agent judges the ratio — docs/audit.md task 26)
+  fx_wk=0; sp_wk=0
+  for f in "$WORK"/reviews/pr-*.md; do
+    [ -f "$f" ] || continue
+    in_win=0
+    while IFS= read -r line; do
+      case "$line" in
+        ('## Review at '*)
+          ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)"
+          in_win=0
+          [ -n "$ts" ] && [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] && in_win=1;;
+        ('- ✅ **Fixed:**'*)         [ "$in_win" -eq 1 ] && fx_wk=$((fx_wk+1));;
+        ('- 🔁 **Still present:**'*) [ "$in_win" -eq 1 ] && sp_wk=$((sp_wk+1));;
+      esac
+    done < "$f"
+  done
+
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
+    --argjson fx "$fx_wk" --argjson sp "$sp_wk" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
+      findings:{fixed:$fx, still_present:$sp},
       heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
       log_events:{errors:$le, warns:$lw}, tokens:$tw}')"
 

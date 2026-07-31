@@ -136,10 +136,14 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 25. **Cost pulse**: idle-heartbeat ratio from `stats` (idle/total). A falling
     ratio means rising spend; a ratio near zero with no reviews means
     something re-triggers work every run — investigate.
+26. **Findings acceptance**: `stats.findings` counts this week's re-review
+    `✅ Fixed` vs `🔁 Still present` bullets. Report `fixed/(fixed+still)`;
+    a persistently low ratio means findings the team doesn't act on — flag
+    it with examples (a process signal for the operator, not a defect).
 
 ### H. Report & wrap-up
 
-26. **Memory consolidation** — before composing the report, run
+27. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
@@ -151,6 +155,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 
 *Week in numbers* (since <stats.since>)
 • Reviews: <total> (<first> first / <re_review> re) — ✅<approve> ⚠️<comment> ❌<request_changes>
+• Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
 • Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
@@ -173,5 +178,5 @@ One message, this shape (tight — counts and one-liners, no prose):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
-  (task 26) and no GitHub writes except a task-3 tracking issue — findings are
+  (task 27) and no GitHub writes except a task-3 tracking issue — findings are
   reported, not fixed.

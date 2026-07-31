@@ -2,10 +2,10 @@
 
 Read this file at the start of every **review run** (a run whose preflight
 worklist has any of `reviews_due` / `label_cleanups_due` / `selfheals_due` /
-`prunes_due` non-empty). Preflight already made every decision — you perform
-the actions. Keep the two HEAD-freshness checks and the pre-post dedup
-re-check below; they guard the race windows that open between preflight and
-post time.
+`prunes_due` / `urgent_alerts_due` non-empty). Preflight already made every
+decision — you perform the actions. Keep the two HEAD-freshness checks and
+the pre-post dedup re-check below; they guard the race windows that open
+between preflight and post time.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
 
@@ -56,12 +56,14 @@ route through **Urgent PRs** / **PR closed mid-review** below (urgent entries
 come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
-a. **Check 1 — re-fetch state**: `gh pr view <n> --repo "$REPO" --json state,headRefOid,headRefName,isDraft,labels,reviewRequests`.
-   Now draft → skip. Now `CLOSED`/`MERGED` → skip (the next heartbeat
+a. **Check 1 — re-fetch state** (REST, never the GraphQL `reviewRequests`
+   field — it intermittently needs `read:org` the token doesn't carry):
+   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
+   Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
    prunes). On a `re-review`, no active re-review trigger still
    present → skip (request withdrawn; leave the `awaiting_label` row) — the
    trigger is live per `rereview_trigger`: `$REREVIEW_LABEL` in `labels`
-   and/or a pending review request for `bot_login` in `reviewRequests`.
+   and/or `bot_login` in `requested`.
    Re-verify `urgent` from the live labels (`$URGENT_LABEL` present). Use the
    fresh SHA/branch as source of truth everywhere (clone, diff, skills,
    marker). Then **write the `in_progress` lock row** to REVIEWS.md (fresh
@@ -75,8 +77,8 @@ c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
 d. **Clone the branch and run every configured review skill** per
    [skills.md](skills.md) — one audit line per configured skill, no exceptions.
 e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
-   `CLOSED`/`MERGED` → **PR closed mid-review** below (criticals become an
-   issue, never a review). SHA
+   closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
+   become an issue, never a review). SHA
    moved, now draft, or (re-review) trigger withdrawn (same check as Check 1)
    → **abort posting**: no
    chat review, no GitHub review, no history append; **release the lock** —
@@ -149,6 +151,22 @@ gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BO
 the label is on a PR, every due review of it (any `kind`) runs rapid-first:
 preflight flags the entry `urgent: true` and orders urgent entries ahead of
 the rest; Check 1 re-verifies the label (gone → review normally).
+
+**Immediate Slack alert (`urgent_alerts_due`, once per PR).** Preflight emits
+`{number, title, author, url}` for every open urgent PR whose history file
+lacks an `urgent-announced` marker — only under `slack_notifications:
+enabled`. Send these **first, before any other run work**:
+
+1. **Write the marker first**: `<!-- urgent-announced: <ISO timestamp> -->`
+   into `reviews/pr-<n>.md` (create the file with its title heading if
+   missing). Write-before-send: a failed send is logged, never retried.
+2. Mentions: roster members (`work/DEVELOPERS.md`) with a `slack_id` —
+   filtered to those currently online when a Slack presence lookup is
+   available this session, otherwise all of them. **Never anyone outside the
+   roster** ([shepherd.md](shepherd.md) → Hard rules).
+3. Send via `mcp__platform-outbound__send_channel_message`:
+   `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). <@id1> <@id2> … Rapid review incoming. <url>`
+4. Log `PR #<n>: urgent alert sent (<k> mentioned)`.
 
 **Phase 1 — rapid preliminary review.** Optimize for delivery speed; skip
 everything skippable:
@@ -338,8 +356,9 @@ for re-review delta matching.
 
 Re-reviews are deliberately **concise** — they report the delta, never a
 restatement of the previous review. Read the prior review from
-`reviews/pr-<n>.md` first, then insert between `### Summary` and
-`### Findings`:
+`reviews/pr-<n>.md` first — match findings against its `findings-json` line
+when present (older reviews without one: parse the visible text) — then
+insert between `### Summary` and `### Findings`:
 
 ```
 ### Changes since last review
@@ -461,11 +480,21 @@ rm -f "/tmp/review-post-<n>.json"
 _Review by [<bot_display_name>](https://github.com/<definition_repo>) · automated code guardian_
 
 
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with =="}] -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
 Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker line is
 **mandatory** (drives dedup) and uses the full 40-char SHA.
+
+**`findings-json`** — machine-readable copy of the review's `### Findings`
+(the code's authors are agents too), on one line right above the marker, in
+every posted full review. One object per finding: `status`
+(`new`|`still`|`fixed` — first reviews all `new`), `severity`
+(`critical`|`warning`|`suggestion`), `file`, `line` (null when not
+anchorable), `inline` (got an inline comment), `summary` (short label, ≤ ~10
+words). Keep the JSON free of `--` sequences (HTML-comment safety — use `–`).
+Empty findings → `[]`. Rapid preliminary reviews don't carry it.
 
 ### Mapping findings to inline comments
 

@@ -2,7 +2,7 @@
 
 **Read this file BEFORE touching any file of the agent definition**
 (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `VERSION`,
-`CHANGELOG.md`, `.gitignore`). These rules bound every change the agent
+`CHANGELOG.md`, `.gitignore`, `.github/`). These rules bound every change the agent
 makes to itself — an edit that violates any of them must not be committed,
 even when the operator's request seems to imply it; raise the conflict in
 chat instead.
@@ -137,10 +137,13 @@ on it still takes the operator).
 
 ## 9. Validate before opening the PR
 
-- `bash -n` every changed script; then a **read-only sanity run** of
+- `bash -n` every changed script; run the deterministic stub tests
+  (`bash scripts/tests/run.sh` — offline, gh/curl faked; CI re-runs them on
+  the PR); then a **read-only sanity run** of
   `scripts/preflight.sh` for both modes against the live target repo (it
   makes no GitHub writes) — output must be valid JSON and its decisions
-  must match observable reality.
+  must match observable reality. A behavior change in `preflight.sh` updates
+  or adds its test case in the same PR.
 - Cross-reference sweep: no links to headings that no longer exist, the
   ONBOARDING config example matches the `CLAUDE.md` key list, README's
   tables match both.
