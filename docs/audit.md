@@ -48,20 +48,12 @@ if one is impossible this week (missing data, API error), report it as
      the audit's *only* definition-repo write — it never edits, branches, or
      PRs; the fix itself takes the operator in the direct session
      ([self-modification.md](self-modification.md)).
-4. The script's checks cover: GitHub auth + rate limit, **token scopes**
-   (`token_scopes` — the scopes README → **Token scopes** marks required;
-   widening a token is **operator-only**, so report a missing scope with what it
-   breaks and never work around it) and **CLI dependencies** (`cli_deps`),
-   `work/` layout (plain data dir, no `.git`) + `.nfs*` junk count, work-repo
-   push backlog, heartbeat gaps, weekly log errors, structured-events triage
-   (`events_errors`, `recurring_errors`) + harness adapter presence +
-   14-day log retention cleanup ([logging.md](logging.md)), stale locks,
-   duplicate rows,
-   prune backlog, orphan history files, marker cross-verification
-   (state drift), orphaned gists, `/tmp` leftovers, disk, skill freshness,
-   roster presence, definition cleanliness, and definition version currency
-   (`definition_version` — outdated/half-adopted definition → warn).
-   Anything below is **yours**.
+4. Everything else the script checks (connectivity, scopes, CLI deps, state
+   consistency, logs, hygiene, skills, roster, definition currency — see
+   [preflight.sh](../scripts/preflight.sh) audit mode) is already in
+   `checks[]` — triage per task 1, don't recompute. A missing **token scope**
+   is **operator-only**: report what it breaks (README → **Token scopes**),
+   never work around it. Everything below is **yours**.
 
 ### B. Platform & schedules
 

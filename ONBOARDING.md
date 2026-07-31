@@ -192,6 +192,8 @@ The definition is project-agnostic: every instance-specific value lives in `work
    If the label doesn't exist on the target repo yet, create it: `gh label create "<label>" --repo "$GITHUB_REPO" --description "Request a code-guardian re-review" --color FBCA04` (failure = tell the operator to create it manually; not blocking).
 
    Then ask about **`rereview_trigger`** — how re-reviews are requested: `label` (default) | `review-request` (GitHub's "Re-request review" on **<bot_login>**; needs the bot as a repo collaborator) | `both`. Write the key only when the answer differs from `label`.
+
+   Then ask about **`urgent_label`** — an optional, human-managed label marking a PR urgent: its due reviews jump the queue and are delivered rapid-first (fast preliminary review, then the full one — `docs/review.md` → **Urgent PRs**). Default: off (omit the key). If the operator names one, validate/create it the same way as the re-review label.
 7. **Review skills + `artifact_skill`** — fully config-driven (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
    - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list — otherwise drop the row after confirming (a missing harness skill would just log `skill-errored` on every PR).
@@ -217,6 +219,7 @@ Final shape:
 - review_marker: code-guardian:review
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
+- urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
@@ -298,6 +301,6 @@ Then give the operator a short **onboarding summary** in the chat UI:
 
 1. The final `work/CONFIG.md` (verbatim).
 2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
-3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel (docs/review.md → **Slack-requested review**); assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
+3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel (docs/review.md → **Slack-requested review**); labeling a PR **`<urgent_label>`** (when configured) makes its reviews jump the queue, rapid-preliminary-first; assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

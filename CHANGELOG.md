@@ -7,6 +7,41 @@ version. Consumed by the version check
 upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.2.0 — 2026-07-31
+
+**Changed:**
+- New optional `work/CONFIG.md` key **`urgent_label`** (missing = off): a
+  **human-managed** GitHub label that makes a PR's due reviews jump the queue
+  and run **rapid-first** — a fast preliminary review (diff-only, 🔴-critical
+  findings only, clearly marked, own `<review_marker>:rapid` dedup marker,
+  `event: COMMENT`) posts immediately, then the normal full review follows in
+  the same run. Applies to every review kind while the label is present; the
+  agent never adds or removes the label, and the label is a delivery modifier,
+  never a review trigger. Preflight flags entries `urgent: true` and orders
+  them first; a died run resumes via the `RAPID` verdict on the `in_progress`
+  lock row. Home: docs/review.md → **Urgent PRs**.
+- **PR closed mid-review** (any review, urgent or not): a review finished
+  after its PR closed is no longer just discarded — with ≥1 🔴 Critical
+  finding the agent files one deduplicated GitHub issue (marker
+  `<review_marker>:issue`), linked to the PR and assigned to its author.
+  Preflight emits a closed PR whose row is a `RAPID` lock as a review entry
+  flagged `closed: true` instead of a prune, so an owed full review survives
+  the closure. Home: docs/review.md → **PR closed mid-review**.
+- **Review style defaults** (docs/review.md → **Criteria & review style**):
+  reviews are concise (1–2 sentences per finding); code is assumed
+  agent-written and agent-read — human-readability/structure nits are out of
+  scope unless they create real defect risk; 🟢 suggestions only for
+  substantial improvements; the summary never repeats inline-comment text
+  (inline-carried findings appear as one-liners in `### Findings`).
+- Consolidation pass (behavior unchanged): skills.md trust-boundary paragraph,
+  audit.md task-4 check list, review.md self-check, and README's heartbeat
+  overview deduplicated down to their single homes.
+
+**Upgrade:**
+Docs are re-read per run. Optional: to enable urgent handling, add
+`urgent_label: <label>` to `work/CONFIG.md` (create the label on the target
+repo if missing) — a missing key keeps the feature off.
+
 ## 2.1.0 — 2026-07-30
 
 **Changed:**

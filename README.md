@@ -19,25 +19,21 @@ of it per the `docs/` procedures:
 - **Review heartbeat** (default every 10 minutes, 24/7): `preflight.sh
   review` lists open non-draft PRs in one REST call and decides per PR what
   is due — never-reviewed PRs get a first review automatically;
-  already-reviewed PRs get a re-review **only on an explicit trigger**: the
-  configured re-review label (`rereview_label`, default
-  `code-guardian-review`) or, when `rereview_trigger` enables it, GitHub's
-  "Re-request review" on the bot (new commits alone just flip the tracking
-  row to `awaiting_label`). Same-HEAD PRs are skipped via `work/REVIEWS.md` plus the
-  remote check for the embedded `<!-- <review_marker> headRefOid=... -->`
-  marker (with self-heal when local state is missing); closed/merged PRs are
-  verified per PR and queued for pruning; the artifact assignee gate is
-  evaluated; the configured skills are installed only when a review is due,
-  cached by their source repo's HEAD SHA. The agent then reads
-  [`docs/review.md`](docs/review.md) + [`docs/skills.md`](docs/skills.md),
-  fetches context and the diff, clones the branch, runs every configured
-  review skill per its trigger, re-verifies HEAD freshness right before
-  posting, posts one GitHub review (summary + inline comments, signed with
-  **`bot_display_name`**, carrying the hidden dedup marker), removes the
-  re-review label when the PR carried one, and records the review in
-  `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Re-reviews are
-  delta-only and concise: fixed/still-present findings as one-liners, full
-  text only for new findings, no "looks good" bullets.
+  already-reviewed PRs get a re-review **only on an explicit trigger** (the
+  `rereview_label`, or GitHub's "Re-request review" when `rereview_trigger`
+  enables it — new commits alone just flip the tracking row to
+  `awaiting_label`). Same-HEAD PRs are skipped via `work/REVIEWS.md` plus
+  the remote dedup-marker check (with self-heal); closed/merged PRs are
+  verified per PR and queued for pruning; PRs carrying the optional
+  `urgent_label` jump the queue and get a rapid preliminary review before
+  the full one. The agent then follows
+  [`docs/review.md`](docs/review.md) + [`docs/skills.md`](docs/skills.md):
+  context + diff, clone, every configured review skill, HEAD freshness
+  re-verified right before posting, one GitHub review (summary + inline
+  comments, signed with **`bot_display_name`**, carrying the hidden dedup
+  marker), label bookkeeping, tracking in `work/REVIEWS.md` and
+  `work/reviews/pr-<number>.md`. Reviews are concise and assume
+  agent-written, agent-read code; re-reviews are delta-only.
 - **Shepherd sweep** (default hourly, working days/hours; exists only when
   Slack notifications were enabled at onboarding): `preflight.sh shepherd`
   classifies every open non-draft PR from independent reviews and applies
@@ -167,6 +163,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a re-review of an already-reviewed PR — without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`, key omitted then) | How re-reviews are requested: `label`, `review-request` (GitHub's "Re-request review" on the bot; needs the bot as a collaborator), or `both`. A served review request clears itself when the review posts. |
+| `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows (`docs/review.md` → **Urgent PRs**). |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
 | `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |

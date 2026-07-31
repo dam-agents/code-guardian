@@ -87,6 +87,7 @@ REPO="${GITHUB_REPO:-$(cfg github_repo)}"
 BOT_LOGIN="$(cfg bot_login)"
 REVIEW_MARKER="$(cfg review_marker)"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
@@ -210,26 +211,44 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
 
-  add_review() { # number sha ref title author kind takeover prior_json
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior}')" '. + [$e]')"
+      --argjson u "${9:-false}" --argjson c "${10:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c}')" '. + [$e]')"
+    [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
+      && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
+    return 0
   }
 
   # --- prune detection (verified per PR; the agent executes the prune) ---
   for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
     open_numbers | grep -qx "$n" && continue
     if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
-    state="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end')"
+    PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
+    state="$(printf '%s' "$PJ" | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end' 2>/dev/null)"
     [ -z "$state" ] && logev warn gh_api "PR #$n: state check did not respond — prune skipped this run"
     case "$state" in
       CLOSED|MERGED)
-        gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-        did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-        PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" --arg d "${did:-}" \
-          '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end), dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
-        log "PR #$n: $state — prune due";;
+        row="$(row_for "$n")"
+        if [ "$(row_field "$row" 5)" = "RAPID" ] && [ "$(row_field "$row" 6)" = "in_progress" ]; then
+          # urgent PR closed after the rapid preliminary review but before the
+          # full one — the agent still owes the full pass (criticals become a
+          # linked issue, docs/review.md); prune happens on the next heartbeat
+          kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          prior="$(jq -n --arg sha "$(row_field "$row" 3)" --arg ts "$(row_field "$row" 4)" '{sha:$sha, ts:$ts, verdict:"RAPID"}')"
+          add_review "$n" "$(printf '%s' "$PJ" | jq -r .head.sha)" "$(printf '%s' "$PJ" | jq -r .head.ref)" \
+            "$(printf '%s' "$PJ" | jq -r '.title|gsub("\t";" ")')" "$(printf '%s' "$PJ" | jq -r .user.login)" \
+            "$kind" false "$prior" true true
+          log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
+        else
+          gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
+          did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
+          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" --arg d "${did:-}" \
+            '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end), dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
+          log "PR #$n: $state — prune due"
+        fi;;
       *) : ;;  # OPEN / API error -> leave the row alone
     esac
   done
@@ -239,6 +258,7 @@ if [ "$MODE" = "review" ]; then
     has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$REREVIEW_LABEL" && has_label=1
     has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qx "$BOT_LOGIN" && has_request=1
     triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ]; } && triggered=1
+    URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$URGENT_LABEL" && URG=true
     row="$(row_for "$n")"
 
     if [ -n "$row" ]; then
@@ -253,7 +273,7 @@ if [ "$MODE" = "review" ]; then
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
           log "PR #$n: stale in_progress lock (${age}m) — takeover"
-          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior"
+          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false
         fi
       elif [ "$row_sha" = "$sha" ]; then
         # reviewed at live HEAD; trigger present -> same-SHA cleanup (agent clears it)
@@ -270,7 +290,7 @@ if [ "$MODE" = "review" ]; then
       else
         # new commits since the recorded review
         if [ "$triggered" -eq 1 ]; then
-          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior"
+          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
           log "PR #$n: new commits since last review — awaiting $TRIG_DESC"
@@ -289,14 +309,14 @@ if [ "$MODE" = "review" ]; then
           asha="${any%%$'\t'*}"; ats="${any##*$'\t'}"
           if [ "$triggered" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false \
-              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')"
+              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')" "$URG" false
           else
             SELFHEALS_DUE="$(printf '%s' "$SELFHEALS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg sha "$asha" --arg ts "$ats" \
               '{number:$n, sha:$sha, ts:$ts, status:"awaiting_label"}')" '. + [$e]')"
             log "PR #$n: reviewed on GitHub at ${asha:0:7} (no local row), new commits with no re-review trigger — self-heal to awaiting_label due"
           fi
         else
-          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null
+          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null "$URG" false
         fi
       fi
     fi
@@ -313,6 +333,9 @@ if [ "$MODE" = "review" ]; then
              ((.labels|join(","))|if .=="" then "-" else . end),
              ((.assignees|join(","))|if .=="" then "-" else . end),
              ((.requested|join(","))|if .=="" then "-" else . end)] | @tsv')
+
+  # urgent entries first (stable sort — non-urgent keep their order)
+  REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq 'sort_by(if .urgent then 0 else 1 end)')"
 
   # install skills only when the agent will actually review / generate
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
