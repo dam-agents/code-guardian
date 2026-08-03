@@ -121,12 +121,16 @@ consecutive event timestamps give per-step durations.
 **Completion enforcement.** These events are also read back, at end of turn, by
 the `Stop` harness hook ([logging.md](logging.md) → **Harness adapters**): a PR
 logged `locked` in this run with no later `done` / `aborted <reason>` means the
-turn is ending mid-pipeline, so the hook refuses the stop and names the PRs and
-the steps still owed. `rapid posted` and `skill:<name> done` are **not**
-terminal. It fires once per turn, makes no GitHub calls and no state writes, and
-enforces only what the log already proves — so it is a backstop for the
-invariant, never a substitute for driving each PR to its terminal state. Missing
-`review_step` events blind it: log them as the sequence says.
+turn is ending mid-pipeline, so the hook refuses the stop and names the PRs,
+their last logged step, and the steps still owed. `rapid posted` and
+`skill:<name> done` are **not** terminal. It blocks up to **3 times per run**
+(counting its own past `review_incomplete` events), the final attempt leading
+with the explicit-abort route, then allows the stop and logs
+`enforcement exhausted` — a nudge, never a trap, and never a reason to pad
+review content. It makes no GitHub calls and no state writes and enforces only
+what the log already proves — a backstop for the invariant, never a substitute
+for driving each PR to its terminal state. Missing `review_step` events blind
+it: log them as the sequence says.
 
 **Stalled-review rate alert.** Per-run enforcement can't see a *pattern* of
 stalls, so preflight counts the `stale in_progress lock` takeovers of the last
