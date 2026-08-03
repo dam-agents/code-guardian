@@ -84,6 +84,13 @@ adapter is active, duty 3 above extends to logging tool failures manually.
   and `PostToolUse` (external calls, debug).
 - `log-session-tokens.sh` — `SessionEnd` hook target: the per-run `tokens`
   event (duty 2 above).
+- `log-review-step.sh` — `PostToolUse` (`Bash|Task`) hook target: derives the
+  observable `review_step` milestones — `cloned`, `skill:<name> done`,
+  `posted <verdict>` — from the tool call that performs them, so they survive a
+  turn that ends before the agent logs them. Idempotent per (run, PR, step) via
+  a `/tmp/.cg-steps-<session>` marker dir; the steps needing agent knowledge
+  (`locked`, `done`, `aborted`) stay manual ([review.md](review.md) → **Progress
+  logging**).
 - `enforce-review-completion.sh` — `Stop` hook target: refuses a stop that
   would leave a PR locked without a terminal `review_step`, logging one
   `review_incomplete` warn ([review.md](review.md) → **Completion
