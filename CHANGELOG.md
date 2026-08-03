@@ -8,6 +8,17 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 **Definition version & upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.5.0 — 2026-08-03
+
+**Upgrade:**
+1. Run `bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent) — it
+   registers the new `log-review-step.sh` `PostToolUse` hook. **Required:**
+   without it the derived `review_step` events are never written, and
+   docs/review.md now tells the agent not to log them manually. The audit's
+   `harness_adapter` check warns by name until it is registered; effective from
+   the next session.
+2. No state migration — the events log is append-only and the new events share
+   the existing `review_step` shape.
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 

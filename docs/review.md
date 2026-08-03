@@ -101,22 +101,31 @@ j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
 k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
 
-**Progress logging (stall diagnosis).** A session that dies mid-review (e.g.
-ending the turn after a skill report — [skills.md](skills.md)) must leave a
-trace of where it stopped: as each milestone of this sequence completes,
-append one `review_step` event to the structured log
-([logging.md](logging.md)) — chained onto the step's existing command, never
-as a separate tool call:
+**Progress logging (stall diagnosis).** A session that dies mid-review must
+leave a trace of where it stopped, so each milestone of this sequence appends a
+`review_step` event to the structured log ([logging.md](logging.md)). The last
+event logged for a PR pins the exact step a stall stopped at; consecutive
+timestamps give per-step durations.
+
+**Most steps are logged for you.** `cloned` (d), `skill:<name> done` (d) and
+`posted <verdict>` (h) are derived by the `PostToolUse` adapter hook from the
+tool call that performs them ([logging.md](logging.md) → **Harness adapters**) —
+do not log them yourself. The three the harness cannot observe stay yours,
+because only you know the PR and verdict behind a REVIEWS.md row edit — chained
+onto the step's existing command, never as a separate tool call:
 
 ```bash
 . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
 ```
 
-with step ∈ `locked` (a) · `rapid posted` (Urgent PRs phase 1) · `cloned` (d)
-· `skill:<name> done` (d, one per
-configured skill) · `posted <verdict>` (h) · `done` (j) · `aborted <reason>`
-(e). The last event logged for a PR pins the exact step a stall stopped at;
-consecutive event timestamps give per-step durations.
+with step ∈ `locked` (a) · `done` (j) · `aborted <reason>` (e) — plus
+`rapid posted` (Urgent PRs phase 1). These are exactly the steps the `Stop` hook
+below judges terminality on.
+
+**When the adapter is not active, all seven steps are yours** — a non-Claude-Code
+harness, or the audit's `harness_adapter` check warning that
+`log-review-step.sh` is unregistered. Duplicate events are harmless (the hook
+reads steps as a set), so when in doubt, log it.
 
 **Completion enforcement.** These events are also read back, at end of turn, by
 the `Stop` harness hook ([logging.md](logging.md) → **Harness adapters**): a PR
