@@ -88,11 +88,34 @@ step r2 "PR #11 def5678 locked"
 run_hook r1
 assert_rc 0 "another run's open lock is ignored"
 
-# --- loop guard: already blocked once this turn -------------------------------
-hook_case stop_loop_guard
+# --- escalation: blocks repeatedly, then gives up -----------------------------
+# a single nudge was measurably too weak, so the block escalates to MAX_BLOCKS
+# (3) and then lets the stop through — the hook may trap a run, never forever.
+hook_case stop_escalates
+step r1 "PR #10 abc1234 locked"
+step r1 "PR #10 abc1234 skill:doc-drift done"
+run_hook r1
+assert_rc 2 'first stall attempt is blocked'
+assert_file_contains "$SANDBOX/stderr" '(1/3)' 'stderr numbers the attempt'
+assert_file_contains "$SANDBOX/stderr" 'skill:doc-drift done' \
+  'stderr names the last logged step'
+run_hook r1
+assert_rc 2 'second attempt is blocked too (stop_hook_active no longer exempts)'
+assert_file_contains "$SANDBOX/stderr" '(2/3)' 'second block is numbered'
+run_hook r1
+assert_rc 2 'third and final attempt is blocked'
+assert_file_contains "$SANDBOX/stderr" 'final attempt' 'last block escalates wording'
+assert_file_contains "$SANDBOX/stderr" 'aborted <reason>' \
+  'final block offers the explicit-abort route'
+run_hook r1
+assert_rc 0 'enforcement gives up after MAX_BLOCKS rather than trapping the run'
+assert_file_contains "$EVENTS" 'enforcement exhausted' 'giving up is logged'
+
+# --- stop_hook_active alone no longer suppresses a block ----------------------
+hook_case stop_active_flag_not_a_bypass
 step r1 "PR #10 abc1234 locked"
 run_hook r1 true
-assert_rc 0 'stop_hook_active suppresses a second block'
+assert_rc 2 'stop_hook_active does not by itself let a mid-pipeline stop through'
 
 # --- nothing locked (prune-only run) → clean stop ----------------------------
 hook_case stop_no_locks

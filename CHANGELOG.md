@@ -1,10 +1,11 @@
 # Changelog
 
-Agent-facing history: per version, a **Changed** block and an **Upgrade**
-block — the idempotent steps a deployed instance applies when crossing that
-version. Consumed by the version check
-([docs/persistence.md](docs/persistence.md) → **Definition version &
-upgrade**); authoring rules:
+**Migration instructions, not a change log.** Per version, the idempotent
+**Upgrade** steps a deployed instance applies when crossing it — what to run,
+update, or change (schedules, config keys, state formats). Most versions need
+nothing. What changed and why lives in the PR and commit history, not here.
+Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
+**Definition version & upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
 ## 2.5.0 — 2026-08-03
@@ -18,6 +19,16 @@ upgrade**); authoring rules:
    the next session.
 2. No state migration — the events log is append-only and the new events share
    the existing `review_step` shape.
+Entries below 2.4.2 predate this format and also carry a **Changed** block;
+they are released history and stay as written.
+
+## 2.4.2 — 2026-08-03
+
+**Upgrade:**
+The `Stop` hook's new behavior is effective from the next session — no step if
+the hook is already registered. If the audit's `harness_adapter` check warns it
+is missing, run `bash "$HOME/scripts/harness/claude-code/install.sh"` once
+(idempotent).
 
 ## 2.4.1 — 2026-07-31
 
