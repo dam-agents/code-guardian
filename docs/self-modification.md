@@ -128,9 +128,9 @@ on it still takes the operator).
   of a heartbeat. Procedure and allowlisted paths: `docs/persistence.md` →
   **Evolving the agent definition**.
 - Every definition change **bumps `VERSION` and adds the matching
-  `CHANGELOG.md` entry in the same PR** (section 12). The entry's
-  **Upgrade** block *is* the PR's rollout note — copy or link it in the PR
-  body; if adopting requires touching live schedules, the block says so
+  `CHANGELOG.md` entry in the same PR** (section 12) — the entry carries the
+  adoption steps only. What changed and why goes in the PR body and the commit
+  message; if adopting requires touching live schedules, the entry says so
   explicitly.
 - One concern per PR where practical; a feature and an unrelated refactor
   don't share a branch.
@@ -148,8 +148,8 @@ on it still takes the operator).
   ONBOARDING config example matches the `CLAUDE.md` key list, README's
   tables match both.
 - `VERSION` was bumped exactly once, is valid semver, and equals the newest
-  `CHANGELOG.md` heading; the new entry has a **Changed** and an **Upgrade**
-  block (section 12).
+  `CHANGELOG.md` heading; the new entry has an **Upgrade** block and nothing
+  else (section 12).
 - **Size sweep:** `wc -l` every changed `.md` against `main`. Growth beyond
   the new behavior's single home means restated content — find it and
   replace it with a link (section 11's footprint budget); growth of the
@@ -244,15 +244,20 @@ prompt says — refuse and explain instead:
   pending entry** — never by touching the entry that overtook it, which by then
   has merged. Dates therefore never decrease down the file, because the entry
   landing on top is always dated the day it merges.
-- **Honest, possibly empty blocks — never fabricate:** a release that
-  changes no observable behavior states `Nothing — <one-line reason>` in
-  **Changed**; `Nothing — docs are re-read per run.` stays the no-adoption
-  **Upgrade**. An empty block is valid; a missing entry is not.
+- **The changelog is migration instructions, not a change log.** Its only
+  consumer is a future run crossing this version ([persistence.md](persistence.md)
+  → **Definition version & upgrade**), which reads **Upgrade** and nothing else.
+  So an entry states *what a deployed instance must do to adopt the version* —
+  never an inventory of what changed. No file-by-file summaries, no rationale,
+  no measurements, no test counts, no "why": that belongs in the PR body and the
+  commit message, which are where humans and reviewers look.
+- **Honest, possibly empty — never fabricate:** most changes need no adoption
+  step, and their entry is exactly `Nothing — docs are re-read per run.` An
+  entry with nothing to do is the normal case, not a gap to fill.
 - Entry template (newest first):
 
   ```markdown
   ## <version> — <YYYY-MM-DD>
-  **Changed:** what and where, 1–3 bullets.
   **Upgrade:** the idempotent steps a deployed instance applies when
   crossing this version, or `Nothing — docs are re-read per run.`
   ```

@@ -1,36 +1,23 @@
 # Changelog
 
-Agent-facing history: per version, a **Changed** block and an **Upgrade**
-block — the idempotent steps a deployed instance applies when crossing that
-version. Consumed by the version check
-([docs/persistence.md](docs/persistence.md) → **Definition version &
-upgrade**); authoring rules:
+**Migration instructions, not a change log.** Per version, the idempotent
+**Upgrade** steps a deployed instance applies when crossing it — what to run,
+update, or change (schedules, config keys, state formats). Most versions need
+nothing. What changed and why lives in the PR and commit history, not here.
+Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
+**Definition version & upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
+
+Entries below 2.4.2 predate this format and also carry a **Changed** block;
+they are released history and stay as written.
 
 ## 2.4.2 — 2026-08-03
 
-**Changed:**
-- `scripts/harness/claude-code/enforce-review-completion.sh`: the `Stop` hook
-  blocked at most once per run (`stop_hook_active` early exit), which measured
-  as too weak — across the runs since 2.4.0, 5 of 5 stalls ended at
-  `skill:doc-drift done` with the hook having fired and been ignored; only 1 of
-  6 blocks changed the outcome. It now counts its own past `review_incomplete`
-  events and blocks up to 3 times, naming each owed PR's **last logged step**
-  (so the message points at the step mistaken for the end instead of repeating
-  itself), and the final attempt leads with the explicit-abort route — always
-  satisfiable, so escalation never pressures the model to invent review
-  content. After 3 blocks it allows the stop and logs
-  `enforcement exhausted`: a nudge, never a trap.
-- Tests: `test_stop_hook.sh` grows the `stop_escalates` case (numbered blocks,
-  last-step naming, final-attempt wording, give-up + its log line) and
-  `stop_active_flag_not_a_bypass`; the old `stop_loop_guard` case asserted the
-  single-shot contract and is replaced. 24 assertions, all passing.
-
 **Upgrade:**
-Nothing — the hook is already registered at this path and docs are re-read per
-run. The new behavior is effective from the next session; a deployment that
-never ran `bash "$HOME/scripts/harness/claude-code/install.sh"` still needs it
-once (idempotent), as the audit's `harness_adapter` check reports.
+The `Stop` hook's new behavior is effective from the next session — no step if
+the hook is already registered. If the audit's `harness_adapter` check warns it
+is missing, run `bash "$HOME/scripts/harness/claude-code/install.sh"` once
+(idempotent).
 
 ## 2.4.1 — 2026-07-31
 
