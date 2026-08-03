@@ -8,6 +8,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 **Definition version & upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+## 2.5.1 — 2026-08-03
+
+**Upgrade:**
+Nothing — `install.sh` already chmods the hook it registers, so 2.5.0 works
+either way.
+
 ## 2.5.0 — 2026-08-03
 
 **Upgrade:**
