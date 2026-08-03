@@ -8,6 +8,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 **Definition version & upgrade**); authoring rules:
 [docs/self-modification.md](docs/self-modification.md) §12.
 
+Entries below 2.4.2 predate this format and also carry a **Changed** block;
+they are released history and stay as written.
+
+## 2.5.2 — 2026-08-03
+
+**Upgrade:**
+Nothing — the corrected sentence prescribes no action, and the version check
+reads only **Upgrade** blocks.
+
 ## 2.5.1 — 2026-08-03
 
 **Upgrade:**
@@ -25,8 +34,6 @@ either way.
    the next session.
 2. No state migration — the events log is append-only and the new events share
    the existing `review_step` shape.
-Entries below 2.4.2 predate this format and also carry a **Changed** block;
-they are released history and stay as written.
 
 ## 2.4.2 — 2026-08-03
 
