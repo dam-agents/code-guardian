@@ -85,8 +85,8 @@ adapter is active, duty 3 above extends to logging tool failures manually.
 - `log-session-tokens.sh` — `SessionEnd` hook target: the per-run `tokens`
   event (duty 2 above).
 - `enforce-review-completion.sh` — `Stop` hook target: refuses a stop that
-  would leave a PR locked without a terminal `review_step`, logging one
-  `review_incomplete` warn ([review.md](review.md) → **Completion
+  would leave a PR locked without a terminal `review_step`, logging a
+  `review_incomplete` warn per block ([review.md](review.md) → **Completion
   enforcement**).
 - `install.sh` — registers the hooks in `~/.claude/settings.json`
   (idempotent; run at onboarding Step 1b and after definition updates that
