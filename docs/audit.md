@@ -185,7 +185,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
-• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> (omit the whole line when stalled = 0 and aborted_clean = 0)
+• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*
@@ -196,18 +196,13 @@ One message, this shape (tight — counts and one-liners, no prose):
 *Action needed*: <one line per item needing a human, or "none">
 ```
 
-- **Nothing wrong → send nothing.** When every check is 🟢 *and* `stats.stalls`
-  reports no `stalled` runs, the report goes to the chat UI only — no Slack. The
-  `AUDIT.log` line is the record that the audit ran. Slack is for things that
-  need a human, so a green week is silence.
-  **The one exception is a dead job** (task 5): a schedule enabled-but-not-firing
-  or with a failing `lastResult` is always sent, even when nothing else is wrong
-  — that is the failure this report exists to catch, and it cannot be seen by
-  waiting for output that will never arrive.
-- **Something to report** (any 🔴/🟡, any `stalled`, any dead job) and **Slack
-  enabled** → `mcp__platform-outbound__send_channel_message`
-  (`channel: "slack"`, omit `chatId`); failure → full report to the chat UI
-  + log. **Slack disabled** → chat UI only. Always echo to the chat UI.
+- **Always sent, green or not.** Under `slack_notifications: enabled` the weekly
+  report goes to Slack **every week**, including an all-🟢 zero-stall one — it is
+  the standing signal that the agent is alive and auditing itself, so its absence
+  is itself the alert. Never suppress it for being uneventful.
+  → `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
+  `chatId`); failure → full report to the chat UI + log. **Slack disabled** →
+  chat UI only. Always echo to the chat UI.
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up

@@ -15,9 +15,8 @@ they are released history and stay as written.
 
 **Upgrade:**
 Nothing — the metric is computed by `preflight.sh` and the report is composed
-per docs, both read fresh each run. The weekly audit now stays **silent on Slack
-when everything is green**; it still always writes its `AUDIT.log` line and
-echoes to the chat UI.
+per docs, both read fresh each run. Weekly-report delivery is unchanged: still
+sent to Slack every week under `slack_notifications: enabled`.
 
 ## 2.5.2 — 2026-08-03
 
