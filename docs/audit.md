@@ -59,10 +59,17 @@ if one is impossible this week (missing data, API error), report it as
 ### B. Platform & schedules
 
 5. `mcp__platform-outbound__list_schedules`: the review heartbeat, the
-   shepherd sweep (when `slack_notifications: enabled`), and this audit job
-   all exist and are **enabled**, crons matching ONBOARDING Step 6.
+   shepherd sweep (when `slack_notifications: enabled`), and this audit job all
+   exist and are **enabled**, crons matching ONBOARDING Step 6.
    Missing/disabled → **fail** (a dead schedule is invisible to every other
    check — the heartbeat-gap check catches the past, this catches the future).
+   **Each must also be firing, not merely enabled:** per entry, `status.lastRun`
+   within 1.5× its own interval and `status.lastResult` = `success`. Enabled but
+   not running, or a failing last result, is a **fail** — this is what notices a
+   job that stopped silently. Name the offender, its `lastRun` and `lastResult`.
+   Judge **only the schedules ONBOARDING Step 6 defines**; an operator may add
+   temporary monitors of their own, and those are theirs to watch — report an
+   unrecognised schedule as **info**, never a failure.
 6. Slack connectivity — no separate probe: sending the report *is* the test
    (send failure → fail + fall back to chat UI).
 7. Artifact feature (when `artifact_skill` configured): report the configured
@@ -141,10 +148,26 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     `✅ Fixed` vs `🔁 Still present` bullets. Report `fixed/(fixed+still)`;
     a persistently low ratio means findings the team doesn't act on — flag
     it with examples (a process signal for the operator, not a defect).
+27. **Wasted reviews**: `stats.stalls` — reviews thrown away because the run
+    died before posting, so a later heartbeat had to redo them. `stalled` of
+    `total` locked runs, split by `by_cause` (`pod_restart` / `hard_kill` /
+    `terminated`), `wasted_output_tokens`, `redone_prs`, and `per_day` for the
+    trend. Report the split, not just the count — the three causes have
+    different owners: `pod_restart` and `hard_kill` are platform, `terminated`
+    is a session ended from outside mid-pipeline. Rising `aborted_clean` while
+    `stalled` falls is the Stop hook working (an explicit abort frees the lock
+    immediately instead of waiting out its TTL) — read the two together, never
+    `stalled` alone. Any non-zero `stalled` is a **warn** with the causes named;
+    a day above 15 % is a **fail**. Runs still in flight (last event newer than
+    the 30-min lock TTL) are excluded by the script, so a live review is never
+    counted as a stall. `wasted_output_tokens` is a **floor, not the true cost**:
+    it sums the per-run `tokens` events, which a `hard_kill` never got to write —
+    report it as "≥", and never read a low figure as a cheap week when
+    `by_cause.hard_kill` is non-zero.
 
 ### H. Report & wrap-up
 
-27. **Memory consolidation** — before composing the report, run
+28. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
@@ -162,6 +185,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
+• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*
@@ -172,12 +196,16 @@ One message, this shape (tight — counts and one-liners, no prose):
 *Action needed*: <one line per item needing a human, or "none">
 ```
 
-- **Slack enabled** → `mcp__platform-outbound__send_channel_message`
-  (`channel: "slack"`, omit `chatId`); failure → full report to the chat UI
-  + log. **Slack disabled** → chat UI only. Always echo to the chat UI.
+- **Always sent, green or not.** Under `slack_notifications: enabled` the weekly
+  report goes to Slack **every week**, including an all-🟢 zero-stall one — it is
+  the standing signal that the agent is alive and auditing itself, so its absence
+  is itself the alert. Never suppress it for being uneventful.
+  → `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
+  `chatId`); failure → full report to the chat UI + log. **Slack disabled** →
+  chat UI only. Always echo to the chat UI.
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
-  (task 27) and no GitHub writes except a task-3 tracking issue — findings are
+  (task 28) and no GitHub writes except a task-3 tracking issue — findings are
   reported, not fixed.

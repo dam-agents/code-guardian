@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 2.6.0 — 2026-08-05
+
+**Upgrade:**
+Nothing — the metric is computed by `preflight.sh` and the report is composed
+per docs, both read fresh each run. Weekly-report delivery is unchanged: still
+sent to Slack every week under `slack_notifications: enabled`.
+
 ## 2.5.2 — 2026-08-03
 
 **Upgrade:**
