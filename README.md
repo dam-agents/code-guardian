@@ -166,7 +166,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows; with Slack enabled a newly urgent PR also gets one immediate roster-mentioning alert (`docs/review.md` → **Urgent PRs**). |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
-| `## Review skills` table | defaulted to the public set (doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
+| `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to vetted targets — chat UI, a Slack channel, or a comment on the PR (`docs/watches.md`). Keeps team-specific triggers and channels out of this public definition — rules are private runtime state. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
@@ -248,6 +248,11 @@ state. See `docs/persistence.md` → **Two stores: shared live state + durable b
 - [`scripts/tests/`](scripts/tests/) + [`.github/workflows/ci.yml`](.github/workflows/ci.yml) —
   deterministic stub tests for `preflight.sh` (gh/curl faked, offline) and the
   CI that runs them plus the `docs/self-modification.md` §9 sweeps on every PR.
+- [`.agents/skills/`](.agents/skills/) — review skills bundled with the
+  definition, installable on any instance via a `## Review skills` row whose
+  `source` is the instance's `definition_repo`:
+  [`issue-fit`](.agents/skills/issue-fit/SKILL.md) (does the diff deliver what
+  the linked issue asked — missing scope, undeclared scope creep).
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),

@@ -140,8 +140,8 @@ Commit & push `work/` afterwards (section above).
 rules every definition change must obey (project-agnosticism, config
 discipline, onboarding completeness, protected invariants, validation).
 
-Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`,
-`README.md`, `VERSION`, `CHANGELOG.md`) go through **branch + PR on
+Definition changes (`CLAUDE.md`, `docs/`, `scripts/`, `.agents/`,
+`ONBOARDING.md`, `README.md`, `VERSION`, `CHANGELOG.md`) go through **branch + PR on
 `$DEFINITION_REPO` — never a direct push to `main`, never auto-merge**, and only
 when deliberately asked — never as part of a heartbeat. **`main` is the
 repository's development branch and the base of every definition PR**, whatever
@@ -150,7 +150,7 @@ repository's development branch and the base of every definition PR**, whatever
 ```bash
 git -C /home/agent fetch origin main
 git -C /home/agent checkout -b "fix/<short-slug>" origin/main
-git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts .github
+git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts .agents .github
 git -C /home/agent commit -m "<describe the change>"
 git -C /home/agent push -u origin "fix/<short-slug>"
 gh pr create --repo "$DEFINITION_REPO" --base main --head "fix/<short-slug>" \

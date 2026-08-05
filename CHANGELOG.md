@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 2.7.0 — 2026-08-05
+
+**Upgrade:**
+Nothing for the review-procedure changes — docs are re-read per run.
+**operator-only (optional):** to enable the bundled `issue-fit` review skill on
+an existing instance, add its row to `work/CONFIG.md → ## Review skills` with
+`source` = the instance's `definition_repo` and trigger `always`, e.g.
+`| issue-fit | acme/code-guardian | always | Issue Fit |`. New onboardings get
+it in the default set.
+
 ## 2.6.0 — 2026-08-05
 
 **Upgrade:**

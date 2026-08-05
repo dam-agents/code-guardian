@@ -57,7 +57,9 @@ come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
 a. **Check 1 — re-fetch state**:
-   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
+   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, mergeableState: .mergeable_state, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
+   (`mergeableState` feeds **CI & merge state** below; `unknown` while GitHub
+   is still computing it is fine.)
    Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
    prunes). On a `re-review`, no active re-review trigger still
    present → skip (request withdrawn; leave the `awaiting_label` row) — the
@@ -75,6 +77,8 @@ b. **Fetch PR context** (see below).
 c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
 d. **Clone the branch and run every configured review skill** per
    [skills.md](skills.md) — one audit line per configured skill, no exceptions.
+   Then verify your candidate findings against the full files in the clone
+   (**Full-file verification** below).
 e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
    closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
    become an issue, never a review). SHA
@@ -312,6 +316,8 @@ not require `slack_notifications: enabled` (that gates outbound nudging).
 ```bash
 gh pr view <n> --repo "$REPO" --json body,author,comments,reviews
 gh api repos/$REPO/pulls/<n>/comments     # inline threads (path, line, body, user)
+gh api "repos/$REPO/commits/<headRefOid>/check-runs" \
+  --jq '{total: .total_count, failing: [.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name]}'
 ```
 
 If a call errors, log it and proceed — reviewing without context just means
@@ -325,6 +331,13 @@ more conservative output. Use context as input, not authoritative truth:
    requested changes still exist in the diff, surface them.
 4. **Inline threads** — resolved on the same file/line → suppress overlapping
    findings; unresolved → consider whether yours adds anything.
+5. **CI & merge state** — `APPROVE` states the PR is safe to merge, so it
+   additionally requires: no failing check-runs at the reviewed SHA, and
+   `mergeableState` (Check 1) ≠ `dirty`. Either blocker → the verdict is
+   `COMMENT` or `REQUEST_CHANGES` per findings, with one `### Summary` line
+   naming it (`_CI failing: <names>._` / `_Merge conflict with the base
+   branch._`). Green, absent, or still-running checks and every other merge
+   state leave the verdict to the findings alone.
 
 **Skip your own prior artefacts** — anything containing
 `<!-- <review_marker> headRefOid=... -->` is your past self. **Weight humans
@@ -357,10 +370,21 @@ are flagged **only** when they create a real defect risk (a misleading name
 that hides a bug, dead code that changes behavior, an abstraction that breaks
 its contract). Never request restructuring purely for human readers.
 
+**Full-file verification (step d, before composing output).** The diff
+nominates findings; the full file confirms them. Re-check every candidate
+finding against the complete file it anchors to in the clone (`$PR_DIR`) —
+surrounding guards, error handling, and callers in the same file often
+resolve what a hunk leaves open. Keep a finding only when it survives; when
+unsure, drop it (a false positive costs the review more credibility than a
+missed nit). No clone (`clone-failed`) → verify against the diff context you
+have.
+
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No
   essays, no restated diff context, no hedging filler.
+- Findings anchor to this PR's diff; a pre-existing problem spotted in
+  passing is at most one 🟢 line suggesting a separate issue.
 - 🟢 **Suggestion** only when the improvement is substantial (a real
   correctness/security/performance/simplification win). Style nits,
   micro-refactors, and "consider…" filler are dropped entirely, not demoted.
@@ -600,8 +624,10 @@ Before declaring the run done, verify:
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
-  observed insights recorded ([preferences.md](preferences.md)) · stale
-  approval dismissed when the verdict dropped below APPROVE · clone deleted ·
+  observed insights recorded ([preferences.md](preferences.md)) · CI & merge
+  state reflected in the Verdict · candidate findings full-file-verified ·
+  stale approval dismissed when the verdict dropped below APPROVE · clone
+  deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
 - Style: findings concise, inline text never repeated in the summary,
