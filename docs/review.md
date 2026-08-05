@@ -57,9 +57,7 @@ come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
 a. **Check 1 — re-fetch state**:
-   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, mergeableState: .mergeable_state, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
-   (`mergeableState` feeds **CI & merge state** below; `unknown` while GitHub
-   is still computing it is fine.)
+   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
    Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
    prunes). On a `re-review`, no active re-review trigger still
    present → skip (request withdrawn; leave the `awaiting_label` row) — the
@@ -316,8 +314,6 @@ not require `slack_notifications: enabled` (that gates outbound nudging).
 ```bash
 gh pr view <n> --repo "$REPO" --json body,author,comments,reviews
 gh api repos/$REPO/pulls/<n>/comments     # inline threads (path, line, body, user)
-gh api "repos/$REPO/commits/<headRefOid>/check-runs" \
-  --jq '{total: .total_count, failing: [.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name]}'
 ```
 
 If a call errors, log it and proceed — reviewing without context just means
@@ -331,13 +327,6 @@ more conservative output. Use context as input, not authoritative truth:
    requested changes still exist in the diff, surface them.
 4. **Inline threads** — resolved on the same file/line → suppress overlapping
    findings; unresolved → consider whether yours adds anything.
-5. **CI & merge state** — `APPROVE` states the PR is safe to merge, so it
-   additionally requires: no failing check-runs at the reviewed SHA, and
-   `mergeableState` (Check 1) ≠ `dirty`. Either blocker → the verdict is
-   `COMMENT` or `REQUEST_CHANGES` per findings, with one `### Summary` line
-   naming it (`_CI failing: <names>._` / `_Merge conflict with the base
-   branch._`). Green, absent, or still-running checks and every other merge
-   state leave the verdict to the findings alone.
 
 **Skip your own prior artefacts** — anything containing
 `<!-- <review_marker> headRefOid=... -->` is your past self. **Weight humans
@@ -624,10 +613,9 @@ Before declaring the run done, verify:
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
-  observed insights recorded ([preferences.md](preferences.md)) · CI & merge
-  state reflected in the Verdict · candidate findings full-file-verified ·
-  stale approval dismissed when the verdict dropped below APPROVE · clone
-  deleted ·
+  observed insights recorded ([preferences.md](preferences.md)) · candidate
+  findings full-file-verified · stale approval dismissed when the verdict
+  dropped below APPROVE · clone deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
 - Style: findings concise, inline text never repeated in the summary,
