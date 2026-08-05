@@ -249,10 +249,9 @@ state. See `docs/persistence.md` → **Two stores: shared live state + durable b
   deterministic stub tests for `preflight.sh` (gh/curl faked, offline) and the
   CI that runs them plus the `docs/self-modification.md` §9 sweeps on every PR.
 - [`.agents/skills/`](.agents/skills/) — review skills bundled with the
-  definition, installable on any instance via a `## Review skills` row whose
-  `source` is the instance's `definition_repo`:
-  [`issue-fit`](.agents/skills/issue-fit/SKILL.md) (does the diff deliver what
-  the linked issue asked — missing scope, undeclared scope creep).
+  definition (installed via a `## Review skills` row with `source` = the
+  instance's `definition_repo`): [`issue-fit`](.agents/skills/issue-fit/SKILL.md)
+  — does the diff deliver what the linked issue asked.
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),

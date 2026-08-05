@@ -15,11 +15,9 @@ they are released history and stay as written.
 
 **Upgrade:**
 Nothing for the review-procedure changes — docs are re-read per run.
-**operator-only (optional):** to enable the bundled `issue-fit` review skill on
-an existing instance, add its row to `work/CONFIG.md → ## Review skills` with
-`source` = the instance's `definition_repo` and trigger `always`, e.g.
-`| issue-fit | acme/code-guardian | always | Issue Fit |`. New onboardings get
-it in the default set.
+**operator-only (optional):** enable the bundled `issue-fit` skill by adding
+`| issue-fit | <definition_repo> | always | Issue Fit |` to
+`work/CONFIG.md → ## Review skills`. New onboardings get it by default.
 
 ## 2.6.0 — 2026-08-05
 

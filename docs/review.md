@@ -360,20 +360,16 @@ that hides a bug, dead code that changes behavior, an abstraction that breaks
 its contract). Never request restructuring purely for human readers.
 
 **Full-file verification (step d, before composing output).** The diff
-nominates findings; the full file confirms them. Re-check every candidate
-finding against the complete file it anchors to in the clone (`$PR_DIR`) —
-surrounding guards, error handling, and callers in the same file often
-resolve what a hunk leaves open. Keep a finding only when it survives; when
-unsure, drop it (a false positive costs the review more credibility than a
-missed nit). No clone (`clone-failed`) → verify against the diff context you
-have.
+nominates findings; the full file confirms them. Re-check each candidate
+against the complete file it anchors to in the clone (`$PR_DIR`) — the
+surrounding code often resolves what a hunk leaves open. Keep what survives;
+when unsure, drop it (a false positive costs more credibility than a missed
+nit). No clone (`clone-failed`) → verify against the diff context you have.
 
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
-text — review bodies, inline comments, filed issues, chat summaries, Slack
-messages — in STE style: short sentences that carry one topic each (aim for
-≤ 20 words), active voice, simple tenses, one consistent term per concept, no
-idioms or synonym variation. STE governs the wording, never the content —
-findings stay complete and precise.
+text (reviews, inline comments, issues, chat, Slack) in STE style: one topic
+per sentence (aim ≤ 20 words), active voice, simple tenses, one term per
+concept, no idioms or synonym variation. STE governs wording, never content.
 
 **Concise by default (all reviews, all channels):**
 
