@@ -160,7 +160,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     `stalled` alone. Any non-zero `stalled` is a **warn** with the causes named;
     a day above 15 % is a **fail**. Runs still in flight (last event newer than
     the 30-min lock TTL) are excluded by the script, so a live review is never
-    counted as a stall.
+    counted as a stall. `wasted_output_tokens` is a **floor, not the true cost**:
+    it sums the per-run `tokens` events, which a `hard_kill` never got to write —
+    report it as "≥", and never read a low figure as a cheap week when
+    `by_cause.hard_kill` is non-zero.
 
 ### H. Report & wrap-up
 
@@ -182,7 +185,7 @@ One message, this shape (tight — counts and one-liners, no prose):
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
-• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — <wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> (omit the whole line when stalled = 0 and aborted_clean = 0)
+• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> (omit the whole line when stalled = 0 and aborted_clean = 0)
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
 
 *Checks*
