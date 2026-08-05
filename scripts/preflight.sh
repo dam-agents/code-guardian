@@ -843,6 +843,57 @@ if [ "$MODE" = "audit" ]; then
        cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
+  # Wasted-review accounting: a run that locked a PR and never reached a
+  # terminal `review_step` threw its work away — the next heartbeat redoes the
+  # review at full cost. Classified by cause, deterministically, from the log:
+  #   pod_restart  — a `pod_boot` warn falls inside the run's own event window
+  #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran
+  #   terminated   — SessionEnd ran but the pipeline stopped mid-way (orderly
+  #                  shutdown from outside; see docs/audit.md task 27)
+  # `aborted_clean` counts runs that *did* terminate explicitly — the cheap
+  # outcome the Stop hook drives, so a rise here against falling `stalled` is
+  # the mitigation working, not a regression.
+  # One jq pass over the same files; no API calls, no extra run.
+  # a run whose last event is newer than the 30-min lock TTL may still be alive
+  # (no SessionEnd yet is not a kill) — exclude it rather than miscount it
+  STALL_CUTOFF="$(date -u -d "@$(( NOW_EPOCH - 1800 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                  || date -u -r "$(( NOW_EPOCH - 1800 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  STALLS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
+    [.[] | select(.ts >= $s)] as $w
+    | ($w | map(select(.event=="pod_boot") | .ts)) as $boots
+    | [ $w | group_by(.run)[]
+        | { run: .[0].run, day: (.[0].ts[0:10]), first: (.[0].ts), last: (.[-1].ts),
+            steps: [.[] | select(.event=="review_step") | .msg
+                    | select(startswith("PR #"))],
+            tokens: ([.[] | select(.event=="tokens")] | length),
+            out: ([.[] | select(.event=="tokens") | .msg
+                   | capture("output=(?<o>[0-9]+)") | .o | tonumber] | add // 0) }
+        | select(.steps | any(test(" locked")))
+        | select(.last <= $cut)
+        | .first as $first_ts | .last as $last_ts
+        | .prs = [ .steps[] | capture("^PR #(?<n>[0-9]+)") | .n ]
+        | .terminal = (.steps | any(test("(^| )(done|aborted)") and (test("skill:") | not)))
+        | .aborted  = (.steps | any(test("(^| )aborted")))
+        | .cause = (if .terminal then "ok"
+                    elif ([$boots[] | select(. >= $first_ts and . <= $last_ts)] | length > 0)
+                      then "pod_restart"
+                    elif (.tokens == 0) then "hard_kill"
+                    else "terminated" end) ]
+    as $runs
+    | { total: ($runs | length),
+        stalled: ($runs | map(select(.cause != "ok")) | length),
+        aborted_clean: ($runs | map(select(.terminal and .aborted)) | length),
+        by_cause: ($runs | map(select(.cause != "ok") | .cause) | group_by(.)
+                   | map({key: .[0], value: length}) | from_entries),
+        wasted_output_tokens: ($runs | map(select(.cause != "ok") | .out) | add // 0),
+        redone_prs: ($runs | map(select(.cause != "ok") | .prs) | flatten | unique),
+        per_day: ($runs | group_by(.day)
+                  | map({ day: .[0].day, runs: length,
+                          stalled: (map(select(.cause != "ok")) | length),
+                          wasted_output_tokens: (map(select(.cause != "ok") | .out) | add // 0) })) }' \
+    2>/dev/null)"
+  [ -n "$STALLS_WEEK" ] || STALLS_WEEK='{"total":0,"stalled":0}'
+
   if [ "${CLAUDECODE:-}" = "1" ]; then
     hooks_missing=""
     for h in log-tool-event.sh log-review-step.sh log-session-tokens.sh enforce-review-completion.sh; do
@@ -925,11 +976,12 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
     --argjson fx "$fx_wk" --argjson sp "$sp_wk" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
+    --argjson sw "$STALLS_WEEK" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
       findings:{fixed:$fx, still_present:$sp},
       heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
-      log_events:{errors:$le, warns:$lw}, tokens:$tw}')"
+      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

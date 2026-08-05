@@ -87,6 +87,58 @@ EOF
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("log-review-step.sh"))' 'missing step-logger hook warns by name'
 
+
+# --- wasted-review metric (stats.stalls) --------------------------------------
+# a run that locked a PR and never reached a terminal step threw its work away;
+# classified by cause, and runs still in flight must NOT be counted.
+ev() { # <run> <event> <msg> [ts]
+  jq -nc --arg r "$1" --arg e "$2" --arg m "$3" --arg t "${4:-$(iso_ago 7200)}" \
+    '{ts:$t, run:$r, job:"review", level:"info", event:$e, msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+
+new_case audit_stalls_metric
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+# r1: locked, then done -> completed, not wasted
+ev r1 review_step "PR #10 abc1234 locked"
+ev r1 review_step "PR #10 abc1234 done"
+ev r1 tokens "input=1 output=1000 cache_read=1 cache_creation=1 msgs=5"
+# r2: locked, SessionEnd fired, never terminal -> terminated
+ev r2 review_step "PR #11 def5678 locked"
+ev r2 review_step "PR #11 def5678 skill:doc-drift done"
+ev r2 tokens "input=1 output=5000 cache_read=1 cache_creation=1 msgs=9"
+# r3: locked, no tokens event at all -> hard_kill
+ev r3 review_step "PR #12 aaa1111 locked"
+# r4: explicit abort -> terminal, counts as a clean abort not a stall
+ev r4 review_step "PR #13 bbb2222 locked"
+ev r4 review_step "PR #13 bbb2222 aborted HEAD-moved"
+ev r4 tokens "input=1 output=2000 cache_read=1 cache_creation=1 msgs=6"
+# r5: locked seconds ago and still working -> excluded (live, not a stall)
+ev r5 review_step "PR #14 ccc3333 locked" "$(iso_ago 60)"
+run_preflight audit
+assert_jq '.stats.stalls.total == 4' 'live run excluded from the locked-run total'
+assert_jq '.stats.stalls.stalled == 2' 'only the two dead unfinished runs count'
+assert_jq '.stats.stalls.by_cause.terminated == 1 and .stats.stalls.by_cause.hard_kill == 1' \
+  'causes split by whether SessionEnd fired'
+assert_jq '.stats.stalls.aborted_clean == 1' 'an explicit abort is a clean outcome, not a stall'
+assert_jq '.stats.stalls.wasted_output_tokens == 5000' 'wasted tokens sum only the stalled runs'
+assert_jq '.stats.stalls.redone_prs == ["11","12"]' 'redone PRs are the stalled ones only'
+assert_jq '.stats.stalls.per_day | length >= 1' 'per-day trend present'
+
+# --- all-green audit: no stalls at all ----------------------------------------
+new_case audit_stalls_none
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev r1 review_step "PR #10 abc1234 locked"
+ev r1 review_step "PR #10 abc1234 done"
+ev r1 tokens "input=1 output=1000 cache_read=1 cache_creation=1 msgs=5"
+run_preflight audit
+assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
+assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config
