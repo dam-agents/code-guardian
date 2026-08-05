@@ -359,7 +359,8 @@ are flagged **only** when they create a real defect risk (a misleading name
 that hides a bug, dead code that changes behavior, an abstraction that breaks
 its contract). Never request restructuring purely for human readers.
 
-**Full-file verification (step d, before composing output).** The diff
+**Full-file verification (end of step d — candidates come from step c's diff
+review, verification runs after the skills, before composing output).** The diff
 nominates findings; the full file confirms them. Re-check each candidate
 against the complete file it anchors to in the clone (`$PR_DIR`) — the
 surrounding code often resolves what a hunk leaves open. Keep what survives;
@@ -621,8 +622,9 @@ Before declaring the run done, verify:
   dropped below APPROVE · clone deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
-- Style: findings concise, inline text never repeated in the summary,
-  re-reviews delta-only (Findings = 🆕 only, one-line carryovers, no ✅).
+- Style: findings concise and diff-anchored, inline text never repeated in
+  the summary, re-reviews delta-only (Findings = 🆕 only, one-line
+  carryovers, no ✅).
 - Urgent entries: rapid preliminary posted (or dedup-skipped) **before** the
   full review; `RAPID` row + `rapid posted` step recorded; terminal = full
   review posted (or closed-PR issue / abort). Closed entries: no review
