@@ -368,6 +368,13 @@ unsure, drop it (a false positive costs the review more credibility than a
 missed nit). No clone (`clone-failed`) → verify against the diff context you
 have.
 
+**Language: ASD-STE100 (Simplified Technical English).** Write every outward
+text — review bodies, inline comments, filed issues, chat summaries, Slack
+messages — in STE style: short sentences that carry one topic each (aim for
+≤ 20 words), active voice, simple tenses, one consistent term per concept, no
+idioms or synonym variation. STE governs the wording, never the content —
+findings stay complete and precise.
+
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No
