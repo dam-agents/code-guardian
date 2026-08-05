@@ -59,15 +59,17 @@ if one is impossible this week (missing data, API error), report it as
 ### B. Platform & schedules
 
 5. `mcp__platform-outbound__list_schedules`: the review heartbeat, the
-   shepherd sweep (when `slack_notifications: enabled`), the daily ops digest,
-   and this audit job all exist and are **enabled**, crons matching ONBOARDING
-   Step 6. Missing/disabled → **fail** (a dead schedule is invisible to every
-   other check — the heartbeat-gap check catches the past, this catches the
-   future).
+   shepherd sweep (when `slack_notifications: enabled`), and this audit job all
+   exist and are **enabled**, crons matching ONBOARDING Step 6.
+   Missing/disabled → **fail** (a dead schedule is invisible to every other
+   check — the heartbeat-gap check catches the past, this catches the future).
    **Each must also be firing, not merely enabled:** per entry, `status.lastRun`
    within 1.5× its own interval and `status.lastResult` = `success`. Enabled but
    not running, or a failing last result, is a **fail** — this is what notices a
    job that stopped silently. Name the offender, its `lastRun` and `lastResult`.
+   Judge **only the schedules ONBOARDING Step 6 defines**; an operator may add
+   temporary monitors of their own, and those are theirs to watch — report an
+   unrecognised schedule as **info**, never a failure.
 6. Slack connectivity — no separate probe: sending the report *is* the test
    (send failure → fail + fall back to chat UI).
 7. Artifact feature (when `artifact_skill` configured): report the configured
