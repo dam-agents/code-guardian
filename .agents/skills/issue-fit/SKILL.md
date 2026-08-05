@@ -67,49 +67,35 @@ what the PR body says it does:
 
 - **Missing scope** — a deliverable with no corresponding change in the diff.
   Check the diff for it by behavior, not by filename: the fix may live
-  somewhere the issue didn't predict.
+  somewhere the issue didn't predict. Critical when a step-1 closing keyword
+  will close the issue with that work undone; a warning otherwise.
 - **Undeclared scope creep** — a substantial change in the diff that neither
-  the issue asks for nor the PR body declares. Declared extras ("also fixes
-  the flaky retry test") are fine — the author said so, reviewers can judge;
-  it's the silent unrelated changes that hide risk. Mechanical fallout of the
-  asked change (renames, imports, lockfiles, generated files) is never creep.
+  the issue asks for nor the PR body declares — a warning. Declared extras
+  ("also fixes the flaky retry test") are fine — the author said so,
+  reviewers can judge; it's the silent unrelated changes that hide risk.
+  Mechanical fallout of the asked change (renames, imports, lockfiles,
+  generated files) is never creep.
 - **Partial delivery** — the deliverable is attempted but visibly incomplete
   against the issue's own words (e.g. the issue names three endpoints, the
-  diff covers one).
+  diff covers one) — severity as missing scope.
+- Minor gaps — a secondary deliverable, an inferred-link mismatch worth a
+  look — are suggestions.
 
 Anchor every finding in the issue's or the discussion's words and in the
 diff. Do not re-review code quality here — correctness, style, and tests
 belong to the main review; this skill judges scope only.
 
-## Severity
-
-- 🔴 **Critical** — the PR closes the issue (a step-1 closing keyword) but
-  the core ask is not delivered: merging closes the issue with the work
-  undone.
-- 🟡 **Warning** — a named requirement or a decision from the discussion is
-  missing (without the closing keyword making it 🔴), or substantial
-  undeclared scope creep.
-- 🟢 **Suggestion** — minor gaps: a secondary deliverable missing, an
-  inferred-link mismatch worth a look.
-
 ## Report
 
-The output is a markdown section body for the caller to include verbatim —
-findings only, no methodology narration, no restating the diff:
+The output is a markdown section body for the caller to include verbatim.
+Findings use the caller's standard format — severity levels, finding
+bullets, and their verdict weight are the caller's, not redefined here; one
+or two sentences per finding, `file:line` where it anchors to code. No
+methodology narration, no restating the diff. Open with the link line; a
+clean run ends after one ✅ line:
 
 ```
 Linked issue: #<n> "<title>" (closing keyword | inferred from <branch name / plain reference>)
-
-- 🔴 **Critical:** <what the issue asked, in its words> — not delivered; merging closes #<n> with this undone.
-- 🟡 **Warning:** <undeclared change> (`file:line`) — not in #<n> and not declared in the PR body.
-- 🟢 **Suggestion:** <minor gap>.
-```
-
-One or two sentences per finding, `file:line` where a finding anchors to
-code. Clean run:
-
-```
-Linked issue: #<n> "<title>" (closing keyword)
 
 ✅ Delivers the issue's ask; no undeclared scope.
 ```
