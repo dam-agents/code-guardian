@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 2.7.0 — 2026-08-05
+
+**Upgrade:**
+Nothing for the review-procedure changes — docs are re-read per run.
+**operator-only (optional):** enable the bundled `issue-fit` skill by adding
+`| issue-fit | <definition_repo> | always | Issue Fit |` to
+`work/CONFIG.md → ## Review skills` (row semantics: `docs/skills.md`). New
+onboardings get it by default.
+
 ## 2.6.0 — 2026-08-05
 
 **Upgrade:**

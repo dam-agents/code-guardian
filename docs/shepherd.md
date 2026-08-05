@@ -49,6 +49,9 @@ there is), mark them `*` (Slack-only suggestion, never requested on GitHub):
 
 ## Message templates (tone rises with level; always link the PR)
 
+Wording follows ASD-STE100 ([review.md](review.md) → **Criteria & review
+style**).
+
 **Reviewer-directed** (`awaiting_review`):
 - L1: `👀 PR #<n> "<title>" by <author> has been open <age> with no review yet. <@id1> <@id2> could you take a look? Focus: <focus>. <url>`
 - L2: `⏰ Reminder — PR #<n> "<title>" is now <age> old and still unreviewed. <@id1> <@id2> a review would unblock <author>. Focus: <focus>. <url>`

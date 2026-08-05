@@ -172,7 +172,8 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
 
-One message, this shape (tight — counts and one-liners, no prose):
+One message, this shape (tight — counts and one-liners, no prose; wording per
+ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 
 ```
 🩺 *<bot_display_name> weekly audit* — <date> · 🟢 N ok · 🟡 N warn · 🔴 N fail

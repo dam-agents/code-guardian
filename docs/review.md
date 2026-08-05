@@ -75,6 +75,8 @@ b. **Fetch PR context** (see below).
 c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
 d. **Clone the branch and run every configured review skill** per
    [skills.md](skills.md) — one audit line per configured skill, no exceptions.
+   Then verify your candidate findings against the full files in the clone
+   (**Full-file verification** below).
 e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
    closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
    become an issue, never a review). SHA
@@ -357,10 +359,25 @@ are flagged **only** when they create a real defect risk (a misleading name
 that hides a bug, dead code that changes behavior, an abstraction that breaks
 its contract). Never request restructuring purely for human readers.
 
+**Full-file verification (end of step d — candidates come from step c's diff
+review, verification runs after the skills, before composing output).** The diff
+nominates findings; the full file confirms them. Re-check each candidate
+against the complete file it anchors to in the clone (`$PR_DIR`) — the
+surrounding code often resolves what a hunk leaves open. Keep what survives;
+when unsure, drop it (a false positive costs more credibility than a missed
+nit). No clone (`clone-failed`) → verify against the diff context you have.
+
+**Language: ASD-STE100 (Simplified Technical English).** Write every outward
+text (reviews, inline comments, issues, chat, Slack) in STE style: one topic
+per sentence (aim ≤ 20 words), active voice, simple tenses, one term per
+concept, no idioms or synonym variation. STE governs wording, never content.
+
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No
   essays, no restated diff context, no hedging filler.
+- Findings anchor to this PR's diff; a pre-existing problem spotted in
+  passing is at most one 🟢 line suggesting a separate issue.
 - 🟢 **Suggestion** only when the improvement is substantial (a real
   correctness/security/performance/simplification win). Style nits,
   micro-refactors, and "consider…" filler are dropped entirely, not demoted.
@@ -600,12 +617,14 @@ Before declaring the run done, verify:
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
-  observed insights recorded ([preferences.md](preferences.md)) · stale
-  approval dismissed when the verdict dropped below APPROVE · clone deleted ·
+  observed insights recorded ([preferences.md](preferences.md)) · candidate
+  findings full-file-verified · stale approval dismissed when the verdict
+  dropped below APPROVE · clone deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
-- Style: findings concise, inline text never repeated in the summary,
-  re-reviews delta-only (Findings = 🆕 only, one-line carryovers, no ✅).
+- Style: findings concise and diff-anchored, inline text never repeated in
+  the summary, re-reviews delta-only (Findings = 🆕 only, one-line
+  carryovers, no ✅).
 - Urgent entries: rapid preliminary posted (or dedup-skipped) **before** the
   full review; `RAPID` row + `rapid posted` step recorded; terminal = full
   review posted (or closed-PR issue / abort). Closed entries: no review
