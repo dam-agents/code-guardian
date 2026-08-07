@@ -182,6 +182,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     [preferences.md → Weekly memory consolidation](preferences.md)
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
+    While consolidating, collect **what was newly learned**: MEMORY.md
+    bullets whose tag date falls inside the stats window (Feedback Log,
+    Observed Insights) plus the rules this consolidation promoted — they
+    fill the report's *Learned this week* block, one compressed line each.
 
 One message, this shape (tight — counts and one-liners, no prose; wording per
 ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
@@ -200,6 +204,9 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
 • Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
+
+*Learned this week*
+• <tag> <rule/insight in one line>   ← per task-29 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
 
 *Checks*
 🔴 <id> — <detail>          ← every fail (script + tasks above)
