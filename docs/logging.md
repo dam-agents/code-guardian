@@ -21,8 +21,8 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
   only when `work/CONFIG.md` has `log_level: debug` (missing key = `info`).
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `tool_failure`, `tool_use`, `review_step`,
-  `review_incomplete`, `stall_rate`, `stall_alert_sent`, `pod_boot`,
-  `log_cleanup`, …); the audit groups recurring errors by it.
+  `review_incomplete`, `mention_handled`, `stall_rate`, `stall_alert_sent`,
+  `pod_boot`, `log_cleanup`, …); the audit groups recurring errors by it.
 - **msg** — the human-readable message / error.
 
 Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`.
@@ -121,6 +121,9 @@ script-side), keeping at least 14 days:
   weekly cadence a file is 14–21 days old when it dies.
 - `work/HEARTBEAT.log` and `work/SHEPHERD.log` are trimmed in place to the
   last 14 days (unparseable lines are kept).
+- `work/MENTIONS.md` (the mention dedup ledger, [mentions.md](mentions.md))
+  is trimmed to rows younger than 14 days — older rows are outside the
+  7-day scan window and can never be re-emitted.
 - `work/AUDIT.log` is exempt (one line per week).
 - The cleanup itself is logged (`log_cleanup`, info). When `work/` is
   git-backed, older logs remain recoverable from the work repo's history.

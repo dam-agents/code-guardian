@@ -2,8 +2,8 @@
 
 Read this file at the start of every **review run** (a run whose preflight
 worklist has any of `reviews_due` / `label_cleanups_due` / `selfheals_due` /
-`prunes_due` / `urgent_alerts_due` non-empty). Preflight already made every
-decision — you perform the actions. Keep the two HEAD-freshness checks and
+`prunes_due` / `urgent_alerts_due` / `mentions_due` non-empty). Preflight
+already made every decision — you perform the actions. Keep the two HEAD-freshness checks and
 the pre-post dedup re-check below; they guard the race windows that open
 between preflight and post time.
 
@@ -285,28 +285,32 @@ diff-only mode — refresh the lock (keep verdict `RAPID`), no clone, no skills
 (the branch may be gone), Check 1 gates don't apply — then the two bullets
 above.
 
-## Slack-requested review (on-demand)
+## On-demand review (Slack or mention)
 
-The one channel request that triggers work (CLAUDE.md → **Instruction
-sources & trust boundary**): **anyone** in the connected channel may ask for
-a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`. Nothing
-else about the agent is changeable from a channel — its writes stay within
-`work/` state and the review itself; the definition repo is never touched.
+The one non-operator request that triggers work (CLAUDE.md → **Instruction
+sources & trust boundary**): **anyone** in the connected channel — or in a
+GitHub comment addressed to the bot ([mentions.md](mentions.md)) — may ask
+for a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
+Nothing else about the agent is changeable from those surfaces — its writes
+stay within `work/` state, the reply, and the review itself; the definition
+repo is never touched.
 
-1. Resolve the PR reference (number or URL); `gh pr view` — not found /
-   closed / draft → reply so in the channel, done.
+1. Resolve the PR reference (number or URL; a mention's own PR when none is
+   named); `gh pr view` — not found / closed / draft → reply so in the
+   requesting channel or thread, done.
 2. Row `in_progress`: fresh (< 30 min) → reply "review already running",
    done. Stale → the review is stuck: log
-   `PR #<n>: stale lock killed on Slack request` and continue (the lock is
-   overwritten in the next step).
+   `PR #<n>: stale lock killed on on-demand request` and continue (the lock
+   is overwritten in the next step).
 3. Live HEAD already reviewed (row SHA or remote marker — snippet above) →
    reply "already reviewed at <short-sha>"; same-SHA dedup always holds.
 4. Otherwise run the full per-PR sequence above (kind = `re-review` when a
    prior review exists, else `first`; install missing skills per the
-   fallback in skills.md → Installation), reply in the channel with a link to
-   the posted review, and persist `work/` (persistence.md).
+   fallback in skills.md → Installation), reply in the requesting channel or
+   thread with a link to the posted review, and persist `work/`
+   (persistence.md).
 
-Replying to the requesting channel is responsive, not proactive — it does
+Replying to the requesting surface is responsive, not proactive — it does
 not require `slack_notifications: enabled` (that gates outbound nudging).
 
 ## PR context: body, comments, reviews
@@ -610,6 +614,11 @@ Before declaring the run done, verify:
 
 - Bookkeeping: every `selfheals_due` / `label_cleanups_due` / `prunes_due`
   entry executed and logged.
+- Mentions (`mentions_due`, [mentions.md](mentions.md)): handled before the
+  review loop, ledger row before every action, each entry ended in
+  `feedback + reply` / `answer` / `review` / `no-action` with its
+  `mention_handled` event — and every explicit correction has its memory
+  write, named in the reply.
 - Per reviewed PR: one GitHub review with the trailing full-SHA marker ·
   Check 1 + Check 2 + pre-post dedup done (incl. the trigger check on
   re-reviews) · lock → `done` lifecycle correct (aborted re-reviews restored

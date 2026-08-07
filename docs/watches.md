@@ -81,8 +81,8 @@ skipped or aborted reviews:
 - Evaluated only when a review runs: commits pushed without a re-review
   trigger are next examined at a requested re-review; a rule added after a PR
   was reviewed applies from that PR's next review — there is no retroactive
-  sweep. To scan one PR now, request a review (label, review request, or
-  Slack request, review.md).
+  sweep. To scan one PR now, request a review (label, review request, Slack,
+  or mention — review.md → On-demand review).
 - At most one notification per PR per rule, ever (the marker is PR-scoped and
   covers all of the rule's targets at once).
 - State reconstruction (ONBOARDING Step 5) does not rebuild the markers; a

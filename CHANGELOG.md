@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 2.8.0 — 2026-08-07
+
+**Upgrade:**
+Nothing mandatory — the mention scan starts with the next review heartbeat
+(`mention_replies` missing = `enabled`) and the `work/MENTIONS.md` ledger is
+created on first use. **operator-only (optional):** add
+`- mention_replies: disabled` to `work/CONFIG.md` to turn mention handling
+off.
+
 ## 2.7.0 — 2026-08-05
 
 **Upgrade:**
