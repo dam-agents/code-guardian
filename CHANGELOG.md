@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.1.0 — 2026-08-07
+
+**Upgrade:**
+Nothing mandatory — the check runs at onboarding (ONBOARDING Step 7).
+Optionally run `bash "$HOME/scripts/verify-onboarding.sh"` once (offline,
+read-only) and apply the `fix:` instruction of any `FAIL` line, re-running
+until it prints `PASS`.
+
 ## 3.0.0 — 2026-08-07
 
 **Upgrade:**

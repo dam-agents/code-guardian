@@ -255,6 +255,10 @@ state. See `docs/persistence.md` → **Two stores: shared live state + durable b
   run (run types, pre-flight contract, config semantics, hard invariants).
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   both run types; detects work, never acts on GitHub.
+- [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
+  post-onboarding structure check (ONBOARDING Step 7): definition checkout +
+  `work/` state files against the templates; prints `FAIL … — fix: …` lines
+  for the agent to apply, offline and read-only.
 - [`scripts/log.sh`](scripts/log.sh) + [`scripts/harness/`](scripts/harness/) —
   structured events log (`work/logs/events-*.jsonl`, 14-day retention) and the
   per-harness adapters that auto-capture failed tool calls (`docs/logging.md`).
