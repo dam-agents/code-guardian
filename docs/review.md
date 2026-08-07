@@ -74,12 +74,15 @@ a. **Check 1 — re-fetch state**:
    about to skip. Entries flagged `closed: true` skip these gates — see
    **PR closed mid-review** below. Urgent entries now run **phase 1 (rapid
    preliminary review)** per **Urgent PRs** below, then continue with b.
-b. **Fetch PR context** (see below).
-c. **Fetch the diff** (`gh pr diff <n> --repo "$REPO"`) and review it.
-d. **Clone the branch and run every configured review skill** per
-   [skills.md](skills.md) — one audit line per configured skill, no exceptions.
-   Then verify your candidate findings against the full files in the clone
-   (**Full-file verification** below).
+b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
+   the three are independent. Context: see below. Diff:
+   `gh pr diff <n> --repo "$REPO"`. Clone: [skills.md](skills.md) →
+   **Clone, credential helper, cleanup**.
+c. **Review the diff.**
+d. **Run every configured review skill** per [skills.md](skills.md) — one audit
+   line per configured skill, no exceptions. Then verify your candidate
+   findings against the full files in the clone (**Full-file verification**
+   below).
 e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
    closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
    become an issue, never a review). SHA
@@ -104,7 +107,9 @@ i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Trigger removal**
    action here — GitHub clears it itself when your review posts.
 j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
    verdict.
-k. **Delete the clone** (`rm -rf "$PR_DIR"`), exactly once per PR.
+k. **Delete the clone, its per-skill copies, and the skill outputs**
+   ([skills.md](skills.md) → **Clone, credential helper, cleanup**), exactly
+   once per PR.
 
 **Progress logging (stall diagnosis).** A session that dies mid-review must
 leave a trace of where it stopped, so each milestone of this sequence appends a
@@ -112,7 +117,7 @@ leave a trace of where it stopped, so each milestone of this sequence appends a
 event logged for a PR pins the exact step a stall stopped at; consecutive
 timestamps give per-step durations.
 
-**Most steps are logged for you.** `cloned` (d), `skill:<name> done` (d) and
+**Most steps are logged for you.** `cloned` (b), `skill:<name> done` (d) and
 `posted <verdict>` (h) are derived by the `PostToolUse` adapter hook from the
 tool call that performs them ([logging.md](logging.md) → **Harness adapters**) —
 do not log them yourself. The three the harness cannot observe stay yours,
@@ -656,7 +661,7 @@ Before declaring the run done, verify:
   overrides applied from that PR's file only · PR context fetched and used;
   observed insights recorded ([preferences.md](preferences.md)) · candidate
   findings full-file-verified · stale approval dismissed when the verdict
-  dropped below APPROVE · clone deleted ·
+  dropped below APPROVE · clone + per-skill copies deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
 - Style: findings concise and diff-anchored, inline text never repeated in
