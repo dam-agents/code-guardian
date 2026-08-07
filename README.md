@@ -33,7 +33,9 @@ of it per the `docs/` procedures:
   comments, signed with **`bot_display_name`**, carrying the hidden dedup
   marker), label bookkeeping, tracking in `work/REVIEWS.md` and
   `work/reviews/pr-<number>.md`. Reviews are concise and assume
-  agent-written, agent-read code; re-reviews are delta-only. The same
+  agent-written, agent-read code. Re-review scope follows the trigger: the
+  label requests a complete review of the whole PR, a review request or
+  on-demand ask a delta-only one. The same
   heartbeat also picks up comments addressed to the bot — an @-mention or a
   reply in one of its inline review threads — and answers them: questions
   get a reply, explicit review feedback is recorded to memory (and confirmed
@@ -42,9 +44,9 @@ of it per the `docs/` procedures:
 - **Shepherd sweep** (default hourly, working days/hours; exists only when
   Slack notifications were enabled at onboarding): `preflight.sh shepherd`
   classifies every open non-draft PR from independent reviews and applies
-  the age gate / cooldown / escalation ladder; the agent applies each due
-  nudge's ledger update (write-before-send) and sends it to the shared Slack
-  channel (roster-only mentions, per
+  the age gate / cooldown / escalation ladder; the agent sends each due
+  nudge to the shared Slack channel and records it in the ledger
+  immediately after the send (send-then-record; roster-only mentions, per
   [`docs/shepherd.md`](docs/shepherd.md)). The nudge rules are
   hour-granular, so the hourly work-hours cadence loses nothing versus a
   continuous one.
@@ -54,7 +56,7 @@ of it per the `docs/` procedures:
   heartbeats, error log lines, state consistency against the GitHub markers,
   stale locks, orphaned artifact gists, disk usage, skill freshness, roster
   sanity. The agent adds judgment checks (schedules, memory-rule compliance,
-  lost nudges) and sends a traffic-light report to Slack (when enabled) and
+  nudge integrity) and sends a traffic-light report to Slack (when enabled) and
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
 
@@ -167,7 +169,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
-| `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a re-review of an already-reviewed PR — without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
+| `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review of the whole PR — without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`, key omitted then) | How re-reviews are requested: `label`, `review-request` (GitHub's "Re-request review" on the bot; needs the bot as a collaborator), or `both`. A served review request clears itself when the review posts. |
 | `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows; with Slack enabled a newly urgent PR also gets one immediate roster-mentioning alert (`docs/review.md` → **Urgent PRs**). |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot (@-mention, or a reply in its inline review threads) are answered every heartbeat — questions get replies, explicit review feedback is recorded to memory, review requests are served (`docs/mentions.md`). |

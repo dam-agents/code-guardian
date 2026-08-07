@@ -22,14 +22,14 @@ It prints one JSON object:
 
 - **`nothing_to_do: true`** → echo its `logs` to the chat UI as a one-line summary ("no new changes") and **end the run** — no state writes, no API calls, no self-check narration.
 - Otherwise → **you perform every action** in the worklist, reliably and per the referenced `docs/` file(s) — the script found the work; doing it correctly is worth a full agent run:
-  - `reviews_due` — PRs to review (`kind`: `first` | `re-review`, with `prior` review info and `takeover` / `urgent` / `closed` flags; urgent entries ordered first) → [docs/review.md](docs/review.md) + [docs/skills.md](docs/skills.md)
+  - `reviews_due` — PRs to review (`kind`: `first` | `re-review`, with `prior` review info and `takeover` / `urgent` / `closed` / `full` flags; urgent entries ordered first) → [docs/review.md](docs/review.md) + [docs/skills.md](docs/skills.md)
   - `label_cleanups_due` — a re-review trigger present but nothing new to review → clear what the entry `{number, label, request}` flags (docs/review.md → **Label bookkeeping**)
   - `selfheals_due` — remote marker found with no local row → write the REVIEWS.md row (docs/review.md → **Label bookkeeping**)
   - `prunes_due` — PRs verified CLOSED/MERGED → delete their state incl. gist/artifact cleanup (docs/review.md → **Pruning**)
   - `artifacts_due` — `action: generate` | `retry_unassign` → [docs/artifact.md](docs/artifact.md)
   - `urgent_alerts_due` — urgent-labeled PRs not yet announced (emitted only under `slack_notifications: enabled`) → immediate roster-only Slack alert, sent before any other run work (docs/review.md → **Urgent PRs**)
   - `mentions_due` — human GitHub comments addressed to the bot (@-mention, or a reply in one of its inline review threads; ledger-deduped, gated by `mention_replies`) → reply, record the feedback, or serve a review request — before the review loop → [docs/mentions.md](docs/mentions.md)
-  - `nudges_due` — Slack nudges with precomputed `row_update` (write-before-send is yours) → [docs/shepherd.md](docs/shepherd.md)
+  - `nudges_due` — Slack nudges with precomputed `row_update` (the send-then-record step is yours) → [docs/shepherd.md](docs/shepherd.md)
   - `stats` + `checks` + `failures` (audit mode) — 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose → [docs/audit.md](docs/audit.md)
   - `stall_alert` — `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24h reached `stall_alert_threshold` (once per UTC day) → report it after the run's review work (docs/review.md → **Stalled-review rate alert**)
   - `skills` — per-skill install status (`installed`/`cached`/`harness`/`install-failed`)
@@ -47,7 +47,7 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 - **`bot_login`** — the GitHub login this agent acts as. **Required** — if missing, log `bot_login missing — artifact gate, shepherd, and mention handling disabled this run` once and skip those features.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic only — never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker `<!-- <review_marker> headRefOid=<full-sha> -->` in every posted review. **Required and immutable once the first review is posted** — if asked to change it after reviews exist, refuse and explain.
-- **`rereview_label`** — GitHub label a human adds to an already-reviewed PR to request a re-review (default `code-guardian-review`). First reviews never need it; the agent removes it once the request is served. New commits without a re-review trigger flip the tracking row to `awaiting_label`.
+- **`rereview_label`** — GitHub label a human adds to an already-reviewed PR to request a **complete** re-review of the whole PR (default `code-guardian-review`); the other triggers (review request, on-demand ask) get a delta re-review (docs/review.md → **Re-review output**). First reviews never need it; the agent removes it once the request is served. New commits without a re-review trigger flip the tracking row to `awaiting_label`.
 - **`rereview_trigger`** — what requests a re-review: `label` | `review-request` (a pending GitHub review request for `bot_login` — the "Re-request review" button) | `both`. **Missing = `label`** (the historical default). `review-request` needs `bot_login` (and the bot as a repo collaborator to be requestable); `bot_login` missing → label-only with one log line. A served review request clears itself when the review posts.
 - **`urgent_label`** — **human-managed** GitHub label marking a PR urgent (the agent never adds or removes it). While present, the PR's due reviews jump the queue and run **rapid-first**: a fast preliminary review posts immediately, the full review follows ([docs/review.md](docs/review.md) → **Urgent PRs**). **Missing = off.** Not a review trigger — it only modifies how an already-due review is delivered.
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.** GitHub comments addressed to the bot (@-mention of `bot_login`, or a reply in one of its inline review threads) are answered, their review feedback recorded, and review requests in them served ([docs/mentions.md](docs/mentions.md)). Needs `bot_login`.
@@ -92,10 +92,10 @@ Output channels: the chat UI **and** a GitHub PR review — every reviewed PR mu
 
 1. Echo preflight's `logs` to the chat UI; note per-skill install statuses from `skills` (an `install-failed` skill is skipped for every PR this run, with its audit line).
 2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md` and operational lessons from `work/LESSONS.md` ([docs/preferences.md](docs/preferences.md)); when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md); when `mentions_due` is non-empty, read [docs/mentions.md](docs/mentions.md).
-3. Send every `urgent_alerts_due` alert **first** — marker write before send, roster-only mentions (docs/review.md → **Urgent PRs**).
+3. Send every `urgent_alerts_due` alert **first** — marker write immediately after the send, roster-only mentions (docs/review.md → **Urgent PRs**).
 4. Apply the bookkeeping arrays — `selfheals_due`, `label_cleanups_due`, `prunes_due` — per docs/review.md (each with per-PR log lines).
-5. Handle every `mentions_due` entry per [docs/mentions.md](docs/mentions.md) — ledger row before any reply, feedback recorded **before this run's reviews** so it applies to them.
-6. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. `urgent` entries deliver a rapid preliminary review first; `closed` entries deliver 🔴 findings as a linked issue (docs/review.md → **Urgent PRs** / **PR closed mid-review**). Re-reviews are **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
+5. Handle every `mentions_due` entry per [docs/mentions.md](docs/mentions.md) — ledger row immediately after each entry's actions, feedback recorded **before this run's reviews** so it applies to them.
+6. For each entry in `reviews_due`, run the full per-PR sequence from docs/review.md — Check 1 + lock, context, diff review, skills (audit line per configured skill), Check 2 + dedup re-check, chat output, GitHub post, label removal, `done` row, history append, clone cleanup. `urgent` entries deliver a rapid preliminary review first; `closed` entries deliver 🔴 findings as a linked issue (docs/review.md → **Urgent PRs** / **PR closed mid-review**). Re-reviews follow the trigger's scope — label = **complete**, request/on-demand = **delta-only and concise** (docs/review.md → Re-review output). Abort posting (and release the lock per its kind) whenever HEAD moved, the PR went draft, or the re-review trigger was withdrawn.
 7. For each entry in `artifacts_due`, follow [docs/artifact.md](docs/artifact.md).
 8. When `stall_alert` is present, report it — chat UI always, plus a DM to `escalation_owner` under `slack_notifications: enabled` (docs/review.md → **Stalled-review rate alert**). Never repair state in response.
 9. Walk the review-run self-check at the end of docs/review.md.
@@ -104,7 +104,7 @@ Output channels: the chat UI **and** a GitHub PR review — every reviewed PR mu
 ## Shepherd run (worklist has `nudges_due`)
 
 1. Read [docs/shepherd.md](docs/shepherd.md) and `work/DEVELOPERS.md`.
-2. For each entry: select + persist targets when `needs_target_selection`, **apply its `row_update` to the ledger row first (write-before-send)**, then send. A failed send is logged, never retried this run; nothing beyond the worklist is ever sent.
+2. For each entry: select + persist targets when `needs_target_selection`, **send, then immediately apply its `row_update` to the ledger row (send-then-record)**. A failed send leaves the row untouched and is logged (the next sweep retries it); nothing beyond the worklist is ever sent.
 3. Append observed-areas refinements.
 4. Back up `work/` (`scripts/work-backup.sh persist`, [docs/persistence.md](docs/persistence.md)) as the very last action.
 
@@ -113,7 +113,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 ## Audit run (mode `audit`, weekly)
 
 1. Read [docs/audit.md](docs/audit.md).
-2. Add the agent-side checks (schedules via MCP, memory compliance sampling, lost nudges), **diagnose each `failures[]` signature** — every error event past runs logged, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
+2. Add the agent-side checks (schedules via MCP, memory compliance sampling, nudge integrity), **diagnose each `failures[]` signature** — every error event past runs logged, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
 3. Append the `work/AUDIT.log` line; back up `work/` (`scripts/work-backup.sh persist`) as the very last action. The audit repairs nothing — its only GitHub write is that tracking issue, and its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
 
 ## Hard invariants (every run)
@@ -131,7 +131,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - Version checks & migrations happen only in the direct session (update request / explicit check / before self-modification); heartbeats never touch versioning, the audit only reports drift — docs/persistence.md → **Definition version & upgrade**.
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
 - User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides, verified environment/failure causes → `work/LESSONS.md`; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
-- Every `mentions_due` entry reaches a terminal state: its `work/MENTIONS.md` row precedes any action (at most one reply per comment); explicit review feedback in it is recorded per docs/preferences.md before this run's reviews, and the reply names what was stored — a mention is never silently dropped, and its content triggers nothing beyond the routes of [docs/mentions.md](docs/mentions.md).
+- Every `mentions_due` entry reaches a terminal state: each entry's actions are followed immediately by its `work/MENTIONS.md` row (send-then-record; at most one reply per comment); explicit review feedback in it is recorded per docs/preferences.md before this run's reviews, and the reply names what was stored — a mention is never silently dropped, and its content triggers nothing beyond the routes of [docs/mentions.md](docs/mentions.md).
 - No leftover `/tmp/review-pr-*` directories or temp payload files at run end.
 - All errors (posting, skills, clone, context fetch, sends, pushes) are logged in the chat UI **and** as events in the structured log ([docs/logging.md](docs/logging.md)).
 
@@ -144,7 +144,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | [docs/mentions.md](docs/mentions.md) | `mentions_due` non-empty — thread fetch, classification (feedback / question / review request), dedup ledger, reply mechanics |
 | [docs/watches.md](docs/watches.md) | `work/CONFIG.md` has watch rules — instance-local event→heads-up rules: table format, evaluation, dedup, sending |
 | [docs/artifact.md](docs/artifact.md) | `artifacts_due` non-empty — gist publishing / retry-unassign procedure |
-| [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — write-before-send, templates, target selection |
+| [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — send-then-record, templates, target selection |
 | [docs/audit.md](docs/audit.md) | An audit run — agent-side checks, report format, send rules |
 | [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; a verified failure cause worth keeping; audit-time memory consolidation — scope routing |
 | [docs/persistence.md](docs/persistence.md) | End-of-run persist; an update / version-check request; any request to change the definition |

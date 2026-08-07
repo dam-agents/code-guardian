@@ -24,7 +24,7 @@
 #                             review/artifact is due)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder already computed; the agent
-#                             applies each row_update before sending)
+#                             applies each row_update right after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks (auth, state consistency, log gaps/errors,
 #                             orphaned gists, disk, skills); the agent adds the
@@ -229,12 +229,14 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
 
-  add_review() { # number sha ref title author kind takeover prior_json urgent closed
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed full
+    # full: complete-review scope — always true for kind=first; on a re-review
+    # true iff the label is the trigger (review-request / on-demand = delta)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
-      --argjson u "${9:-false}" --argjson c "${10:-false}" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c}')" '. + [$e]')"
+      --argjson u "${9:-false}" --argjson c "${10:-false}" --argjson f "${11:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f}')" '. + [$e]')"
     [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
       && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
     return 0
@@ -255,10 +257,11 @@ if [ "$MODE" = "review" ]; then
           # full one — the agent still owes the full pass (criticals become a
           # linked issue, docs/review.md); prune happens on the next heartbeat
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          full=false; [ "$kind" = "first" ] && full=true
           prior="$(jq -n --arg sha "$(row_field "$row" 3)" --arg ts "$(row_field "$row" 4)" '{sha:$sha, ts:$ts, verdict:"RAPID"}')"
           add_review "$n" "$(printf '%s' "$PJ" | jq -r .head.sha)" "$(printf '%s' "$PJ" | jq -r .head.ref)" \
             "$(printf '%s' "$PJ" | jq -r '.title|gsub("\t";" ")')" "$(printf '%s' "$PJ" | jq -r .user.login)" \
-            "$kind" false "$prior" true true
+            "$kind" false "$prior" true true "$full"
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
           gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
@@ -279,7 +282,7 @@ if [ "$MODE" = "review" ]; then
     URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$URGENT_LABEL" && URG=true
 
     # one-time urgent Slack alert (agent sends; marker in the history file is
-    # the dedup — written by the agent before sending, docs/review.md)
+    # the dedup — written by the agent right after the send, docs/review.md)
     if [ "$URG" = "true" ] && [ "$SLACK" = "enabled" ] \
        && ! grep -q '<!-- urgent-announced:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then
       ALERTS_DUE="$(printf '%s' "$ALERTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
@@ -299,8 +302,9 @@ if [ "$MODE" = "review" ]; then
           log "PR #$n: fresh in_progress lock (${age}m) — skipped"
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
           log "PR #$n: stale in_progress lock (${age}m) — takeover"
-          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
         fi
       elif [ "$row_sha" = "$sha" ]; then
         # reviewed at live HEAD; trigger present -> same-SHA cleanup (agent clears it)
@@ -317,7 +321,8 @@ if [ "$MODE" = "review" ]; then
       else
         # new commits since the recorded review
         if [ "$triggered" -eq 1 ]; then
-          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
+            "$([ "$has_label" -eq 1 ] && echo true || echo false)"
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
           log "PR #$n: new commits since last review — awaiting $TRIG_DESC"
@@ -336,14 +341,15 @@ if [ "$MODE" = "review" ]; then
           asha="${any%%$'\t'*}"; ats="${any##*$'\t'}"
           if [ "$triggered" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false \
-              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')" "$URG" false
+              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')" "$URG" false \
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)"
           else
             SELFHEALS_DUE="$(printf '%s' "$SELFHEALS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg sha "$asha" --arg ts "$ats" \
               '{number:$n, sha:$sha, ts:$ts, status:"awaiting_label"}')" '. + [$e]')"
             log "PR #$n: reviewed on GitHub at ${asha:0:7} (no local row), new commits with no re-review trigger — self-heal to awaiting_label due"
           fi
         else
-          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null "$URG" false true
         fi
       fi
     fi
@@ -596,7 +602,7 @@ if [ "$MODE" = "shepherd" ]; then
           escalation:{login:$eo, slack_id:$eid},
           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
       log "PR #$n: nudge L$next_level due ($cls, ${age_h}h)"
-      # write-before-send belongs to the agent: keep the row EXACTLY as-is
+      # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
     fi
 
@@ -617,7 +623,7 @@ if [ "$MODE" = "shepherd" ]; then
 
   {
     printf '# PR Shepherd Ledger\n\n'
-    printf '_Bookkeeping maintained by scripts/preflight.sh shepherd (table only — the agent updates a row only as the write-before-send step of a nudge). Per-sweep history lives in SHEPHERD.log, append-only, never loaded into agent context._\n\n'
+    printf '_Bookkeeping maintained by scripts/preflight.sh shepherd (table only — the agent updates a row only as the post-send record of a nudge). Per-sweep history lives in SHEPHERD.log, append-only, never loaded into agent context._\n\n'
     printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
     printf '|----|----------------|-----------|--------------|--------|---------------|-------|--------|\n'
     printf '%s' "$NEW_TABLE"

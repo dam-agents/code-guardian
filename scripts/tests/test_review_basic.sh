@@ -43,7 +43,7 @@ assert_jq '.nothing_to_do == true' 'no review without a trigger'
 assert_file_contains "$WORK/REVIEWS.md" 'awaiting_label' 'row flipped to awaiting_label'
 assert_file_contains "$WORK/REVIEWS.md" "$OLD_TS" 'flip kept the old timestamp'
 
-# --- new commits + label → re-review with prior ------------------------------
+# --- new commits + label → complete re-review with prior ---------------------
 new_case rereview_due
 base_config
 pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
@@ -51,5 +51,23 @@ add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT awaiting_label
 run_preflight review
 assert_jq '.reviews_due | length == 1' 'one re-review due'
 assert_jq ".reviews_due[0] | .kind == \"re-review\" and .prior.sha == \"$SHA2\" and .prior.verdict == \"COMMENT\"" 're-review with prior'
+assert_jq '.reviews_due[0].full == true' 'label-triggered re-review is complete'
+
+# --- new commits + review request → delta re-review ---------------------------
+new_case rereview_request_delta
+base_config '- rereview_trigger: review-request'
+pr_json 1 "plain PR" '[]' "$SHA1" \
+  | jq '.requested_reviewers = [{login:"test-bot"}]' | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT awaiting_label
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'request-triggered re-review due'
+assert_jq '.reviews_due[0] | .kind == "re-review" and .full == false' 'request-triggered re-review is delta'
+
+# --- first reviews are always full --------------------------------------------
+new_case first_full
+base_config
+pr_json 2 "fresh PR" '[]' "$SHA1" | open_prs_fx
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "first" and .full == true' 'first review flagged full'
 
 finish

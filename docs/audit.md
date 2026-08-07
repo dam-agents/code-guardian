@@ -98,10 +98,11 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 ### D. Shepherd health (when Slack is enabled)
 
-14. **Lost nudges**: ledger rows with `last_nudge_at` in the audit week vs
-    send-failure lines in the weekly logs — write-before-send means a failed
-    send is claimed but never delivered. Any found → **warn** with PR list
-    (the operator may nudge manually).
+14. **Nudge integrity**: send-then-record means a crash between send and
+    record repeats the nudge next sweep — look for the same PR nudged twice
+    inside its 20h cooldown (`last_nudge_at` vs SHEPHERD.log), and for
+    `nudge_send` error signatures recurring across sweeps (a send that
+    keeps failing keeps retrying). Either → **warn** with PR list.
 15. **Effectiveness**: of the PRs nudged this week, how many received a
     human review within 48 h? Report the ratio — a persistently ignored
     shepherd is a process problem the operator should see.

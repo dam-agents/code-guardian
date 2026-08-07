@@ -67,10 +67,11 @@ skipped or aborted reviews:
    referenced skill section) already in context. Only a **clear** match
    notifies; when unsure, skip and log
    `PR #<n>: watch <id> uncertain match — not notified`.
-2. On a match, **write the marker first** (own line, after the artifact
-   markers), then deliver to each listed target. Write-before-send: a failed
-   delivery is logged and never retried for this PR (remaining targets are
-   still attempted) — under-notifying beats double-posting.
+2. On a match, deliver to the listed targets in order and **write the marker
+   immediately after the first delivery succeeds** (own line, after the
+   artifact markers), then attempt the remaining targets. No delivery
+   succeeded → no marker (the PR's next review retries); a failed remaining
+   target is logged, not retried for this PR.
 3. Message, shared by all targets (**never @-mentions anyone**; links the PR —
    `pr-comment` omits the trailing `<url>`):
    `🔭 **<bot_display_name>** — watch <id>: PR #<n> "<title>" by <author> — <one line on what matched>. <url>`
