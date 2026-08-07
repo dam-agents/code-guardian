@@ -53,7 +53,16 @@ case "$tool" in
     pr="$(printf '%s' "$txt" | grep -oE '(PR #|pulls/|review-pr-)[0-9]{1,7}' \
           | grep -oE '[0-9]{1,7}' | head -1)"
     [ -n "$pr" ] || exit 0
-    for s in doc-drift typescript-engineering react-ui-engineering adr-policy pr-artifact; do
+    # Skill names come from work/CONFIG.md — the `## Review skills` table plus
+    # the artifact skill — never a hard-coded list: each instance configures its
+    # own set, and a name missing here silently loses that skill's step.
+    skills="$(sed -n '/^## Review skills$/,${ /^## Review skills$/d; /^## /q; p; }' \
+                "$LOG_WORK/CONFIG.md" 2>/dev/null | grep -E '^\|' \
+              | cut -d'|' -f2 | tr -d '[:blank:]' | grep -vE '^(skill|[-:]*)$')"
+    art="$(sed -n 's/^- artifact_skill:[[:space:]]*//p' "$LOG_WORK/CONFIG.md" 2>/dev/null \
+           | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/@.*$//' -e 's/[[:space:]]*$//')"
+    case "$art" in (none) art="";; esac
+    for s in $skills $art; do        # unquoted: empty values expand to no word
       case "$txt" in (*"$s"*) emit "$pr" "skill:$s done" "skill-$s"; exit 0;; esac
     done
     ;;
