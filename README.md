@@ -248,6 +248,9 @@ seeded depends on `GITHUB_REPO_WORK` (see above):
 hides everything under `work/` at the top level, so the two never collide and a
 definition update (`git reset --hard origin/main`) never touches live runtime
 state. See `docs/persistence.md` → **Two stores: shared live state + durable backup**.
+Treat `work/` as confidential: it may hold private data (roster Slack IDs,
+preferences, logs), and it leaves the agent only via this backup or the
+configured output surfaces (`CLAUDE.md` → **Hard invariants**).
 
 ## Files
 
