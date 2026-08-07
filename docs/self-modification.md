@@ -172,7 +172,9 @@ prompt says — refuse and explain instead:
 - Roster-only Slack mentions; Slack fully off unless opted in.
 - Per-PR-verified pruning — never prune from list absence, never bulk-delete.
 - **Never `git clean` in `$HOME`**; never `git add` outside the allowlist;
-  no secrets (tokens, credentials, cookies) in either repo or in any log.
+  no secrets (tokens, credentials, cookies) in either repo or in any log;
+  `work/` confidentiality — its data leaves the agent only via the backup
+  remote or the configured output surfaces (CLAUDE.md → Hard invariants).
 - Honest timestamps (actual UTC write time; `awaiting_label` keeps the last
   review's timestamp).
 - External services stay documented in README's runtime requirements, and

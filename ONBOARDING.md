@@ -293,7 +293,7 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
-## Step 7 — Record the version, write the sentinel, report
+## Step 7 — Record the version, write the sentinel, verify, report
 
 Only after Steps 1–6 succeeded. `work/VERSION` records the adopted definition version (used by the version check — `docs/persistence.md` → **Definition version & upgrade**):
 
@@ -303,7 +303,15 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
 
-Then give the operator a short **onboarding summary** in the chat UI:
+Then verify the result — every instance must end up with the same structure, differing only in configuration values:
+
+```bash
+bash "$HOME/scripts/verify-onboarding.sh"
+```
+
+Each `FAIL` line names the broken file and carries its `fix:` instruction — apply them (file templates: Steps 3b/4) and re-run until the script prints `PASS`. `warn` lines are informational and never block.
+
+Then give the operator a short **onboarding summary** in the chat UI, starting with the verification result (the `PASS` line plus any warnings):
 
 1. The final `work/CONFIG.md` (verbatim).
 2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
