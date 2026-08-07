@@ -16,7 +16,7 @@ Three scheduled run types exist (registered at onboarding). **All begin with the
 
 ### The pre-flight contract
 
-The script **detects, it never acts**: it makes no GitHub writes, no commits, no pushes. It lists open non-draft PRs (one REST call), computes every decision — same-SHA dedup, in-progress locks (30-min TTL, takeover flag), the **re-review trigger gate** (label and/or review request per `rereview_trigger`), urgent-label flagging and ordering, remote marker dedup (anchored + unanchored), verified prune candidates, the artifact assignee gate, the ledger-deduped mention scan, shepherd classifications with the full nudge ladder — and installs the configured skills (SHA-cached) when a review/artifact is due. Its only local writes are bookkeeping: the REVIEWS.md `done → awaiting_label` status flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per [docs/logging.md](docs/logging.md)), the skill cache, and the 14-day log retention cleanup in audit mode.
+The script **detects, it never acts**: it makes no GitHub writes, no commits, no pushes. It lists open non-draft PRs (one REST call), computes every decision — same-SHA dedup, in-progress locks (30-min TTL, takeover flag), the **re-review trigger gate** (label and/or review request per `rereview_trigger`), urgent-label flagging and ordering, remote marker dedup (anchored + unanchored), verified prune candidates, the artifact assignee gate, the ledger-deduped mention scan, shepherd classifications with the full nudge ladder and merge-conflict flagging — and installs the configured skills (SHA-cached) when a review/artifact is due. Its only local writes are bookkeeping: the REVIEWS.md `done → awaiting_label` status flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per [docs/logging.md](docs/logging.md)), the skill cache, and the 14-day log retention cleanup in audit mode.
 
 It prints one JSON object:
 
@@ -28,7 +28,7 @@ It prints one JSON object:
   - `prunes_due` — PRs verified CLOSED/MERGED → delete their state incl. gist/artifact cleanup (docs/review.md → **Pruning**)
   - `artifacts_due` — `action: generate` | `retry_unassign` → [docs/artifact.md](docs/artifact.md)
   - `urgent_alerts_due` — urgent-labeled PRs not yet announced (emitted only under `slack_notifications: enabled`) → immediate roster-only Slack alert, sent before any other run work (docs/review.md → **Urgent PRs**)
-  - `mentions_due` — human GitHub comments addressed to the bot (@-mention, or a reply in one of its inline review threads; ledger-deduped, gated by `mention_replies`) → reply, record the feedback, or serve a review request — before the review loop → [docs/mentions.md](docs/mentions.md)
+  - `mentions_due` — human GitHub text addressed to the bot (@-mention in a comment or PR description, or a reply in one of its inline review threads; ledger-deduped, gated by `mention_replies`) → reply, record the feedback, or serve a review request — before the review loop → [docs/mentions.md](docs/mentions.md)
   - `nudges_due` — Slack nudges with precomputed `row_update` (the send-then-record step is yours) → [docs/shepherd.md](docs/shepherd.md)
   - `stats` + `checks` + `failures` (audit mode) — 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose → [docs/audit.md](docs/audit.md)
   - `stall_alert` — `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24h reached `stall_alert_threshold` (once per UTC day) → report it after the run's review work (docs/review.md → **Stalled-review rate alert**)
@@ -113,7 +113,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 ## Audit run (mode `audit`, weekly)
 
 1. Read [docs/audit.md](docs/audit.md).
-2. Add the agent-side checks (schedules via MCP, memory compliance sampling, nudge integrity), **diagnose each `failures[]` signature** — every error event past runs logged, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
+2. Add the agent-side checks (schedules via MCP, memory compliance sampling, nudge integrity, reaction feedback), **diagnose each `failures[]` signature** — every error event past runs logged, grouped by the script; cause + fix per entry, and a definition bug gets a deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` (docs/audit.md task 3) — compose the report from `stats` + `checks`, and send it (Slack when enabled, chat UI always).
 3. Append the `work/AUDIT.log` line; back up `work/` (`scripts/work-backup.sh persist`) as the very last action. The audit repairs nothing — its only GitHub write is that tracking issue, and its one local write beyond the log is the weekly memory consolidation (docs/preferences.md). Log triage and the 14-day retention cleanup already happened inside preflight ([docs/logging.md](docs/logging.md)).
 
 ## Hard invariants (every run)

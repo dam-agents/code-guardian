@@ -60,6 +60,26 @@ base_config
 run_preflight review
 assert_jq '.mentions_due | length == 0' 'human threads and Bot accounts ignored'
 
+# --- @-mention in a PR description → mentions_due (thread body) ----------------
+new_case body_mention
+base_config
+pr_json 4 "desc PR" '[]' "1111111111111111111111111111111111111111" \
+  | jq '.body = "@test-bot is the retry loop here intentional?"' | open_prs_fx
+add_row 4 "1111111111111111111111111111111111111111" "$(iso_ago 3600)" APPROVE done
+run_preflight review
+assert_jq '.mentions_due | length == 1' 'body mention due'
+assert_jq '.mentions_due[0] | .comment_id == "body-4" and .thread == "body" and .number == 4 and .author == "alice"' 'body entry fields'
+
+# --- body mention deduped by its ledger row ------------------------------------
+new_case body_mention_deduped
+base_config
+pr_json 4 "desc PR" '[]' "1111111111111111111111111111111111111111" \
+  | jq '.body = "@test-bot ping"' | open_prs_fx
+add_row 4 "1111111111111111111111111111111111111111" "$(iso_ago 3600)" APPROVE done
+printf '| body-4 | 4 | 2026-08-07T09:30:00Z | answer |\n' > "$WORK/MENTIONS.md"
+run_preflight review
+assert_jq '.mentions_due | length == 0' 'ledger row dedups the body mention'
+
 # --- mention_replies: disabled → no scan ---------------------------------------
 new_case mentions_disabled
 base_config '- mention_replies: disabled'

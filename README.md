@@ -36,7 +36,8 @@ of it per the `docs/` procedures:
   agent-written, agent-read code. Re-review scope follows the trigger: the
   label requests a complete review of the whole PR, a review request or
   on-demand ask a delta-only one. The same
-  heartbeat also picks up comments addressed to the bot — an @-mention or a
+  heartbeat also picks up comments and PR descriptions addressed to the bot
+  — an @-mention or a
   reply in one of its inline review threads — and answers them: questions
   get a reply, explicit review feedback is recorded to memory (and confirmed
   in the reply), and "please re-review" is served on demand
@@ -44,7 +45,9 @@ of it per the `docs/` procedures:
 - **Shepherd sweep** (default hourly, working days/hours; exists only when
   Slack notifications were enabled at onboarding): `preflight.sh shepherd`
   classifies every open non-draft PR from independent reviews and applies
-  the age gate / cooldown / escalation ladder; the agent sends each due
+  the age gate / cooldown / escalation ladder, flagging PRs with merge
+  conflicts for an author-directed rebase nudge (approved PRs included);
+  the agent sends each due
   nudge to the shared Slack channel and records it in the ledger
   immediately after the send (send-then-record; roster-only mentions, per
   [`docs/shepherd.md`](docs/shepherd.md)). The nudge rules are
@@ -55,8 +58,9 @@ of it per the `docs/` procedures:
   deterministic health checks — GitHub auth and rate limit, missed
   heartbeats, error log lines, state consistency against the GitHub markers,
   stale locks, orphaned artifact gists, disk usage, skill freshness, roster
-  sanity. The agent adds judgment checks (schedules, memory-rule compliance,
-  nudge integrity) and sends a traffic-light report to Slack (when enabled) and
+  sanity, 👍/👎 reactions on the bot's comments. The agent adds judgment
+  checks (schedules, memory-rule compliance, nudge integrity, lessons from
+  👎-flagged findings) and sends a traffic-light report to Slack (when enabled) and
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
 

@@ -8,7 +8,9 @@ every open non-draft PR from **independent reviews** (not the bot, not the
 author; only `APPROVED` silences — `CHANGES_REQUESTED` flips to
 author-directed mode, a bare `COMMENTED` counts as awaiting), applied the 24h
 age gate, the 20h per-PR cooldown, and the ≥2-day escalation tick, reset the
-ladder (but never the clock) on class transitions, kept `held` rows held, and
+ladder (but never the clock) on class transitions, kept `held` rows held,
+flagged merge conflicts (`conflict: true` — such nudges are author-directed;
+an approved PR nudges only while conflicted), and
 updated the ledger's bookkeeping columns. **Rows with a due nudge were left
 untouched** — advancing them is your post-send record step.
 
@@ -64,6 +66,12 @@ style**).
 - L2: `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <@author> a follow-up would move this forward. <url>`
 - L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <@author> please push an update or reply to the reviewer. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <@escalation-owner-slack-id> (<escalation_owner>). <@author> let's get this unblocked. <url>`
+
+**Conflict-directed** (`conflict: true` — any review class, approved
+included; always author-targeted): lead with the conflict fact, then the
+author-directed tone ladder:
+- L1: `🔀 PR #<n> "<title>" has merge conflicts with the base branch. <@author> please rebase or merge so it can land. <url>`
+- L2+: the author-directed templates' rising tone, keeping the conflict wording.
 
 The focus line comes from the targets' expertise + the PR content. Level 4 =
 widen + hold: include the `escalation` mention from the worklist when its

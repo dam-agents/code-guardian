@@ -139,6 +139,25 @@ run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
 
+# --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
+new_case audit_reactions
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc' <<'EOF'
+[
+ {"user":{"login":"test-bot"},"html_url":"https://example.test/rc/1","reactions":{"+1":2,"-1":1}},
+ {"user":{"login":"alice"},"html_url":"https://example.test/rc/2","reactions":{"+1":9,"-1":9}}
+]
+EOF
+fx 'api repos/acme/widgets/issues/comments?per_page=100&sort=created&direction=desc' <<'EOF'
+[
+ {"user":{"login":"test-bot"},"html_url":"https://example.test/c/3","reactions":{"+1":1}}
+]
+EOF
+run_preflight audit
+assert_jq '.stats.reactions == {up: 3, down: 1, down_urls: ["https://example.test/rc/1"], scanned: 2}' \
+  'reactions summed over bot comments only, 👎 URLs listed'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config

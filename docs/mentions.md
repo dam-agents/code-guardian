@@ -1,9 +1,11 @@
 # GitHub mentions — replies, feedback capture, on-demand reviews
 
 Read this file when the preflight worklist has `mentions_due` entries. Each
-entry is a human GitHub comment addressed to the bot — an `@<bot_login>`
-mention (PR conversation, inline thread, or issue comment), or a reply inside
-an inline review thread that a bot comment started:
+entry is a human GitHub text addressed to the bot — an `@<bot_login>`
+mention in a comment (PR conversation, inline thread, or issue comment,
+`thread: "conversation" | "inline"`) or in a PR description
+(`thread: "body"`, ledger key `body-<n>`, handled once per PR), or a reply
+inside an inline review thread that a bot comment started:
 
 ```json
 {"comment_id": 51259165, "thread": "conversation", "number": 321,
@@ -67,7 +69,7 @@ audit trims rows older than 14 days ([logging.md](logging.md) →
    marker line:
    - `inline` → `gh api "repos/$REPO/pulls/<n>/comments/<root-id>/replies" -X POST -f body='…'`
      with root-id = `in_reply_to`, else `comment_id`.
-   - `conversation` → `gh api "repos/$REPO/issues/<n>/comments" -X POST -f body='…'`;
+   - `conversation` and `body` → `gh api "repos/$REPO/issues/<n>/comments" -X POST -f body='…'`;
      open with `@<author>` and quote the one line being answered when the
      thread has moved on.
 5. **Log** the terminal state — chain onto the step's last command:

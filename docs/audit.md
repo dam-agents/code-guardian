@@ -86,8 +86,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 9. **Skill audit completeness**: one section per configured skill that
    should have run per its trigger (or a legitimate skip); no silently
    missing skill sections.
-10. **Re-reviews are delta-only**: `### Changes since last review` present,
-   Findings = 🆕 only, one-line carryovers, no repeated `✅ Looks good`.
+10. **Re-review scope matches the trigger**: `### Changes since last review`
+   present; delta re-reviews (request/on-demand) keep Findings = 🆕 only with
+   one-line carryovers and no repeated `✅ Looks good`; label-triggered ones
+   list all current findings (review.md → **Re-review output**).
 11. **Memory compliance**: `work/MEMORY.md` Custom Rules and Ignore List
     respected; nothing from the Ignore List flagged.
 12. **Overrides respected**: no finding dismissed in that PR's
@@ -166,9 +168,17 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     report it as "≥", and never read a low figure as a cheap week when
     `by_cause.hard_kill` is non-zero.
 
+28. **Reaction feedback**: `stats.reactions` sums 👍/👎 on the bot's latest
+    inline and issue comments (the two surfaces whose REST lists carry
+    reactions). For each `down_urls` entry (≤ 10): read the thread; an
+    explicit correction or dismissal → record it per
+    [preferences.md](preferences.md) (same routes as mention feedback) and
+    give the report one line per recorded lesson. A 👎 with no readable
+    reason is reported as-is, never guessed at.
+
 ### H. Report & wrap-up
 
-28. **Memory consolidation** — before composing the report, run
+29. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
     (merge / promote / compress-or-drop, bounds, `[from user]` protection)
     and put its one-line delta into the report under *Week in numbers*.
@@ -183,7 +193,8 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 • Reviews: <total> (<first> first / <re_review> re) — ✅<approve> ⚠️<comment> ❌<request_changes>
 • Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
-• Nudges: <claimed> claimed / <lost> lost · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
+• Nudges: <claimed> claimed · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
+• Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
@@ -209,5 +220,5 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up
   `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
-  (task 28) and no GitHub writes except a task-3 tracking issue — findings are
+  (task 29) and no GitHub writes except a task-3 tracking issue — findings are
   reported, not fixed.

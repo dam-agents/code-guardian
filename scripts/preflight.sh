@@ -23,8 +23,9 @@
 #                             (+ skill install, SHA-cached, only when a
 #                             review/artifact is due)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
-#                             + escalation ladder already computed; the agent
-#                             applies each row_update right after its send)
+#                             + escalation ladder + merge-conflict flag already
+#                             computed; the agent applies each row_update right
+#                             after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks (auth, state consistency, log gaps/errors,
 #                             orphaned gists, disk, skills); the agent adds the
@@ -425,6 +426,18 @@ if [ "$MODE" = "review" ]; then
                    mentioned: ((.body // "") | test($re))} ]
       | sort_by(.created_at)' 2>/dev/null)"
     [ -z "$CAND" ] && CAND='[]'
+    # PR descriptions: an @-mention in the body of any open PR (drafts
+    # included; zero extra API calls — the open-PR list already carries the
+    # bodies). One handling per PR: ledger key "body-<n>".
+    BCAND="$(printf '%s' "$OPEN_JSON" | jq --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+      [ .[] | select(((.user.login // "") != $bot) and ((.user.type // "User") != "Bot"))
+            | select((.body // "") | test($re))
+            | {comment_id: ("body-" + (.number|tostring)), thread: "body",
+               number, author: (.user.login // "ghost"), created_at,
+               body: ((.body // "") | .[0:1500]), url: .html_url,
+               in_reply_to: null} ]' 2>/dev/null)"
+    { printf '%s' "$BCAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || BCAND='[]'
+    CAND="$(jq -n --argjson a "$CAND" --argjson b "$BCAND" '$a + $b | sort_by(.created_at)')"
     while IFS= read -r c; do
       [ -z "$c" ] && continue
       cid="$(printf '%s' "$c" | jq -r '.comment_id')"
@@ -562,6 +575,11 @@ if [ "$MODE" = "shepherd" ]; then
             else "awaiting_review" end')"
     [ -z "$cls" ] && { logev warn gh_api "PR #$n: review classification did not respond — defaulting to awaiting_review"; cls="awaiting_review"; }
 
+    # merge-conflict flag (detail call — the list endpoint omits mergeable
+    # state; null = still computing, treated as clean until the next sweep)
+    dirty=false
+    [ "$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r '.mergeable_state // empty')" = "dirty" ] && dirty=true
+
     # class transition resets the ladder (never the clock)
     [ -n "$prev_state" ] && [ "$prev_state" != "$cls" ] && level=1
 
@@ -569,7 +587,8 @@ if [ "$MODE" = "shepherd" ]; then
     since_last=999999; [ "$last" != "-" ] && since_last=$(( (NOW_EPOCH - $(iso2epoch "$last")) / 3600 ))
 
     due=0; new_status="watching"; next_level="$level"
-    if [ "$cls" = "approved" ]; then new_status="approved"
+    # an approved PR nudges only while it has merge conflicts (rebase ask)
+    if [ "$cls" = "approved" ] && [ "$dirty" = "false" ]; then new_status="approved"
     elif [ "$status" = "held" ] && { [ -z "$prev_state" ] || [ "$prev_state" = "$cls" ]; }; then new_status="held"  # hold is sticky until the class changes
     elif [ "$age_h" -lt 24 ]; then new_status="watching"
     elif [ "$since_last" -lt 20 ]; then new_status="${status:-watching}"
@@ -579,7 +598,8 @@ if [ "$MODE" = "shepherd" ]; then
     fi
 
     if [ "$due" -eq 1 ]; then
-      if [ "$cls" = "changes_requested" ]; then
+      if [ "$dirty" = "true" ] || [ "$cls" = "changes_requested" ]; then
+        # conflicts and requested changes are both the author's to resolve
         targets="${author}!"; nudge_status="nudging-author"
       else
         targets=""
@@ -596,12 +616,13 @@ if [ "$MODE" = "shepherd" ]; then
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
         --argjson age "$age_h" --arg c "$cls" --argjson l "$next_level" --argjson m "$mentions" \
         --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
-        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" \
+        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" \
         '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
-          needs_target_selection: ($m|length==0 and $c!="changes_requested"),
+          conflict:$conf,
+          needs_target_selection: ($m|length==0 and $c!="changes_requested" and ($conf|not)),
           escalation:{login:$eo, slack_id:$eid},
           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
-      log "PR #$n: nudge L$next_level due ($cls, ${age_h}h)"
+      log "PR #$n: nudge L$next_level due ($cls, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
       # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
     fi
@@ -1049,18 +1070,36 @@ if [ "$MODE" = "audit" ]; then
     done < "$f"
   done
 
+  # reaction feedback on the bot's comments — 👍/👎 sums over the latest 100
+  # inline + 100 issue comments (the two surfaces whose REST list endpoints
+  # carry reactions); the agent examines down_urls (docs/audit.md)
+  REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":0}'
+  if [ -n "$BOT_LOGIN" ]; then
+    rrc="$(gh api "repos/$REPO/pulls/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    ric="$(gh api "repos/$REPO/issues/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    { printf '%s' "$rrc" | jq -e 'type=="array"' >/dev/null 2>&1; } || rrc='[]'
+    { printf '%s' "$ric" | jq -e 'type=="array"' >/dev/null 2>&1; } || ric='[]'
+    REACTIONS="$(jq -n --argjson a "$rrc" --argjson b "$ric" --arg bot "$BOT_LOGIN" '
+      [ ($a + $b)[] | select((.user.login // "") == $bot) ]
+      | {up: (map(.reactions["+1"] // 0) | add // 0),
+         down: (map(.reactions["-1"] // 0) | add // 0),
+         down_urls: (map(select((.reactions["-1"] // 0) > 0) | .html_url) | .[0:10]),
+         scanned: length}' 2>/dev/null)"
+    [ -n "$REACTIONS" ] || REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":0}'
+  fi
+
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
     --argjson fx "$fx_wk" --argjson sp "$sp_wk" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" \
+    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
       findings:{fixed:$fx, still_present:$sp},
       heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
-      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw}')"
+      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

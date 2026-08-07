@@ -16,9 +16,10 @@ they are released history and stay as written.
 **Upgrade:**
 1. Update the shepherd and audit schedule task texts to the current
    ONBOARDING Step 6 wording (6b: nudges are sent first and recorded in the
-   ledger immediately after the send; 6c: "nudge integrity" replaces "lost
-   nudges"). Idempotent — skip a schedule that already matches or does not
-   exist (no shepherd schedule when Slack is disabled).
+   ledger immediately after the send; 6c: the agent-side check list is now
+   "schedules, memory compliance, nudge integrity, reaction feedback").
+   Idempotent — skip a schedule that already matches or does not exist (no
+   shepherd schedule when Slack is disabled).
 2. Nothing else is mandatory — the mention scan starts with the next review
    heartbeat (`mention_replies` missing = `enabled`) and the
    `work/MENTIONS.md` ledger is created on first use. **operator-only
