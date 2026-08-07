@@ -45,7 +45,10 @@ on first write.
    becomes a `tool_failure` error event (tool name, truncated input, and the
    fullest error context available — `tool_response`, then error/stderr/stdout
    fields, then the raw `tool_input`/`tool_response` payload, so a failure is
-   never logged as bare `null`). Under `log_level: debug`, successful external
+   never logged as bare `null`). Exception: read-only inspect commands
+   (`grep`/`ls`/`find`/`test`/`command -v`) answer "no match" with a
+   non-zero exit — those land as info `tool_use` events, keeping the
+   `failures[]` triage on real failures. Under `log_level: debug`, successful external
    calls (Bash
    `gh`/`git`/`curl` commands, `mcp__*` tools) also land as `tool_use`
    debug events with a truncated result. At session end, one **`tokens`**

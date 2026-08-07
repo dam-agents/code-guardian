@@ -500,6 +500,13 @@ format), append `(no prior review on file)` to `### Summary`.
   (`date -u +%Y-%m-%dT%H:%M:%SZ`) — never rounded, reused, or fabricated.
 - The lock is best-effort (30-min TTL; takeover flagged by preflight) — the
   remote dedup check stays authoritative.
+- Row edits (lock, `done`, `awaiting_label` restore) rewrite the PR's line in
+  place; rows are full of `|`, so give sed a different delimiter:
+
+  ```bash
+  sed -E "s#^\| *<n> \|.*#| <n> | <sha> | <ts> | <verdict> | <status> |#" work/REVIEWS.md \
+    > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md
+  ```
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 

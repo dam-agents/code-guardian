@@ -17,6 +17,10 @@
 !/.gitignore
 !/.github/
 !/.agents/
+# Runtime skill installs (platform harness) land in .agents/skills/ — only
+# the bundled skills below are definition content; re-include each by name.
+/.agents/skills/*
+!/.agents/skills/issue-fit
 !/CLAUDE.md
 !/README.md
 !/ONBOARDING.md
