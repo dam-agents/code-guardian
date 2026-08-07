@@ -11,6 +11,21 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.0.0 — 2026-08-07
+
+**Upgrade:**
+1. Update the shepherd and audit schedule task texts to the current
+   ONBOARDING Step 6 wording (6b: nudges are sent first and recorded in the
+   ledger immediately after the send; 6c: the agent-side check list is now
+   "schedules, memory compliance, nudge integrity, reaction feedback").
+   Idempotent — skip a schedule that already matches or does not exist (no
+   shepherd schedule when Slack is disabled).
+2. Nothing else is mandatory — the mention scan starts with the next review
+   heartbeat (`mention_replies` missing = `enabled`) and the
+   `work/MENTIONS.md` ledger is created on first use. **operator-only
+   (optional):** add `- mention_replies: disabled` to `work/CONFIG.md` to
+   turn mention handling off.
+
 ## 2.7.0 — 2026-08-05
 
 **Upgrade:**

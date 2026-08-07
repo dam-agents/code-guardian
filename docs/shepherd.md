@@ -8,19 +8,22 @@ every open non-draft PR from **independent reviews** (not the bot, not the
 author; only `APPROVED` silences — `CHANGES_REQUESTED` flips to
 author-directed mode, a bare `COMMENTED` counts as awaiting), applied the 24h
 age gate, the 20h per-PR cooldown, and the ≥2-day escalation tick, reset the
-ladder (but never the clock) on class transitions, kept `held` rows held, and
+ladder (but never the clock) on class transitions, kept `held` rows held,
+flagged merge conflicts (`conflict: true` — such nudges are author-directed;
+an approved PR nudges only while conflicted), and
 updated the ledger's bookkeeping columns. **Rows with a due nudge were left
-untouched** — advancing them is your write-before-send step.
+untouched** — advancing them is your post-send record step.
 
 ## Hard rules
 
 - **Send only what's in `nudges_due`, at most once each.** For every entry,
-  **first** apply its `row_update` (`nudges`, `level`, `status`) plus
-  `last_nudge_at` = the current UTC time to the PR's ledger row, **then**
-  send. Write-before-send: a failed send after the write is logged (chat UI
-  + `nudge_send` error event — [logging.md](logging.md)) and NOT retried
-  this run — under-sending beats double-sending. Never
-  re-fire a nudge preflight didn't emit.
+  **send first**, then **immediately** apply its `row_update` (`nudges`,
+  `level`, `status`) plus `last_nudge_at` = the current UTC time to the PR's
+  ledger row — the record is the very next action after the send
+  (send-then-record). A failed send leaves the row untouched and is logged
+  (chat UI + `nudge_send` error event — [logging.md](logging.md)); the next
+  sweep re-emits and retries it. Never re-fire a nudge preflight didn't
+  emit.
 - **Roster-only tagging.** Never @-mention anyone not in
   `work/DEVELOPERS.md`; the only `<@…>` ids ever emitted are roster
   `slack_id` values (the worklist's `mentions` array). Non-roster people
@@ -64,6 +67,12 @@ style**).
 - L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <@author> please push an update or reply to the reviewer. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <@escalation-owner-slack-id> (<escalation_owner>). <@author> let's get this unblocked. <url>`
 
+**Conflict-directed** (`conflict: true` — any review class, approved
+included; always author-targeted): lead with the conflict fact, then the
+author-directed tone ladder:
+- L1: `🔀 PR #<n> "<title>" has merge conflicts with the base branch. <@author> please rebase or merge so it can land. <url>`
+- L2+: the author-directed templates' rising tone, keeping the conflict wording.
+
 The focus line comes from the targets' expertise + the PR content. Level 4 =
 widen + hold: include the `escalation` mention from the worklist when its
 `slack_id` is present (missing → send without it and log); preflight marks
@@ -81,13 +90,14 @@ by a roster member, derive area keywords from its title + changed paths and
 `work/SHEPHERD.md` is table-only — don't add narrative to it (per-sweep
 history goes to `work/SHEPHERD.log`, append-only, never loaded into context).
 Preflight maintains the bookkeeping columns; your ledger writes are exactly
-two: the write-before-send `row_update` and persisting selected targets into
+two: the post-send `row_update` and persisting selected targets into
 the `reviewers` cell (above).
 
 ## Shepherd-run self-check
 
 Every send matched a `nudges_due` entry · every sent nudge's `row_update` was
-written BEFORE the send (with a real UTC `last_nudge_at`) · only roster
+written immediately AFTER the send (with a real UTC `last_nudge_at`; a failed
+send left its row untouched) · only roster
 `slack_id`s mentioned · targets persisted when selected · send failures
 logged · observed areas appended additively · `work/` committed & pushed at
 the end (per CLAUDE.md).

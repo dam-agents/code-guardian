@@ -188,13 +188,15 @@ The definition is project-agnostic: every instance-specific value lives in `work
    ⚠️ Tell the operator the value is **immutable once the first review is posted** — changing it later would make every past review invisible to dedup.
 6. **`rereview_label`** — the PR label that requests a re-review (`CLAUDE.md` → **Runtime configuration** + `docs/review.md`), default `code-guardian-review`. Ask:
 
-   > First reviews are automatic, but re-reviews after new commits run **only** when someone adds a label to the PR — I remove it once the re-review is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
+   > First reviews are automatic, but re-reviews after new commits run **only** when someone adds a label to the PR — the label requests a complete review of the whole PR, and I remove it once it is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
 
    If the label doesn't exist on the target repo yet, create it: `gh label create "<label>" --repo "$GITHUB_REPO" --description "Request a code-guardian re-review" --color FBCA04` (failure = tell the operator to create it manually; not blocking).
 
    Then ask about **`rereview_trigger`** — how re-reviews are requested: `label` (default) | `review-request` (GitHub's "Re-request review" on **<bot_login>**; needs the bot as a repo collaborator) | `both`. Write the key only when the answer differs from `label`.
 
    Then ask about **`urgent_label`** — an optional, human-managed label marking a PR urgent: its due reviews jump the queue and are delivered rapid-first (fast preliminary review, then the full one — `docs/review.md` → **Urgent PRs**), and with `slack_notifications: enabled` a newly found urgent PR gets one immediate Slack alert mentioning roster members. Default: off (omit the key). If the operator names one, validate/create it the same way as the re-review label.
+
+   Then **`mention_replies`** — GitHub comments that @-mention **<bot_login>** (or reply in its inline review threads) get handled every heartbeat: questions answered, review feedback recorded to memory, review requests served (`docs/mentions.md`). Default `enabled`; write the key only when the operator wants `disabled`.
 7. **Review skills + `artifact_skill`** — fully config-driven (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below — `issue-fit` ships in this definition repo, so its `source` is the instance's `definition_repo`) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
    - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list — otherwise drop the row after confirming (a missing harness skill would just log `skill-errored` on every PR).
@@ -221,6 +223,7 @@ Final shape:
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
 - urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
+- mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
@@ -282,11 +285,11 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 
 **6b — Shepherd sweep** (only when Slack is enabled; create it later if Slack is enabled in chat). Ask: *During which hours and days should I nudge reviewers on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).* Create `name: code-guardian-shepherd-<cadence-shorthand>` (e.g. `…-1h-workdays`), cron default `0 7-18 * * 1-5`, `sessionMode: fresh`, `task`:
 
-   > Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, apply each nudge's row_update to the ledger before sending (write-before-send), send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+   > Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), apply each sent nudge's row_update to the ledger immediately after its send (send-then-record), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6c — Weekly audit.** Ask: *When should I send the weekly health report? Default is Friday 07:00 (platform timezone).* Create `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`, `sessionMode: fresh`, `task`:
 
-   > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, lost nudges), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+   > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
@@ -304,6 +307,6 @@ Then give the operator a short **onboarding summary** in the chat UI:
 
 1. The final `work/CONFIG.md` (verbatim).
 2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
-3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (the agent removes it once the concise, delta-only re-review is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel (docs/review.md → **Slack-requested review**); labeling a PR **`<urgent_label>`** (when configured) makes its reviews jump the queue, rapid-preliminary-first; assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
+3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (a complete review of the whole PR; the agent removes the label once it is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel or in a comment @-mentioning **`<bot_login>`** (both delta-only — docs/review.md → **On-demand review**); labeling a PR **`<urgent_label>`** (when configured) makes its reviews jump the queue, rapid-preliminary-first; assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides) — and @-mentioning **`<bot_login>`** in any PR/issue comment or PR description gets a reply, with review feedback recorded to memory (`docs/mentions.md`); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

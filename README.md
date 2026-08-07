@@ -33,13 +33,23 @@ of it per the `docs/` procedures:
   comments, signed with **`bot_display_name`**, carrying the hidden dedup
   marker), label bookkeeping, tracking in `work/REVIEWS.md` and
   `work/reviews/pr-<number>.md`. Reviews are concise and assume
-  agent-written, agent-read code; re-reviews are delta-only.
+  agent-written, agent-read code. Re-review scope follows the trigger: the
+  label requests a complete review of the whole PR, a review request or
+  on-demand ask a delta-only one. The same
+  heartbeat also picks up comments and PR descriptions addressed to the bot
+  — an @-mention or a
+  reply in one of its inline review threads — and answers them: questions
+  get a reply, explicit review feedback is recorded to memory (and confirmed
+  in the reply), and "please re-review" is served on demand
+  ([`docs/mentions.md`](docs/mentions.md), `mention_replies` key).
 - **Shepherd sweep** (default hourly, working days/hours; exists only when
   Slack notifications were enabled at onboarding): `preflight.sh shepherd`
   classifies every open non-draft PR from independent reviews and applies
-  the age gate / cooldown / escalation ladder; the agent applies each due
-  nudge's ledger update (write-before-send) and sends it to the shared Slack
-  channel (roster-only mentions, per
+  the age gate / cooldown / escalation ladder, flagging PRs with merge
+  conflicts for an author-directed rebase nudge (approved PRs included);
+  the agent sends each due
+  nudge to the shared Slack channel and records it in the ledger
+  immediately after the send (send-then-record; roster-only mentions, per
   [`docs/shepherd.md`](docs/shepherd.md)). The nudge rules are
   hour-granular, so the hourly work-hours cadence loses nothing versus a
   continuous one.
@@ -48,8 +58,9 @@ of it per the `docs/` procedures:
   deterministic health checks — GitHub auth and rate limit, missed
   heartbeats, error log lines, state consistency against the GitHub markers,
   stale locks, orphaned artifact gists, disk usage, skill freshness, roster
-  sanity. The agent adds judgment checks (schedules, memory-rule compliance,
-  lost nudges) and sends a traffic-light report to Slack (when enabled) and
+  sanity, 👍/👎 reactions on the bot's comments. The agent adds judgment
+  checks (schedules, memory-rule compliance, nudge integrity, lessons from
+  👎-flagged findings) and sends a traffic-light report to Slack (when enabled) and
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
 
@@ -65,7 +76,8 @@ changelog's upgrade steps, and warns the operator when the instance is
 outdated — see [`docs/persistence.md`](docs/persistence.md) → **Definition
 version & upgrade**.
 
-Feedback the user gives is persisted into `work/MEMORY.md` (global) or
+Feedback the user gives — in chat, or in a PR comment addressed to the bot —
+is persisted into `work/MEMORY.md` (global) or
 `work/reviews/pr-<number>.md` under `## PR-local overrides` (PR-specific), so
 subsequent runs respect those preferences without re-flagging dismissed
 findings. The agent also learns passively: generalizable insights from human
@@ -129,13 +141,13 @@ The decision is stored in `work/CONFIG.md` and can be changed later simply by
 telling the agent — it will flip the flag (and build the roster on first
 enable).
 
-Independently of this opt-in, **anyone** in the connected channel can ask the
-agent to review a specific PR (equivalent to adding the re-review label),
-including restarting a stuck review — see `docs/review.md` →
-**Slack-requested review**. Any other change request from a channel is
-declined and automatically filed as a tracking issue on the definition repo,
-with the link in the reply (`CLAUDE.md` → **Instruction sources & trust
-boundary**).
+Independently of this opt-in, **anyone** in the connected channel — or in a
+GitHub comment @-mentioning the bot — can ask the agent to review a specific
+PR (equivalent to adding the re-review label), including restarting a stuck
+review — see `docs/review.md` → **On-demand review**. Any other change
+request from a channel is declined and automatically filed as a tracking
+issue on the definition repo, with the link in the reply (`CLAUDE.md` →
+**Instruction sources & trust boundary**).
 
 ## Configuration
 
@@ -161,9 +173,10 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
-| `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a re-review of an already-reviewed PR — without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
+| `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review of the whole PR — without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`, key omitted then) | How re-reviews are requested: `label`, `review-request` (GitHub's "Re-request review" on the bot; needs the bot as a collaborator), or `both`. A served review request clears itself when the review posts. |
 | `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows; with Slack enabled a newly urgent PR also gets one immediate roster-mentioning alert (`docs/review.md` → **Urgent PRs**). |
+| `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot (@-mention, or a reply in its inline review threads) are answered every heartbeat — questions get replies, explicit review feedback is recorded to memory, review requests are served (`docs/mentions.md`). |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
 | `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |

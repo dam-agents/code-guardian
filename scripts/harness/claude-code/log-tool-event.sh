@@ -45,7 +45,14 @@ if [ "$evt" = "PostToolUseFailure" ]; then
       | map(select(. != null and . != "")) | .[0] // empty' 2>/dev/null \
     | tr '\n' ' ' | cut -c1-800)"
   [ -z "$err" ] && err="$(printf '%s' "$INPUT" | jq -c '{tool_input, tool_response}' 2>/dev/null | cut -c1-800)"
-  logev error tool_failure "$tool${cmd:+ [$cmd]}: ${err:-unknown error}"
+  case "$tool:$cmd" in
+    (Bash:grep\ *|Bash:ls\ *|Bash:find\ *|Bash:test\ *|Bash:\[\ *|Bash:command\ -v\ *)
+      # read-only inspect commands answer "no match" with a non-zero exit —
+      # a result, not a failure; keep the failures[] triage clean
+      logev info tool_use "$tool [$cmd] -> ${err:-non-zero exit}";;
+    (*)
+      logev error tool_failure "$tool${cmd:+ [$cmd]}: ${err:-unknown error}";;
+  esac
 else
   case "$tool:$cmd" in
     (Bash:gh\ *|Bash:*\ gh\ *|Bash:curl\ *|Bash:*\ curl\ *|Bash:git\ *|Bash:*\ git\ *)

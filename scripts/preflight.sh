@@ -18,11 +18,14 @@
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / artifacts_due / urgent_alerts_due
+#                             / mentions_due (comments addressed to the bot,
+#                             deduped against work/MENTIONS.md)
 #                             (+ skill install, SHA-cached, only when a
 #                             review/artifact is due)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
-#                             + escalation ladder already computed; the agent
-#                             applies each row_update before sending)
+#                             + escalation ladder + merge-conflict flag already
+#                             computed; the agent applies each row_update right
+#                             after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks (auth, state consistency, log gaps/errors,
 #                             orphaned gists, disk, skills); the agent adds the
@@ -183,31 +186,32 @@ install_skill() { # name source -> status string (local writes only)
   printf 'installed (%s files)' "$count"
 }
 
-emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts skills
+emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a
-  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7"; do
+  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
   # otherwise idle heartbeat
   [ -n "${STALL_ALERT:-}" ] && nothing=false
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length)"
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
-    --argjson alerts "$7" --argjson skills "$8" \
+    --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
     --argjson stall "${STALL_ALERT:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
-      nudges_due:$nudges, urgent_alerts_due:$alerts, skills:$skills, logs:$logs}
+      nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
+      skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)'
 }
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
-  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; SKILLS='{}'
+  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
 
   # re-review trigger gate (CLAUDE.md -> rereview_trigger): label | review-request | both
   REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
@@ -226,12 +230,14 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
 
-  add_review() { # number sha ref title author kind takeover prior_json urgent closed
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed full
+    # full: complete-review scope — always true for kind=first; on a re-review
+    # true iff the label is the trigger (review-request / on-demand = delta)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
-      --argjson u "${9:-false}" --argjson c "${10:-false}" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c}')" '. + [$e]')"
+      --argjson u "${9:-false}" --argjson c "${10:-false}" --argjson f "${11:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f}')" '. + [$e]')"
     [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
       && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
     return 0
@@ -252,10 +258,11 @@ if [ "$MODE" = "review" ]; then
           # full one — the agent still owes the full pass (criticals become a
           # linked issue, docs/review.md); prune happens on the next heartbeat
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          full=false; [ "$kind" = "first" ] && full=true
           prior="$(jq -n --arg sha "$(row_field "$row" 3)" --arg ts "$(row_field "$row" 4)" '{sha:$sha, ts:$ts, verdict:"RAPID"}')"
           add_review "$n" "$(printf '%s' "$PJ" | jq -r .head.sha)" "$(printf '%s' "$PJ" | jq -r .head.ref)" \
             "$(printf '%s' "$PJ" | jq -r '.title|gsub("\t";" ")')" "$(printf '%s' "$PJ" | jq -r .user.login)" \
-            "$kind" false "$prior" true true
+            "$kind" false "$prior" true true "$full"
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
           gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
@@ -276,7 +283,7 @@ if [ "$MODE" = "review" ]; then
     URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$URGENT_LABEL" && URG=true
 
     # one-time urgent Slack alert (agent sends; marker in the history file is
-    # the dedup — written by the agent before sending, docs/review.md)
+    # the dedup — written by the agent right after the send, docs/review.md)
     if [ "$URG" = "true" ] && [ "$SLACK" = "enabled" ] \
        && ! grep -q '<!-- urgent-announced:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then
       ALERTS_DUE="$(printf '%s' "$ALERTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
@@ -296,8 +303,9 @@ if [ "$MODE" = "review" ]; then
           log "PR #$n: fresh in_progress lock (${age}m) — skipped"
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
           log "PR #$n: stale in_progress lock (${age}m) — takeover"
-          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
         fi
       elif [ "$row_sha" = "$sha" ]; then
         # reviewed at live HEAD; trigger present -> same-SHA cleanup (agent clears it)
@@ -314,7 +322,8 @@ if [ "$MODE" = "review" ]; then
       else
         # new commits since the recorded review
         if [ "$triggered" -eq 1 ]; then
-          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
+            "$([ "$has_label" -eq 1 ] && echo true || echo false)"
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
           log "PR #$n: new commits since last review — awaiting $TRIG_DESC"
@@ -333,14 +342,15 @@ if [ "$MODE" = "review" ]; then
           asha="${any%%$'\t'*}"; ats="${any##*$'\t'}"
           if [ "$triggered" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false \
-              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')" "$URG" false
+              "$(jq -n --arg sha "$asha" --arg ts "$ats" '{sha:$sha, ts:$ts, verdict:"SEE-GITHUB"}')" "$URG" false \
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)"
           else
             SELFHEALS_DUE="$(printf '%s' "$SELFHEALS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg sha "$asha" --arg ts "$ats" \
               '{number:$n, sha:$sha, ts:$ts, status:"awaiting_label"}')" '. + [$e]')"
             log "PR #$n: reviewed on GitHub at ${asha:0:7} (no local row), new commits with no re-review trigger — self-heal to awaiting_label due"
           fi
         else
-          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null "$URG" false
+          add_review "$n" "$sha" "$ref" "$title" "$author" "first" false null "$URG" false true
         fi
       fi
     fi
@@ -372,6 +382,77 @@ if [ "$MODE" = "review" ]; then
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
     fi
+  fi
+
+  # --------------------------------------------------- mention detection ----
+  # Human comments addressed to the bot: an @-mention anywhere in the repo's
+  # PR/issue comments, or a reply inside an inline review thread rooted by a
+  # bot comment. Repo-wide scan, 7-day window (2 GET calls, day-rounded so the
+  # window is cache/test-stable); work/MENTIONS.md rows are the dedup — the
+  # agent appends a row before acting (docs/mentions.md).
+  MENTION_REPLIES="$(cfg mention_replies)"; MENTION_REPLIES="${MENTION_REPLIES:-enabled}"
+  if [ "$MENTION_REPLIES" = "enabled" ] && [ -z "$BOT_LOGIN" ]; then
+    log "bot_login missing — mention handling disabled this run"
+    MENTION_REPLIES="disabled"
+  fi
+  if [ "$MENTION_REPLIES" = "enabled" ]; then
+    MSINCE="$(date -u -d "@$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null \
+              || date -u -r "$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null)T00:00:00Z"
+    mention_seen() { grep -qE "^\| *$1 *\|" "$WORK/MENTIONS.md" 2>/dev/null; }
+    IC="$(gh api "repos/$REPO/issues/comments?since=$MSINCE&per_page=100" 2>/dev/null)"
+    RC="$(gh api "repos/$REPO/pulls/comments?since=$MSINCE&per_page=100" 2>/dev/null)"
+    { printf '%s' "$IC" | jq -e 'type=="array"' >/dev/null 2>&1; } || IC='[]'
+    { printf '%s' "$RC" | jq -e 'type=="array"' >/dev/null 2>&1; } || RC='[]'
+    [ "$(printf '%s' "$IC" | jq length)" -eq 100 ] \
+      && log "mention scan: issue-comment page cap (100) hit — the rest waits for the sliding window"
+    [ "$(printf '%s' "$RC" | jq length)" -eq 100 ] \
+      && log "mention scan: review-comment page cap (100) hit — the rest waits for the sliding window"
+    MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
+    CAND="$(jq -n --argjson ic "$IC" --argjson rc "$RC" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+      [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
+              | select((.body // "") | test($re))
+              | {comment_id: .id, thread: "conversation",
+                 number: (.issue_url | capture("/(?<n>[0-9]+)$").n | tonumber),
+                 author: (.user.login // "ghost"), created_at,
+                 body: ((.body // "") | .[0:1500]), url: .html_url,
+                 in_reply_to: null, mentioned: true} ]
+      + [ $rc[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
+                | select(((.body // "") | test($re)) or (.in_reply_to_id != null))
+                | {comment_id: .id, thread: "inline",
+                   number: (.pull_request_url | capture("/(?<n>[0-9]+)$").n | tonumber),
+                   author: (.user.login // "ghost"), created_at,
+                   body: ((.body // "") | .[0:1500]), url: .html_url,
+                   in_reply_to: .in_reply_to_id,
+                   mentioned: ((.body // "") | test($re))} ]
+      | sort_by(.created_at)' 2>/dev/null)"
+    [ -z "$CAND" ] && CAND='[]'
+    # PR descriptions: an @-mention in the body of any open PR (drafts
+    # included; zero extra API calls — the open-PR list already carries the
+    # bodies). One handling per PR: ledger key "body-<n>".
+    BCAND="$(printf '%s' "$OPEN_JSON" | jq --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+      [ .[] | select(((.user.login // "") != $bot) and ((.user.type // "User") != "Bot"))
+            | select((.body // "") | test($re))
+            | {comment_id: ("body-" + (.number|tostring)), thread: "body",
+               number, author: (.user.login // "ghost"), created_at,
+               body: ((.body // "") | .[0:1500]), url: .html_url,
+               in_reply_to: null} ]' 2>/dev/null)"
+    { printf '%s' "$BCAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || BCAND='[]'
+    CAND="$(jq -n --argjson a "$CAND" --argjson b "$BCAND" '$a + $b | sort_by(.created_at)')"
+    while IFS= read -r c; do
+      [ -z "$c" ] && continue
+      cid="$(printf '%s' "$c" | jq -r '.comment_id')"
+      mention_seen "$cid" && continue
+      # a reply without an @-mention is relevant only when the thread root is
+      # the bot's inline comment (root in the same batch, else one GET)
+      if [ "$(printf '%s' "$c" | jq -r '.thread + " " + (.mentioned|tostring)')" = "inline false" ]; then
+        root="$(printf '%s' "$c" | jq -r '.in_reply_to')"
+        root_author="$(printf '%s' "$RC" | jq -r --argjson r "$root" '[.[] | select(.id == $r) | .user.login] | first // empty')"
+        [ -z "$root_author" ] && root_author="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null | jq -r '.user.login // empty')"
+        [ "$root_author" = "$BOT_LOGIN" ] || continue
+      fi
+      MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned)')" '. + [$e]')"
+      log "#$(printf '%s' "$c" | jq -r '.number'): mention $cid by $(printf '%s' "$c" | jq -r '.author') — handling due"
+    done < <(printf '%s' "$CAND" | jq -c '.[]')
   fi
 
   # ------------------------------------------- stalled-review rate alert ----
@@ -434,14 +515,14 @@ if [ "$MODE" = "review" ]; then
     fi
   fi
 
-  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$SKILLS"
+  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
 fi
 
 # ========================================================= SHEPHERD MODE ====
 if [ "$MODE" = "shepherd" ]; then
-  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
-  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
 
   # roster: login -> slack_id (table or bullet format)
   ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
@@ -494,6 +575,11 @@ if [ "$MODE" = "shepherd" ]; then
             else "awaiting_review" end')"
     [ -z "$cls" ] && { logev warn gh_api "PR #$n: review classification did not respond — defaulting to awaiting_review"; cls="awaiting_review"; }
 
+    # merge-conflict flag (detail call — the list endpoint omits mergeable
+    # state; null = still computing, treated as clean until the next sweep)
+    dirty=false
+    [ "$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r '.mergeable_state // empty')" = "dirty" ] && dirty=true
+
     # class transition resets the ladder (never the clock)
     [ -n "$prev_state" ] && [ "$prev_state" != "$cls" ] && level=1
 
@@ -501,7 +587,8 @@ if [ "$MODE" = "shepherd" ]; then
     since_last=999999; [ "$last" != "-" ] && since_last=$(( (NOW_EPOCH - $(iso2epoch "$last")) / 3600 ))
 
     due=0; new_status="watching"; next_level="$level"
-    if [ "$cls" = "approved" ]; then new_status="approved"
+    # an approved PR nudges only while it has merge conflicts (rebase ask)
+    if [ "$cls" = "approved" ] && [ "$dirty" = "false" ]; then new_status="approved"
     elif [ "$status" = "held" ] && { [ -z "$prev_state" ] || [ "$prev_state" = "$cls" ]; }; then new_status="held"  # hold is sticky until the class changes
     elif [ "$age_h" -lt 24 ]; then new_status="watching"
     elif [ "$since_last" -lt 20 ]; then new_status="${status:-watching}"
@@ -511,7 +598,8 @@ if [ "$MODE" = "shepherd" ]; then
     fi
 
     if [ "$due" -eq 1 ]; then
-      if [ "$cls" = "changes_requested" ]; then
+      if [ "$dirty" = "true" ] || [ "$cls" = "changes_requested" ]; then
+        # conflicts and requested changes are both the author's to resolve
         targets="${author}!"; nudge_status="nudging-author"
       else
         targets=""
@@ -528,13 +616,14 @@ if [ "$MODE" = "shepherd" ]; then
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
         --argjson age "$age_h" --arg c "$cls" --argjson l "$next_level" --argjson m "$mentions" \
         --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
-        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" \
+        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" \
         '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
-          needs_target_selection: ($m|length==0 and $c!="changes_requested"),
+          conflict:$conf,
+          needs_target_selection: ($m|length==0 and $c!="changes_requested" and ($conf|not)),
           escalation:{login:$eo, slack_id:$eid},
           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
-      log "PR #$n: nudge L$next_level due ($cls, ${age_h}h)"
-      # write-before-send belongs to the agent: keep the row EXACTLY as-is
+      log "PR #$n: nudge L$next_level due ($cls, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
+      # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
     fi
 
@@ -555,14 +644,14 @@ if [ "$MODE" = "shepherd" ]; then
 
   {
     printf '# PR Shepherd Ledger\n\n'
-    printf '_Bookkeeping maintained by scripts/preflight.sh shepherd (table only — the agent updates a row only as the write-before-send step of a nudge). Per-sweep history lives in SHEPHERD.log, append-only, never loaded into agent context._\n\n'
+    printf '_Bookkeeping maintained by scripts/preflight.sh shepherd (table only — the agent updates a row only as the post-send record of a nudge). Per-sweep history lives in SHEPHERD.log, append-only, never loaded into agent context._\n\n'
     printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
     printf '|----|----------------|-----------|--------------|--------|---------------|-------|--------|\n'
     printf '%s' "$NEW_TABLE"
   } > "$SHEPHERD"
   printf '%s shepherd sweep: %s open PRs, %s nudges due\n' "$NOW_ISO" "$OPEN_COUNT" "$(printf '%s' "$NUDGES_DUE" | jq length)" >> "$WORK/SHEPHERD.log"
 
-  emit '[]' '[]' '[]' '[]' '[]' "$NUDGES_DUE" '[]' '{}'
+  emit '[]' '[]' '[]' '[]' '[]' "$NUDGES_DUE" '[]' '[]' '{}'
   exit 0
 fi
 
@@ -924,7 +1013,18 @@ if [ "$MODE" = "audit" ]; then
     done < "$lf"
     mv "$lf.tmp" "$lf"
   done
-  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD to 14d"
+  # mention ledger: rows older than 14d fall outside the 7-day scan window and
+  # can never be re-emitted — drop them (header/unparseable lines are kept)
+  if [ -f "$WORK/MENTIONS.md" ]; then
+    : > "$WORK/MENTIONS.md.tmp"
+    while IFS= read -r line; do
+      ts="$(printf '%s' "$line" | cut -d'|' -f4 | tr -d ' ')"
+      e="$(iso2epoch "$ts")"
+      { [ "$e" -eq 0 ] || [ "$e" -ge "$KEEP_EPOCH" ]; } && printf '%s\n' "$line" >> "$WORK/MENTIONS.md.tmp"
+    done < "$WORK/MENTIONS.md"
+    mv "$WORK/MENTIONS.md.tmp" "$WORK/MENTIONS.md"
+  fi
+  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d"
 
   # --- 7-day stats -----------------------------------------------------------
   rv_total=0; rv_first=0; rv_re=0; v_app=0; v_com=0; v_req=0
@@ -970,18 +1070,36 @@ if [ "$MODE" = "audit" ]; then
     done < "$f"
   done
 
+  # reaction feedback on the bot's comments — 👍/👎 sums over the latest 100
+  # inline + 100 issue comments (the two surfaces whose REST list endpoints
+  # carry reactions); the agent examines down_urls (docs/audit.md)
+  REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":0}'
+  if [ -n "$BOT_LOGIN" ]; then
+    rrc="$(gh api "repos/$REPO/pulls/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    ric="$(gh api "repos/$REPO/issues/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    { printf '%s' "$rrc" | jq -e 'type=="array"' >/dev/null 2>&1; } || rrc='[]'
+    { printf '%s' "$ric" | jq -e 'type=="array"' >/dev/null 2>&1; } || ric='[]'
+    REACTIONS="$(jq -n --argjson a "$rrc" --argjson b "$ric" --arg bot "$BOT_LOGIN" '
+      [ ($a + $b)[] | select((.user.login // "") == $bot) ]
+      | {up: (map(.reactions["+1"] // 0) | add // 0),
+         down: (map(.reactions["-1"] // 0) | add // 0),
+         down_urls: (map(select((.reactions["-1"] // 0) > 0) | .html_url) | .[0:10]),
+         scanned: length}' 2>/dev/null)"
+    [ -n "$REACTIONS" ] || REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":0}'
+  fi
+
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
     --argjson fx "$fx_wk" --argjson sp "$sp_wk" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" \
+    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
       findings:{fixed:$fx, still_present:$sp},
       heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
-      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw}')"
+      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
