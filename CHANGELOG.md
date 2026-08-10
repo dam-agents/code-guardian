@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.4.0 — 2026-08-10
+
+**Upgrade:** Optional, operator-only — the progress signal is off unless asked
+for. To enable it on a deployed instance, add `- review_progress: enabled` to
+`work/CONFIG.md` (any other value, or the missing key, keeps it off). Nothing
+else: the commit-status `context` is the existing `review_marker`, and no state
+format changed.
+
 ## 3.3.0 — 2026-08-10
 
 **Upgrade:** Nothing — docs are re-read per run. Reviews posted before this

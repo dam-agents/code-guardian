@@ -17,7 +17,8 @@
 #     the 14-day log retention cleanup in audit mode.
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
-#                             / prunes_due / artifacts_due / urgent_alerts_due
+#                             / prunes_due / status_resets_due / artifacts_due
+#                             / urgent_alerts_due
 #                             / mentions_due (comments addressed to the bot,
 #                             deduped against work/MENTIONS.md)
 #                             (+ skill install, SHA-cached, only when a
@@ -107,6 +108,12 @@ case "$STALL_ALERT_THRESHOLD" in
 esac
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
+# GitHub progress signal — commit status on the reviewed SHA (docs/review.md)
+PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
+case "$PROGRESS" in
+  (enabled|disabled) ;;
+  (*) log "review_progress '$PROGRESS' unknown — treating as disabled"; PROGRESS=disabled;;
+esac
 
 fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
   logev error preflight "$1"
@@ -187,8 +194,8 @@ install_skill() { # name source -> status string (local writes only)
 }
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
-  local nothing=true a
-  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"; do
+  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}"
+  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$resets"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
@@ -200,18 +207,19 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson stall "${STALL_ALERT:-null}" \
+    --argjson resets "$resets" --argjson stall "${STALL_ALERT:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
-      skills:$skills, logs:$logs}
+      status_resets_due:$resets, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)'
 }
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
+  STATUS_RESETS_DUE='[]'
 
   # re-review trigger gate (CLAUDE.md -> rereview_trigger): label | review-request | both
   REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
@@ -245,7 +253,23 @@ if [ "$MODE" = "review" ]; then
 
   # --- prune detection (verified per PR; the agent executes the prune) ---
   for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
-    open_numbers | grep -qx "$n" && continue
+    if open_numbers | grep -qx "$n"; then
+      # Open, but absent from the non-draft set = turned draft. A draft is never
+      # reviewed, so a lock on it is abandoned work: the agent closes out its
+      # progress status and deletes the row (self-dedup — no row, no reset).
+      if [ "$PROGRESS" = "enabled" ] \
+         && ! printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson n "$n" 'any(.number == $n)' >/dev/null 2>&1; then
+        row="$(row_for "$n")"
+        if [ "$(row_field "$row" 6)" = "in_progress" ] \
+           && [ $(( (NOW_EPOCH - $(iso2epoch "$(row_field "$row" 4)")) / 60 )) -ge 30 ]; then
+          STATUS_RESETS_DUE="$(printf '%s' "$STATUS_RESETS_DUE" | jq --argjson e "$(jq -n \
+            --argjson n "$n" --arg sha "$(row_field "$row" 3)" --arg r "draft" \
+            '{number:$n, sha:$sha, reason:$r}')" '. + [$e]')"
+          log "PR #$n: locked review abandoned (PR is now a draft) — progress status reset due"
+        fi
+      fi
+      continue
+    fi
     if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
     PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
     state="$(printf '%s' "$PJ" | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end' 2>/dev/null)"
@@ -370,6 +394,36 @@ if [ "$MODE" = "review" ]; then
 
   # urgent entries first (stable sort — non-urgent keep their order)
   REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq 'sort_by(if .urgent then 0 else 1 end)')"
+
+  # ------------------------------------------------- progress-signal ETA ----
+  # `eta_seconds` per due review: the median wall-clock of recent completed
+  # reviews, paired per (run, PR) from the `locked`/`done` review_step events
+  # (docs/review.md → Progress signal on GitHub). Local files only, one jq
+  # process, and only when a review is due — idle heartbeats pay nothing.
+  if [ "$PROGRESS" = "enabled" ] && [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
+    ETA_FILES=()
+    while IFS= read -r f; do [ -f "$f" ] && ETA_FILES+=("$f"); done \
+      < <(ls -1 "$LOG_DIR"/events-*.jsonl 2>/dev/null | sort | tail -7)
+    ETA=null
+    if [ "${#ETA_FILES[@]}" -gt 0 ]; then
+      ETA="$(jq -R -n '
+        [ inputs | fromjson? // empty
+          | select(.event == "review_step")
+          | select(.msg | test("PR #[0-9]+ +[0-9a-f]+ +(locked|done)$"))
+          | (.msg | capture("PR #(?<n>[0-9]+) +[0-9a-f]+ +(?<step>locked|done)$")) as $c
+          | {key: ((.run // "?") + "#" + $c.n), step: $c.step,
+             t: (.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)} ]
+        | group_by(.key)
+        | map( (map(select(.step == "locked") | .t) | min) as $a
+             | (map(select(.step == "done")   | .t) | max) as $b
+             | if $a == null or $b == null or $b <= $a then empty
+               else {end: $b, d: ($b - $a)} end )
+        | sort_by(.end) | .[-20:] | map(.d) | sort
+        | if length == 0 then null else .[(length / 2) | floor] end' "${ETA_FILES[@]}" 2>/dev/null)"
+      [ -n "$ETA" ] || ETA=null
+    fi
+    REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson eta "$ETA" 'map(. + {eta_seconds: $eta})')"
+  fi
 
   # install skills only when the agent will actually review / generate
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \

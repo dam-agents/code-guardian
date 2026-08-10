@@ -50,7 +50,8 @@ Never prune anything not in `prunes_due`; never bulk-delete.
 ## Per-PR review sequence (`reviews_due`)
 
 Each entry: `{number, head_sha, head_ref, title, author, kind, takeover,
-prior, urgent, closed}` — `kind` is `first` or `re-review`; `prior` carries
+prior, urgent, closed}` — plus `eta_seconds` under `review_progress: enabled`
+(**Progress signal on GitHub** below). `kind` is `first` or `re-review`; `prior` carries
 the last review's `{sha, ts, verdict}` when one exists; `urgent`/`closed`
 route through **Urgent PRs** / **PR closed mid-review** below (urgent entries
 come first in the worklist — keep that order). Complete ALL steps before the
@@ -110,6 +111,9 @@ j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
 k. **Delete the clone, its per-skill copies, and the skill outputs**
    ([skills.md](skills.md) → **Clone, credential helper, cleanup**), exactly
    once per PR.
+
+Under `review_progress: enabled` this sequence also publishes its progress to
+the PR — **Progress signal on GitHub** below.
 
 **Progress logging (stall diagnosis).** A session that dies mid-review must
 leave a trace of where it stopped, so each milestone of this sequence appends a
@@ -200,6 +204,51 @@ itself when the review posts):
 ```bash
 gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null
 ```
+
+## Progress signal on GitHub (`review_progress`)
+
+`review_progress: enabled` in `work/CONFIG.md` (missing = `disabled`) publishes
+the review's progress as a **commit status** on the SHA being reviewed, so the
+PR shows that a review started, where it is, and roughly how long it takes.
+One call per update, `context` = `$REVIEW_MARKER` (stable per instance, like
+the marker itself):
+
+```bash
+gh api -X POST "repos/$REPO/statuses/<sha>" -f state=<state> \
+  -f context="$REVIEW_MARKER" -f description="<line>" >/dev/null
+```
+
+Add `-f target_url=<url>` for the rows that have one. Keep `description` to one
+short line — GitHub truncates it past 140 characters.
+
+| Written at | `state` | `description` | `target_url` |
+| --- | --- | --- | --- |
+| a — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
+| b — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
+| Urgent phase 1 — rapid posted | `pending` | `rapid preliminary review posted · full review running` | the rapid review |
+| j — review posted | `success` | `<VERDICT> · <a>🔴 <b>🟡 <c>🟢 · took <m>m` | the posted review |
+| e — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
+| PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
+| `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
+
+- `<eta>` is ` · usually ~<N> min` from the entry's `eta_seconds` — whole
+  minutes, minimum 1 — and is left out entirely when that field is `null`.
+- Write on the SHA the review locked at Check 1, so a status never describes a
+  commit it did not read.
+- Every terminal outcome is `success`, aborts included: `failure`/`error` would
+  turn the agent into a merge gate the moment someone makes the context a
+  required check.
+- **Chain each call onto the command that step already runs** — never a
+  separate tool call.
+- **Best-effort throughout**: a failed write is logged
+  (`progress_status`, warn — [logging.md](logging.md)) and changes nothing
+  about the review; never retried, never a reason to abort.
+
+**`status_resets_due`** — entries `{number, sha, reason}` for a PR whose locked
+review was abandoned with a status left `pending` (`reason: draft` — the PR
+became a draft, so no review will resume it). Per entry: write the terminal row
+above, then **delete the PR's REVIEWS.md row** (the `reviews/pr-<n>.md` history
+stays); the missing row is what keeps the reset from repeating.
 
 ## Urgent PRs — rapid-first delivery
 
@@ -706,6 +755,9 @@ Before declaring the run done, verify:
   comment with the surviving links, markers recorded, cleanup on prune.
 - Watch rules (when configured) evaluated send-then-marker
   ([watches.md](watches.md)).
+- Under `review_progress: enabled`: every locked PR ended on a terminal
+  `success` status, `status_resets_due` entries closed out and their rows
+  deleted (**Progress signal on GitHub**).
 - `stall_alert` (when present): reported in the chat UI, DM'd to
   `escalation_owner` under Slack, `stall_alert_sent` logged — and no state
   "repaired" in response.

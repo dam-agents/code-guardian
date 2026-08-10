@@ -160,6 +160,7 @@ else
     chk_enum slack_notifications 'enabled|disabled' 'enabled | disabled'
     chk_enum rereview_trigger 'label|review-request|both' 'label | review-request | both'
     chk_enum mention_replies 'enabled|disabled' 'enabled | disabled'
+    chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
