@@ -41,7 +41,13 @@ assert_count() { # <pattern> <expected> <description>
 
 step_case() { # <case-name>
   new_case "$1"
-  base_config
+  # the hook derives skill names from CONFIG.md, so the table is part of the fixture
+  base_config '- artifact_skill: pr-artifact@acme/skills' '' \
+    '## Review skills' '' \
+    '| skill | source | trigger | section |' \
+    '| --- | --- | --- | --- |' \
+    '| doc-drift | acme/skills | always | Documentation Check |' \
+    '| typescript-engineering | acme/skills | .ts,.js | TypeScript Review |'
   mkdir -p "$WORK/logs"
   EVENTS="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
   : > "$EVENTS"
@@ -83,6 +89,27 @@ assert_count 'review_step' 0 'a Task with no PR number logs nothing'
 step_case task_not_a_skill
 run_task "$SID" "Investigate the flaky test in PR #42"
 assert_count 'review_step' 0 'an unrelated subagent logs nothing'
+
+# --- the artifact skill is recognised too ------------------------------------
+step_case skill_artifact
+run_task "$SID" "pr-artifact for PR #42"
+assert_count 'PR #42 skill:pr-artifact done' 1 'the artifact skill logs its step'
+
+# --- a skill this instance has NOT configured logs nothing -------------------
+step_case skill_unconfigured
+run_task "$SID" "react-ui-engineering for PR #42"
+assert_count 'review_step' 0 'a skill absent from the table logs nothing'
+
+# --- no skills table → nothing to derive -------------------------------------
+step_case skill_no_table
+base_config
+run_task "$SID" "doc-drift for PR #42"
+assert_count 'review_step' 0 'an instance with no skills table logs no skill step'
+
+# --- header/separator rows are not skill names -------------------------------
+step_case skill_table_noise
+run_task "$SID" "the skill --- ran for PR #42"
+assert_count 'review_step' 0 'table header and separator rows are not skills'
 
 # --- posting a review logs `posted <verdict>` --------------------------------
 step_case posted_verdict
