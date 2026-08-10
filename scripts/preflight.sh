@@ -13,7 +13,8 @@
 #     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
 #     nudge due,
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
-#     (via scripts/log.sh — docs/logging.md), the skill install cache, and
+#     (via scripts/log.sh — docs/logging.md), the skill install cache, the
+#     git credential helper (`gh auth setup-git`, before the agent clones), and
 #     the 14-day log retention cleanup in audit mode.
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
@@ -88,8 +89,17 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
 # ---------------------------------------------------------------- config ----
-REPO="${GITHUB_REPO:-$(cfg github_repo)}"
-[ -z "$REPO" ] && REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
+# Every repo reference is `[<host>/]<owner>/<repo>`: three segments name the
+# host, two use the ambient default. DEFAULT_HOST is captured before GH_HOST is
+# re-exported below, so each reference resolves independently of the others.
+DEFAULT_HOST="${GH_HOST:-github.com}"
+refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
+refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+
+TARGET_REF="${GITHUB_REPO:-$(cfg github_repo)}"
+[ -z "$TARGET_REF" ] && TARGET_REF="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
+REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
+export GH_HOST="$REPO_HOST"   # every unqualified gh call targets the review host
 BOT_LOGIN="$(cfg bot_login)"
 REVIEW_MARKER="$(cfg review_marker)"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
@@ -97,6 +107,17 @@ URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
+# `gist` renders through an external service that only reaches github.com, so it
+# is dropped on any other target host; no surface left = feature off this run
+ARTIFACT_TARGETS="$(cfg artifact_targets)"; ARTIFACT_TARGETS="${ARTIFACT_TARGETS:-gist}"
+ARTIFACT_OFF_REASON=""; EFFECTIVE_TARGETS=""
+for t in $(printf '%s' "$ARTIFACT_TARGETS" | tr ',' ' '); do
+  { [ "$t" = "gist" ] && [ "$REPO_HOST" != "github.com" ]; } && continue
+  EFFECTIVE_TARGETS="${EFFECTIVE_TARGETS:+$EFFECTIVE_TARGETS,}$t"
+done
+if [ -n "$ARTIFACT_SKILL" ] && [ -z "$EFFECTIVE_TARGETS" ]; then
+  ARTIFACT_SKILL=""; ARTIFACT_OFF_REASON="no publish surface reachable on $REPO_HOST"
+fi
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
@@ -170,9 +191,10 @@ remote_reviewed_any() { # number
 
 # ------------------------------------------------------------ skill install ----
 install_skill() { # name source -> status string (local writes only)
-  local name="$1" src="$2" sha cached count=0 p rel
+  local name="$1" src="$2" h slug sha cached count=0 p rel
   [ "$src" = "harness" ] && { printf 'harness'; return; }
-  sha="$(gh api "repos/$src/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+  h="$(refhost "$src")"; slug="$(refslug "$src")"
+  sha="$(gh api --hostname "$h" "repos/$slug/commits/main" 2>/dev/null | jq -r '.sha // empty')"
   mkdir -p "$SKILL_CACHE"
   cached="$(cat "$SKILL_CACHE/$name.sha" 2>/dev/null || true)"
   if [ -n "$sha" ] && [ "$sha" = "$cached" ] && [ -d "$HOME_DIR/.claude/skills/$name" ]; then
@@ -183,10 +205,11 @@ install_skill() { # name source -> status string (local writes only)
     [ -z "$p" ] && continue
     rel="${p#.agents/skills/$name/}"
     mkdir -p "$HOME_DIR/.claude/skills/$name/$(dirname "$rel")"
-    curl -sSfL "https://raw.githubusercontent.com/$src/main/$p" -o "$HOME_DIR/.claude/skills/$name/$rel" \
+    gh api --hostname "$h" "repos/$slug/contents/$p?ref=main" -H 'Accept: application/vnd.github.raw' \
+      > "$HOME_DIR/.claude/skills/$name/$rel" 2>/dev/null \
       || { logev error skill_install "$name from $src: fetch of $p did not succeed"; printf 'install-failed'; return; }
     count=$((count+1))
-  done < <(gh api "repos/$src/git/trees/main?recursive=1" 2>/dev/null \
+  done < <(gh api --hostname "$h" "repos/$slug/git/trees/main?recursive=1" 2>/dev/null \
            | jq -r --arg pre ".agents/skills/$name/" '.tree[] | select(.type=="blob") | select(.path | startswith($pre)) | .path')
   [ "$count" -eq 0 ] && { logev error skill_install "$name from $src: no files found (tree listing empty or unreachable)"; printf 'install-failed'; return; }
   [ -n "$sha" ] && printf '%s' "$sha" > "$SKILL_CACHE/$name.sha"
@@ -428,6 +451,8 @@ if [ "$MODE" = "review" ]; then
   # install skills only when the agent will actually review / generate
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
      || [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
+    # git credential helper for every authenticated host, before the agent clones
+    gh auth setup-git 2>/dev/null || log "gh auth setup-git did not succeed — clones may fail to authenticate"
     while IFS='|' read -r _ skill src _rest; do
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
@@ -725,28 +750,60 @@ if [ "$MODE" = "audit" ]; then
   CHECKS='[]'
   check() { CHECKS="$(printf '%s' "$CHECKS" | jq --arg i "$1" --arg s "$2" --arg d "$3" '. + [{id:$i, status:$s, detail:$d}]')"; }
 
-  # --- connectivity -----------------------------------------------------
-  me="$(gh api user 2>/dev/null | jq -r '.login // empty')"
-  if [ -z "$me" ]; then check github_auth fail "gh api user failed — token broken"
-  elif [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ]; then check github_auth warn "authenticated as $me, expected $BOT_LOGIN"
-  else check github_auth ok "authenticated as $me"; fi
+  # definition repo, resolved here because the connectivity checks below cover
+  # every host the pipeline touches (target, definition, skill sources)
+  DEF_REF="$(cfg definition_repo)"
+  [ -z "$DEF_REF" ] && DEF_REF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
+    | sed -E 's#^(git@|https://)##; s#^([^/:]+)[:/]#\1/#; s#\.git$##')"
+  DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 
+  AUDIT_HOSTS="$REPO_HOST"
+  [ -n "$DEF_REF" ] && AUDIT_HOSTS="$AUDIT_HOSTS $DEF_HOST"
+  while IFS='|' read -r _ askill asrc _rest; do
+    askill="$(trim "$askill")"; asrc="$(trim "$asrc")"
+    case "$askill" in (''|skill|-*) continue;; esac
+    [ "$asrc" = "harness" ] && continue
+    AUDIT_HOSTS="$AUDIT_HOSTS $(refhost "$asrc")"
+  done < <(cfg_table 'Review skills')
+  AUDIT_HOSTS="$(printf '%s\n' $AUDIT_HOSTS | sort -u | tr '\n' ' ')"
+
+  # --- connectivity (one line per host the pipeline uses) ---------------
+  auth_detail=""; auth_status=ok; scope_detail=""; scope_status=ok
+  for h in $AUDIT_HOSTS; do
+    me="$(gh api --hostname "$h" user 2>/dev/null | jq -r '.login // empty')"
+    if [ -z "$me" ]; then auth_status=fail; auth_detail="${auth_detail:+$auth_detail; }$h: not authenticated (token broken or host unreachable)"
+    elif [ "$h" = "$REPO_HOST" ] && [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ]; then
+      [ "$auth_status" = fail ] || auth_status=warn
+      auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN"
+    else auth_detail="${auth_detail:+$auth_detail; }$h: $me"; fi
+
+    # Token scopes the pipeline depends on: `repo` for PR state and posting,
+    # `gist` for artifact publishing (target host only). A missing scope fails
+    # those calls outright, so catch it here rather than per review; granting is
+    # operator-only.
+    want="repo"; { [ "$h" = "$REPO_HOST" ] && [ -n "$ARTIFACT_SKILL" ]; } && want="repo gist"
+    scopes="$(gh api --hostname "$h" user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
+    missing_scopes=""
+    for s in $want; do
+      case ",$(printf '%s' "$scopes" | tr -d ' ')," in (*",$s,"*) ;; (*) missing_scopes="${missing_scopes:+$missing_scopes }$s";; esac
+    done
+    if [ -z "$scopes" ]; then
+      [ "$scope_status" = fail ] || scope_status=warn
+      scope_detail="${scope_detail:+$scope_detail; }$h: scopes unreadable (fine-grained or app token?)"
+    elif [ -n "$missing_scopes" ]; then
+      scope_status=fail; scope_detail="${scope_detail:+$scope_detail; }$h: missing $missing_scopes"
+    else scope_detail="${scope_detail:+$scope_detail; }$h: $want"; fi
+  done
+  check github_auth "$auth_status" "$auth_detail"
+  if [ "$scope_status" = "ok" ]; then check token_scopes ok "$scope_detail"
+  else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"; fi
+
+  # rate limiting is reported by the target host only, and enterprise hosts may
+  # not enforce it at all — unreadable is not a fault (github_auth covers tokens)
   rl="$(gh api rate_limit 2>/dev/null | jq -r '.resources.core.remaining // empty')"
-  if [ -z "$rl" ]; then check rate_limit warn "rate_limit endpoint unreadable"
+  if [ -z "$rl" ]; then check rate_limit ok "$REPO_HOST does not report a core rate limit"
   elif [ "$rl" -lt 500 ]; then check rate_limit warn "only $rl core API calls remaining this hour"
   else check rate_limit ok "$rl core API calls remaining"; fi
-
-  # Token scopes the pipeline depends on: `repo` for PR state and posting,
-  # `gist` for artifact publishing. A missing scope fails those calls outright,
-  # so catch it here rather than per review; granting is operator-only.
-  scopes="$(gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
-  missing_scopes=""
-  for s in repo gist; do
-    case ",$(printf '%s' "$scopes" | tr -d ' ')," in (*",$s,"*) ;; (*) missing_scopes="${missing_scopes:+$missing_scopes }$s";; esac
-  done
-  if [ -z "$scopes" ]; then check token_scopes warn "token scopes unreadable (X-OAuth-Scopes absent — fine-grained or app token?)"
-  elif [ -n "$missing_scopes" ]; then check token_scopes fail "token missing scope(s): $missing_scopes — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"
-  else check token_scopes ok "token carries repo, gist"; fi
 
   # CLI dependencies (see the Requires header). A missing one is not fatal by
   # itself — it makes ad-hoc commands fail mid-run in ways that read as bugs.
@@ -845,7 +902,8 @@ if [ "$MODE" = "audit" ]; then
     || check state_drift ok "$verified open-PR rows verified against GitHub markers"
 
   # --- artifacts & hygiene --------------------------------------------------
-  if [ -n "$ARTIFACT_SKILL" ]; then
+  [ -n "$ARTIFACT_OFF_REASON" ] && check artifact_targets warn "artifact_skill configured but disabled: $ARTIFACT_OFF_REASON"
+  if [ -n "$ARTIFACT_SKILL" ] && printf '%s' ",$EFFECTIVE_TARGETS," | grep -q ',gist,'; then
     gist_ids="$(gh api "gists?per_page=100" 2>/dev/null | jq -r '.[] | select((.description // "") | test("review artifact")) | .id')"
     markers="$(grep -ho '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK"/reviews/pr-*.md 2>/dev/null | cut -d' ' -f3 | sort -u)"
     orphans=""
@@ -864,7 +922,7 @@ if [ "$MODE" = "audit" ]; then
     skill="$(trim "$skill")"; src="$(trim "$src")"
     case "$skill" in (''|skill|-*) continue;; esac
     [ "$src" = "harness" ] && continue
-    remote_sha="$(gh api "repos/$src/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+    remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
     cached="$(cat "$SKILL_CACHE/$skill.sha" 2>/dev/null || true)"
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
@@ -879,13 +937,10 @@ if [ "$MODE" = "audit" ]; then
 
   # open-issue backlog on the definition repo: tracking issues the agent files
   # ([audit], [channel request]) wait for the operator — surface them weekly
-  DEFINITION_REPO="$(cfg definition_repo)"
-  [ -z "$DEFINITION_REPO" ] && DEFINITION_REPO="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
-    | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
   if [ -z "$DEFINITION_REPO" ]; then
     check definition_issues warn "definition_repo unresolved — issue backlog not checked"
   else
-    issue_line="$(gh api "repos/$DEFINITION_REPO/issues?state=open&per_page=100" 2>/dev/null \
+    issue_line="$(gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/issues?state=open&per_page=100" 2>/dev/null \
       | jq -r '[.[] | select(.pull_request | not)]
                | (length | tostring) + "\t"
                  + ([.[] | "#\(.number) \(.title | .[0:60])"] | join(" · ") | .[0:240])' 2>/dev/null)"

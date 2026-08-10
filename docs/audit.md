@@ -73,7 +73,9 @@ if one is impossible this week (missing data, API error), report it as
 6. Slack connectivity — no separate probe: sending the report *is* the test
    (send failure → fail + fall back to chat UI).
 7. Artifact feature (when `artifact_skill` configured): report the configured
-   `artifact_targets` (default `gist`). When it lists `dam`, are the DAM MCP
+   `artifact_targets` (default `gist`) and, when the script emitted an
+   `artifact_targets` check, the surfaces it dropped for this host
+   ([artifact.md](artifact.md)). When it lists `dam`, are the DAM MCP
    tools (`create_artifact*`) registered this session? Absent → **info**, not
    a failure (the DAM surface is best-effort by design) — but report the flag
    state so the operator knows which surfaces artifacts currently get.

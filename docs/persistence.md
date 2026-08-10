@@ -153,9 +153,15 @@ git -C /home/agent checkout -b "fix/<short-slug>" origin/main
 git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts .agents .github
 git -C /home/agent commit -m "<describe the change>"
 git -C /home/agent push -u origin "fix/<short-slug>"
-gh pr create --repo "$DEFINITION_REPO" --base main --head "fix/<short-slug>" \
+gh pr create --repo "$DEF_HOST/$DEFINITION_REPO" --base main --head "fix/<short-slug>" \
   --title "<title>" --body "<what and why>"
 ```
+
+The definition repo may sit on a different GitHub host than the target repo, so
+**every definition-repo call names its host** — `-R "$DEF_HOST/$DEFINITION_REPO"`
+for `gh pr`/`gh issue`, `--hostname "$DEF_HOST"` for `gh api` (CLAUDE.md →
+**Runtime configuration**). The outer-repo `origin` URL already carries it, so
+plain `git fetch`/`push` need nothing extra.
 
 After the PR merges, return the checkout to this instance's `definition_branch`
 (**Tracked branch** above) so the next run isn't left on a feature branch.

@@ -103,9 +103,10 @@ Bringing up a new code-guardian agent takes four steps:
 3. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — **from the repo (or
    fork) you actually deploy from**, e.g.
    `https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md`.
-   The agent derives its *definition repo* from this URL (stored as
-   `definition_repo` in `work/CONFIG.md`), so a fork's agent stays pinned to the
-   fork — it never resets itself to upstream.
+   The agent derives its *definition repo* — host included, so a GitHub
+   Enterprise URL works the same — from this URL (stored as `definition_repo` in
+   `work/CONFIG.md`), so a fork's agent stays pinned to the fork; it never
+   resets itself to upstream.
 4. **Tell the agent**, in its first message:
 
    > Here is a file — read it and set yourself up according to it: https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md
@@ -155,7 +156,7 @@ issue on the definition repo, with the link in the reply (`CLAUDE.md` →
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `GITHUB_REPO` | Recommended | `owner/repo` slug of the repository whose PRs are reviewed. **If unset, the agent asks for the slug at the very start of onboarding**, validates it, and persists it to `work/CONFIG.md` (`github_repo:` key) — the env var, when later set, always takes precedence over the stored value. Last-resort fallback is the repo detected via `gh repo view` in the working directory. |
+| `GITHUB_REPO` | Recommended | `[host/]owner/repo` of the repository whose PRs are reviewed. **If unset, the agent asks for the slug at the very start of onboarding**, validates it, and persists it to `work/CONFIG.md` (`github_repo:` key) — the env var, when later set, always takes precedence over the stored value. Last-resort fallback is the repo detected via `gh repo view` in the working directory. |
 | `GITHUB_REPO_WORK` | No | `owner/repo` slug of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a plain data directory that the agent backs up to this repo after every run via a disposable tmpfs clone (never a `.git` on the shared volume — see `docs/persistence.md`). **When unset**, the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
 
 ### `work/CONFIG.md` — instance configuration
@@ -167,8 +168,8 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
-| `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo slug; the env var always wins. |
-| `definition_repo` | derived from the ONBOARDING.md URL | The repo this agent definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
+| `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo reference (`[host/]owner/repo`); the env var always wins. |
+| `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this agent definition came from (fork-aware), `[host/]owner/repo` — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from** — its update source and the branch the checkout is kept on. A per-agent deployment choice; definition PRs are still based on `main`. |
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
@@ -178,9 +179,9 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows; with Slack enabled a newly urgent PR also gets one immediate roster-mentioning alert (`docs/review.md` → **Urgent PRs**). |
 | `review_progress` | asked (default `disabled`, key omitted then) | Publishes each review's progress to the PR as a commit status on the reviewed SHA — started, in progress with an ETA from past reviews, and a terminal outcome linking to the posted review (`docs/review.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot (@-mention, or a reply in its inline review threads) are answered every heartbeat — questions get replies, explicit review feedback is recorded to memory, review requests are served (`docs/mentions.md`). |
-| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<owner/repo>`); `none` disables the feature. |
-| `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
-| `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
+| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<[host/]owner/repo>`); `none` disables the feature. |
+| `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `gist` requires a `github.com` target repo and is dropped elsewhere; `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
+| `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to vetted targets — chat UI, a Slack channel, or a comment on the PR (`docs/watches.md`). Keeps team-specific triggers and channels out of this public definition — rules are private runtime state. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
@@ -193,6 +194,13 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   `/home/agent` on a persistent `/workspace` volume, the platform's outbound
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
   schedules and Slack. Running elsewhere requires adapting those assumptions.
+- **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
+  target repo, this definition, the skill sources, and `GITHUB_REPO_WORK` may
+  each live on a different host — `github.com` or a GitHub Enterprise instance.
+  Each host in play must be authenticated separately
+  (`gh auth login --hostname <host>`, operator-only) and reachable from the pod;
+  a non-`github.com` target host is persisted as `GH_HOST` at onboarding. The
+  `gist` artifact surface is `github.com`-only (`docs/artifact.md`).
 - **GitHub identity:** the agent posts reviews, comments, and gists as the
   account behind its token. Use a **dedicated machine/bot account** (not a
   personal one) that is a collaborator on the target repo with permission to

@@ -39,7 +39,7 @@ assert_jq '.stats.reviews.total == 2 and .stats.reviews.re_review == 1' 'review 
 new_case audit_issue_backlog
 base_config '- definition_repo: acme/guardian'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-fx 'api repos/acme/guardian/issues?state=open&per_page=100' <<'EOF'
+fx 'api --hostname github.com repos/acme/guardian/issues?state=open&per_page=100' <<'EOF'
 [
  {"number": 31, "title": "[channel request] Heads-up on CRD bumps"},
  {"number": 90, "title": "a PR, not an issue", "pull_request": {"url": "x"}}

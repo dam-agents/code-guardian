@@ -19,8 +19,8 @@ new_case skills_table_bounded
   printf '| db-migration | touches a migration | chat | test row |\n'
 } > "$WORK/CONFIG.md"
 pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
-printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api repos/acme/skills/commits/main'
-printf '{"tree":[{"type":"blob","path":".agents/skills/foo/SKILL.md"}]}\n' | fx 'api repos/acme/skills/git/trees/main?recursive=1'
+printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/main'
+printf '{"tree":[{"type":"blob","path":".agents/skills/foo/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/main?recursive=1'
 run_preflight review
 assert_jq '.reviews_due | length == 1' 'review due triggers the install'
 assert_jq '.skills | keys == ["foo"]' 'only the skills table installs'

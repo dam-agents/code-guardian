@@ -22,18 +22,19 @@ fi
 
 Sentinel exists → **stop here**. It lives in persistent `$HOME`, so onboarding runs once per volume, not per heartbeat.
 
-Then route git auth through `gh` (idempotent; used for all github.com repos):
+Then route git auth through `gh` for every host it is authenticated with (idempotent; re-run by every heartbeat that reviews):
 
 ```bash
-git config --global --replace-all credential."https://github.com".helper "" \
-  && git config --global --add credential."https://github.com".helper "!gh auth git-credential"
+gh auth setup-git
 ```
 
 ## Step 0 — Prerequisites & repository resolution
 
-1. **Sanity check:** `gh api user --jq .login` must succeed (it prints the bot login, needed in Step 4). If it fails, **stop** and tell the operator the GitHub connection/token is broken — nothing else can proceed.
+Every repo reference below — definition, target, work backup, skill sources — is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host (CLAUDE.md → **Runtime configuration**). `$DEF_HOST` / `$REPO_HOST` denote the host of a reference; `gh api --hostname` targets one explicitly.
 
-   Then verify the preconditions the pipeline silently depends on — the weekly audit re-checks both (`token_scopes`, `cli_deps`):
+1. **Sanity check:** `gh api user --jq .login` must succeed (it prints the bot login, needed in Step 4). If it fails, **stop** and tell the operator the GitHub connection/token is broken — nothing else can proceed. Repeat it with `--hostname <host>` for every non-default host resolved below; an unauthenticated host is **operator-only** to fix (`gh auth login --hostname <host>`) — report and stop.
+
+   Then verify the preconditions the pipeline silently depends on — the weekly audit re-checks both (`token_scopes`, `cli_deps`), per host:
 
    ```bash
    gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo, gist
@@ -41,15 +42,15 @@ git config --global --replace-all credential."https://github.com".helper "" \
    ```
 
    A missing **scope** is **operator-only** — report it and ask them to widen the token, don't work around it; which scopes are required and what each is for is in README → **Token scopes** (the optional one only affects the roster import below). A missing **command** blocks onboarding: report and stop. Installing OS packages is not possible on the pod (no package manager, no sudo, read-only prefixes) — `awk`, `diff`, and a login-shell `python3` are deliberately **not** required anywhere in this definition; keep it that way.
-2. **Definition repo & branch** — derive `OWNER/REPO` **and the branch** from the URL of this runbook as given by the operator (`https://github.com/OWNER/REPO/blob/<branch>/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api "repos/<owner/repo>" --jq .full_name`) and `export DEFINITION_REPO="<owner/repo>"`. Then `export DEF_BRANCH="<branch from the URL, else main>"` and validate it exists (`gh api "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`) — invalid → say so and ask, never fall back silently. Persisted as `definition_repo` + `definition_branch` in Step 4; they drive the outer-repo `origin`, updates, definition PRs, and the review footer.
+2. **Definition repo & branch** — derive the **host**, `OWNER/REPO`, and the branch from the URL of this runbook as given by the operator (`https://<host>/OWNER/REPO/blob/<branch>/ONBOARDING.md` or its raw form); for a fork that's the fork, never upstream. No URL available → ask. Validate (`gh api --hostname "<host>" "repos/<owner/repo>" --jq .full_name`) and `export DEF_HOST="<host>" DEFINITION_REPO="<owner/repo>"`. Then `export DEF_BRANCH="<branch from the URL, else main>"` and validate it exists (`gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`) — invalid → say so and ask, never fall back silently. Persisted as `definition_repo` (host-prefixed when it is not `github.com`) + `definition_branch` in Step 4; they drive the outer-repo `origin`, updates, definition PRs, and the review footer.
 3. **`GITHUB_REPO`** — if the env var is unset, ask:
 
-   > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`).
+   > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`), prefixed with the host if it is not `github.com` (e.g. `github.example.com/acme/widgets`).
 
-   Validate the answer the same way (on failure explain and ask again — never continue unvalidated), then `export GITHUB_REPO=…` for this session. The durable copy goes to `work/CONFIG.md` (`github_repo:`) in Step 4; the env var, when later set on the platform (still the recommended setup), always wins.
+   Validate the answer the same way (on failure explain and ask again — never continue unvalidated), then `export GITHUB_REPO=…` for this session, plus the split the steps below use: `export REPO_HOST="<host of $GITHUB_REPO>" REPO="<its owner/repo>" GH_HOST="$REPO_HOST"`. When `$REPO_HOST` is not `github.com`, persist it for the fresh shells every later run uses — append `export GH_HOST=<host>` to `~/.bashrc` if that line is absent. The durable copy goes to `work/CONFIG.md` (`github_repo:`) in Step 4; the env var, when later set on the platform (still the recommended setup), always wins.
 4. **`GITHUB_REPO_WORK`** — if unset, inform once, don't block:
 
-   > `GITHUB_REPO_WORK` is not set, so my state (config, memory, review history) will live only on this volume. For durable, versioned state, create an empty repo and set `GITHUB_REPO_WORK=<owner/repo>` before onboarding. Should I continue local-only, or do you want to set it first?
+   > `GITHUB_REPO_WORK` is not set, so my state (config, memory, review history) will live only on this volume. For durable, versioned state, create an empty repo and set `GITHUB_REPO_WORK=<[host/]owner/repo>` before onboarding. Should I continue local-only, or do you want to set it first?
 
    "Set it first" → stop and let them re-trigger onboarding. Otherwise (or no reply) → proceed local-only.
 
@@ -64,9 +65,9 @@ cd /home/agent
 export DEF_BRANCH="${DEF_BRANCH:-main}"
 if [ ! -d /home/agent/.git ]; then
   git init -q
-  git remote add origin "https://github.com/$DEFINITION_REPO.git"
+  git remote add origin "https://${DEF_HOST:-github.com}/$DEFINITION_REPO.git"
 else
-  git remote set-url origin "https://github.com/$DEFINITION_REPO.git"
+  git remote set-url origin "https://${DEF_HOST:-github.com}/$DEFINITION_REPO.git"
 fi
 git fetch -q origin "$DEF_BRANCH" || { echo "branch '$DEF_BRANCH' not found on $DEFINITION_REPO"; exit 1; }
 git checkout -q -B "$DEF_BRANCH" "origin/$DEF_BRANCH"
@@ -216,8 +217,8 @@ Final shape:
 ```markdown
 # Configuration
 
-- github_repo: acme/widgets            # only when the env var was unset
-- definition_repo: acme/code-guardian
+- github_repo: acme/widgets            # only when the env var was unset; [host/]owner/repo
+- definition_repo: acme/code-guardian  # [host/]owner/repo — may differ from the target's host
 - definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
@@ -248,7 +249,7 @@ Final shape:
 
 The roster is the **only** set of people the agent may ever @-mention (`docs/shepherd.md` → **Hard rules**). One row per member: `login`, `slack_id`, name, seed expertise keywords.
 
-1. **Fetch the team from GitHub** — prefer an org team; list them (`ORG="${GITHUB_REPO%%/*}"; gh api "orgs/$ORG/teams" --jq '.[] | "\(.slug)\t\(.name)"'`), let the operator pick one, then `gh api "orgs/$ORG/teams/<slug>/members?per_page=100" --jq '.[].login'`. **Fallback** (no org/teams/404): `gh api "repos/$GITHUB_REPO/contributors?per_page=15" --jq '.[].login'`. Show the logins; the operator removes bots/one-off contributors or adds missing people.
+1. **Fetch the team from GitHub** — prefer an org team; list them (`ORG="${REPO%%/*}"; gh api "orgs/$ORG/teams" --jq '.[] | "\(.slug)\t\(.name)"'`), let the operator pick one, then `gh api "orgs/$ORG/teams/<slug>/members?per_page=100" --jq '.[].login'`. **Fallback** (no org/teams/404): `gh api "repos/$REPO/contributors?per_page=15" --jq '.[].login'`. Show the logins; the operator removes bots/one-off contributors or adds missing people.
 2. **Draft the roster** — display names via `gh api "users/<login>" --jq '.name // .login'`; seed a few expertise keywords from each member's recent PRs in `$GITHUB_REPO` (rough is fine — the agent appends "Observed areas" over time; only the operator edits seed expertise). Present the draft.
 3. **Ask for Slack member IDs** (not resolvable automatically) — one `login = U0123ABCD` line per member; found in Slack: profile → **⋮ (More)** → **Copy member ID**. Validate against `^U[A-Z0-9]{6,}$`. A member without an id may stay (named in text) but is never @-mentioned.
 4. **Write `work/DEVELOPERS.md`:**
