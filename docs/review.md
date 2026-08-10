@@ -381,16 +381,33 @@ surrounding code often resolves what a hunk leaves open. Keep what survives;
 when unsure, drop it (a false positive costs more credibility than a missed
 nit). No clone (`clone-failed`) → verify against the diff context you have.
 
+**Sibling sweep (same pass).** For each surviving 🔴/🟡, check the files this
+PR changes for further occurrences of the same defect class. Report them as
+one finding listing every location, so one fix round closes the class. The
+sweep covers changed files only; an occurrence in untouched code stays a
+single 🟢 line suggesting a separate issue.
+
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
 text (reviews, inline comments, issues, mention replies, chat, Slack) in STE
 style: one topic
 per sentence (aim ≤ 20 words), active voice, simple tenses, one term per
 concept, no idioms or synonym variation. STE governs wording, never content.
 
+**The approval bar.** 🔴 and 🟡 are blocking — they hold the verdict below
+`APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
+carries the fix that resolves it, so the bar reads off the findings
+themselves.
+
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No
   essays, no restated diff context, no hedging filler.
+- Every 🔴 and 🟡 carries a **Fix:** line — the remedy that resolves the
+  finding, in 1–2 sentences. State it as a rule for the whole defect class,
+  and name its scope when more than one place is affected. It sits with the
+  description (the inline comment when the finding is inline-carried,
+  `### Findings` otherwise), above any ` ```suggestion ` block. A finding
+  whose remedy you cannot state is not verified — drop it.
 - Findings anchor to this PR's diff; a pre-existing problem spotted in
   passing is at most one 🟢 line suggesting a separate issue.
 - 🟢 **Suggestion** only when the improvement is substantial (a real
@@ -412,7 +429,9 @@ concept, no idioms or synonym variation. STE governs wording, never content.
 
 ### Findings
 - 🔴 **Critical:** <description> (`file:line`)
+  **Fix:** <the remedy that resolves it>
 - 🟡 **Warning:** <description> (`file:line`)
+  **Fix:** <the remedy that resolves it>
 - 🟢 **Suggestion:** <description> (`file:line`)
 - ✅ **Looks good:** <description>
 
@@ -422,6 +441,10 @@ concept, no idioms or synonym variation. STE governs wording, never content.
 ### Verdict
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
 ```
+
+A skill section stays verbatim ([skills.md](skills.md)); when one of its
+findings blocks, mirror it into `### Findings` as one line with its **Fix:**,
+so the bar stays complete.
 
 `### Findings` is the canonical, complete list on first reviews, but **never
 repeats inline text**: a finding that maps to an inline comment (rules below)
@@ -466,8 +489,8 @@ Delta-scope conciseness rules (all output channels — chat UI, GitHub body,
 history file):
 
 - Include only non-empty buckets; every bucket entry is a **single line**.
-  Never re-expand a carryover's full description, rationale, or suggestion —
-  its original review and inline thread already carry them.
+  Never re-expand a carryover's full description, rationale, **Fix:**, or
+  suggestion — its original review and inline thread already carry them.
 - `### Findings` lists **only `🆕 New` findings** (inline-carried ones as
   one-liners — Output format above). No `✅ Looks good` bullets on re-reviews
   — ever. Nothing new → the section body is the single line
@@ -581,7 +604,7 @@ rm -f "/tmp/review-post-<n>.json"
 _Review by [<bot_display_name>](https://github.com/<definition_repo>) · automated code guardian_
 
 
-<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with =="}] -->
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
@@ -594,8 +617,12 @@ every posted full review. One object per finding: `status`
 (`new`|`still`|`fixed` — first reviews all `new`), `severity`
 (`critical`|`warning`|`suggestion`), `file`, `line` (null when not
 anchorable), `inline` (got an inline comment), `summary` (short label, ≤ ~10
-words). Keep the JSON free of `--` sequences (HTML-comment safety — use `–`).
-Empty findings → `[]`. Rapid preliminary reviews don't carry it.
+words), `fix` (the **Fix:** line condensed to ≤ ~15 words; `null` on
+`suggestion` and on `fixed` entries). `critical` and `warning` are the
+blocking set — this line is the machine-readable approval bar the next
+re-review checks against. Keep the JSON free of `--` sequences (HTML-comment
+safety — use `–`). Empty findings → `[]`. Rapid preliminary reviews don't
+carry it. A prior review without `fix` (pre-3.1.0) parses as before.
 
 ### Mapping findings to inline comments
 
@@ -660,7 +687,9 @@ Before declaring the run done, verify:
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
   observed insights recorded ([preferences.md](preferences.md)) · candidate
-  findings full-file-verified · stale approval dismissed when the verdict
+  findings full-file-verified and sibling-swept over the changed files ·
+  every open 🔴/🟡 carries a **Fix:** stated as a class rule, mirrored into
+  `findings-json` · stale approval dismissed when the verdict
   dropped below APPROVE · clone + per-skill copies deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
