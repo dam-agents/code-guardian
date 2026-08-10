@@ -120,6 +120,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 - Never emit a literal repo slug or `$GITHUB_REPO` in any output.
 - Every posted review carries the trailing full-SHA marker line; `review_marker` never changes once used.
+- Every posted review states its approval bar: each open 🔴/🟡 carries the fix that resolves it, in the review and in `findings-json` (docs/review.md → **The approval bar**).
 - Never post a review whose marker SHA isn't the live HEAD at post time (Check 2 + `commit_id` server-side guard; a stale posted review is expensive, discarding is cheap). A PR closed at post time gets no review — 🔴 findings become one deduplicated linked issue instead (docs/review.md → **PR closed mid-review**).
 - Re-reviews are trigger-gated: no re-review without an explicit request — `$REREVIEW_LABEL` or, when `rereview_trigger` enables it, a pending review request for `bot_login` (new commits alone never trigger one); the trigger is cleared after every posted review (label removed; a served review request clears itself); untriggered new commits get the one-time `awaiting_label` flip.
 - Configured review skills are never pre-filtered away — accepted skips are only `no-matching-files` and technical failures (docs/skills.md).

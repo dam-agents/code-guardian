@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.3.0 — 2026-08-10
+
+**Upgrade:** Nothing — docs are re-read per run. Reviews posted before this
+version carry a `findings-json` line without the new `fix` field; re-reviews
+parse them as before.
+
 ## 3.2.0 — 2026-08-07
 **Upgrade:** Nothing — docs are re-read per run.
 
