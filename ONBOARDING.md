@@ -196,6 +196,8 @@ The definition is project-agnostic: every instance-specific value lives in `work
 
    Then ask about **`urgent_label`** — an optional, human-managed label marking a PR urgent: its due reviews jump the queue and are delivered rapid-first (fast preliminary review, then the full one — `docs/review.md` → **Urgent PRs**), and with `slack_notifications: enabled` a newly found urgent PR gets one immediate Slack alert mentioning roster members. Default: off (omit the key). If the operator names one, validate/create it the same way as the re-review label.
 
+   Then ask about **`review_progress`** — whether a review's progress should show on the PR as a commit status (started → in progress with an ETA → outcome linking to the posted review; `docs/review.md` → **Progress signal on GitHub**). Mention that the status is always `success` when it finishes, so it never blocks a merge, and that its name in the checks list is the `review_marker`. Default `disabled`; write the key only on a yes.
+
    Then **`mention_replies`** — GitHub comments that @-mention **<bot_login>** (or reply in its inline review threads) get handled every heartbeat: questions answered, review feedback recorded to memory, review requests served (`docs/mentions.md`). Default `enabled`; write the key only when the operator wants `disabled`.
 7. **Review skills + `artifact_skill`** — fully config-driven (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or `none`). Present the default public set (see the example below — `issue-fit` ships in this definition repo, so its `source` is the instance's `definition_repo`) and let the operator adjust rows, triggers, and sources. **Validate every row before writing:**
    - Repo-sourced rows + artifact skill: `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed — otherwise let the operator fix or drop the row.
@@ -223,6 +225,7 @@ Final shape:
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
 - urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
+- review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
