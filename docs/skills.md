@@ -3,8 +3,9 @@
 Read this file together with [review.md](review.md) on every review run.
 Every reviewed PR is additionally checked by the review skills configured in
 the `## Review skills` table of `work/CONFIG.md`. Each row: **skill** (name
-invoked via the Skill tool), **source** (`harness`, or the `owner/repo` it
-installs from), **trigger**, **section** (exact `###` heading for its
+invoked via the Skill tool), **source** (`harness`, or the
+`[<host>/]<owner>/<repo>` it installs from — its host may differ from the
+target repo's), **trigger**, **section** (exact `###` heading for its
 output). Table order = routing priority for extension triggers **and**
 section order in the output.
 
@@ -22,8 +23,10 @@ status: `installed (N files)` / `cached` / `harness` / `install-failed`.
 - `harness` skills need no install — just invoke them.
 - Fallback (no preflight status for a configured skill): install it yourself
   — `rm -rf ~/.claude/skills/<skill>`, enumerate
-  `gh api "repos/<src>/git/trees/main?recursive=1"` for paths under
-  `.agents/skills/<skill>/`, fetch each raw file preserving subdirectories.
+  `gh api --hostname <src-host> "repos/<src-slug>/git/trees/main?recursive=1"`
+  for paths under `.agents/skills/<skill>/`, then fetch each blob with
+  `gh api --hostname <src-host> "repos/<src-slug>/contents/<path>?ref=main" -H 'Accept: application/vnd.github.raw'`,
+  preserving subdirectories.
 
 ## Mandatory — not skippable
 
@@ -119,16 +122,13 @@ it. Combine across your review + all skill sections.
 
 Per-PR working directory: `PR_DIR="/tmp/review-pr-<number>"`.
 
-Once per run, before any clone (idempotent; preflight also sets this up):
-
-```bash
-git config --global --replace-all credential."https://github.com".helper "" \
-  && git config --global --add credential."https://github.com".helper "!gh auth git-credential"
-```
+Preflight registers the git credential helper for every authenticated host
+(`gh auth setup-git`) before handing over review work; run it yourself if you
+reach a clone without a preflight worklist.
 
 ```bash
 rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-*
-gh repo clone "$REPO" "$PR_DIR" -- --depth 50 --branch "<headRefName>" --single-branch
+gh repo clone "https://$REPO_HOST/$REPO" "$PR_DIR" -- --depth 50 --branch "<headRefName>" --single-branch
 ```
 
 - Issue this alongside the context and diff fetches as parallel tool calls in

@@ -19,7 +19,13 @@ the whole feature is off; preflight evaluated the **assignee gate**
 **Where it publishes** is set by `artifact_targets` (config key; default
 `gist`). The one on-disk HTML is published to each listed surface:
 
-- **`gist`** — a secret **gist** (the historical primary surface).
+- **`gist`** — a secret **gist** on the target repo's host (the historical
+  primary surface). Available **only when that host is `github.com`**: the
+  rendered link goes through an external renderer that cannot reach another
+  host, and a review's artifact never crosses to a different host
+  (CLAUDE.md → **Hard invariants**). Elsewhere preflight drops `gist`, and
+  with no surface left the feature is off for the run (weekly audit reports
+  it as `artifact_targets`).
 - **`dam`** — the platform's **DAM Artifact Library**, published via the
   per-agent MCP tools (`create_artifact_upload_url` + `create_artifact`),
   registered only when the owner's **"artifact library" experimental flag**
@@ -45,7 +51,8 @@ the whole feature is off; preflight evaluated the **assignee gate**
 2. **Publish — each target in `$ARTIFACT_TARGETS`, independent; at least one
    attempted target must succeed.** Reuse the one on-disk `pr-<n>.html`;
    never rebuild between surfaces.
-   - **a. Gist** (only when `gist` is in `$ARTIFACT_TARGETS`):
+   - **a. Gist** (only when `gist` is in `$ARTIFACT_TARGETS` and
+     `$REPO_HOST` is `github.com`):
      `GIST_URL=$(gh gist create work/reviews/pr-artifacts/pr-<n>.html --desc "PR #<n> review artifact")`;
      `GIST_ID=$(basename "$GIST_URL")`. Never pass `--public`. On failure, log
      `PR #<n>: gist publish failed (<reason>)`, leave `GIST_ID` empty,

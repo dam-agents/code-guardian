@@ -61,15 +61,21 @@ if [ -d "$HOME_DIR/.git" ]; then
       "untracked paths (work/, .ssh, …) mean a broken allowlist — fix .gitignore per ONBOARDING Step 2; a modified/deleted definition file is restored with git -C \"\$HOME\" checkout -- <file> (never git clean)"
   fi
 
-  DEF_REPO="$(cfg definition_repo)"
-  if [ -n "$DEF_REPO" ]; then
+  # definition_repo is `[<host>/]<owner>/<repo>`; a bare slug means the ambient
+  # default host, so origin must still name that host and not just any
+  DEF_REF="$(cfg definition_repo)"
+  if [ -n "$DEF_REF" ]; then
+    case "$DEF_REF" in
+      (*/*/*) DEF_HOST="${DEF_REF%%/*}"; DEF_REPO="${DEF_REF#*/}";;
+      (*)     DEF_HOST="${GH_HOST:-github.com}"; DEF_REPO="$DEF_REF";;
+    esac
     ORIGIN="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null)"
     case "$ORIGIN" in
-      *github.com[:/]"$DEF_REPO".git|*github.com[:/]"$DEF_REPO")
+      *"$DEF_HOST"[:/]"$DEF_REPO".git|*"$DEF_HOST"[:/]"$DEF_REPO")
         ok def-origin "origin matches definition_repo" ;;
       *)
-        fail def-origin "origin is '$ORIGIN' but definition_repo is '$DEF_REPO'" \
-          "git -C \"\$HOME\" remote set-url origin \"https://github.com/<definition_repo>.git\" — or correct the definition_repo key" ;;
+        fail def-origin "origin is '$ORIGIN' but definition_repo is '$DEF_REF'" \
+          "git -C \"\$HOME\" remote set-url origin \"https://<host>/<owner/repo>.git\" — or correct the definition_repo key" ;;
     esac
   fi
 

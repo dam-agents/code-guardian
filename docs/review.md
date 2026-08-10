@@ -650,7 +650,7 @@ rm -f "/tmp/review-post-<n>.json"
 <the full structured review>
 
 ---
-_Review by [<bot_display_name>](https://github.com/<definition_repo>) · automated code guardian_
+_Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
 
 
 <!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->

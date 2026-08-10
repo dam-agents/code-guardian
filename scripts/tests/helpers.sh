@@ -5,13 +5,14 @@ set -u
 T_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$T_DIR/../.." && pwd)"
 TEST_REPO="acme/widgets"   # the fake target repo every fixture uses
+TEST_REF=""                # set per case to pass a host-prefixed target ref
 FAILED=0
 SANDBOXES=()
 trap 'rm -rf "${SANDBOXES[@]:-}"' EXIT
 
 # fresh sandbox per case: work dir, seeded REVIEWS.md, fixtures dir, fake HOME
 new_case() { # <case-name>
-  CASE="$1"
+  CASE="$1"; TEST_REF=""
   SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/cg-test.XXXXXX")"
   SANDBOXES+=("$SANDBOX")
   WORK="$SANDBOX/work"; GH_FIXTURES="$SANDBOX/fixtures"; FAKE_HOME="$SANDBOX/home"
@@ -64,9 +65,11 @@ iso_ago() {
     || date -u -r "$s" +%Y-%m-%dT%H:%M:%SZ
 }
 
-# run preflight in the sandbox; JSON lands in $OUT
+# run preflight in the sandbox; JSON lands in $OUT. GH_HOST is blanked so the
+# ambient default host is `github.com` whatever the developer's shell exports —
+# a case exercises another host through TEST_REF, never the environment.
 run_preflight() { # <mode>
-  OUT="$(GITHUB_REPO="$TEST_REPO" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+  OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
 

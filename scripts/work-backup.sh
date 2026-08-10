@@ -56,7 +56,13 @@ if ! command -v git >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
   say "git/tar unavailable — skipping $MODE."; logev warn work_backup "git/tar unavailable — $MODE skipped"; exit 0
 fi
 
-REMOTE_URL="${WORK_BACKUP_REMOTE:-https://github.com/$GITHUB_REPO_WORK}"
+# GITHUB_REPO_WORK is `[<host>/]<owner>/<repo>`: three segments name the host,
+# two use the ambient default (CLAUDE.md → Runtime configuration)
+case "$GITHUB_REPO_WORK" in
+  (*/*/*) WORK_REF="$GITHUB_REPO_WORK";;
+  (*)     WORK_REF="${GH_HOST:-github.com}/$GITHUB_REPO_WORK";;
+esac
+REMOTE_URL="${WORK_BACKUP_REMOTE:-https://$WORK_REF}"
 
 # (Re)seed a usable clone in $LOCAL from the durable remote. tmpfs may be empty
 # (fresh pod), stale, or a half-written clone (interrupted run) — validate and
@@ -160,8 +166,8 @@ do_persist() {
     say "push rejected (attempt $attempt) — re-seeding from remote tip."
     logev warn work_backup "push rejected (attempt $attempt) — retrying"
   done
-  say "push failed after $RETRIES attempt(s); state is safe on work/, retry next run."
-  logev error work_backup "push failed after $RETRIES attempts — retry next run"
+  say "push failed after $RETRIES attempt(s) to $WORK_REF; state is safe on work/, retry next run."
+  logev error work_backup "push to $WORK_REF failed after $RETRIES attempts — retry next run"
   return 0
 }
 

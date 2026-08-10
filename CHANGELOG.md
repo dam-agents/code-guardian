@@ -11,6 +11,26 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.5.0 — 2026-08-10
+
+**Upgrade:** Existing instances keep working unchanged — a bare `owner/repo`
+reference still resolves to `github.com`. To move any repo onto another GitHub
+host, do the following, all idempotent:
+
+1. Authenticate the host — `gh auth login --hostname <host>` (**operator-only**),
+   then `gh auth setup-git`.
+2. Host-prefix the reference in `work/CONFIG.md` (`github_repo`,
+   `definition_repo`, a `## Review skills` source) or in the platform's
+   `GITHUB_REPO` / `GITHUB_REPO_WORK` env var: `<host>/<owner>/<repo>`.
+3. When the **target** repo's host is not `github.com`, append
+   `export GH_HOST=<host>` to `~/.bashrc` if that line is absent, and point
+   `origin` at the definition host:
+   `git -C "$HOME" remote set-url origin "https://<def-host>/<owner/repo>.git"`.
+4. A non-`github.com` target repo drops the `gist` artifact surface
+   ([docs/artifact.md](docs/artifact.md)); with `artifact_targets: gist` only,
+   the artifact feature turns itself off and the weekly audit reports it. Set
+   `artifact_targets: dam` or `artifact_skill: none` to make that explicit.
+
 ## 3.4.0 — 2026-08-10
 
 **Upgrade:** Optional, operator-only — the progress signal is off unless asked
