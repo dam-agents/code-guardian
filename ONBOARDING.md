@@ -6,7 +6,7 @@ Two git repositories exist after onboarding and must never overlap:
 
 | Path | Repo | Purpose |
 | --- | --- | --- |
-| `/home/agent` | the **definition repo** (`origin`) — derived in Step 0 from this file's URL | Agent definition (`CLAUDE.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `LICENSE`). Evolved via PRs. |
+| `/home/agent` | the **definition repo** (`origin`) — derived in Step 0 from this file's URL | Agent definition (`CLAUDE.md`, `AGENT.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `LICENSE`). Evolved via PRs. |
 | `/home/agent/work` | **plain data directory** (not a repo); backed up to `$GITHUB_REPO_WORK` when set | Runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
 
 `work/` is git-ignored by the outer repo (allowlist `.gitignore`) and holds no `.git` of its own — backup runs off-volume via a tmpfs clone (`docs/persistence.md` → **Backup & restore**), so the two stay fully independent.

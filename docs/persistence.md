@@ -8,7 +8,7 @@ operator asks for a change to the agent definition itself.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
+| `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `AGENT.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
 | `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
 | `$GITHUB_REPO_WORK` | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone (below). |
 
@@ -150,7 +150,7 @@ repository's development branch and the base of every definition PR**, whatever
 ```bash
 git -C /home/agent fetch origin main
 git -C /home/agent checkout -b "fix/<short-slug>" origin/main
-git -C /home/agent add -- CLAUDE.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts .agents .github
+git -C /home/agent add -- CLAUDE.md AGENT.md ONBOARDING.md README.md VERSION CHANGELOG.md .gitignore LICENSE docs scripts .agents .github
 git -C /home/agent commit -m "<describe the change>"
 git -C /home/agent push -u origin "fix/<short-slug>"
 gh pr create --repo "$DEF_HOST/$DEFINITION_REPO" --base main --head "fix/<short-slug>" \

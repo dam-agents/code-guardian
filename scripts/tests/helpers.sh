@@ -65,7 +65,9 @@ iso_ago() {
     || date -u -r "$s" +%Y-%m-%dT%H:%M:%SZ
 }
 
-# run preflight in the sandbox; JSON lands in $OUT
+# run preflight in the sandbox; JSON lands in $OUT. GH_HOST is blanked so the
+# ambient default host is `github.com` whatever the developer's shell exports —
+# a case exercises another host through TEST_REF, never the environment.
 run_preflight() { # <mode>
   OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"

@@ -157,7 +157,7 @@ issue on the definition repo, with the link in the reply (`CLAUDE.md` →
 | Variable | Required | Description |
 | --- | --- | --- |
 | `GITHUB_REPO` | Recommended | `[host/]owner/repo` of the repository whose PRs are reviewed. **If unset, the agent asks for the slug at the very start of onboarding**, validates it, and persists it to `work/CONFIG.md` (`github_repo:` key) — the env var, when later set, always takes precedence over the stored value. Last-resort fallback is the repo detected via `gh repo view` in the working directory. |
-| `GITHUB_REPO_WORK` | No | `owner/repo` slug of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a plain data directory that the agent backs up to this repo after every run via a disposable tmpfs clone (never a `.git` on the shared volume — see `docs/persistence.md`). **When unset**, the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
+| `GITHUB_REPO_WORK` | No | `[host/]owner/repo` of a separate repository that backs the agent's persistent state (`work/`). **When set**, `work/` is a plain data directory that the agent backs up to this repo after every run via a disposable tmpfs clone (never a `.git` on the shared volume — see `docs/persistence.md`). **When unset**, the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
 
 ### `work/CONFIG.md` — instance configuration
 

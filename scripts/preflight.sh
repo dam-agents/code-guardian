@@ -61,7 +61,10 @@ if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
 LOGS=()
-log() { LOGS+=("$1"); logev info preflight "$1"; }
+log()     { LOGS+=("$1"); logev info preflight "$1"; }
+# same, for a degradation the agent must see in the chat UI and that should be
+# queryable as a warning in the structured log
+log_warn() { LOGS+=("$1"); logev warn preflight "$1"; }
 
 # Pod-restart marker: $HOME persists across restarts but the rest of the
 # filesystem is reset, so an ephemeral sentinel outside $HOME is absent iff the
@@ -452,7 +455,7 @@ if [ "$MODE" = "review" ]; then
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
      || [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
     # git credential helper for every authenticated host, before the agent clones
-    gh auth setup-git 2>/dev/null || log "gh auth setup-git did not succeed — clones may fail to authenticate"
+    gh auth setup-git 2>/dev/null || log_warn "gh auth setup-git did not succeed — clones may fail to authenticate"
     while IFS='|' read -r _ skill src _rest; do
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
