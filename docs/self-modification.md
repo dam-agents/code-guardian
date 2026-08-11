@@ -146,7 +146,9 @@ on it still takes the operator).
   or adds its test case in the same PR.
 - Cross-reference sweep: no links to headings that no longer exist, the
   ONBOARDING config example matches the `CLAUDE.md` key list, README's
-  tables match both.
+  tables match both. CI resolves every `<file>.md → **Label**` reference for
+  you; same-file `**Label**` references and the two table comparisons stay
+  manual.
 - `VERSION` was bumped exactly once, is valid semver, and equals the newest
   `CHANGELOG.md` heading; the new entry has an **Upgrade** block and nothing
   else (section 12).

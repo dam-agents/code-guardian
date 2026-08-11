@@ -485,7 +485,7 @@ themselves.
 - ✅ **Looks good:** <description>
 
 ### <section — one per configured review skill that ran, in table order>
-<that skill's findings in the finding form above (or its clean-run line)>
+<that skill's findings, per **Concise by default** (or its clean-run line)>
 
 ### Verdict
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
