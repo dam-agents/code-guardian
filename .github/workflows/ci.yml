@@ -51,7 +51,7 @@ jobs:
           tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
           # every heading text and bold run-in label of a file = its anchors
           anchors() { sed -nE 's/^#{1,6} +(.*)$/\1/p; s/^\*\*([^*]+)\*\*.*$/\1/p' "$1" | tr -s ' '; }
-          for f in CLAUDE.md AGENT.md README.md ONBOARDING.md docs/*.md; do
+          for f in CLAUDE.md AGENTS.md README.md ONBOARDING.md docs/*.md; do
             base="$(dirname "$f")"
             # join lines first: a reference may wrap mid-sentence
             tr '\n' ' ' < "$f" | tr -s ' ' \

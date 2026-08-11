@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.7.1 — 2026-08-11
+
+**Upgrade:** The definition update itself deletes the renamed `AGENT.md`. One
+step, idempotent: when `work/AGENTS.md` is missing, create it from the template
+in [ONBOARDING.md](ONBOARDING.md) Step 3c.
+
 ## 3.7.0 — 2026-08-11
 
 **Upgrade:** Run the verification once and apply every `FAIL` line's `fix:`

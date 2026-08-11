@@ -14,4 +14,5 @@ Reading order for a run:
    `$HOME/.code-guardian-onboarded` sentinel.
 
 This file is a pointer, not a copy: it carries no rules of its own, and nothing
-here overrides `CLAUDE.md`.
+here overrides `CLAUDE.md`. A harness that starts inside `work/` finds the same
+pointer at `work/AGENTS.md`.
