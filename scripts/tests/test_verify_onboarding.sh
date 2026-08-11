@@ -68,6 +68,15 @@ assert_rc() { # <expected> <description>
   fi
 }
 
+assert_not_out() { # <grep -E pattern> <description>
+  if printf '%s' "$OUT" | grep -Eq "$1"; then
+    printf 'FAIL %s: %s (unexpected match %s)\n     out: %s\n' "$CASE" "$2" "$1" "$OUT"
+    FAILED=1
+  else
+    printf 'ok   %s: %s\n' "$CASE" "$2"
+  fi
+}
+
 new_case green_path
 seed_home; seed_memory; seed_lessons
 verify_config
@@ -239,5 +248,18 @@ assert_rc 1 'a mismatched token fails'
 assert_out "FAIL live-identity .*'someone-else'" 'names the authenticated login'
 assert_out 'FAIL live-rereview-label .*cg-rereview' 'flags the missing re-review label'
 assert_out 'gh label create' 'carries the create command'
+
+new_case live_identity_without_bot_login
+seed_home; seed_memory; seed_lessons
+{
+  printf -- '- review_marker: cg:review\n'
+  printf -- '- definition_repo: acme/code-guardian\n'
+  printf -- '- github_repo: %s\n' "$TEST_REPO"
+} > "$WORK/CONFIG.md"
+fx 'api --hostname github.com user --jq .login' <<< 'someone'
+run_verify_live
+assert_rc 1 'the required-key check owns the missing bot_login'
+assert_out 'FAIL config-bot_login' 'names the missing key once'
+assert_not_out 'ok   live-identity' 'no identity is confirmed without the key'
 
 finish

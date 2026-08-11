@@ -442,8 +442,10 @@ if [ "$LIVE" = 1 ]; then
         fail live-auth "no authenticated gh session on $T_HOST" "gh auth login --hostname $T_HOST (operator-only)"
       else
         ok live-auth "authenticated on $T_HOST as '$WHOAMI'"
-        if [ -z "$BOT" ] || [ "$BOT" = "$WHOAMI" ]; then
-          ok live-identity "acting as '${BOT:-$WHOAMI}'"
+        if [ -z "$BOT" ]; then
+          : # required key — the config-bot_login check above already FAILed
+        elif [ "$BOT" = "$WHOAMI" ]; then
+          ok live-identity "acting as '$BOT'"
         else
           fail live-identity "the $T_HOST token belongs to '$WHOAMI' but bot_login is '$BOT' — reviews would be posted as '$WHOAMI'" \
             "authenticate as '$BOT' (operator-only) or correct the '- bot_login:' key"
