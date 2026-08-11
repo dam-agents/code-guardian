@@ -393,6 +393,8 @@ EOF
       [ -e "$f" ] || continue
       b="$(basename "$f")"
       [ "$b" = ".gitkeep" ] && continue
+      # pr-artifacts/ is the documented artifact home (docs/artifact.md)
+      [ "$b" = "pr-artifacts" ] && [ -d "$f" ] && continue
       printf '%s' "$b" | grep -Eq '^pr-[0-9]+\.md$' || STRAY="$STRAY $b"
     done
     [ -n "$STRAY" ] && warn reviews-naming "entries not matching pr-<number>.md:$STRAY — verify they are intentional"
