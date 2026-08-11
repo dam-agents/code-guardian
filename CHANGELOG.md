@@ -11,6 +11,10 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.6.0 — 2026-08-11
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 3.5.0 — 2026-08-10
 
 **Upgrade:** Existing instances keep working unchanged — a bare `owner/repo`

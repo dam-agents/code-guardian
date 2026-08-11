@@ -40,3 +40,39 @@ jobs:
             done
           done
           exit $rc
+
+      # Cross-file section references ("<file>.md → **Label**"). They are prose,
+      # not anchors, so a renamed section breaks them silently — this is the
+      # grep that docs/self-modification.md §11 asks a human to remember.
+      - name: Cross-file section references resolve
+        run: |
+          set -u
+          rc=0; n=0
+          tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+          # every heading text and bold run-in label of a file = its anchors
+          anchors() { sed -nE 's/^#{1,6} +(.*)$/\1/p; s/^\*\*([^*]+)\*\*.*$/\1/p' "$1" | tr -s ' '; }
+          for f in CLAUDE.md AGENT.md README.md ONBOARDING.md docs/*.md; do
+            base="$(dirname "$f")"
+            # join lines first: a reference may wrap mid-sentence
+            tr '\n' ' ' < "$f" | tr -s ' ' \
+              | grep -oE '\[?[A-Za-z0-9_./-]+\.md\)? → \*\*[^*]+\*\*' > "$tmp/refs" || true
+            while read -r ref; do
+              [ -n "$ref" ] || continue
+              t="${ref%% → *}"; t="${t#[}"; t="${t%)}"
+              label="${ref#* → \*\*}"; label="${label%\*\*}"
+              path=
+              for cand in "$base/$t" "$t" "docs/$t"; do
+                [ -f "$cand" ] && { path="$cand"; break; }
+              done
+              [ -n "$path" ] || { echo "$f: unresolvable file in '$ref'"; rc=1; continue; }
+              n=$((n + 1)); hit=
+              anchors "$path" > "$tmp/anchors"
+              # literal prefix compare — a label may hold regex metacharacters
+              while read -r a; do
+                [ "${a:0:${#label}}" = "$label" ] && { hit=1; break; }
+              done < "$tmp/anchors"
+              [ -n "$hit" ] || { echo "$f -> $path: no section '$label'"; rc=1; }
+            done < "$tmp/refs"
+          done
+          echo "checked $n cross-file section references"
+          exit $rc
