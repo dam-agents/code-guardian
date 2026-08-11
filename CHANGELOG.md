@@ -11,6 +11,19 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.7.0 — 2026-08-11
+
+**Upgrade:** Run the verification once and apply every `FAIL` line's `fix:`
+instruction (idempotent, read-only):
+
+```bash
+bash "$HOME/scripts/verify-onboarding.sh" --live
+```
+
+If it reports `config-github_repo`, add `- github_repo: <[host/]owner/repo>`
+to `work/CONFIG.md` — a scheduled run carries no session exports, so an
+instance relying on a session-only `$GITHUB_REPO` stops at pre-flight.
+
 ## 3.6.0 — 2026-08-11
 
 **Upgrade:** Nothing — docs are re-read per run.

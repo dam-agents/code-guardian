@@ -168,7 +168,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
-| `github_repo` | Step 0 answer (only when the `GITHUB_REPO` env var is unset) | Fallback target-repo reference (`[host/]owner/repo`); the env var always wins. |
+| `github_repo` | Step 0 answer | Stored target-repo reference (`[host/]owner/repo`) — what a fresh scheduled shell resolves from; the env var always wins. |
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this agent definition came from (fork-aware), `[host/]owner/repo` — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from** — its update source and the branch the checkout is kept on. A per-agent deployment choice; definition PRs are still based on `main`. |
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
@@ -268,9 +268,11 @@ configured output surfaces (`CLAUDE.md` → **Hard invariants**).
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   both run types; detects work, never acts on GitHub.
 - [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
-  post-onboarding structure check (ONBOARDING Step 7): definition checkout +
-  `work/` state files against the templates; prints `FAIL … — fix: …` lines
-  for the agent to apply, offline and read-only.
+  post-onboarding check (ONBOARDING Step 7): definition checkout + `work/`
+  state files against the templates, and with `--live` the environment a run
+  needs (auth per host, repo access, re-review label, skill sources, one
+  read-only `preflight.sh review`); prints `FAIL … — fix: …` lines for the
+  agent to apply, read-only throughout.
 - [`scripts/log.sh`](scripts/log.sh) + [`scripts/harness/`](scripts/harness/) —
   structured events log (`work/logs/events-*.jsonl`, 14-day retention) and the
   per-harness adapters that auto-capture failed tool calls (`docs/logging.md`).
