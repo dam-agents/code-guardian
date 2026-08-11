@@ -313,6 +313,13 @@ EOF
     fi
   fi
 
+  # --- AGENTS.md: entry pointer for a harness whose cwd is work/
+  if [ -f "$WORK/AGENTS.md" ]; then
+    ok work-pointer "work/AGENTS.md present"
+  else
+    fail work-pointer "work/AGENTS.md missing" "create it from the ONBOARDING Step 3c template"
+  fi
+
   # --- MEMORY.md: template sections
   if [ ! -f "$WORK/MEMORY.md" ]; then
     fail memory "work/MEMORY.md missing" "create it from the ONBOARDING Step 3b template (never overwrite an existing one)"
@@ -404,7 +411,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews .gitignore .stall-alert-day .stall-alert.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews .gitignore .stall-alert-day .stall-alert.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

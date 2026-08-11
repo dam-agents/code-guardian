@@ -19,6 +19,7 @@ seed_home() {
     && git remote add origin https://github.com/acme/code-guardian.git )
   date -u +%Y-%m-%dT%H:%M:%SZ > "$FAKE_HOME/.code-guardian-onboarded"
   printf '9.9.9\n' > "$WORK/VERSION"
+  printf '# Agent entry point\n' > "$WORK/AGENTS.md"   # ONBOARDING Step 3c
 }
 
 seed_memory() {
@@ -84,6 +85,15 @@ add_row 7 "$SHA1" "2026-07-01T00:00:00Z" APPROVE done
 run_verify
 assert_rc 0 'clean structure passes'
 assert_out '^PASS' 'prints PASS'
+
+new_case missing_work_pointer
+seed_home; seed_memory; seed_lessons
+verify_config
+rm -f "$WORK/AGENTS.md"
+run_verify
+assert_rc 1 'missing work/AGENTS.md fails'
+assert_out 'work-pointer' 'names the harness entry pointer'
+assert_out 'Step 3c' 'carries the template location'
 
 new_case missing_memory_section
 seed_home; seed_memory; seed_lessons

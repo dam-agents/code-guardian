@@ -22,7 +22,7 @@
 /.agents/skills/*
 !/.agents/skills/issue-fit
 !/CLAUDE.md
-!/AGENT.md
+!/AGENTS.md
 !/README.md
 !/ONBOARDING.md
 !/VERSION
