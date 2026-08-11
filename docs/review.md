@@ -485,15 +485,11 @@ themselves.
 - ✅ **Looks good:** <description>
 
 ### <section — one per configured review skill that ran, in table order>
-<verbatim skill output (or its clean-run line)>
+<that skill's findings in the finding form above (or its clean-run line)>
 
 ### Verdict
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
 ```
-
-A skill section stays verbatim ([skills.md](skills.md)); when one of its
-findings blocks, mirror it into `### Findings` as one line with its **Fix:**,
-so the bar stays complete.
 
 `### Findings` is the canonical, complete list on first reviews, but **never
 repeats inline text**: a finding that maps to an inline comment (rules below)
@@ -502,6 +498,26 @@ full description, rationale, and suggestion block live only in the inline
 comment. Summary-only findings keep their full text here. One format for
 every channel (chat UI, GitHub body, history file); the one-liners are enough
 for re-review delta matching.
+
+## Merging findings across sources
+
+Your diff review and every skill section report into one review, so the same
+defect can arrive more than once. Compose the output from all of them together:
+
+- **One defect, one finding.** The same defect class at the same location from
+  two sources appears **once** — keep the strongest severity, merge the
+  locations into that one entry, and name the reporting sources in the
+  description.
+- Its home is the strongest place it qualifies for: `### Findings` plus an
+  inline comment when it maps inline (**Mapping findings to inline comments**),
+  otherwise the section of the first reporting skill in table order.
+- A blocking finding that stays in a skill section is mirrored into
+  `### Findings` as one line with its **Fix:**, so the bar stays complete.
+- **Merging drops duplicates, never findings** — a defect reported by only one
+  source always survives, whatever its severity, and there is no cap on how
+  many a review may carry. Merging changes what the review prints, never what a
+  skill reported: each skill keeps its own `findings=<N>` audit line
+  ([skills.md](skills.md)).
 
 ## Re-review output (trigger-gated; new commits since the last review)
 
@@ -738,7 +754,9 @@ Before declaring the run done, verify:
   observed insights recorded ([preferences.md](preferences.md)) · candidate
   findings full-file-verified and sibling-swept over the changed files ·
   every open 🔴/🟡 carries a **Fix:** stated as a class rule, mirrored into
-  `findings-json` · stale approval dismissed when the verdict
+  `findings-json` · skill sections reformatted to the finding form and merged
+  across sources with no finding lost (**Merging findings across sources**) ·
+  stale approval dismissed when the verdict
   dropped below APPROVE · clone + per-skill copies deleted ·
   `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
   [logging.md](logging.md)).
