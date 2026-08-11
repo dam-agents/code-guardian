@@ -77,8 +77,12 @@ if [ ! -e "$BOOT_SENTINEL" ]; then
   : > "$BOOT_SENTINEL" 2>/dev/null || true
 fi
 
+# A CONFIG value is the text after `- <key>: `, minus a trailing comment and
+# minus one layer of markdown quoting (`value`, "value") — writers reach for
+# backticks, and the quoted form must resolve to the same value.
 cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
+        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 

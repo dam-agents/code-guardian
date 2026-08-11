@@ -5,6 +5,7 @@
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"
+TEST_ENV_REPO=""   # what the case exports as $GITHUB_REPO (never the dev's shell)
 
 # fake definition checkout at $FAKE_HOME + matching work/ seeds
 seed_home() {
@@ -32,12 +33,20 @@ seed_memory() {
 seed_lessons() { printf '# Operational Lessons\n' > "$WORK/LESSONS.md"; }
 
 verify_config() { # [extra CONFIG lines…]
-  base_config '- definition_repo: acme/code-guardian' "$@"
+  base_config '- definition_repo: acme/code-guardian' "- github_repo: $TEST_REPO" "$@"
 }
 
-run_verify() {
-  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 \
+run_verify() { # [extra env assignments are passed through the environment]
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GITHUB_REPO="$TEST_ENV_REPO" \
          bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"
+  RC=$?
+}
+
+# --live in the sandbox: the fake gh serves fixtures, preflight runs against them
+run_verify_live() {
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GH_HOST="" GITHUB_REPO="$TEST_ENV_REPO" \
+         PATH="$T_DIR/bin:$PATH" \
+         bash "$REPO_ROOT/scripts/verify-onboarding.sh" --live 2>&1)"
   RC=$?
 }
 
@@ -156,5 +165,79 @@ printf 'x\n' > "$WORK/UNEXPECTED.txt"
 run_verify
 assert_rc 0 'unknown extras never block'
 assert_out 'warn work-layout .*UNEXPECTED.txt' 'extras are listed as a warning'
+
+new_case missing_github_repo
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: acme/code-guardian'     # no github_repo, no env var
+run_verify
+assert_rc 1 'unresolvable target repo fails'
+assert_out 'FAIL config-github_repo' 'names the key'
+assert_out "fix: add '- github_repo:" 'carries the fix'
+
+new_case github_repo_from_env_only
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: acme/code-guardian'
+TEST_ENV_REPO="$TEST_REPO"; run_verify; TEST_ENV_REPO=""
+assert_rc 0 'env var alone never blocks'
+assert_out 'warn config-github_repo .*scheduled run' 'warns that fresh runs need the platform env var'
+
+new_case host_prefixed_refs
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: ghe.example.com/acme/code-guardian' \
+            '- github_repo: ghe.example.com/acme/widgets'
+( cd "$FAKE_HOME" && git remote set-url origin https://ghe.example.com/acme/code-guardian.git )
+run_verify
+assert_rc 0 'host-prefixed references pass the shape check'
+assert_out 'ok   def-origin' 'origin matched against the prefixed reference'
+
+new_case backticked_values
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: `acme/code-guardian`' '- github_repo: `acme/widgets`' \
+            '- slack_notifications: `disabled`'
+run_verify
+assert_rc 0 'markdown-quoted values parse like plain ones'
+assert_out 'ok   def-origin' 'quoted definition_repo resolved'
+
+new_case unknown_config_keys
+seed_home; seed_memory; seed_lessons
+verify_config '- Full name: acme/widgets' '- GitHub username: alice'
+run_verify
+assert_rc 0 'unknown keys never block on their own'
+assert_out "warn config-keys .*'Full name'.*'GitHub username'" 'names every bullet the runtime ignores'
+
+new_case live_green_path
+seed_home; seed_memory; seed_lessons
+verify_config
+{
+  printf '\n## Review skills\n\n'
+  printf '| skill | source | trigger | section |\n| --- | --- | --- | --- |\n'
+  printf '| issue-fit | acme/code-guardian | always | Issue Fit |\n'
+  printf '| harness-only | harness | always | Harness |\n'
+} >> "$WORK/CONFIG.md"
+fx 'api --hostname github.com user --jq .login'                                   <<< 'test-bot'
+fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"                   <<< "$TEST_REPO"
+fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push"            <<< 'true'
+fx "api --hostname github.com repos/$TEST_REPO/labels?per_page=100 --paginate --jq .[].name" <<< 'cg-rereview'
+fx 'api --hostname github.com repos/acme/code-guardian/contents/.agents/skills/issue-fit --jq if type == "array" then (.[0].name // empty) else (.name // empty) end' <<< 'SKILL.md'
+fx 'api --hostname github.com repos/acme/code-guardian/branches/main --jq .name'  <<< 'main'
+run_verify_live
+assert_rc 0 'a reachable environment passes'
+assert_out '^PASS \(structure\+live\)' 'reports the live scope'
+assert_out 'ok   live-identity' 'token identity matches bot_login'
+assert_out 'ok   live-skills — 1 repo-sourced' 'harness rows are not fetched'
+assert_out 'ok   live-preflight' 'preflight returns a valid worklist'
+
+new_case live_wrong_identity_and_missing_label
+seed_home; seed_memory; seed_lessons
+verify_config
+fx 'api --hostname github.com user --jq .login'                        <<< 'someone-else'
+fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"        <<< "$TEST_REPO"
+fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push" <<< 'true'
+fx 'api --hostname github.com repos/acme/code-guardian/branches/main --jq .name' <<< 'main'
+run_verify_live
+assert_rc 1 'a mismatched token fails'
+assert_out "FAIL live-identity .*'someone-else'" 'names the authenticated login'
+assert_out 'FAIL live-rereview-label .*cg-rereview' 'flags the missing re-review label'
+assert_out 'gh label create' 'carries the create command'
 
 finish

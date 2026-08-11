@@ -171,11 +171,11 @@ fi
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 
-The definition is project-agnostic: every instance-specific value lives in `work/CONFIG.md` — exact key semantics in `CLAUDE.md` → **Runtime configuration** (read it first). Gather the values below, then write the file and show it to the operator (target shape = the example at the end).
+The definition is project-agnostic: every instance-specific value lives in `work/CONFIG.md` — exact key semantics in `CLAUDE.md` → **Runtime configuration** (read it first). Gather the values below, then write the file in exactly the shape of the **Final shape** example at the end of this step: the runtime reads `- <key>: <value>` bullets under those key names, so any other label is invisible to it. Then run `bash "$HOME/scripts/verify-onboarding.sh"`, apply what it reports, and show the file to the operator.
 
 **Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its values** and only ask for missing keys — never silently overwrite operator-set config (especially `review_marker`).
 
-1. **`github_repo`** — only if Step 0.3 had to ask (env var unset). Omit otherwise — a stored copy would only drift.
+1. **`github_repo`** — always write the resolved target reference. A scheduled run starts a fresh shell with no session exports, so the stored copy is what keeps it resolvable; the env var still wins whenever the platform sets one.
 2. **`definition_repo`** and **`definition_branch`** — always write both Step 0.2 values (write `definition_branch` even when it is `main`, so the tracked branch is explicit).
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator, stating the consequence:
 
@@ -217,7 +217,7 @@ Final shape:
 ```markdown
 # Configuration
 
-- github_repo: acme/widgets            # only when the env var was unset; [host/]owner/repo
+- github_repo: acme/widgets            # the target repo; [host/]owner/repo
 - definition_repo: acme/code-guardian  # [host/]owner/repo — may differ from the target's host
 - definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
@@ -307,13 +307,13 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
 
-Then verify the result — every instance must end up with the same structure, differing only in configuration values:
+Then verify the result — every instance must end up with the same structure, differing only in configuration values, and reach everything a run depends on:
 
 ```bash
-bash "$HOME/scripts/verify-onboarding.sh"
+bash "$HOME/scripts/verify-onboarding.sh" --live
 ```
 
-Each `FAIL` line names the broken file and carries its `fix:` instruction — apply them (file templates: Steps 3b/4) and re-run until the script prints `PASS`. `warn` lines are informational and never block.
+`--live` runs the structure checks plus one read-only pass over the live environment (authentication per host, bot identity, target/definition/work-repo access, the re-review label, every skill source, and one `preflight.sh review` as the end-to-end proof); drop the flag for structure only. Each `FAIL` line names the broken file or surface and carries its `fix:` instruction — apply them (file templates: Steps 3b/4) and re-run until the script prints `PASS`. `warn` lines are informational and never block.
 
 Then give the operator a short **onboarding summary** in the chat UI, starting with the verification result (the `PASS` line plus any warnings):
 

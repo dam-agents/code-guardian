@@ -40,11 +40,11 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 
 ## Runtime configuration: `work/CONFIG.md`
 
-**This definition is project-agnostic.** Every instance-specific value lives in `work/CONFIG.md` (created at onboarding), loaded once at run start:
+**This definition is project-agnostic.** Every instance-specific value lives in `work/CONFIG.md` (created at onboarding), loaded once at run start. Each key is one `- <key>: <value>` bullet parsed by the `cfg()` reader below (surrounding backticks/quotes and trailing `#` comments are stripped); the rest of the file is prose the runtime ignores. Structure and connectivity are verified by `bash "$HOME/scripts/verify-onboarding.sh" [--live]` (ONBOARDING Step 7).
 
 **Every repo reference — `github_repo`, `definition_repo`, `$GITHUB_REPO_WORK`, a skill source — is `[<host>/]<owner>/<repo>`.** Three segments name the GitHub host (`github.example.com/acme/widgets`), two use the ambient default (`$GH_HOST`, else `github.com`). Target, definition, skills, and work backup may each sit on a different host; `GH_HOST` is exported to the **target** host, so every unqualified `gh` call reviews the right repo and cross-host calls pass `--hostname` (`gh api`) or `[HOST/]OWNER/REPO` (`gh pr`/`gh issue`/`gh label -R`).
 
-- **`github_repo`** — target-repo fallback, written only when `$GITHUB_REPO` was unset at onboarding (the env var always wins).
+- **`github_repo`** — stored target-repo reference, written at onboarding so a fresh scheduled shell resolves the target without an env var (`$GITHUB_REPO` always wins when set).
 - **`definition_repo`** — the repo this definition was installed from (fork-aware). Outer-repo `origin`, target of definition PRs, review-footer link. Fallback: `git -C "$HOME" remote get-url origin`.
 - **`definition_branch`** — branch of `definition_repo` **this instance runs from**: its update source and the branch the checkout is kept on ([docs/persistence.md](docs/persistence.md) → **Tracked branch**). **Missing = `main`.** A per-agent deployment choice, not a repo convention — definition PRs are still based on `main`, and `main` still owns the changelog. Operator-only to change, in the direct session.
 - **`bot_login`** — the GitHub login this agent acts as. **Required** — if missing, log `bot_login missing — artifact gate, shepherd, and mention handling disabled this run` once and skip those features.
@@ -68,7 +68,7 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 ```bash
 CONFIG=/home/agent/work/CONFIG.md
 # awk is not available in the pod — sed/grep/cut only
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'; }
+cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
 DEFAULT_HOST="${GH_HOST:-github.com}"   # capture before the re-export below
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
