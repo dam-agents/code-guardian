@@ -113,7 +113,7 @@ $DETAIL
 Resolve each one NOW, and prefer the cheap route if posting is not clearly
 correct: log \`aborted <reason>\` and release the lock per its kind. An
 explicit abort is always a valid resolution — it frees the lock immediately
-instead of leaving it to its 30-minute TTL, and it is strictly better than
+instead of leaving it to expire by TTL, and it is strictly better than
 stopping silently. Never invent or pad review content to satisfy this hook.
 
 If the review genuinely is ready, post it and finish the sequence.

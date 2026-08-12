@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.8.0 — 2026-08-12
+
+**Upgrade:** Nothing — the lock TTL and the live-holder check live inside
+`scripts/preflight.sh`, and existing `in_progress` rows are read unchanged. A
+lock already past the old 30-min TTL is re-evaluated against the new one on the
+next heartbeat; a review running across the update keeps its PR.
+
 ## 3.7.2 — 2026-08-11
 
 **Upgrade:** Nothing — docs are re-read per run.
