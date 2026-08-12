@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.9.0 — 2026-08-12
+
+**Upgrade:** From this version on, a migration crossing an **Upgrade** block
+that introduces an off-by-default feature asks the operator once whether to
+enable it, instead of silently leaving the key unwritten
+([docs/persistence.md](docs/persistence.md) → **Definition version & upgrade**,
+step 2). Nothing to run for this version itself — docs are re-read per run.
+
 ## 3.8.0 — 2026-08-12
 
 **Upgrade:** Nothing — the lock TTL and the live-holder check live inside
