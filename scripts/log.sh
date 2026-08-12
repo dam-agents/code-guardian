@@ -15,6 +15,9 @@
 
 LOG_WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 LOG_DIR="$LOG_WORK/logs"
+# resolve shimmed tools once (logev execs jq per event) — lib/toolpath.sh
+[ -n "${TOOLPATH_CACHE:-}" ] \
+  || . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/toolpath.sh" 2>/dev/null || true
 LOG_RUN="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}}"
 LOG_LEVEL="$(sed -n 's/^- log_level:[[:space:]]*//p' "$LOG_WORK/CONFIG.md" 2>/dev/null \
              | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//')"

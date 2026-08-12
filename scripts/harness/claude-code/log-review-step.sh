@@ -21,6 +21,9 @@
 set -u
 INPUT="$(cat 2>/dev/null || true)"
 [ -z "$INPUT" ] && exit 0
+# resolve shimmed tools before the jq guard and the first jq call (this hook
+# fires per tool call, so the shim tax dominates it) — ../../lib/toolpath.sh
+. "$(cd "$(dirname "$0")/../.." && pwd)/lib/toolpath.sh" 2>/dev/null || true
 command -v jq >/dev/null 2>&1 || exit 0
 
 evt="$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)"

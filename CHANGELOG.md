@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.10.0 — 2026-08-12
+
+**Upgrade:** Nothing — `scripts/lib/toolpath.sh` is sourced per run and builds
+its own cache. The hooks pick it up from their next session with no
+re-registration (`install.sh` registers paths, and none changed).
+
 ## 3.9.0 — 2026-08-12
 
 **Upgrade:** From this version on, a migration crossing an **Upgrade** block

@@ -39,6 +39,8 @@
 #
 # Requires: bash, gh (authenticated), jq, git, sed/grep/cut/tr, GNU date
 # (Linux pod). Deliberately awk-free — awk is not available in the pod.
+# jq/gh are resolved past any version-manager shim by scripts/lib/toolpath.sh
+# (sourced via log.sh) — ~90 jq execs per run make that a 3x difference.
 
 set -u
 export LC_ALL=C
@@ -58,6 +60,8 @@ NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_JOB="$MODE"
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
+# log.sh sources lib/toolpath.sh; stub it when either file was unavailable
+command -v toolpath_shimmed >/dev/null 2>&1 || toolpath_shimmed() { :; }
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
 LOGS=()
@@ -862,6 +866,13 @@ if [ "$MODE" = "audit" ]; then
   done
   if [ -n "$missing_cli" ]; then check cli_deps fail "required command(s) unavailable: $missing_cli"
   else check cli_deps ok "all required commands present (awk/diff/python are deliberately not required)"; fi
+
+  # A present-but-shimmed tool passes cli_deps yet costs ~250ms per exec, which
+  # dominates jq-heavy runs (docs/logging.md → Tool path resolution). Not a
+  # failure — the run works, slower — but it must not regress silently.
+  shimmed="$(toolpath_shimmed gh jq 2>/dev/null)"
+  if [ -n "$shimmed" ]; then check tool_shims warn "still resolving through a shim, ~250ms per call: $shimmed — fix belongs in the pod image (real bin dirs ahead of the shim dir on PATH)"
+  else check tool_shims ok "hot-path tools resolve to real binaries"; fi
 
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
 
