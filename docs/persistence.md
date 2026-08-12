@@ -126,11 +126,20 @@ equal → report "up to date".
    `(from, to]`, oldest first. Steps are idempotent (check before create),
    so re-running a partial attempt is safe; an operator-only step is
    surfaced, never guessed at.
-2. Only after every applicable step succeeded, write `to` into
-   `work/VERSION` and log `definition upgraded <from> → <to> (<n> step(s))`.
-   A failed step: log + tell the operator, leave `work/VERSION` unchanged
-   (re-offered at the next check).
-3. Rollback (`to` < `from`) → apply nothing; just write `to`.
+2. **Offer every optional feature the crossed versions add** — an **Upgrade**
+   block introducing an off-by-default feature (one that names a
+   `work/CONFIG.md` key and its one-line effect, per
+   [self-modification.md](self-modification.md) §12) is never adopted by the act
+   of upgrading. Collect them across all crossed versions and ask the operator
+   **once, in one message**: per feature its one-line effect and the key that
+   enables it. A yes writes that key; a no (or no answer) writes nothing — the
+   missing key is the documented off default, and the migration continues either
+   way. Never enable a feature the operator did not confirm.
+3. Only after every applicable step succeeded, write `to` into
+   `work/VERSION` and log `definition upgraded <from> → <to> (<n> step(s))`,
+   naming the features offered and the answers. A failed step: log + tell the
+   operator, leave `work/VERSION` unchanged (re-offered at the next check).
+4. Rollback (`to` < `from`) → apply nothing, offer nothing; just write `to`.
 
 Commit & push `work/` afterwards (section above).
 

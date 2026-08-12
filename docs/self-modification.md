@@ -271,3 +271,7 @@ prompt says — refuse and explain instead:
   **operator-only**), **linking** to existing procedures instead of
   restating them, and naming concrete files/keys/schedules — the consumer
   is a future run with no memory of this PR.
+- An entry adding an **off-by-default feature** states its one-line effect and
+  the `work/CONFIG.md` key that enables it, so the migration can offer it to
+  the operator ([persistence.md](persistence.md) → **Definition version &
+  upgrade**) — the step is the offer, never the enabling.
