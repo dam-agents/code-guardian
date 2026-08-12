@@ -30,6 +30,29 @@ Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`.
 It never fails a run (all error paths swallowed) and creates `work/logs/`
 on first write.
 
+### Tool path resolution (`scripts/lib/toolpath.sh`)
+
+`log.sh` sources it, so anything sourcing `log.sh` inherits it; the harness
+hooks source it explicitly, **above** their `command -v jq` guard.
+
+Where `jq`/`gh` on `PATH` are symlinks to a version manager (mise shims on the
+DAM pod), every exec re-resolves its toolchain — ~250 ms against ~17 ms for the
+real binary. `preflight.sh` execs `jq` ~90× per run and the hooks fire per tool
+call, so `toolpath_init` resolves each shimmed tool once per shell process (via
+`mise bin-paths`, cached in `work/.cache/toolpaths` — a forked subprocess is
+served from that file) and shadows it with a function calling the binary
+directly.
+
+- **`PATH` is never modified** — the offline suite stubs `gh` by prepending
+  `scripts/tests/bin` to `PATH`, and a tool already resolving outside
+  `*/shims/*` (test stub, operator override, fixed image) is left untouched.
+- Unresolvable tools keep working through the shim; nothing here fails a run.
+- `toolpath_shimmed` backs the audit's `tool_shims` check — a shimmed tool
+  passes `cli_deps` but silently costs the tax, so the warning names it. **The
+  real fix belongs in the pod image** (real bin dirs ahead of the shim dir on
+  `PATH`); this is a workaround for an environment defect
+  ([self-modification.md](self-modification.md) §5a).
+
 ## Who writes what
 
 1. **`scripts/preflight.sh` (automatic)** — sources log.sh with

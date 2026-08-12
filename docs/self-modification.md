@@ -92,6 +92,26 @@ on it still takes the operator).
 - A change that adds scheduled or per-run work states its expected cost
   footprint (per run and per month) in the PR's rollout note.
 
+## 5a. Environment workarounds are reported, never absorbed
+
+When a change compensates for a defect **outside** the definition — the pod
+image, the harness, an external service — rather than fixing it at its source:
+
+- **Say so prominently to the operator in the same session**, unprompted: what
+  the real defect is, which layer owns the fix, what the workaround costs, and
+  what breaks if the environment changes under it. Never let it read as the
+  intended design, in chat or in the code.
+- Mark it **at the workaround itself** (a comment in the script, a line in its
+  `docs/` home) naming the upstream defect and the real fix, so the next reader
+  knows it is a stopgap and can delete it once the environment is fixed.
+- Record the verified cause in `work/LESSONS.md` per
+  [preferences.md](preferences.md) — pod-level facts are lost on restart.
+- Where the defect is cheap to detect, add a **deterministic check** (audit
+  `checks[]`) so a regression surfaces instead of silently returning.
+- Prefer the narrowest workaround that works, and never one that degrades
+  correctness for speed. If the only workaround available would weaken an
+  invariant of section 10, refuse it and report the defect instead.
+
 ## 6. State vs definition separation
 
 - Runtime state lives **only** in `work/` and is never committed to the
