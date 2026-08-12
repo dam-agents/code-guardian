@@ -50,7 +50,7 @@ binary directly.
   passes `cli_deps` but silently costs the tax, so the warning names it. **The
   real fix belongs in the pod image** (real bin dirs ahead of the shim dir on
   `PATH`); this is a workaround for an environment defect
-  ([self-modification.md](self-modification.md) → **Environment workarounds**).
+  ([self-modification.md](self-modification.md) §5a).
 
 ## Who writes what
 
