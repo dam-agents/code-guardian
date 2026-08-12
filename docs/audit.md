@@ -164,7 +164,7 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     immediately instead of waiting out its TTL) — read the two together, never
     `stalled` alone. Any non-zero `stalled` is a **warn** with the causes named;
     a day above 15 % is a **fail**. Runs still in flight (last event newer than
-    the 30-min lock TTL) are excluded by the script, so a live review is never
+    the lock TTL) are excluded by the script, so a live review is never
     counted as a stall. `wasted_output_tokens` is a **floor, not the true cost**:
     it sums the per-run `tokens` events, which a `hard_kill` never got to write —
     report it as "≥", and never read a low figure as a cheap week when

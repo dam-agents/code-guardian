@@ -70,9 +70,10 @@ a. **Check 1 — re-fetch state**:
    Re-verify `urgent` from the live labels (`$URGENT_LABEL` present). Use the
    fresh SHA/branch as source of truth everywhere (clone, diff, skills,
    marker). Then **write the `in_progress` lock row** to REVIEWS.md (fresh
-   SHA + current UTC time). `takeover: true` → overwrite the stale lock and
-   log `PR #<n>: taking over stale in_progress lock`. Never lock a PR you're
-   about to skip. Entries flagged `closed: true` skip these gates — see
+   SHA + current UTC time). `takeover: true` → re-check the holder is really
+   gone and stand down if it isn't (**Live holder** below); otherwise overwrite
+   the stale lock and log `PR #<n>: taking over stale in_progress lock`. Never
+   lock a PR you're about to skip. Entries flagged `closed: true` skip these gates — see
    **PR closed mid-review** below. Urgent entries now run **phase 1 (rapid
    preliminary review)** per **Urgent PRs** below, then continue with b.
 b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
@@ -136,6 +137,16 @@ with step ∈ `locked` (a) · `done` (j) · `aborted <reason>` (e) — plus
 `rapid posted` (Urgent PRs phase 1). These are exactly the steps the `Stop` hook
 below judges terminality on.
 
+**Lock heartbeat — refresh the row as you go.** Before each of steps c, d, e and
+h, rewrite your PR's REVIEWS.md row with the **current** UTC time (same fields
+otherwise, status stays `in_progress`) and log
+`locked (refresh, <what comes next>)`. Cheap — one `sed` per milestone, chained
+onto work you are already doing — and it is what keeps a long review from
+*looking* abandoned: the timestamp is the age preflight measures and the event is
+the liveness signal it reads (**Live holder** below). A review that refreshes
+never crosses the TTL at all. Skipping it is what makes a healthy 50-minute
+review indistinguishable from a dead one.
+
 **When the adapter is not active, all seven steps are yours** — a non-Claude-Code
 harness, or the audit's `harness_adapter` check warning that
 `log-review-step.sh` is unregistered. Duplicate events are harmless (the hook
@@ -163,7 +174,9 @@ per UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock so
 concurrent heartbeats can't double-send). `per_day_7d` carries per-day counts
 over the retained window, so the report shows whether this is new or chronic. A
 single stall is normal (HEAD moved, pod restart); a cluster means reviews are
-being repeatedly redone at full cost.
+being repeatedly redone at full cost. Live holders are no longer taken over
+(**Live holder** below), so every counted takeover is a real death — a
+slow-but-healthy pipeline can't inflate this number.
 Deliver it **once per run, after the run's review work**, so the numbers include
 this run:
 
@@ -356,8 +369,9 @@ repo is never touched.
 1. Resolve the PR reference (number or URL; a mention's own PR when none is
    named); `gh pr view` — not found / closed / draft → reply so in the
    requesting channel or thread, done.
-2. Row `in_progress`: fresh (< 30 min) → reply "review already running",
-   done. Stale → the review is stuck: log
+2. Row `in_progress`: fresh (< `LOCK_TTL_MIN`), or past it with the holder
+   still active (**Live holder** below) → reply "review already running",
+   done. Stale **and** silent → the review is stuck: log
    `PR #<n>: stale lock killed on on-demand request` and continue (the lock
    is overwritten in the next step).
 3. Live HEAD already reviewed (row SHA or remote marker — snippet above) →
@@ -591,8 +605,10 @@ format), append `(no prior review on file)` to `### Summary`.
   re-review abort).
 - All other timestamps are the actual UTC write time
   (`date -u +%Y-%m-%dT%H:%M:%SZ`) — never rounded, reused, or fabricated.
-- The lock is best-effort (30-min TTL; takeover flagged by preflight) — the
-  remote dedup check stays authoritative.
+- The lock is best-effort (**50-min TTL**, `LOCK_TTL_MIN` in
+  [preflight.sh](../scripts/preflight.sh); takeover flagged by preflight only
+  when the holder is *also* silent — **Live holder** below) — the remote dedup
+  check stays authoritative.
 - Row edits (lock, `done`, `awaiting_label` restore) rewrite the PR's line in
   place; rows are full of `|`, so give sed a different delimiter:
 
@@ -600,6 +616,39 @@ format), append `(no prior review on file)` to `### Summary`.
   sed -E "s#^\| *<n> \|.*#| <n> | <sha> | <ts> | <verdict> | <status> |#" work/REVIEWS.md \
     > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md
   ```
+
+### Live holder — a lock past its TTL that is still working
+
+**The TTL bounds a crash, not a slow review.** A lock past `LOCK_TTL_MIN` is
+only a *candidate*: preflight reads the holder's `run` id from its
+`review_step … locked` event and emits `takeover` **only when that run has
+logged nothing for `HOLDER_QUIET_MIN` minutes** (20 — above the longest gap a
+healthy review shows between events, measured at 16.7 min; both values in
+[preflight.sh](../scripts/preflight.sh)). Otherwise the PR is omitted and logged
+`holder … active — left running`. The check is a local log read, no API call.
+
+So two independent things must both go quiet before a takeover: the row's
+timestamp (**Lock heartbeat** above) and the event stream. A holder doing either
+keeps its PR.
+
+The holder finishes because it is *further along* than any fresh job: letting it
+post is both the fastest delivery and the only way to keep the work — a
+takeover's first act is step b's `rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-*`
+([skills.md](skills.md) → **Clone, credential helper, cleanup**), which destroys
+a finished fan-out before any judgement applies.
+
+**As the holder you own the PR to a terminal state whatever your lock age** — a
+lock past the TTL is never a reason to abandon or skip posting; keep refreshing
+(**Lock heartbeat** above) and finish. Safety is already guaranteed by step e —
+if a second job posted at your SHA meanwhile, the pre-post dedup check turns your
+run into a self-healing abort, so no duplicate can post.
+
+**As the taker, `takeover: true` means "preflight saw no life", not proof of
+death** — the holder may wake between preflight and you. Re-check at Check 1:
+anything in `$PR_DIR.out/` you did not write, or a row timestamp newer than your
+worklist's `prior.ts`, means it lives → **stand down before the `rm -rf`**: touch
+neither the row nor `/tmp`, log `PR #<n>: holder alive at Check 1 — stood down`,
+continue with the next PR.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 
@@ -747,7 +796,10 @@ Before declaring the run done, verify:
 - Per reviewed PR: one GitHub review with the trailing full-SHA marker ·
   Check 1 + Check 2 + pre-post dedup done (incl. the trigger check on
   re-reviews) · lock → `done` lifecycle correct (aborted re-reviews restored
-  `awaiting_label`; no `in_progress` left behind) · label removed after every
+  `awaiting_label`; no `in_progress` left behind) · lock row refreshed at each
+  milestone (**Lock heartbeat**) · every `takeover` entry re-checked for a woken
+  holder before the clone `rm -rf`, standing down instead of displacing it
+  (**Live holder**) · label removed after every
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;

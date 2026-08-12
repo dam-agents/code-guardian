@@ -95,6 +95,35 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 # GNU first; the BSD fallback needs -u or the trailing Z is read as local time
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
+# Is the session holding PR #<n>'s lock still working? Two local signals, no API
+# call: a `review_step … PR #<n> … locked` event identifies the holder's run id,
+# and any later event from that run proves it alive. Falls back to the newest
+# event of any run touching this PR when the run id can't be pinned. Prints the
+# holder's run id (8 chars) + minutes since its last event, or nothing when no
+# evidence of life is found. docs/review.md → **Live holder**.
+holder_alive() { # <pr-number> <lock-ts>
+  local n="$1" lock_ts="$2" cutoff_epoch cutoff
+  cutoff_epoch=$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))
+  cutoff="$(date -u -d "@$cutoff_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+            || date -u -r "$cutoff_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 1
+  ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1 || return 1
+  # The `.ts >= $lock` filter bounds the scan by the lock itself, so reading the
+  # whole retained set costs one pass and needs no date arithmetic. `fromjson?`
+  # drops the partial line a concurrently-writing session may leave.
+  cat "$LOG_DIR"/events-*.jsonl 2>/dev/null \
+    | jq -c -R 'fromjson? // empty' 2>/dev/null \
+    | jq -rs --arg n "PR #$n " --arg lock "$lock_ts" --arg cut "$cutoff" --argjson now "$NOW_EPOCH" '
+        [ .[] | select(.ts >= $lock) ] as $since
+        | ( [ $since[] | select(.event == "review_step" and (.msg | startswith($n))
+              and (.msg | test("locked"))) ] | last | .run ) as $holder
+        | ( if $holder then [ $since[] | select(.run == $holder) ]
+            else [ $since[] | select(.msg | contains($n)) ] end ) as $ev
+        | ( $ev | last ) as $l
+        | if $l and $l.ts >= $cut
+          then "\($l.run[0:8]) \((($now - (($l.ts[0:19] + "Z") | fromdateiso8601)) / 60) | floor)"
+          else empty end' 2>/dev/null
+}
+
 # ---------------------------------------------------------------- config ----
 # Every repo reference is `[<host>/]<owner>/<repo>`: three segments name the
 # host, two use the ambient default. DEFAULT_HOST is captured before GH_HOST is
@@ -134,6 +163,14 @@ case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
 esac
+# in-progress lock TTL: minutes after which a lock is *candidate* for takeover.
+# Calibrated above the review pipeline's p95 (docs/review.md → Review tracking
+# state) — a value under it hands live reviews to a second job.
+LOCK_TTL_MIN=50
+# a holder that logged anything within this window is alive whatever its lock age
+# says. Must exceed the longest gap a healthy review shows between events —
+# measured at 16.7 min over real runs (docs/review.md → Live holder)
+HOLDER_QUIET_MIN=20
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
 # GitHub progress signal — commit status on the reviewed SHA (docs/review.md)
@@ -291,7 +328,7 @@ if [ "$MODE" = "review" ]; then
          && ! printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson n "$n" 'any(.number == $n)' >/dev/null 2>&1; then
         row="$(row_for "$n")"
         if [ "$(row_field "$row" 6)" = "in_progress" ] \
-           && [ $(( (NOW_EPOCH - $(iso2epoch "$(row_field "$row" 4)")) / 60 )) -ge 30 ]; then
+           && [ $(( (NOW_EPOCH - $(iso2epoch "$(row_field "$row" 4)")) / 60 )) -ge "$LOCK_TTL_MIN" ]; then
           STATUS_RESETS_DUE="$(printf '%s' "$STATUS_RESETS_DUE" | jq --argjson e "$(jq -n \
             --argjson n "$n" --arg sha "$(row_field "$row" 3)" --arg r "draft" \
             '{number:$n, sha:$sha, reason:$r}')" '. + [$e]')"
@@ -353,8 +390,13 @@ if [ "$MODE" = "review" ]; then
 
       if [ "$row_status" = "in_progress" ]; then
         age=$(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 60 ))
-        if [ "$age" -lt 30 ]; then
+        if [ "$age" -lt "$LOCK_TTL_MIN" ]; then
           log "PR #$n: fresh in_progress lock (${age}m) — skipped"
+        elif alive="$(holder_alive "$n" "$row_ts")" && [ -n "$alive" ]; then
+          # Past the TTL but demonstrably still working: the holder finishes and
+          # posts (fastest delivery, no work thrown away). Taking over here is
+          # what destroys a complete fan-out. docs/review.md → **Live holder**.
+          log "PR #$n: lock past TTL (${age}m) but holder ${alive%% *} active ${alive##* }m ago — left running"
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
           full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
@@ -543,7 +585,7 @@ if [ "$MODE" = "review" ]; then
 
   # ------------------------------------------- stalled-review rate alert ----
   # A review that locked a PR and died before posting is invisible per-run: the
-  # lock's 30-min TTL hands the PR to the next heartbeat, which may repeat it.
+  # lock's TTL hands the PR to the next heartbeat, which may repeat it.
   # One stall is normal (HEAD moved, pod restart); a cluster is pathological, so
   # count the last 24h of `stale in_progress lock` takeovers across the event
   # log and emit ONE alert per UTC day when the threshold is reached.
@@ -877,7 +919,7 @@ if [ "$MODE" = "audit" ]; then
     [ -z "$row" ] && continue
     st="$(row_field "$row" 6)"; [ "$st" = "in_progress" ] || continue
     ts="$(row_field "$row" 4)"; age=$(( (NOW_EPOCH - $(iso2epoch "$ts")) / 60 ))
-    [ "$age" -gt 30 ] && stale_locks="${stale_locks:+$stale_locks, }#$(row_field "$row" 2) (${age}m)"
+    [ "$age" -gt "$LOCK_TTL_MIN" ] && stale_locks="${stale_locks:+$stale_locks, }#$(row_field "$row" 2) (${age}m)"
   done < <(reviews_rows)
   [ -n "$stale_locks" ] && check stale_locks warn "stale in_progress locks: $stale_locks" || check stale_locks ok "no stale locks"
 
@@ -1059,10 +1101,10 @@ if [ "$MODE" = "audit" ]; then
   # outcome the Stop hook drives, so a rise here against falling `stalled` is
   # the mitigation working, not a regression.
   # One jq pass over the same files; no API calls, no extra run.
-  # a run whose last event is newer than the 30-min lock TTL may still be alive
+  # a run whose last event is newer than the lock TTL may still be alive
   # (no SessionEnd yet is not a kill) — exclude it rather than miscount it
-  STALL_CUTOFF="$(date -u -d "@$(( NOW_EPOCH - 1800 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-                  || date -u -r "$(( NOW_EPOCH - 1800 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  STALL_CUTOFF="$(date -u -d "@$(( NOW_EPOCH - LOCK_TTL_MIN * 60 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                  || date -u -r "$(( NOW_EPOCH - LOCK_TTL_MIN * 60 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
   STALLS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
     [.[] | select(.ts >= $s)] as $w
     | ($w | map(select(.event=="pod_boot") | .ts)) as $boots

@@ -64,10 +64,11 @@ assert_jq '.reviews_due[0] | has("eta_seconds") == false' 'unknown value degrade
 assert_jq '.logs | any(contains("review_progress"))' 'the fallback is logged once'
 
 # --- PR turned draft while locked → status reset due ------------------------
+# 55m: past the lock TTL, with no holder events in the log to keep it alive
 new_case reset_on_draft
 base_config '- review_progress: enabled'
 pr_json 2 "drafted PR" '[]' "$SHA2" | jq '.draft = true' | open_prs_fx
-add_row 2 "$SHA2" "$(iso_ago 2700)" - in_progress
+add_row 2 "$SHA2" "$(iso_ago 3300)" - in_progress
 run_preflight review
 assert_jq '.nothing_to_do == false' 'a due reset is work of its own'
 assert_jq '.status_resets_due | length == 1' 'abandoned lock on a draft emits one reset'
@@ -88,7 +89,7 @@ assert_jq '.nothing_to_do == true' 'nothing else to do'
 new_case reset_needs_the_feature
 base_config
 pr_json 2 "drafted PR" '[]' "$SHA2" | jq '.draft = true' | open_prs_fx
-add_row 2 "$SHA2" "$(iso_ago 2700)" - in_progress
+add_row 2 "$SHA2" "$(iso_ago 3300)" - in_progress
 run_preflight review
 assert_jq '.status_resets_due == []' 'no reset while the signal is off'
 
