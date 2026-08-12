@@ -46,6 +46,7 @@ run_verify() { # [extra env assignments are passed through the environment]
 # --live in the sandbox: the fake gh serves fixtures, preflight runs against them
 run_verify_live() {
   OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GH_HOST="" GITHUB_REPO="$TEST_ENV_REPO" \
+         GITHUB_REPO_WORK="" \
          PATH="$T_DIR/bin:$PATH" \
          bash "$REPO_ROOT/scripts/verify-onboarding.sh" --live 2>&1)"
   RC=$?
@@ -111,6 +112,18 @@ add_row 8 "deadbeef" "2026-07-01T00:00:00Z" APPROVE done   # short sha
 run_verify
 assert_rc 1 'short sha fails'
 assert_out 'FAIL reviews-rows' 'flags the malformed row'
+
+new_case reviews_artifact_dir
+seed_home; seed_memory; seed_lessons
+verify_config
+mkdir -p "$WORK/reviews/pr-artifacts"
+printf '<html>\n' > "$WORK/reviews/pr-artifacts/pr-9.html"
+run_verify
+assert_rc 0 'the documented artifact dir passes'
+assert_not_out 'reviews-naming' 'pr-artifacts/ is not reported as stray'
+printf 'x\n' > "$WORK/reviews/notes.md"
+run_verify
+assert_out 'warn reviews-naming .*notes.md' 'a genuine stray is still flagged'
 
 new_case slack_without_roster
 seed_home; seed_memory; seed_lessons
