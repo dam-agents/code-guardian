@@ -15,7 +15,9 @@
 
 LOG_WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 LOG_DIR="$LOG_WORK/logs"
-# resolve shimmed tools once (logev execs jq per event) — lib/toolpath.sh
+# resolve shimmed tools once per shell process — a forked subprocess starts with
+# an empty TOOLPATH_CACHE and resolves again, served from the cache file
+# (logev execs jq per event) — lib/toolpath.sh
 [ -n "${TOOLPATH_CACHE:-}" ] \
   || . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/toolpath.sh" 2>/dev/null || true
 LOG_RUN="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}}"

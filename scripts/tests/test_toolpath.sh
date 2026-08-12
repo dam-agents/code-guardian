@@ -45,10 +45,34 @@ is 'cache resolves without mise' \
    "$(PATH="$SHIMS:/usr/sbin:/usr/bin:/bin" WORK_DIR="$SANDBOX/w4" \
       bash -c ". '$LIB' 2>/dev/null; toolpath_init widget; widget")" 'REAL_WIDGET'
 
+CASE=cache_write_is_atomic
+# unchanged content leaves the file alone; a rewrite goes through mktemp + mv,
+# so a concurrent reader never sees a half-written cache
+inode() { set -- $(ls -i "$1" 2>/dev/null); printf '%s' "$1"; }
+before="$(inode "$SANDBOX/w4/.cache/toolpaths")"
+inlib "$SANDBOX/w4" 'true'
+is 'an unchanged cache is not rewritten' "$(inode "$SANDBOX/w4/.cache/toolpaths")" "$before"
+is 'no temp file is left behind' \
+   "$(find "$SANDBOX/w4/.cache" -name 'toolpaths.*' | grep -c .)" '0'
+
 CASE=stale_cache_recovers
 mkdir -p "$SANDBOX/w5/.cache"
 printf 'widget /nonexistent/widget\n' > "$SANDBOX/w5/.cache/toolpaths"
 is 'a vanished binary is re-resolved' "$(inlib "$SANDBOX/w5" 'widget')" 'REAL_WIDGET'
+is 'the stale entry is replaced' \
+   "$(sed -n 's|^widget ||p' "$SANDBOX/w5/.cache/toolpaths" 2>/dev/null)" "$REAL/widget"
+
+CASE=rejects_odd_tool_name
+# a name that is not a plain identifier never becomes a shadowing function
+printf '#!/usr/bin/env bash\nprintf SHIM_ODD\n' > "$SHIMS/wi;dget"
+printf '#!/usr/bin/env bash\nprintf REAL_ODD\n' > "$REAL/wi;dget"
+chmod +x "$SHIMS/wi;dget" "$REAL/wi;dget"
+is 'no function is defined for it, the shim keeps working' \
+   "$(PATH="$SANDBOX/bin:$SHIMS:/usr/sbin:/usr/bin:/bin" WORK_DIR="$SANDBOX/w10" \
+      bash -c ". '$LIB' 2>/dev/null; toolpath_init 'wi;dget'; type -t 'wi;dget'; 'wi;dget'")" \
+   'file
+SHIM_ODD'
+rm -f "$SHIMS/wi;dget" "$REAL/wi;dget"
 
 CASE=never_shadows_a_path_override
 # the gh-stub mechanism: a tool found outside */shims/* must be left alone

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# toolpath.sh — resolve shimmed CLI tools to their real binaries, once per run.
+# toolpath.sh — resolve shimmed CLI tools to their real binaries, once per shell
+# process (a forked subprocess resolves again, served from the cache file).
 #
 # Source this BEFORE the first `jq`/`gh` call (and before any `command -v jq`
 # guard). Rationale and measurements: docs/logging.md → Tool path resolution.
@@ -51,7 +52,7 @@ EOF
 
 # Shadow each tool that currently resolves to a mise shim.
 toolpath_init() { # [tool]... (default: jq gh)
-  local resolved t p
+  local resolved t p tmp
   [ "$#" -eq 0 ] && set -- jq gh
   # only tools actually behind a shim are candidates
   local want=""
@@ -67,14 +68,22 @@ toolpath_init() { # [tool]... (default: jq gh)
 
   while read -r t p; do
     [ -n "$t" ] && [ -n "$p" ] && [ -x "$p" ] || continue
+    # a name that is not a plain identifier never becomes a function
+    case "$t" in (*[^a-zA-Z0-9_-]*) continue;; esac
     # `command` bypasses this function on re-entry, so no recursion
     eval "$t() { command '$p' \"\$@\"; }"
   done <<EOF
 $resolved
 EOF
 
-  mkdir -p "$(dirname "$TOOLPATH_CACHE")" 2>/dev/null \
-    && printf '%s\n' "$resolved" > "$TOOLPATH_CACHE" 2>/dev/null || true
+  # publish the cache only when the content changed, and atomically (tmp file in
+  # the same directory + mv), so a concurrent reader always sees a whole file
+  if [ "$resolved" != "$(cat "$TOOLPATH_CACHE" 2>/dev/null)" ]; then
+    mkdir -p "$(dirname "$TOOLPATH_CACHE")" 2>/dev/null || true
+    tmp="$(mktemp "$TOOLPATH_CACHE.XXXXXX" 2>/dev/null)" || return 0
+    printf '%s\n' "$resolved" > "$tmp" 2>/dev/null \
+      && mv -f "$tmp" "$TOOLPATH_CACHE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  fi
   return 0
 }
 

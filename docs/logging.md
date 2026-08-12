@@ -38,9 +38,10 @@ hooks source it explicitly, **above** their `command -v jq` guard.
 Where `jq`/`gh` on `PATH` are symlinks to a version manager (mise shims on the
 DAM pod), every exec re-resolves its toolchain — ~250 ms against ~17 ms for the
 real binary. `preflight.sh` execs `jq` ~90× per run and the hooks fire per tool
-call, so `toolpath_init` resolves each shimmed tool once (via `mise bin-paths`,
-cached in `work/.cache/toolpaths`) and shadows it with a function calling the
-binary directly.
+call, so `toolpath_init` resolves each shimmed tool once per shell process (via
+`mise bin-paths`, cached in `work/.cache/toolpaths` — a forked subprocess is
+served from that file) and shadows it with a function calling the binary
+directly.
 
 - **`PATH` is never modified** — the offline suite stubs `gh` by prepending
   `scripts/tests/bin` to `PATH`, and a tool already resolving outside
