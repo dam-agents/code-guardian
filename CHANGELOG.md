@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.10.1 — 2026-08-13
+
+**Upgrade:** Nothing — the mention scan re-reads its query per run. Mentions
+newer than a previously capped page become visible on the next heartbeat, and
+`work/MENTIONS.md` dedups the ones already handled.
+
 ## 3.10.0 — 2026-08-12
 
 **Upgrade:** Nothing — `scripts/lib/toolpath.sh` is sourced per run and builds
