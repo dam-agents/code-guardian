@@ -39,6 +39,12 @@ else printf 'FAIL %s: run 2 index delta wrong\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<th>churn</th>'; then
   printf 'ok   %s: per-fixture tables carry the churn column\n' "$CASE"
 else printf 'FAIL %s: churn column missing\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q 'filter rows…' && printf '%s' "$OUT" | grep -q 'th.dataset.d'; then
+  printf 'ok   %s: sort/filter/paging script embedded intact\n' "$CASE"
+else printf 'FAIL %s: interactive script missing or mangled\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -qE 'src=|href="http|@import|fetch\('; then
+  printf 'FAIL %s: page references external assets\n' "$CASE"; FAILED=1
+else printf 'ok   %s: page stays self-contained (no external assets)\n' "$CASE"; fi
 if printf '%s' "$OUT" | grep -q '<td class=n>66000</td>'; then
   printf 'ok   %s: run 1 output tokens summed\n' "$CASE"
 else printf 'FAIL %s: token sum wrong\n' "$CASE"; FAILED=1; fi

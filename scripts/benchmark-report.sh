@@ -151,9 +151,16 @@ body{font-family:-apple-system,'Segoe UI',sans-serif;margin:2rem auto;max-width:
 h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:2rem}
 table{border-collapse:collapse;width:100%;font-size:.85rem;margin:.5rem 0}
 th,td{border:1px solid #d0d0d0;padding:.3rem .55rem;text-align:left}
-th{background:#f2f2f2}td.n{text-align:right;font-variant-numeric:tabular-nums}
-tr:nth-child(even) td{background:#fafafa}
+th{background:#f2f2f2;cursor:pointer;user-select:none;white-space:nowrap}
+th[data-d="a"]::after{content:" ▲"}th[data-d="d"]::after{content:" ▼"}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.alt td{background:#fafafa}
 p.meta{color:#666;font-size:.85rem}
+.tbar{display:flex;gap:.6rem;align-items:center;font-size:.85rem;margin:.5rem 0 0}
+.tbar input,.tbar select{font-size:.85rem;padding:.15rem .4rem;border:1px solid #c0c0c0;border-radius:3px}
+.tbar button{font-size:.85rem;padding:.1rem .5rem;border:1px solid #c0c0c0;border-radius:3px;background:#f7f7f7;cursor:pointer}
+.tbar button:disabled{opacity:.4;cursor:default}
+.tbar .info{color:#666;margin-left:auto}
 </style>
 <h1>Review benchmark — accumulated results</h1>
 <p class="meta">Latest run: ${GENERATED} · ${RUNS} run(s) on record. Scores 0–1,
@@ -168,4 +175,82 @@ ${ROWS_ALL}
 </table>
 ${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}
+<script>
+// Client-side sort / filter / paging — no external assets (gist renderer and
+// sealed artifact iframes allow no network). Click a header to sort (numeric
+// columns by their leading number, "—" sorts last); the box filters rows by
+// substring; long histories page.
+document.querySelectorAll('table').forEach(function (t) {
+  var body = t.tBodies[0]; if (!body) return;
+  var all = Array.prototype.slice.call(body.rows);
+  var head = all[0], rows = all.slice(1);
+  if (!head || rows.length === 0) return;
+
+  var bar = document.createElement('div'); bar.className = 'tbar';
+  var inp = document.createElement('input');
+  inp.type = 'search'; inp.placeholder = 'filter rows…';
+  var sel = document.createElement('select');
+  [['20', '20'], ['50', '50'], ['all', 'all']].forEach(function (o) {
+    var e = document.createElement('option');
+    e.value = o[0]; e.textContent = o[1] + ' / page'; sel.appendChild(e);
+  });
+  var prev = document.createElement('button'); prev.textContent = '‹';
+  var next = document.createElement('button'); next.textContent = '›';
+  var info = document.createElement('span'); info.className = 'info';
+  bar.appendChild(inp); bar.appendChild(sel);
+  bar.appendChild(prev); bar.appendChild(next); bar.appendChild(info);
+  t.parentNode.insertBefore(bar, t);
+
+  var page = 0, filter = '';
+  function size() { return sel.value === 'all' ? Infinity : parseInt(sel.value, 10); }
+  function matching() {
+    return rows.filter(function (r) {
+      return !filter || r.textContent.toLowerCase().indexOf(filter) !== -1;
+    });
+  }
+  function render() {
+    var v = matching(), s = size();
+    var pages = Math.max(1, Math.ceil(v.length / s));
+    if (page >= pages) page = pages - 1;
+    var from = page * s;
+    rows.forEach(function (r) { r.style.display = 'none'; r.classList.remove('alt'); });
+    v.slice(from, from + s).forEach(function (r, i) {
+      r.style.display = '';
+      if (i % 2 === 1) r.classList.add('alt');
+    });
+    var shown = Math.min(v.length, from + s);
+    info.textContent = v.length === 0 ? 'no rows match'
+      : (from + 1) + '–' + shown + ' of ' + v.length + ' rows';
+    prev.disabled = page === 0; next.disabled = page >= pages - 1;
+  }
+  inp.addEventListener('input', function () { filter = inp.value.toLowerCase(); page = 0; render(); });
+  sel.addEventListener('change', function () { page = 0; render(); });
+  prev.addEventListener('click', function () { if (page > 0) { page--; render(); } });
+  next.addEventListener('click', function () { page++; render(); });
+
+  function cellVal(r, i, numeric) {
+    var c = r.cells[i]; if (!c) return numeric ? -Infinity : '';
+    var txt = c.textContent.trim();
+    if (!numeric) return txt.toLowerCase();
+    var m = txt.match(/-?[0-9]+(\.[0-9]+)?/);
+    return m ? parseFloat(m[0]) : -Infinity;
+  }
+  Array.prototype.forEach.call(head.cells, function (th, i) {
+    th.addEventListener('click', function () {
+      var dir = th.dataset.d === 'a' ? 'd' : 'a';
+      Array.prototype.forEach.call(head.cells, function (h) { delete h.dataset.d; });
+      th.dataset.d = dir;
+      var numeric = rows.some(function (r) { return r.cells[i] && r.cells[i].classList.contains('n'); });
+      rows.sort(function (a, b) {
+        var x = cellVal(a, i, numeric), y = cellVal(b, i, numeric);
+        var c = x < y ? -1 : x > y ? 1 : 0;
+        return dir === 'a' ? c : -c;
+      });
+      rows.forEach(function (r) { body.appendChild(r); });
+      render();
+    });
+  });
+  render();
+});
+</script>
 EOF

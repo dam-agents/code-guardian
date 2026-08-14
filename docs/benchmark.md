@@ -28,7 +28,9 @@ fixture/<slug>/          # one benchmark project (immutable once created); the s
 results/<ts>.json        # one scored run, all fixtures (ts = YYYYMMDDTHHMMSSZ, UTC)
 results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
 RESULTS.md               # append-only index — one row per run × fixture, newest last
-report.html              # the accumulated report, regenerated every run (script below)
+report.html              # the accumulated report, regenerated every run (script below);
+                         # self-contained and interactive client-side — every table
+                         # sorts by header click, filters by substring, and pages
 ```
 
 `results/`, `results/raw/`, and `RESULTS.md` are append-only history: runs add
@@ -245,7 +247,9 @@ Loop over the slugs sequentially; for each fixture:
      then `gh api -X PATCH "gists/<id>" --input /tmp/bench-gist.json`,
      remove the payload file); absent →
      `gh gist create --desc "Review benchmark report" "$HOME/work/benchmark/report.html"`
-     and write the marker.
+     and write the marker. The viewable link (same renderer as
+     [artifact.md](artifact.md)):
+     `https://htmlpreview.github.io/?https://gist.githubusercontent.com/$BOT_LOGIN/<id>/raw/report.html`.
    - **dam** — the DAM Artifact Library via its MCP tools when registered
      this session (`<!-- benchmark-dam: <id> -->` marker, same
      create-once-then-update pattern the tools offer). Tools absent → log
