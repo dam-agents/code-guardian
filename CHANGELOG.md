@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.12.2 — 2026-08-14
+
+**Upgrade:** Nothing — scripts and docs are re-read per run. A scored
+benchmark run now takes `work/benchmark/.run-lock` and keys its phase state
+by the run nonce, so two overlapping runs no longer corrupt each other's
+measurements; a leftover lock from a crashed run expires after 6 h on its
+own.
+
 ## 3.12.1 — 2026-08-14
 
 **Upgrade:** Nothing — scripts and docs are re-read per run. A fixture set that

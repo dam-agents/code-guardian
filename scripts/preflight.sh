@@ -109,6 +109,10 @@ DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
 
+# benchmark run lock TTL (docs/benchmark.md): a scored run never legitimately
+# exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
+BENCH_LOCK_TTL_MIN=360
+
 # ========================================================= BENCHMARK MODE ====
 # Purely local — deciding a benchmark run needs no GitHub call, so this block
 # sits before the target-repo resolution (whose last fallback is a gh call)
@@ -162,6 +166,23 @@ if [ "$MODE" = "benchmark" ]; then
     bench_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
       '{action:"create_fixture", existing:$e, min:$m}')"
   fi
+  # run lock: one scored run at a time. The lock is a file the running
+  # session writes (first line: <ISO> <nonce>) and removes when it ends,
+  # terminal aborts included; while it is fresh no second run is emitted —
+  # two concurrent runs share /tmp trees and corrupt each other's
+  # measurements. Past the TTL (a benchmark run never legitimately exceeds
+  # it) the lock is stale and the run proceeds over it.
+  BENCH_LOCK="$BENCH_DIR/.run-lock"
+  if [ -f "$BENCH_LOCK" ]; then
+    BENCH_LOCK_TS="$(head -1 "$BENCH_LOCK" 2>/dev/null | cut -d' ' -f1)"
+    BENCH_LOCK_AGE_M=$(( (NOW_EPOCH - $(iso2epoch "${BENCH_LOCK_TS:-1970-01-01T00:00:00Z}")) / 60 ))
+    if [ "$BENCH_LOCK_AGE_M" -ge 0 ] && [ "$BENCH_LOCK_AGE_M" -lt "$BENCH_LOCK_TTL_MIN" ]; then
+      log "benchmark run already in progress (lock ${BENCH_LOCK_AGE_M}m old) — nothing to do"
+      bench_out true null
+    fi
+    log "stale benchmark run lock (${BENCH_LOCK_AGE_M}m ≥ ${BENCH_LOCK_TTL_MIN}m) — emitting run over it"
+  fi
+
   # monthly gate: newest scheduled run in the canonical results/*.json (the
   # RESULTS.md index is presentation; manual/trial runs never feed the gate).
   # Per-file tolerant load — one corrupt results file never erases the gate.
@@ -1147,6 +1168,17 @@ if [ "$MODE" = "audit" ]; then
     rm -rf "$d" && swept=$((swept+1))
   done
   [ "$swept" -gt 0 ] && logev info tmp_cleanup "stale-clone sweep: reclaimed $swept review-pr-* leftover(s) from dead sessions"
+
+  # benchmark leftovers of dead runs — trees, per-nonce phase state, nonce
+  # caches. Swept only past the benchmark run-lock TTL: a live run touches
+  # its files far more often than that, so age alone proves the run is dead.
+  bswept=0
+  for d in "$TMP_ROOT"/benchmark-pr-* "$TMP_ROOT"/benchmark-phase-* "$TMP_ROOT"/.bench-usage-*; do
+    [ -e "$d" ] || continue
+    [ -n "$(find "$d" -maxdepth 0 -mmin +"$BENCH_LOCK_TTL_MIN" 2>/dev/null)" ] || continue
+    rm -rf "$d" && bswept=$((bswept+1))
+  done
+  [ "$bswept" -gt 0 ] && logev info tmp_cleanup "benchmark sweep: reclaimed $bswept leftover(s) from dead benchmark runs"
 
   sw_note=""; [ "$swept" -gt 0 ] && sw_note=" ($swept stale reclaimed)"
   tmp_left="$(ls -d "$TMP_ROOT"/review-pr-* 2>/dev/null | grep -c . || true)"

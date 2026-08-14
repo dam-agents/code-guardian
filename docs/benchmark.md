@@ -162,17 +162,33 @@ RESULTS.md row, no report, publish nothing; report the `FAIL` lines to the
 operator (retiring and regenerating the set is their decision — **Retiring a
 fixture set** below), log
 `benchmark run aborted: fixture validation failed (<ids>)` as a `warn` event
-([logging.md](logging.md)), and end the run. Scoring a leaky set is worse
+([logging.md](logging.md)), release the run lock, and end the run. Scoring a leaky set is worse
 than not scoring: its numbers enter the append-only history looking valid.
 
+**Then take the run lock — one scored run at a time.** Two concurrent runs
+share the `/tmp` trees and overwrite each other's phase stamps, which turns
+both runs' measurements into garbage. The lock file is
+`$HOME/work/benchmark/.run-lock`, first line `<ISO> <nonce>`:
+
+- Lock present and its ISO younger than **6 h** → a sibling run is live:
+  **stand down** — report it, touch nothing of the sibling's (its lock, its
+  `/tmp/benchmark-pr-*` trees, its phase state), and end the run. The same
+  applies to preflight-emitted and operator-asked runs alike.
+- Absent or older → write your own `<ISO> <NONCE>` line. **Every terminal
+  path of the run removes it** — the normal cleanup step, the
+  fixture-validation abort, and the results-validation dead end. A crash
+  leaves it to expire by TTL.
+
 Then take one timestamp `TS` (compact + ISO) for the whole run, and one usage
-nonce, printed so the value itself lands in the transcript:
+nonce, printed so the value itself lands in the transcript. The phase-state
+directory is **keyed by the nonce**, so even a stale-lock takeover can never
+collide with a dying sibling's stamps:
 
 ```bash
 NONCE="bench-$(date -u +%s)-$$"
 printf 'usage-nonce:%s\n' "$NONCE"   # the PRINTED value is what the snapshot
                                      # greps for — command text stays unexpanded
-PSTATE=/tmp/benchmark-phase
+PSTATE="/tmp/benchmark-phase-$NONCE"
 ```
 
 Every phase is then bracketed by the measurement helper — never by hand:
@@ -300,7 +316,7 @@ Then loop over the slugs sequentially; for each fixture:
    Non-zero exit → fix the file (each `FAIL` names its own remedy) and
    re-validate. Do not append the RESULTS.md rows, regenerate the report, or
    publish until it passes; if it cannot be fixed, delete the file, report
-   why, and end the run with nothing recorded.
+   why, release the run lock, and end the run with nothing recorded.
 9. Append one RESULTS.md row per fixture, then **regenerate and republish the
    accumulated report** — the always-current
    artifact holding every run and the complete comparison table:
@@ -339,8 +355,10 @@ Then loop over the slugs sequentially; for each fixture:
    going-in-circles signals), any skill with no fixture coverage, and the
    report URL when published. First run: "baseline".
 11. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
-    `.s-*` variants), the nonce cache
-    (`rm -f "${TMPDIR:-/tmp}"/.bench-usage-*`), and temp payload files; log
+    `.s-*` variants), your phase-state directory (`rm -rf "$PSTATE"`), your
+    nonce cache (`rm -f "${TMPDIR:-/tmp}/.bench-usage-$NONCE"`), and temp
+    payload files; **remove the run lock**
+    (`rm -f "$HOME/work/benchmark/.run-lock"`); log
     `benchmark run scored (avg f1=<x> over <n> fixtures)`; back up `work/`
     last.
 
@@ -390,7 +408,8 @@ missing; the publish markers are added when the first publish succeeds):
 A fixture is immutable, so a set that turns out invalid — validation fails,
 or it stopped representing the repo — is **retired and replaced**, never
 edited in place. Only the operator decides this; the agent reports the
-finding and waits.
+finding and waits. Check the run lock first — a live run reads the fixture
+trees, so it finishes (or its lock expires) before anything moves.
 
 1. `mkdir -p fixture/retired && mv fixture/<slug> fixture/retired/<slug>` for
    every retired slug. Retired fixtures stay on disk forever: past results
@@ -416,7 +435,9 @@ baseline stays clean while a PR is tuned in cycles — run, adjust, run again.
 
 - **Trigger: operator only, in the direct session** — "run a trial
   benchmark" (optionally naming the PR/branch). Repeatable at will; each
-  run appends one more result to the same trial.
+  run appends one more result to the same trial. A trial takes the **same
+  run lock** as a scored run — the /tmp trees are shared, so one at a time
+  applies to both kinds alike.
 - **Procedure**: exactly the run steps above, with these substitutions:
   - `TRIAL="$HOME/work/benchmark/trials/<id>"` where `<id>` =
     `pr-<n>` or the branch slug; results go to `$TRIAL/results/<ts>.json`,
