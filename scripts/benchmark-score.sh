@@ -68,10 +68,25 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 || { printf 'manifest not valid JSON: %s\n' 
 # word count without wc (not in the pod's required command set)
 count_words() { grep -o '[^[:space:]][^[:space:]]*' | grep -c ''; }
 
+# shared jq defs for both scoring modes — one home for rounding and the
+# ±3-line matching window, so first-review and re-review scores always use
+# the same rules
+JQ_DEFS='
+  def r3: if . == null then null else (. * 1000 | round) / 1000 end;
+  def dist($a; $b): ($a - $b) | if . < 0 then -. else . end;
+'
+
 # ------------------------------------------------ findings-json + format ----
+# Normalize before scoring: the reviewed model wrote this line, so malformed
+# elements are graded (dropped/nulled), never a crash — keep objects only and
+# coerce line to a number or null.
 FJ="$(sed -n 's/^<!-- findings-json: \(.*\) -->[[:space:]]*$/\1/p' "$RAW" | head -1)"
 FJ_OK=true
-printf '%s' "$FJ" | jq -e 'type == "array"' >/dev/null 2>&1 || { FJ_OK=false; FJ='[]'; }
+FJ="$(printf '%s' "$FJ" | jq -c 'select(type == "array")
+  | map(select(type == "object")
+        | .line = ((.line // null) | if type == "number" then . else (tonumber? // null) end))' \
+  2>/dev/null)" || FJ=''
+[ -n "$FJ" ] || { FJ_OK=false; FJ='[]'; }
 
 MARKER_OK=false
 grep -qE '^<!-- .+ headRefOid=[0-9a-f]{40} -->' "$RAW" && MARKER_OK=true
@@ -86,14 +101,15 @@ grep -q '^### Changes since last review' "$RAW" && DELTA_OK=true
 VERDICT="$(sed -n '/^### Verdict/,$p' "$RAW" | grep -oE 'REQUEST_CHANGES|APPROVE|COMMENT' | head -1)"
 VERDICT="${VERDICT:-missing}"
 
+# fix_lines: the findings-json contract nulls fix only on suggestion and
+# fixed entries — every OPEN blocking entry (new and still) must carry one
 FMT="$(jq -n --argjson fj "$FJ" --arg verdict "$VERDICT" '
   ($fj | map(select(.status != "fixed"))) as $open
   | (if ($open | any(.severity == "critical")) then "REQUEST_CHANGES"
      elif ($open | any(.severity == "warning")) then "COMMENT"
      else "APPROVE" end) as $expected
-  | {fix_lines: ($fj | map(select(.status == "new"
-                                  and (.severity == "critical" or .severity == "warning")))
-                     | all(.fix != null and .fix != "")),
+  | {fix_lines: ($open | map(select(.severity == "critical" or .severity == "warning"))
+                       | all(.fix != null and .fix != "")),
      verdict: $verdict,
      verdict_consistent: ($verdict == $expected)}')"
 
@@ -104,23 +120,21 @@ LENGTH="$(jq -n --argjson fj "$FJ" --argjson w "$WORDS_TOTAL" '
    words_per_finding: (if ($fj | length) == 0 then null
                        else (($w / ($fj | length)) | round) end)}')"
 
-TMP_SENT="$(mktemp "${TMPDIR:-/tmp}/bench-sent.XXXXXX")"
-trap 'rm -f "$TMP_SENT"' EXIT
-sed -e '/^```/,/^```/d' -e '/^[[:space:]]*<!--/d' "$RAW" \
+# one jq pass computes every sentence length (no temp file, no per-sentence
+# subprocesses); fences match indented openers too — an unbalanced fence
+# still degrades this one metric only, never the scoring
+STE="$(sed -e '/^[[:space:]]*```/,/^[[:space:]]*```/d' -e '/^[[:space:]]*<!--/d' "$RAW" \
   | tr '\n' ' ' \
   | sed -e 's/[.!?][[:space:]][[:space:]]*/\n/g' -e 's/[.!?][[:space:]]*$//' \
-  | grep -v '^[[:space:]]*$' > "$TMP_SENT" || true
-STE="$(while IFS= read -r s; do printf '%s\n' "$s" | count_words; done < "$TMP_SENT" \
-  | jq -s '{sentences: length,
-            avg_sentence_words: (if length == 0 then null
-                                 else ((add / length * 10) | round) / 10 end),
-            sentences_over_20: ([.[] | select(. > 20)] | length)}')"
+  | jq -Rs '[split("\n")[] | select(test("[^[:space:]]")) | [scan("[^[:space:]]+")] | length]
+            | {sentences: length,
+               avg_sentence_words: (if length == 0 then null
+                                    else ((add / length * 10) | round) / 10 end),
+               sentences_over_20: ([.[] | select(. > 20)] | length)}')"
 
 # ------------------------------------------------------------- matching ----
 if [ "$MODE" = "first" ]; then
-  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" '
-    def r3: if . == null then null else (. * 1000 | round) / 1000 end;
-    def dist($a; $b): ($a - $b) | if . < 0 then -. else . end;
+  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'
     def sevrec($gtl; $tpl; $sev):
       ($gtl | map(select(.severity == $sev)) | length) as $n
       | if $n == 0 then null
@@ -162,9 +176,7 @@ if [ "$MODE" = "first" ]; then
        recall_warning: (sevrec($gt; $r.tp; "warning") | r3),
        severity_accuracy: ($seva | r3)}')"
 else
-  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" '
-    def r3: if . == null then null else (. * 1000 | round) / 1000 end;
-    def dist($a; $b): ($a - $b) | if . < 0 then -. else . end;
+  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'
     def anchored($pl; $g):
       ($g.line_v1 != null and $pl != null and dist($pl; $g.line_v1) <= 3)
       or ($g.line_v2 != null and $pl != null and dist($pl; $g.line_v2) <= 3);
@@ -194,6 +206,11 @@ else
     | ($d | map(select(.fixed_in_v2 == true and (.fix_line_v2 // null) != null)
                 | {file, line_v1: null, line_v2: .fix_line_v2}))              as $fixSites
     | bmatch($fixedGT; $pF; true)  as $mf
+    # false_fixed considers only fixed claims NOT consumed by the fixed
+    # bucket, and matches them by line — a correct line-null fixed claim is
+    # never double-counted against a same-file still-present defect
+    | ($pF | to_entries
+           | map(select(.key as $k | ($mf.used | index($k)) == null) | .value)) as $restF
     | bmatch($stillGT; $pS; false) as $ms
     | bmatch($newGT;   $pN; false) as $mn
     | ($pN | to_entries
@@ -208,7 +225,7 @@ else
        fixed_recall: (frac($mf.hit; $fixedGT | length) | r3),
        still_recall: (frac($ms.hit; $stillGT | length) | r3),
        new_recall:   (frac($mn.hit; $newGT   | length) | r3),
-       false_fixed: (bmatch($stillGT; $pF; true) | .hit),
+       false_fixed: (bmatch($stillGT; $restF; false) | .hit),
        late_finds: $ml.hit,
        churn: $mc.hit,
        new_fp: ($blockrest - $mc.hit)}')"

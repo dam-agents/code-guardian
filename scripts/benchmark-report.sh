@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # benchmark-report.sh — render the accumulated benchmark report as one
-# self-contained HTML page on stdout (docs/benchmark.md → The report).
+# self-contained HTML page on stdout (docs/benchmark.md → Running the
+# benchmark, phase 2).
 #
 #   benchmark-report.sh <work/benchmark dir>
 #
@@ -16,31 +17,40 @@
 # The "index" column is one weighted quality index in [0,1], per fixture and
 # averaged per run — **fully deterministic**: it is computed from scorer
 # output only, and judge scores never enter it, so enabling, disabling, or
-# changing the judge cannot move the index. Components and weights:
-# recall_critical .20, precision .15, recall .10, severity_accuracy .10,
-# format-pass rate .10 (share of true format booleans), fixed_recall .10,
-# new_recall .05, circle-free .10 (1 − min(1, (churn + false_fixed)/3) —
-# degrades as the review flags its own fixes or un-fixes findings). A
-# component whose data is missing drops out and the remaining weights
-# renormalize. The separate "judge" column is the LLM-judged view: all judge
-# dimensions averaged on their own 1–5 scale, reported beside the index,
-# never mixed into it. The all-runs table also prints the delta against the
-# previous run for index, seconds, and output tokens — the regression signal
-# for quality, speed, and cost.
+# changing the judge cannot move the index. The components and their weights
+# live in exactly one place — the fixture_index definition in JQ_COMMON below
+# (first-review recall/precision/severity/format, re-review
+# fixed/still/new recall, and circle-free, which degrades as the review
+# flags its own fixes or un-fixes findings). A component whose data is
+# missing drops out and the remaining weights renormalize. The separate
+# "judge" column is the LLM-judged view: all judge dimensions averaged on
+# their own 1–5 scale, reported beside the index, never mixed into it. The
+# all-runs table also prints the delta against the previous run for index,
+# seconds, and output tokens — the regression signal for quality, speed, and
+# cost. `benchmark-report.sh index <dir>` prints the same per-run index as
+# JSON for chat summaries and trial comparisons.
 set -u
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
 
+# `index` mode prints the deterministic quality index as JSON (one row per
+# run) for the chat summary and trial comparisons — same fixture_index the
+# HTML uses, one implementation.
+OUT_MODE=html
+[ "${1:-}" = "index" ] && { OUT_MODE=index; shift; }
 DIR="${1:-}"
 [ -n "$DIR" ] && [ -d "$DIR/results" ] || {
-  printf 'usage: benchmark-report.sh <work/benchmark dir with results/>\n' >&2; exit 2; }
+  printf 'usage: benchmark-report.sh [index] <work/benchmark dir with results/>\n' >&2; exit 2; }
 
-RUNS="$(ls "$DIR"/results/*.json 2>/dev/null | grep -c '')"
-if [ "$RUNS" -eq 0 ]; then ALL='[]'; else
-  ALL="$(jq -s 'map(select(type == "object")) | sort_by(.ts // "")' "$DIR"/results/*.json 2>/dev/null)" || ALL='[]'
-fi
+# tolerant per-file load: one corrupt/truncated results file is skipped with
+# its data alone — it never discards the rest of the history
+ALL="$(for f in "$DIR"/results/*.json; do
+         [ -f "$f" ] || continue
+         jq -c 'select(type == "object")' "$f" 2>/dev/null || true
+       done | jq -s 'sort_by(.ts // "")')"
+RUNS="$(printf '%s' "$ALL" | jq length)"
 
 JQ_COMMON='
   def fmt: if . == null then "—" else tostring end;
@@ -54,7 +64,8 @@ JQ_COMMON='
   def bools($o): [$o // {} | to_entries[] | .value | select(type == "boolean")];
   def jnums($o): [$o // {} | to_entries[] | .value | numbers];
   # weighted, fully deterministic quality index of one fixture object —
-  # scorer output only, judge never enters it (weights in the header)
+  # scorer output only, judge never enters it. THE single home of the
+  # weights (they sum to 1.00; missing components renormalize):
   def fixture_index:
     .first as $f | .rereview as $r
     | (bools($f.format) + bools($r.format)) as $fb
@@ -65,6 +76,7 @@ JQ_COMMON='
         {v: (if ($fb | length) == 0 then null
              else (([$fb[] | select(.)] | length) / ($fb | length)) end), w: 0.10},
         {v: $r.fixed_recall,      w: 0.10},
+        {v: $r.still_recall,      w: 0.10},
         {v: $r.new_recall,        w: 0.05},
         {v: (if $r == null then null
              else (1 - ([1, ((($r.churn // 0) + ($r.false_fixed // 0)) / 3)] | min)) end), w: 0.10} ]
@@ -80,30 +92,36 @@ JQ_COMMON='
     else (($c - $p) | if . >= 0 then " (+\(r3))" else " (\(r3))" end) end;
 '
 
+if [ "$OUT_MODE" = "index" ]; then
+  printf '%s' "$ALL" | jq "$JQ_COMMON"'
+    [.[] | {ts, trigger, model, definition_version,
+            index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
+            fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
+  exit 0
+fi
+
 ROWS_ALL="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
-  | (if $i == 0 then null else ($all[$i - 1] // null) end) as $prev
+  | (if $i == 0 then null else $all[$i - 1] end) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
-  | (if $prev == null then null else ($prev | run_index) end) as $pidx
   | ($r | run_secs) as $sec
-  | (if $prev == null then null else ($prev | run_secs) end) as $psec
   | ($r | run_out_tokens) as $tok
-  | (if $prev == null then null else ($prev | run_out_tokens) end) as $ptok
   | "<tr><td>\($r.ts | fmt | @html)</td><td>\($r.trigger // "—" | @html)</td>"
     + "<td>\($r.model // "—" | @html)</td><td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
-    + "<td class=n><b>\($idx | fmt)</b>\(delta($idx; $pidx))</td>"
+    + "<td class=n><b>\($idx | fmt)</b>\(delta($idx; $prev | run_index))</td>"
     + "<td class=n>\($fx | avg(.first.f1) | fmt)</td>"
     + "<td class=n>\($fx | avg(.first.severity_accuracy) | fmt)</td>"
     + "<td class=n>\($fx | avg(.rereview.fixed_recall) | fmt)</td>"
     + "<td class=n>\($fx | avg(.rereview.new_recall) | fmt)</td>"
-    + "<td class=n>\($fx | total(((.rereview.churn // 0) + (.rereview.false_fixed // 0))) | fmt)</td>"
-    + "<td class=n>\($fx | total(.first.fp | length) | fmt)</td>"
+    + "<td class=n>\($fx | total(if .rereview == null then null
+                                 else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | fmt)</td>"
+    + "<td class=n>\($fx | total(.first.fp | if . == null then null else length end) | fmt)</td>"
     + "<td class=n>\($fx | avg(fixture_judge) | fmt)</td>"
-    + "<td class=n>\($sec | fmt)\(delta($sec; $psec))</td>"
-    + "<td class=n>\($tok | fmt)\(delta($tok; $ptok))</td></tr>"')"
+    + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs))</td>"
+    + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens))</td></tr>"')"
 
 FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
   . as $all
@@ -238,11 +256,11 @@ document.querySelectorAll('table').forEach(function (t) {
   next.addEventListener('click', function () { page++; render(); });
 
   function cellVal(r, i, numeric) {
-    var c = r.cells[i]; if (!c) return numeric ? -Infinity : '';
+    var c = r.cells[i]; if (!c) return numeric ? null : '';
     var txt = c.textContent.trim();
     if (!numeric) return txt.toLowerCase();
     var m = txt.match(/-?[0-9]+(\.[0-9]+)?/);
-    return m ? parseFloat(m[0]) : -Infinity;
+    return m ? parseFloat(m[0]) : null;
   }
   Array.prototype.forEach.call(head.cells, function (th, i) {
     th.addEventListener('click', function () {
@@ -252,6 +270,10 @@ document.querySelectorAll('table').forEach(function (t) {
       var numeric = rows.some(function (r) { return r.cells[i] && r.cells[i].classList.contains('n'); });
       rows.sort(function (a, b) {
         var x = cellVal(a, i, numeric), y = cellVal(b, i, numeric);
+        if (numeric) {
+          // missing values sort last in BOTH directions
+          if (x === null || y === null) return x === null && y === null ? 0 : (x === null ? 1 : -1);
+        }
         var c = x < y ? -1 : x > y ? 1 : 0;
         return dir === 'a' ? c : -c;
       });

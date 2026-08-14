@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # preflight benchmark mode — gate on `benchmark: enabled`, create_fixture until
-# the set holds 5 fixtures, run with the monthly (27-day) gate, purely local
+# the set holds 5 fixtures, run with the monthly (27-day) gate fed by
+# scheduled results only, gist surface dropped off github.com, purely local
 # (no gh fixtures are seeded: the mode must decide without API calls).
 . "$(dirname "$0")/helpers.sh"
 
@@ -11,14 +12,10 @@ seed_fixture() { # <slug>
 
 seed_full_set() { for s in ts-api react-ui py-cli infra-ci docs-mixed; do seed_fixture "$s"; done; }
 
-seed_result_row() { # <iso-ts>
-  mkdir -p "$WORK/benchmark"
-  {
-    printf '# Benchmark results\n\n'
-    printf '| ts | model | version | fixture | trigger | f1 | sev | fixed | new | words | sec | out-tok |\n'
-    printf '|----|-------|---------|---------|---------|----|-----|-------|-----|-------|-----|---------|\n'
-    printf '| %s | m | 3.11.0 | ts-api | scheduled | 0.8 | 1 | 1 | 1 | 900 | 500 | 21000 |\n' "$1"
-  } > "$WORK/benchmark/RESULTS.md"
+seed_result_json() { # <iso-ts> <trigger>
+  mkdir -p "$WORK/benchmark/results"
+  printf '{"ts":"%s","trigger":"%s","model":"m","definition_version":"3.11.0","fixtures":{}}' \
+    "$1" "$2" > "$WORK/benchmark/results/$(printf '%s' "$1" | tr -d ':-').json"
 }
 
 new_case benchmark_disabled
@@ -27,6 +24,12 @@ run_preflight benchmark
 assert_jq '.nothing_to_do == true' 'missing key gates the run off'
 assert_jq 'has("benchmark_due") | not' 'no worklist entry when disabled'
 assert_jq '.logs | any(contains("benchmark disabled"))' 'the off state is logged'
+
+new_case benchmark_no_config_at_all
+# CONFIG.md absent entirely: the mode degrades to nothing_to_do before any
+# repo resolution (the block sits ahead of the gh fallback)
+run_preflight benchmark
+assert_jq '.nothing_to_do == true' 'missing CONFIG degrades to nothing_to_do'
 
 new_case benchmark_no_fixtures
 base_config '- benchmark: enabled'
@@ -52,7 +55,7 @@ run_preflight benchmark
 assert_jq '.benchmark_due.action == "run"' 'a full set makes a run due'
 assert_jq '.benchmark_due.fixtures | length == 5' 'all five fixtures are carried'
 assert_jq '.benchmark_due.judge == "pinned-judge-model"' 'judge key is carried'
-assert_jq '.benchmark_due.report == "gist,dam"' 'report surfaces are carried'
+assert_jq '.benchmark_due.report == "gist,dam"' 'report surfaces are carried on github.com'
 assert_jq '.benchmark_due.last_run == null' 'no prior run recorded'
 
 new_case benchmark_defaults
@@ -62,20 +65,43 @@ run_preflight benchmark
 assert_jq '.benchmark_due.judge == "off"' 'judge defaults to off'
 assert_jq '.benchmark_due.report == "gist"' 'report defaults to gist'
 
+new_case benchmark_gist_dropped_off_github
+TEST_REF="github.example.com/acme/widgets"
+base_config '- benchmark: enabled' '- benchmark_report: gist,dam'
+seed_full_set
+run_preflight benchmark
+assert_jq '.benchmark_due.report == "dam"' 'gist is dropped on a non-github.com host'
+assert_jq '.logs | any(contains("gist dropped"))' 'the drop is logged'
+
+new_case benchmark_gist_only_off_github
+TEST_REF="github.example.com/acme/widgets"
+base_config '- benchmark: enabled'
+seed_full_set
+run_preflight benchmark
+assert_jq '.benchmark_due.report == "off"' 'no reachable surface degrades to off'
+
 new_case benchmark_monthly_gate_holds
 base_config '- benchmark: enabled'
 seed_full_set
-seed_result_row "$(iso_ago 432000)"   # 5 days ago — inside the 27-day floor
+seed_result_json "$(iso_ago 432000)" scheduled   # 5 days ago — inside the floor
 run_preflight benchmark
-assert_jq '.nothing_to_do == true' 'a recent run gates the month'
+assert_jq '.nothing_to_do == true' 'a recent scheduled run gates the month'
 assert_jq 'has("benchmark_due") | not' 'no worklist entry while gated'
+
+new_case benchmark_manual_never_feeds_gate
+base_config '- benchmark: enabled'
+seed_full_set
+seed_result_json "$(iso_ago 432000)" manual      # 5 days ago, manual
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run"' 'a manual run never moves the scheduled cadence'
+assert_jq '.benchmark_due.last_run == null' 'gate sees no scheduled run yet'
 
 new_case benchmark_monthly_gate_opens
 base_config '- benchmark: enabled'
 seed_full_set
-seed_result_row "$(iso_ago 2592000)"  # 30 days ago — past the floor
+seed_result_json "$(iso_ago 2592000)" scheduled  # 30 days ago — past the floor
 run_preflight benchmark
-assert_jq '.benchmark_due.action == "run"' 'a stale last run re-opens the gate'
-assert_jq '.benchmark_due.last_run != null' 'the last run timestamp is carried'
+assert_jq '.benchmark_due.action == "run"' 'a stale scheduled run re-opens the gate'
+assert_jq '.benchmark_due.last_run != null' 'the last scheduled timestamp is carried'
 
 finish

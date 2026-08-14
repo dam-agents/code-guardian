@@ -237,9 +237,9 @@ The definition is project-agnostic: every instance-specific value lives in `work
 9. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who should I escalate to when a PR stays unreviewed despite repeated reminders (nudge level 4)? Pick one person from the roster.* Must be a roster login **with a `slack_id`**.
 10. **`benchmark`** — optional monthly self-benchmark, off by default. Ask:
 
-   > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
+    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
 
-   **No / no reply** → omit the key. **Yes** → write `benchmark: enabled`, ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality scores; default `off` = deterministic scoring only) and **`benchmark_report`** (where the accumulated report publishes: `gist` default / `dam` / `gist,dam` / `off`), and register the schedule in Step 6d — the first scheduled run creates the fixture set.
+    **No / no reply** → omit the key. **Yes** → write `benchmark: enabled`, ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality scores; default `off` = deterministic scoring only) and **`benchmark_report`** (where the accumulated report publishes: `gist` default / `dam` / `gist,dam` / `off`), and register the schedule in Step 6d — the first scheduled run creates the fixture set, and the first scores land on the next monthly tick (or sooner on an on-demand ask).
 
 Final shape:
 
@@ -262,7 +262,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
-- benchmark_judge: claude-sonnet-5     # pinned judge model; omit/off = deterministic scoring only
+- benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: gist               # accumulated-report surfaces: gist (default) | dam | gist,dam | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
@@ -329,7 +329,7 @@ Independent schedules — the shepherd one only when `slack_notifications: enabl
 
 **6d — Model benchmark** (only when `benchmark: enabled`; create it later if the benchmark is enabled in chat). Ask: *When should the monthly benchmark run? Default is the 1st of the month, 06:00 (platform timezone).* Create `name: code-guardian-benchmark-monthly`, cron default `0 6 1 * *`, `sessionMode: fresh`, `task`:
 
-   > Model benchmark. Run `bash "$HOME/scripts/preflight.sh" benchmark` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to 5 and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+   > Model benchmark. Run `bash "$HOME/scripts/preflight.sh" benchmark` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 

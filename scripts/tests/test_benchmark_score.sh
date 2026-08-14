@@ -104,6 +104,63 @@ assert_jq '.churn == 1' 'a blocking finding on a fix site is churn (going in cir
 assert_jq '.new_fp == 1' 'the invented new finding is an FP, disjoint from churn'
 assert_jq '.format.delta_section == true' 'the delta section is present'
 
+new_case score_malformed_findings_json
+write_manifest
+cat > "$SANDBOX/malformed.md" <<'EOF'
+### Summary
+X.
+### Findings
+- 🔴 **Critical:** token compared with == (`src/auth.ts:41`)
+### Verdict
+REQUEST_CHANGES — open critical.
+
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":"41","fix":"constant-time compare"},"junk-element",{"status":"new","severity":"warning","file":"src/db.ts","line":{"bad":1},"fix":"x"}] -->
+<!-- cg:review headRefOid=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->
+EOF
+run_score first "$SANDBOX/malformed.md"
+assert_jq '.format.findings_json == true' 'malformed elements degrade, never crash'
+assert_jq '.tp | length == 1' 'a string line is coerced and still matches'
+assert_jq '.recall_critical == 1' 'the coerced finding scores'
+
+new_case score_correct_fixed_with_null_line
+write_manifest
+cat > "$SANDBOX/nullfix.md" <<'EOF'
+### Summary
+Delta re-review.
+### Changes since last review
+- ✅ **Fixed:** token compared with == (`src/auth.ts`)
+- 🔁 **Still present:** off by one (`src/auth.ts:58`)
+### Findings
+_No new findings at this HEAD._
+### Verdict
+COMMENT — one warning still open.
+
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/auth.ts","line":null,"inline":false,"summary":"token ==","fix":null},{"status":"still","severity":"warning","file":"src/auth.ts","line":58,"inline":false,"summary":"off by one","fix":"fix the bound"}] -->
+<!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
+EOF
+run_score rereview "$SANDBOX/nullfix.md"
+assert_jq '.fixed_recall == 1' 'a line-null fixed claim matches by file'
+assert_jq '.false_fixed == 0' 'a correctly-consumed fixed claim is never double-counted as false-fixed'
+assert_jq '.still_recall == 1' 'the still claim matches independently'
+
+new_case score_fix_lines_covers_still
+write_manifest
+cat > "$SANDBOX/stillnofix.md" <<'EOF'
+### Summary
+Delta re-review.
+### Changes since last review
+- 🔁 **Still present:** off by one (`src/auth.ts:58`)
+### Findings
+_No new findings at this HEAD._
+### Verdict
+COMMENT — one warning still open.
+
+<!-- findings-json: [{"status":"still","severity":"warning","file":"src/auth.ts","line":58,"inline":false,"summary":"off by one","fix":null}] -->
+<!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
+EOF
+run_score rereview "$SANDBOX/stillnofix.md"
+assert_jq '.format.fix_lines == false' 'an open still entry without a fix fails the format check'
+
 new_case score_false_fixed
 write_manifest
 cat > "$SANDBOX/ff.md" <<'EOF'

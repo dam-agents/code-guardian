@@ -16,7 +16,7 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
   supports it).
 - **run** — the run/job identifier: `LOG_RUN_ID` env → harness session id
   (`CLAUDE_CODE_SESSION_ID`) → start time + pid. Groups all lines of one run.
-- **job** — `review` | `shepherd` | `audit` | `session` (from `LOG_JOB`).
+- **job** — `review` | `shepherd` | `audit` | `benchmark` | `session` (from `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
   only when `work/CONFIG.md` has `log_level: debug` (missing key = `info`).
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,

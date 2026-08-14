@@ -13,16 +13,13 @@ they are released history and stay as written.
 
 ## 3.11.0 — 2026-08-14
 
-**Upgrade:** adds the optional monthly self-benchmark, off by default — it
-replays a fixed set of ≥5 synthetic review fixtures (different project types)
-through the full pipeline, measures time and tokens per review, scores every
-output against known defects, and republishes an accumulated report artifact
-each run, keeping every result in `work/benchmark/` (docs/benchmark.md).
-Enable by writing `- benchmark: enabled` (and optionally
-`- benchmark_judge: <pinned-model-id>`, `- benchmark_report: gist`) to
-`work/CONFIG.md` and registering the `code-guardian-benchmark-monthly`
-schedule per ONBOARDING.md Step 6d; the first scheduled run creates the
-fixture set. Without the key, nothing changes.
+**Upgrade:** adds the optional monthly self-benchmark of review quality, off
+by default (docs/benchmark.md). Enable by writing `- benchmark: enabled` (and
+optionally `- benchmark_judge: <pinned-model-id>`,
+`- benchmark_report: gist`) to `work/CONFIG.md` and registering the
+`code-guardian-benchmark-monthly` schedule per ONBOARDING.md Step 6d; the
+first scheduled run creates the fixture set. Without the key, nothing
+changes.
 
 ## 3.10.2 — 2026-08-14
 

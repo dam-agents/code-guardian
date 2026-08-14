@@ -64,26 +64,14 @@ of it per the `docs/` procedures:
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
 - **Model benchmark** (default the 1st of the month; exists only when the
-  `benchmark` key was enabled): the agent replays a fixed set of **at least
-  five synthetic review tasks** — fixtures of different project types,
-  generated once from the repo's stack and the configured skills, each with
-  seeded defects of known place and severity — through its full review
-  pipeline, measuring wall-clock time and token usage per review, then
-  scores each output deterministically
-  ([`scripts/benchmark-score.sh`](scripts/benchmark-score.sh): finding
-  recall/precision, severity accuracy, format compliance, length, plus an
-  optional pinned-model judge) against the fixture's manifest, including a
-  re-review pass that measures fixed/still/new detection. Every result is
-  kept forever in `work/benchmark/`, and each run regenerates and
-  republishes an accumulated report artifact
-  ([`scripts/benchmark-report.sh`](scripts/benchmark-report.sh) — the
-  complete runs × fixtures comparison table at a stable URL). Each run pins
-  its full provenance — the exact model id, the harness version, and the
-  definition version, with the list of release changes since the previously
-  tested version — so the benchmark doubles as a development-tracking tool
-  for the agent itself. During definition development, unrecorded **trial
-  runs** score a feature branch in tuning cycles without touching the
-  official history; per [`docs/benchmark.md`](docs/benchmark.md).
+  `benchmark` key was enabled): the agent replays a fixed set of ≥5
+  synthetic review fixtures with known seeded defects through its full
+  review pipeline, measures time and tokens per review, scores each output
+  deterministically against the fixture's manifest, and republishes an
+  accumulated report artifact — every result kept forever with full
+  provenance, so review quality is comparable across model, harness, and
+  definition versions, and unrecorded **trial runs** score a feature branch
+  during development. Details: [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
@@ -235,7 +223,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
   | Scope | Required? | What needs it |
   | --- | --- | --- |
   | `repo` | **yes** | PRs, reviews, comments, labels and issues on `GITHUB_REPO`; push to `GITHUB_REPO_WORK` and the definition repo |
-  | `gist` | yes, unless artifacts are off | Create/delete the **visual artifact** gists (`artifact_skill: none` → not needed) |
+  | `gist` | yes, unless no gist consumer is on | Create/delete the **visual artifact** gists and update the **benchmark report** gist (`artifact_skill: none` **and** benchmark off or `benchmark_report` without `gist` → not needed) |
   | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
 
   The audit's `token_scopes` check asserts the required ones only. A missing

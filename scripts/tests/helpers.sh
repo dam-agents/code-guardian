@@ -97,4 +97,22 @@ assert_file_contains() { # <file> <grep pattern> <description>
   fi
 }
 
+assert_out_contains() { # <grep pattern> <description> — $OUT contains pattern
+  if printf '%s' "$OUT" | grep -q "$1"; then
+    printf 'ok   %s: %s\n' "$CASE" "$2"
+  else
+    printf 'FAIL %s: %s (pattern %s not found; out: %.300s…)\n' "$CASE" "$2" "$1" "$OUT"
+    FAILED=1
+  fi
+}
+
+assert_out_absent() { # <grep -E pattern> <description> — $OUT lacks pattern
+  if printf '%s' "$OUT" | grep -qE "$1"; then
+    printf 'FAIL %s: %s (pattern %s unexpectedly found)\n' "$CASE" "$2" "$1"
+    FAILED=1
+  else
+    printf 'ok   %s: %s\n' "$CASE" "$2"
+  fi
+}
+
 finish() { exit "$FAILED"; }

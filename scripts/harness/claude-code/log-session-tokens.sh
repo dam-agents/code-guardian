@@ -22,14 +22,9 @@ tp="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
 [ -f "$LOG_WORK/CONFIG.md" ] || exit 0
 
+# summation = the shared usage-sum.jq (also feeds the benchmark's snapshots);
 # msg format is parsed by preflight.sh audit (TOKENS_WEEK capture) — keep in sync
-msg="$(jq -c -R 'fromjson? // empty' "$tp" 2>/dev/null | jq -rs '
-  [.[] | select(.message.usage) | {id: (.message.id // .uuid), u: .message.usage}]
-  | unique_by(.id)
-  | "input=\([.[].u.input_tokens // 0] | add // 0)"
-    + " output=\([.[].u.output_tokens // 0] | add // 0)"
-    + " cache_read=\([.[].u.cache_read_input_tokens // 0] | add // 0)"
-    + " cache_creation=\([.[].u.cache_creation_input_tokens // 0] | add // 0)"
-    + " msgs=\(length)"' 2>/dev/null)"
+msg="$(jq -nR -f "$(cd "$(dirname "$0")" && pwd)/usage-sum.jq" "$tp" 2>/dev/null \
+  | jq -r '"input=\(.input) output=\(.output) cache_read=\(.cache_read) cache_creation=\(.cache_creation) msgs=\(.msgs)"' 2>/dev/null)"
 [ -n "$msg" ] && logev info tokens "$msg"
 exit 0

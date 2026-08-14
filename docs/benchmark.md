@@ -48,7 +48,9 @@ answers:
 
 - `create_fixture` and `run` never share a session. The session that seeds
   defects knows the ground truth, so it ends after creating fixtures;
-  preflight emits `run` from the next heartbeat on.
+  preflight emits `run` from the next benchmark tick on — a month out on the
+  schedule, so the creation report invites the operator to ask for an
+  on-demand run (a fresh session) when they want the first baseline now.
 - In a `run`, `manifest.json` files, `RESULTS.md`, and past `results/` are
   read in the scoring phase only — after every raw review is written. Phase 1
   inputs are exactly: `pr.json`, the diff patches, the trees,
@@ -77,7 +79,10 @@ ones are immutable and stay as they are.
    performance / tests / maintainability) plus a few clean hunks as
    false-positive bait; `head-v2/` = head-v1 with roughly half the defects
    fixed, the rest kept, and 3–5 new ones. Keep defects in the same file
-   ≥ 10 lines apart — the scorer matches on a ±3-line window.
+   ≥ 10 lines apart — the scorer matches on a ±3-line window — and make
+   every defect a **distinct pattern**: the production sibling sweep merges
+   same-class occurrences into one finding, which the scorer would count as
+   a miss.
 3. Write `manifest.json`, verifying every `line_v1`/`line_v2` against the
    actual trees (grep the seeded line).
 4. Write `prior-review.md` in the posted-review format (docs/review.md →
@@ -88,10 +93,17 @@ ones are immutable and stay as they are.
    `{number: 0, title, body, author, head_ref, base_ref, head_sha_v1, head_sha_v2}`
    — the SHAs are synthetic and stable (`git hash-object --stdin` over a
    fixture-unique string per version).
-6. Diffs, from inside `fixture/<slug>/` (the pod has no standalone `diff`;
-   `git diff` exits 1 on a non-empty diff — that is the expected success path
-   here): `git diff --no-index base head-v1 > diff-v1.patch`;
-   `git diff --no-index head-v1 head-v2 > diff-v1-v2.patch`.
+6. Diffs — generate them from a scratch git repo built exactly like the
+   run's Phase 1 step 1 (base committed on `main`, head-v1 then head-v2 as
+   two commits on `pr`), so the patch paths are **repo-relative and match
+   the manifest** (`git diff --no-index` would prefix them with `base/` /
+   `head-v1/`, and nothing would ever score as matched):
+
+   ```bash
+   git -C "$PR_DIR" diff main..pr~1 > "fixture/<slug>/diff-v1.patch"
+   git -C "$PR_DIR" diff pr~1..pr   > "fixture/<slug>/diff-v1-v2.patch"
+   rm -rf "$PR_DIR"
+   ```
 7. Report the per-fixture defect tables (id, file:line, class, severity,
    fixed_in_v2, in_prior_review) to the chat UI for the operator, log
    `benchmark fixtures created (<k> new, set now <n>)`, and end the run
@@ -120,6 +132,8 @@ one usage nonce for token deltas:
 
 ```bash
 NONCE="bench-$(date -u +%s)-$$"
+printf 'usage-nonce:%s\n' "$NONCE"   # the PRINTED value is what lands in the
+                                     # transcript — command text stays unexpanded
 snap() { bash "$HOME/scripts/harness/claude-code/usage-snapshot.sh" "$NONCE"; }
 ```
 
@@ -130,7 +144,15 @@ it prints nothing — record `tokens: null` then; time is measured either way.
 
 ### Phase 1 — review replay, per fixture (before any ground-truth read)
 
-Loop over the slugs sequentially; for each fixture:
+First, **install/refresh every configured repo-sourced skill** per
+docs/skills.md → Installation fallback (benchmark mode's preflight is purely
+local and never installs them), and write each skill's source SHA to the
+install cache (`$HOME/.claude/skills/.cache/<skill>.sha`) so `skill_sources`
+provenance stays complete. A configured extension skill that routes zero
+files across **all** fixtures is named in the run's chat summary as missing
+fixture coverage (the operator tops the set up per fixture creation).
+
+Then loop over the slugs sequentially; for each fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`; `work/` is NFS
    — docs/persistence.md):
@@ -149,31 +171,33 @@ Loop over the slugs sequentially; for each fixture:
    ```
 
 2. **First review** — bracket it with `T0=$(date -u +%s)` + `S0=$(snap)`
-   before and `T1` + `S1` after: perform docs/review.md steps c–d against
-   this tree — diff = `diff-v1.patch`, PR context = `pr.json`
-   (title/body/author), skill fan-out per docs/skills.md against `$PR_DIR`
-   with base branch `main` — the changed-file list that routes extension
-   triggers comes from `git -C "$PR_DIR" diff --name-only main..pr` (the
-   benchmark's equivalent of the production `gh pr diff` list) — one audit
-   line per configured skill, exactly as in production, full-file
-   verification, merge findings across sources — and compose the
-   **first-review Output format** with the marker line at `head_sha_v1` and
-   its findings-json. Write it verbatim to
-   `results/raw/<ts>-<slug>-first.md`, and archive the skill outputs beside
-   it: `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
-   (when the fan-out ran). Nothing is posted.
+   before and `T1` + `S1` after: perform docs/review.md steps c–d and the
+   docs/skills.md fan-out **as written there**, with the benchmark
+   substitutions: diff = `diff-v1.patch`, PR context = `pr.json`
+   (title/body/author), working tree = `$PR_DIR` with base branch `main`,
+   and the changed-file list that routes extension triggers =
+   `git -C "$PR_DIR" diff --name-only main..pr` (the benchmark's equivalent
+   of the production `gh pr diff` list). Compose the **first-review Output
+   format** with the marker line at `head_sha_v1` and its findings-json, and
+   write it verbatim to `results/raw/<ts>-<slug>-first.md` — nothing is
+   posted. Archive the skill outputs beside it:
+   `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
+   (when the fan-out ran).
 3. **Re-review** — bracket with `T1/S1` → `T2/S2`: advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), take
    `prior-review.md` as the prior review, scope = delta (request-equivalent
-   trigger), changes since prior = `diff-v1-v2.patch`, skills run again with
-   carryovers condensed per docs/review.md → **Re-review output** (routing
-   from the same `git diff --name-only main..pr`, now at v2) — and compose
-   the delta re-review (marker at `head_sha_v2`, findings-json with
-   `new`/`still`/`fixed` statuses) → `results/raw/<ts>-<slug>-rereview.md`,
-   archiving the skill outputs the same way
-   (`…/<ts>-<slug>-rereview-skills`).
+   trigger), changes since prior = `diff-v1-v2.patch`, skills per
+   docs/review.md → **Re-review output** (routing from the same
+   `git diff --name-only main..pr`, now at v2). Compose the delta re-review
+   (marker at `head_sha_v2`, findings-json with `new`/`still`/`fixed`
+   statuses) → `results/raw/<ts>-<slug>-rereview.md`, archiving the skill
+   outputs the same way (`…/<ts>-<slug>-rereview-skills`).
 4. Record per task: `seconds` = `T1-T0` / `T2-T1`; `tokens` = the per-field
-   difference `S1-S0` / `S2-S1` (null when `snap` printed nothing).
+   difference `S1-S0` / `S2-S1` over all five snapshot fields, `msgs`
+   included (null when `snap` printed nothing); and `suppressed` = the
+   count from the review's suppression audit note (docs/review.md → PR
+   context; 0 when none) — a memory preference that suppresses a seeded
+   defect is a scoring confound, and this field is what makes it visible.
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
@@ -206,39 +230,17 @@ Loop over the slugs sequentially; for each fixture:
    ([benchmark-report.sh](../scripts/benchmark-report.sh)), so the
    deterministic set is the comparison baseline whatever the judge does.
 7. Assemble `results/<ts>.json` (schema below) and append one RESULTS.md row
-   per fixture. Three fields exist for tracking the agent's own development
-   across runs — fill them now (ground truth is already open):
-   - `prev_version` — the `definition_version` of the newest earlier
-     `results/*.json` (null on the first run).
-   - `changes_since_prev` — the release-commit subjects between that version
-     and the running one, newest first (empty when the version did not
-     change). Release commits are the ones touching `VERSION`
-     ([self-modification.md](self-modification.md) §12 — one bump per
-     change, subjects carry the what):
+   per fixture. The development-tracking and input-provenance fields
+   (`prev_version`, `changes_since_prev`, `harness_version`, `memory_sha`,
+   `skill_sources`, `definition_ref`) come from one deterministic call —
+   merge its object in verbatim and add what only the session knows
+   (`model`, `trigger`, `judge`, `judge_model_used`):
 
-     ```bash
-     CUR_VER="$(head -1 "$HOME/VERSION")"
-     if [ -n "$PREV_VER" ] && [ "$PREV_VER" != "$CUR_VER" ]; then
-       git -C "$HOME" log --format='%H%x09%s' -- VERSION \
-       | while IFS="$(printf '\t')" read -r sha subj; do
-           [ "$(git -C "$HOME" show "$sha:VERSION" 2>/dev/null | head -1)" = "$PREV_VER" ] && break
-           printf '%s\n' "$subj"
-         done | head -30
-     fi
-     ```
-   - `harness_version` — `claude --version 2>/dev/null | head -1` as printed
-     (null when unavailable), so a harness-side behavior change is visible
-     next to the model.
+   ```bash
+   bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
+   ```
 
-   Two more provenance fields pin the run's *inputs* — review output also
-   depends on the live memory and the installed skill versions, and both
-   drift between runs; recording them keeps a score change attributable:
-   - `memory_sha` — `git hash-object "$HOME/work/MEMORY.md"` (null when the
-     file is missing).
-   - `skill_sources` — per configured repo-sourced skill, the short source
-     SHA from the install cache:
-     `head -c 12 "$HOME/.claude/skills/.cache/<skill>.sha"` (skip skills
-     with no cache entry).
+   Field meanings and sources live in that script's header.
 8. **Regenerate and republish the accumulated report** — the always-current
    artifact holding every run and the complete comparison table:
 
@@ -268,14 +270,16 @@ Loop over the slugs sequentially; for each fixture:
    A failed publish is logged; the local `report.html` is always current
    regardless.
 9. Report to the chat UI: the run's **quality index** with its delta against
-   the previous run (the report script's weighted index — components and
-   weights in [benchmark-report.sh](../scripts/benchmark-report.sh)'s
-   header), per-fixture headline scores, run totals (seconds, output
-   tokens) with their deltas, any non-zero `churn`/`false_fixed` called out
-   by name (the going-in-circles signals), and the report URL when
-   published. First run: "baseline".
+   the previous run — read both from
+   `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
+   (one JSON row per run; the weights live only in that script) —
+   per-fixture headline scores, run totals (seconds, output tokens) with
+   their deltas, any non-zero `churn`/`false_fixed` called out by name (the
+   going-in-circles signals), any skill with no fixture coverage, and the
+   report URL when published. First run: "baseline".
 10. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
-    `.s-*` variants) and temp payload files; log
+    `.s-*` variants), the nonce cache
+    (`rm -f "${TMPDIR:-/tmp}"/.bench-usage-*`), and temp payload files; log
     `benchmark run scored (avg f1=<x> over <n> fixtures)`; back up `work/`
     last.
 
@@ -283,18 +287,17 @@ Loop over the slugs sequentially; for each fixture:
 
 ```json
 {"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
- "harness_version": "<claude --version output or null>",
- "definition_version": "<head -1 $HOME/VERSION>",
- "prev_version": "<definition_version of the previous run, or null>",
- "changes_since_prev": ["<release-commit subject>", "..."],
- "memory_sha": "<git hash-object of work/MEMORY.md, or null>",
- "skill_sources": {"<skill>": "<12-char source sha>"},
  "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
+ "definition_version": "...", "prev_version": "...", "changes_since_prev": [],
+ "harness_version": "...", "memory_sha": "...", "skill_sources": {},
+ "definition_ref": {"branch": "...", "sha": "..."},
  "fixtures": {
    "<slug>": {
      "skills": {"<skill>": "ran (findings=N) | skipped (<reason>)"},
-     "first":    {"<scorer output>": "...", "seconds": 0, "tokens": {"input":0,"output":0,"cache_read":0,"cache_creation":0}, "judge": null},
-     "rereview": {"<scorer output>": "...", "seconds": 0, "tokens": null, "judge": null}
+     "first":    {"<scorer output>": "...", "seconds": 0, "suppressed": 0,
+                  "tokens": {"input":0,"output":0,"cache_read":0,"cache_creation":0,"msgs":0},
+                  "judge": null},
+     "rereview": {"<scorer output>": "...", "seconds": 0, "suppressed": 0, "tokens": null, "judge": null}
    }
  },
  "raw_dir": "results/raw/"}
@@ -336,21 +339,22 @@ baseline stays clean while a PR is tuned in cycles — run, adjust, run again.
   - `TRIAL="$HOME/work/benchmark/trials/<id>"` where `<id>` =
     `pr-<n>` or the branch slug; results go to `$TRIAL/results/<ts>.json`,
     raw reviews and skill archives to `$TRIAL/results/raw/…`.
-  - `trigger: "trial"`, and provenance additionally records
-    `definition_ref: {branch, sha}` from
-    `git -C "$HOME" rev-parse --abbrev-ref HEAD` / `--short=12 HEAD` — on a
-    feature branch, `VERSION` alone does not identify the code.
+  - `trigger: "trial"`; provenance comes from the same
+    `benchmark-provenance.sh` call — its `definition_ref: {branch, sha}` is
+    what identifies the feature-branch code (`VERSION` alone does not).
   - **Skip entirely**: RESULTS.md rows, `report.html` regeneration,
     publishing, and `prev_version`/`changes_since_prev` (a trial compares
     to the baselines below, not to released versions).
-  - The monthly gate and trials ignore each other: preflight reads only
-    `RESULTS.md`, and a trial never writes it.
+  - The monthly gate and trials ignore each other: the gate reads only the
+    official `results/*.json` (and only `trigger: scheduled` entries), and a
+    trial writes only under `trials/<id>/`.
 - **Compare**: render the trial's own mini report —
   `bash "$HOME/scripts/benchmark-report.sh" "$TRIAL" > "$TRIAL/report.html"`
   (the script reads any directory holding `results/`) — and report to the
-  chat UI the delta against **(a)** the previous run of the same trial (the
-  tuning cycle) and **(b)** the latest official run in `results/` (the
-  production baseline).
+  chat UI the index delta against **(a)** the previous run of the same trial
+  (the tuning cycle) and **(b)** the latest official run (the production
+  baseline), reading both from `benchmark-report.sh index` over the trial
+  dir and over `$HOME/work/benchmark`.
 - **Session separation applies unchanged**: a session that read any
   `manifest.json` (tuning fixtures, inspecting scores) does not run the
   trial — score it from a fresh session.
@@ -362,8 +366,11 @@ baseline stays clean while a PR is tuned in cycles — run, adjust, run again.
 
 - "Create the benchmark fixtures" → the creation steps above (top-up to the
   full set).
-- "Run the benchmark" → the run steps with `trigger: manual`; the monthly
-  gate applies to scheduled runs only. To benchmark a specific model, the
+- "Run the benchmark" → the run steps with `trigger: manual`. The monthly
+  gate and manual runs ignore each other completely: a manual run is never
+  gated, and only `trigger: scheduled` results feed the gate — a scheduled
+  run still lands on the 1st even after a mid-month manual run, so the
+  official monthly series stays unbroken. To benchmark a specific model, the
   operator switches the session model first — a run measures the session it
   runs in.
 - "Show benchmark results" → read `RESULTS.md` / `report.html` (and
