@@ -30,12 +30,18 @@ else printf 'FAIL %s: run count missing\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<td class=n>0.66</td>'; then
   printf 'ok   %s: run 1 avg f1 across fixtures\n' "$CASE"
 else printf 'FAIL %s: run 1 avg f1 wrong\n' "$CASE"; FAILED=1; fi
-if printf '%s' "$OUT" | grep -q '<td class=n><b>0.762</b></td>'; then
+if printf '%s' "$OUT" | grep -q '<td class=n><b>0.773</b></td>'; then
   printf 'ok   %s: run 1 quality index is the baseline (no delta)\n' "$CASE"
 else printf 'FAIL %s: run 1 index wrong\n' "$CASE"; FAILED=1; fi
-if printf '%s' "$OUT" | grep -q '<b>0.935</b> (+0.173)'; then
+if printf '%s' "$OUT" | grep -q '<b>0.935</b> (+0.162)'; then
   printf 'ok   %s: run 2 index carries the delta vs run 1\n' "$CASE"
 else printf 'FAIL %s: run 2 index delta wrong\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<td class=n>3.5</td>'; then
+  printf 'ok   %s: judge column averages all dimensions on its own 1-5 scale\n' "$CASE"
+else printf 'FAIL %s: judge column wrong\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q 'judge scores never enter it'; then
+  printf 'ok   %s: page states the index is judge-free\n' "$CASE"
+else printf 'FAIL %s: determinism note missing from the page\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<th>churn</th>'; then
   printf 'ok   %s: per-fixture tables carry the churn column\n' "$CASE"
 else printf 'FAIL %s: churn column missing\n' "$CASE"; FAILED=1; fi

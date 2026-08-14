@@ -152,18 +152,26 @@ Loop over the slugs sequentially; for each fixture:
    before and `T1` + `S1` after: perform docs/review.md steps c–d against
    this tree — diff = `diff-v1.patch`, PR context = `pr.json`
    (title/body/author), skill fan-out per docs/skills.md against `$PR_DIR`
-   with base branch `main` (one audit line per configured skill, exactly as
-   in production), full-file verification, merge findings across sources —
-   and compose the **first-review Output format** with the marker line at
-   `head_sha_v1` and its findings-json. Write it verbatim to
-   `results/raw/<ts>-<slug>-first.md`. Nothing is posted.
+   with base branch `main` — the changed-file list that routes extension
+   triggers comes from `git -C "$PR_DIR" diff --name-only main..pr` (the
+   benchmark's equivalent of the production `gh pr diff` list) — one audit
+   line per configured skill, exactly as in production, full-file
+   verification, merge findings across sources — and compose the
+   **first-review Output format** with the marker line at `head_sha_v1` and
+   its findings-json. Write it verbatim to
+   `results/raw/<ts>-<slug>-first.md`, and archive the skill outputs beside
+   it: `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
+   (when the fan-out ran). Nothing is posted.
 3. **Re-review** — bracket with `T1/S1` → `T2/S2`: advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), take
    `prior-review.md` as the prior review, scope = delta (request-equivalent
    trigger), changes since prior = `diff-v1-v2.patch`, skills run again with
-   carryovers condensed per docs/review.md → **Re-review output** — and
-   compose the delta re-review (marker at `head_sha_v2`, findings-json with
-   `new`/`still`/`fixed` statuses) → `results/raw/<ts>-<slug>-rereview.md`.
+   carryovers condensed per docs/review.md → **Re-review output** (routing
+   from the same `git diff --name-only main..pr`, now at v2) — and compose
+   the delta re-review (marker at `head_sha_v2`, findings-json with
+   `new`/`still`/`fixed` statuses) → `results/raw/<ts>-<slug>-rereview.md`,
+   archiving the skill outputs the same way
+   (`…/<ts>-<slug>-rereview-skills`).
 4. Record per task: `seconds` = `T1-T0` / `T2-T1`; `tokens` = the per-field
    difference `S1-S0` / `S2-S1` (null when `snap` printed nothing).
 
@@ -193,7 +201,10 @@ Loop over the slugs sequentially; for each fixture:
    Re-review judges additionally receive `prior-review.md` and score
    `loop_risk` (5 = no circling: fixes acknowledged, never re-flagged or
    asked to be reverted; reads the scorer's `churn`/`false_fixed` as
-   evidence).
+   evidence). **Judge scores stay beside the deterministic metrics, never
+   inside them** — the quality index is computed from scorer output only
+   ([benchmark-report.sh](../scripts/benchmark-report.sh)), so the
+   deterministic set is the comparison baseline whatever the judge does.
 7. Assemble `results/<ts>.json` (schema below) and append one RESULTS.md row
    per fixture. Three fields exist for tracking the agent's own development
    across runs — fill them now (ground truth is already open):

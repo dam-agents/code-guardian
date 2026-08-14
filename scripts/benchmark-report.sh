@@ -14,17 +14,19 @@
 # the page.
 #
 # The "index" column is one weighted quality index in [0,1], per fixture and
-# averaged per run. Components and weights: recall_critical .20,
-# precision .15, recall .10, severity_accuracy .10, format-pass rate .10
-# (share of true format booleans), fixed_recall .10, new_recall .05,
-# circle-free .10 (1 − min(1, (churn + false_fixed)/3) — degrades as the
-# review flags its own fixes or un-fixes findings), judge .10 (all judge
-# dimensions averaged / 5). A component whose data is missing drops out and
-# the remaining weights renormalize, so runs with and without a judge stay
-# comparable — the component set is pinned by the data each run carries.
-# The all-runs table also prints the delta against the previous run for
-# index, seconds, and output tokens — the regression signal for quality,
-# speed, and cost.
+# averaged per run — **fully deterministic**: it is computed from scorer
+# output only, and judge scores never enter it, so enabling, disabling, or
+# changing the judge cannot move the index. Components and weights:
+# recall_critical .20, precision .15, recall .10, severity_accuracy .10,
+# format-pass rate .10 (share of true format booleans), fixed_recall .10,
+# new_recall .05, circle-free .10 (1 − min(1, (churn + false_fixed)/3) —
+# degrades as the review flags its own fixes or un-fixes findings). A
+# component whose data is missing drops out and the remaining weights
+# renormalize. The separate "judge" column is the LLM-judged view: all judge
+# dimensions averaged on their own 1–5 scale, reported beside the index,
+# never mixed into it. The all-runs table also prints the delta against the
+# previous run for index, seconds, and output tokens — the regression signal
+# for quality, speed, and cost.
 set -u
 export LC_ALL=C
 
@@ -51,11 +53,11 @@ JQ_COMMON='
   def run_out_tokens: [.fixtures // {} | .[] | (.first.tokens.output?, .rereview.tokens.output?)] | total(.);
   def bools($o): [$o // {} | to_entries[] | .value | select(type == "boolean")];
   def jnums($o): [$o // {} | to_entries[] | .value | numbers];
-  # weighted quality index of one fixture object — weights in the header
+  # weighted, fully deterministic quality index of one fixture object —
+  # scorer output only, judge never enters it (weights in the header)
   def fixture_index:
     .first as $f | .rereview as $r
     | (bools($f.format) + bools($r.format)) as $fb
-    | (jnums($f.judge) + jnums($r.judge)) as $jn
     | [ {v: $f.recall_critical,   w: 0.20},
         {v: $f.precision,         w: 0.15},
         {v: $f.recall,            w: 0.10},
@@ -65,12 +67,15 @@ JQ_COMMON='
         {v: $r.fixed_recall,      w: 0.10},
         {v: $r.new_recall,        w: 0.05},
         {v: (if $r == null then null
-             else (1 - ([1, ((($r.churn // 0) + ($r.false_fixed // 0)) / 3)] | min)) end), w: 0.10},
-        {v: (if ($jn | length) == 0 then null else (($jn | add / length) / 5) end), w: 0.10} ]
+             else (1 - ([1, ((($r.churn // 0) + ($r.false_fixed // 0)) / 3)] | min)) end), w: 0.10} ]
     | [.[] | select(.v != null)]
     | if length == 0 then null
       else (([.[] | .v * .w] | add) / ([.[].w] | add) | r3) end;
   def run_index: [.fixtures // {} | .[] | fixture_index] | avg(.);
+  # the LLM-judged view, on its own 1-5 scale, reported beside the index
+  def fixture_judge:
+    (jnums(.first.judge) + jnums(.rereview.judge)) as $jn
+    | if ($jn | length) == 0 then null else (($jn | add / length) | r3) end;
   def delta($c; $p): if $c == null or $p == null then ""
     else (($c - $p) | if . >= 0 then " (+\(r3))" else " (\(r3))" end) end;
 '
@@ -96,7 +101,7 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
     + "<td class=n>\($fx | avg(.rereview.new_recall) | fmt)</td>"
     + "<td class=n>\($fx | total(((.rereview.churn // 0) + (.rereview.false_fixed // 0))) | fmt)</td>"
     + "<td class=n>\($fx | total(.first.fp | length) | fmt)</td>"
-    + "<td class=n>\($fx | avg(.first.judge.finding_accuracy) | fmt)</td>"
+    + "<td class=n>\($fx | avg(fixture_judge) | fmt)</td>"
     + "<td class=n>\($sec | fmt)\(delta($sec; $psec))</td>"
     + "<td class=n>\($tok | fmt)\(delta($tok; $ptok))</td></tr>"')"
 
@@ -104,7 +109,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
   . as $all
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
-  | "<h2>\($s | @html)</h2>\n<table>\n<tr><th>run</th><th>model</th><th>index</th>"
+  | "<h2>\($s | @html)</h2>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th>"
     + "<th>f1</th><th>prec</th><th>rec</th><th>sev</th><th>words</th>"
     + "<th>fixed</th><th>new</th><th>churn</th><th>false-fixed</th><th>late</th>"
     + "<th>sec</th><th>out-tok</th></tr>\n"
@@ -112,6 +117,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
         | (.fixtures[$s]) as $f
         | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
           + "<td class=n><b>\($f | fixture_index | fmt)</b></td>"
+          + "<td class=n>\($f | fixture_judge | fmt)</td>"
           + "<td class=n>\($f.first.f1 | fmt)</td>"
           + "<td class=n>\($f.first.precision | fmt)</td>"
           + "<td class=n>\($f.first.recall | fmt)</td>"
@@ -165,7 +171,10 @@ p.meta{color:#666;font-size:.85rem}
 <h1>Review benchmark — accumulated results</h1>
 <p class="meta">Latest run: ${GENERATED} · ${RUNS} run(s) on record. Scores 0–1,
 higher is better; sec = wall-clock seconds, out-tok = output tokens (— = not
-measured). Semantics: docs/benchmark.md.</p>
+measured). The index is deterministic — computed from scorer output only,
+judge scores never enter it (the judge column is its own 1–5 scale). Click a
+header to sort, type to filter, page long histories. Semantics:
+docs/benchmark.md.</p>
 <h2>All runs</h2>
 <table>
 <tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>harness</th>
