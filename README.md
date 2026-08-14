@@ -71,7 +71,11 @@ of it per the `docs/` procedures:
   accumulated report artifact — every result kept forever with full
   provenance, so review quality is comparable across model, harness, and
   definition versions, and unrecorded **trial runs** score a feature branch
-  during development. Details: [`docs/benchmark.md`](docs/benchmark.md).
+  during development. Two deterministic gates
+  ([`scripts/benchmark-validate.sh`](scripts/benchmark-validate.sh)) keep the
+  history trustworthy: a fixture set whose ground truth leaks into the
+  reviewed code is never scored, and results that drift from the documented
+  shape never enter it. Details: [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and

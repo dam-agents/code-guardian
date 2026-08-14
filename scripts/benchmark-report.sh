@@ -44,11 +44,19 @@ DIR="${1:-}"
 [ -n "$DIR" ] && [ -d "$DIR/results" ] || {
   printf 'usage: benchmark-report.sh [index] <work/benchmark dir with results/>\n' >&2; exit 2; }
 
-# tolerant per-file load: one corrupt/truncated results file is skipped with
-# its data alone — it never discards the rest of the history
+# Tolerant per-file load: one corrupt/truncated results file is skipped with
+# its data alone — it never discards the rest of the history. `fixtures`
+# written as an array (a pre-validation shape drift) is keyed back by its
+# `fixture` field, so an old run still renders under its slug instead of
+# under 0,1,2… — history is append-only, so the reader tolerates what is
+# already stored (benchmark-validate.sh keeps new writes to the object shape).
 ALL="$(for f in "$DIR"/results/*.json; do
          [ -f "$f" ] || continue
-         jq -c 'select(type == "object")' "$f" 2>/dev/null || true
+         jq -c 'select(type == "object")
+                | if (.fixtures | type) == "array"
+                  then .fixtures = (reduce .fixtures[] as $e ({};
+                         . + {($e.fixture // "unnamed"): ($e | del(.fixture))}))
+                  else . end' "$f" 2>/dev/null || true
        done | jq -s 'sort_by(.ts // "")')"
 RUNS="$(printf '%s' "$ALL" | jq length)"
 

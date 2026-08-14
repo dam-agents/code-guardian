@@ -49,12 +49,16 @@ if one is impossible this week (missing data, API error), report it as
      PRs; the fix itself takes the operator in the direct session
      ([self-modification.md](self-modification.md)).
 4. Everything else the script checks (connectivity, scopes, CLI deps, state
-   consistency, logs, hygiene, skills, roster, definition currency, the
-   definition repo's open-issue backlog — see
+   consistency, logs, hygiene, skills, roster, definition currency, benchmark
+   fixture/results integrity, the definition repo's open-issue backlog — see
    [preflight.sh](../scripts/preflight.sh) audit mode) is already in
    `checks[]` — triage per task 1, don't recompute. A missing **token scope**
    is **operator-only**: report what it breaks (README → **Token scopes**),
-   never work around it. Everything below is **yours**.
+   never work around it. A `benchmark_fixtures` **fail** means the benchmark's
+   scores are invalid until the set is retired and replaced — an
+   operator decision, so report it as **Action needed**
+   ([benchmark.md](benchmark.md) → **Retiring a fixture set**), never retire
+   it yourself. Everything below is **yours**.
 
 ### B. Platform & schedules
 

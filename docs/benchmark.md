@@ -63,6 +63,17 @@ The worklist entry carries `existing` (slugs already on disk) and `min` (the
 set size preflight requires, 5). Create the **missing** fixtures — existing
 ones are immutable and stay as they are.
 
+**The ground truth lives in `manifest.json` and nowhere else.** `base/`,
+`head-v1/`, `head-v2/`, both patches, and `prior-review.md` are all Phase-1
+inputs the reviewing session reads, so a defect must be indistinguishable
+from an ordinary mistake there: **no defect ids** (`D01`, `BUG-2`), no
+comment naming or explaining a planted flaw, no "seeded"/"intentional"/
+"bait"/"false positive" notes, and nothing in the v2 inputs announcing the
+delta (`FIXED`, `still present`). A labelled defect is not a hard error —
+the scorer never reads the code — which is exactly why it is dangerous: the
+run still produces numbers, and they measure transcription instead of review
+skill. `benchmark-validate.sh fixture` (step 7) is the gate that catches it.
+
 1. Inputs: the target repo's languages (`gh api "repos/$REPO/languages"`) and
    the `## Review skills` table. Pick project types so the set covers **at
    least 5 clearly different shapes of change** — e.g. a backend/service API,
@@ -76,8 +87,8 @@ ones are immutable and stay as they are.
 2. Generate each `fixture/<slug>/`: `base/` = 3–6 plausible source files,
    ~150–400 lines total; `head-v1/` = base plus 10–14 seeded defects
    (severities `critical`/`warning`, spread across correctness / security /
-   performance / tests / maintainability) plus a few clean hunks as
-   false-positive bait; `head-v2/` = head-v1 with roughly half the defects
+   performance / tests / maintainability) plus a few clean-but-suspicious-looking
+   hunks (unlabelled — they are what measures false positives); `head-v2/` = head-v1 with roughly half the defects
    fixed, the rest kept, and 3–5 new ones. Keep defects in the same file
    ≥ 10 lines apart — the scorer matches on a ±3-line window — and make
    every defect a **distinct pattern**: the production sibling sweep merges
@@ -104,10 +115,21 @@ ones are immutable and stay as they are.
    git -C "$PR_DIR" diff pr~1..pr   > "fixture/<slug>/diff-v1-v2.patch"
    rm -rf "$PR_DIR"
    ```
-7. Report the per-fixture defect tables (id, file:line, class, severity,
-   fixed_in_v2, in_prior_review) to the chat UI for the operator, log
-   `benchmark fixtures created (<k> new, set now <n>)`, and end the run
-   (backup last, as always).
+7. **Validate the set — before it is accepted, not after.** A fixture that
+   fails this is not a fixture: fix it in this same session and re-run until
+   it passes.
+
+   ```bash
+   bash "$HOME/scripts/benchmark-validate.sh" fixture "$HOME/work/benchmark/fixture"/*/
+   ```
+
+   Each `FAIL` line carries its own `fix:` instruction. A `leak_*` failure
+   means the answers sit in the inputs; a `diff_paths` failure means no
+   finding can ever match the manifest.
+8. Report the per-fixture defect tables (id, file:line, class, severity,
+   fixed_in_v2, in_prior_review) plus the validation `PASS` line to the chat
+   UI for the operator, log `benchmark fixtures created (<k> new, set now
+   <n>, validated)`, and end the run (backup last, as always).
 
 ### `manifest.json`
 
@@ -127,20 +149,48 @@ fixes against it); introduced in v2 → `line_v1: null`.
 ## Running the benchmark (`action: run`, or operator ask)
 
 The entry carries `fixtures` (slugs), `fixture_root`, `judge`, `report`, and
-`last_run`. Take one timestamp `TS` (compact + ISO) for the whole run, and
-one usage nonce for token deltas:
+`last_run`.
+
+**Gate first — never score an unvalidated set:**
+
+```bash
+bash "$HOME/scripts/benchmark-validate.sh" fixture "<fixture_root>"/*/
+```
+
+Non-zero exit → **abort the run before any review**: write no results, no
+RESULTS.md row, no report, publish nothing; report the `FAIL` lines to the
+operator (retiring and regenerating the set is their decision — **Retiring a
+fixture set** below), log
+`benchmark run aborted: fixture validation failed (<ids>)` as a `warn` event
+([logging.md](logging.md)), and end the run. Scoring a leaky set is worse
+than not scoring: its numbers enter the append-only history looking valid.
+
+Then take one timestamp `TS` (compact + ISO) for the whole run, and one usage
+nonce, printed so the value itself lands in the transcript:
 
 ```bash
 NONCE="bench-$(date -u +%s)-$$"
-printf 'usage-nonce:%s\n' "$NONCE"   # the PRINTED value is what lands in the
-                                     # transcript — command text stays unexpanded
-snap() { bash "$HOME/scripts/harness/claude-code/usage-snapshot.sh" "$NONCE"; }
+printf 'usage-nonce:%s\n' "$NONCE"   # the PRINTED value is what the snapshot
+                                     # greps for — command text stays unexpanded
+PSTATE=/tmp/benchmark-phase
 ```
 
-`snap` prints the session's cumulative token usage (same accounting as the
-run-level `tokens` event; sidechain/subagent usage lands in the same
-transcript, so skill fan-outs are included). On a harness without transcripts
-it prints nothing — record `tokens: null` then; time is measured either way.
+Every phase is then bracketed by the measurement helper — never by hand:
+
+```bash
+bash "$HOME/scripts/benchmark-phase.sh" begin "$PSTATE" "<slug>-first" "$NONCE"
+# … the review …
+bash "$HOME/scripts/benchmark-phase.sh" end "$PSTATE" "<slug>-first" "$NONCE"
+```
+
+`end` prints the `{"seconds":…,"tokens":…}` pair the results file records
+verbatim: wall-clock from the stamps, tokens as the difference between two
+usage snapshots (same accounting as the run-level `tokens` event, skill
+fan-outs included), or `tokens: null` when the harness gives no snapshot.
+**Never derive a duration by hand** — from file mtimes, elapsed wall-clock
+guesses, or arithmetic in your head. An estimate is indistinguishable from a
+measurement once it is in the results file, and it silently breaks the
+speed-regression comparison the field exists for.
 
 ### Phase 1 — review replay, per fixture (before any ground-truth read)
 
@@ -170,8 +220,8 @@ Then loop over the slugs sequentially; for each fixture:
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench commit -qm v1
    ```
 
-2. **First review** — bracket it with `T0=$(date -u +%s)` + `S0=$(snap)`
-   before and `T1` + `S1` after: perform docs/review.md steps c–d and the
+2. **First review** — bracket it with `benchmark-phase.sh begin/end
+   "$PSTATE" "<slug>-first"`: perform docs/review.md steps c–d and the
    docs/skills.md fan-out **as written there**, with the benchmark
    substitutions: diff = `diff-v1.patch`, PR context = `pr.json`
    (title/body/author), working tree = `$PR_DIR` with base branch `main`,
@@ -183,7 +233,7 @@ Then loop over the slugs sequentially; for each fixture:
    posted. Archive the skill outputs beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
    (when the fan-out ran).
-3. **Re-review** — bracket with `T1/S1` → `T2/S2`: advance the tree to v2
+3. **Re-review** — bracket it the same way (`"<slug>-rereview"`): advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), take
    `prior-review.md` as the prior review, scope = delta (request-equivalent
    trigger), changes since prior = `diff-v1-v2.patch`, skills per
@@ -192,12 +242,11 @@ Then loop over the slugs sequentially; for each fixture:
    (marker at `head_sha_v2`, findings-json with `new`/`still`/`fixed`
    statuses) → `results/raw/<ts>-<slug>-rereview.md`, archiving the skill
    outputs the same way (`…/<ts>-<slug>-rereview-skills`).
-4. Record per task: `seconds` = `T1-T0` / `T2-T1`; `tokens` = the per-field
-   difference `S1-S0` / `S2-S1` over all five snapshot fields, `msgs`
-   included (null when `snap` printed nothing); and `suppressed` = the
-   count from the review's suppression audit note (docs/review.md → PR
-   context; 0 when none) — a memory preference that suppresses a seeded
-   defect is a scoring confound, and this field is what makes it visible.
+4. Record per task the `seconds` and `tokens` the phase helper printed,
+   verbatim — plus `suppressed`, the count from the review's suppression
+   audit note (docs/review.md → PR context; 0 when none): a memory
+   preference that suppresses a seeded defect is a scoring confound, and
+   this field is what makes it visible.
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
@@ -229,8 +278,8 @@ Then loop over the slugs sequentially; for each fixture:
    inside them** — the quality index is computed from scorer output only
    ([benchmark-report.sh](../scripts/benchmark-report.sh)), so the
    deterministic set is the comparison baseline whatever the judge does.
-7. Assemble `results/<ts>.json` (schema below) and append one RESULTS.md row
-   per fixture. The development-tracking and input-provenance fields
+7. Assemble `results/<ts>.json` (schema below) — the RESULTS.md rows follow
+   only after it validates (step 9). The development-tracking and input-provenance fields
    (`prev_version`, `changes_since_prev`, `harness_version`, `memory_sha`,
    `skill_sources`, `definition_ref`) come from one deterministic call —
    merge its object in verbatim and add what only the session knows
@@ -241,7 +290,19 @@ Then loop over the slugs sequentially; for each fixture:
    ```
 
    Field meanings and sources live in that script's header.
-8. **Regenerate and republish the accumulated report** — the always-current
+8. **Validate the assembled results before anything reads them** — the
+   history is append-only, so a wrong shape is permanent:
+
+   ```bash
+   bash "$HOME/scripts/benchmark-validate.sh" results "$HOME/work/benchmark/results/<ts>.json"
+   ```
+
+   Non-zero exit → fix the file (each `FAIL` names its own remedy) and
+   re-validate. Do not append the RESULTS.md rows, regenerate the report, or
+   publish until it passes; if it cannot be fixed, delete the file, report
+   why, and end the run with nothing recorded.
+9. Append one RESULTS.md row per fixture, then **regenerate and republish the
+   accumulated report** — the always-current
    artifact holding every run and the complete comparison table:
 
    ```bash
@@ -269,7 +330,7 @@ Then loop over the slugs sequentially; for each fixture:
      and skip, never fail the run.
    A failed publish is logged; the local `report.html` is always current
    regardless.
-9. Report to the chat UI: the run's **quality index** with its delta against
+10. Report to the chat UI: the run's **quality index** with its delta against
    the previous run — read both from
    `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
    (one JSON row per run; the weights live only in that script) —
@@ -277,7 +338,7 @@ Then loop over the slugs sequentially; for each fixture:
    their deltas, any non-zero `churn`/`false_fixed` called out by name (the
    going-in-circles signals), any skill with no fixture coverage, and the
    report URL when published. First run: "baseline".
-10. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
+11. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
     `.s-*` variants), the nonce cache
     (`rm -f "${TMPDIR:-/tmp}"/.bench-usage-*`), and temp payload files; log
     `benchmark run scored (avg f1=<x> over <n> fixtures)`; back up `work/`
@@ -323,6 +384,27 @@ changed in the definition between tested versions.
 Append one row per fixture per run (create the file with this header when
 missing; the publish markers are added when the first publish succeeds):
 `| <ISO> | <model> | <definition_version> | <slug> | <trigger> | <first.f1> | <first.severity_accuracy> | <rereview.fixed_recall> | <rereview.new_recall> | <first.length.words_total> | <first.seconds + rereview.seconds> | <summed tokens.output or —> |`
+
+## Retiring a fixture set (operator decision, direct session)
+
+A fixture is immutable, so a set that turns out invalid — validation fails,
+or it stopped representing the repo — is **retired and replaced**, never
+edited in place. Only the operator decides this; the agent reports the
+finding and waits.
+
+1. `mkdir -p fixture/retired && mv fixture/<slug> fixture/retired/<slug>` for
+   every retired slug. Retired fixtures stay on disk forever: past results
+   reference them, and `fixture/retired/` is outside the `fixture/*/` glob
+   preflight counts, so the set reads as incomplete and `create_fixture`
+   becomes due again.
+2. Mark the affected history **non-comparable** — the rows and result files
+   stay (append-only), they only stop being read as a baseline: add one line
+   under the RESULTS.md header naming the timestamps and the reason, e.g.
+   `_Runs <ts>… scored fixture set 1, retired <date> (ground truth leaked into the inputs) — not comparable with later runs._`
+   Never delete a row, a `results/*.json`, or a raw review.
+3. Create the replacement set in a fresh session (**Creating the fixture
+   set**), which validates it, and take the first scored run in yet another
+   session (session separation). The new series starts at that run.
 
 ## Trial runs (PR development — scored, never recorded)
 
