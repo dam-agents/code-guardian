@@ -179,6 +179,14 @@ image, the harness, an external service — rather than fixing it at its source:
 - New behavior gets its line in the relevant self-check and, when it's a
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
+- **A rule the runtime depends on is enforced, not narrated.** When a doc
+  sentence can be violated silently — a state-file shape, a required file
+  layout, a resource two concurrent runs could share, a "never do X" whose
+  violation still produces output — the same PR gives it a deterministic
+  home: a validator, a preflight gate, an audit check, or a stub test.
+  Prose states the rule; a script is what keeps it true (the benchmark's
+  leaked-ground-truth and shared-state incidents both started as
+  prose-only rules).
 - For a change that alters review behavior (docs/review.md, docs/skills.md,
   preflight's review path, finding/verdict formats), **offer the operator a
   trial benchmark** of the feature branch before opening the PR

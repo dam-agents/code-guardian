@@ -80,6 +80,24 @@ seed_full_set
 run_preflight benchmark
 assert_jq '.benchmark_due.report == "off"' 'no reachable surface degrades to off'
 
+new_case benchmark_live_run_lock_holds
+base_config '- benchmark: enabled'
+seed_full_set
+mkdir -p "$WORK/benchmark"
+printf '%s other-nonce\n' "$(iso_ago 3600)" > "$WORK/benchmark/.run-lock"   # 1h-old sibling
+run_preflight benchmark
+assert_jq '.nothing_to_do == true' 'a live run lock blocks a second run'
+assert_jq '.logs | any(contains("already in progress"))' 'the sibling is named in the logs'
+
+new_case benchmark_stale_run_lock_taken_over
+base_config '- benchmark: enabled'
+seed_full_set
+mkdir -p "$WORK/benchmark"
+printf '%s dead-nonce\n' "$(iso_ago 90000)" > "$WORK/benchmark/.run-lock"   # 25h-old crash leftover
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run"' 'a stale lock does not block forever'
+assert_jq '.logs | any(contains("stale benchmark run lock"))' 'the takeover is logged'
+
 new_case benchmark_monthly_gate_holds
 base_config '- benchmark: enabled'
 seed_full_set

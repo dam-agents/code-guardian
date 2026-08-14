@@ -344,6 +344,16 @@ assert_jq '.false_fixed == 0' 'no kept defect claimed fixed'
 assert_jq '.churn == 1' 'the finding on the fix site is counted as churn'
 assert_jq '.format.delta_section == true' 'the delta section is present'
 
+new_case e2e_phase_state_is_per_nonce
+# two runs measuring the same slug never collide: the state dir is keyed by
+# the nonce, so the sibling's begin cannot overwrite this run's stamp
+HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchmark-phase-A" slug-first NONCE-A >/dev/null
+HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchmark-phase-B" slug-first NONCE-B >/dev/null
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-A" slug-first NONCE-A)"
+assert_jq '.seconds | type == "number"' 'run A ends its phase despite run B measuring the same slug'
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-B" slug-first NONCE-B)"
+assert_jq '.seconds | type == "number"' 'run B still holds its own stamp'
+
 new_case e2e_phase_measurement_and_results_validation
 mkdir -p "$SANDBOX/bench/results"
 # a measured phase (no transcript here, so tokens is honestly null)
