@@ -180,7 +180,29 @@ Loop over the slugs sequentially; for each fixture:
    `fp_defensibility` (are FPs defensible readings or fabrications?),
    `language` (STE: short sentences, active voice, one term per concept).
 7. Assemble `results/<ts>.json` (schema below) and append one RESULTS.md row
-   per fixture.
+   per fixture. Three fields exist for tracking the agent's own development
+   across runs — fill them now (ground truth is already open):
+   - `prev_version` — the `definition_version` of the newest earlier
+     `results/*.json` (null on the first run).
+   - `changes_since_prev` — the release-commit subjects between that version
+     and the running one, newest first (empty when the version did not
+     change). Release commits are the ones touching `VERSION`
+     ([self-modification.md](self-modification.md) §12 — one bump per
+     change, subjects carry the what):
+
+     ```bash
+     CUR_VER="$(head -1 "$HOME/VERSION")"
+     if [ -n "$PREV_VER" ] && [ "$PREV_VER" != "$CUR_VER" ]; then
+       git -C "$HOME" log --format='%H%x09%s' -- VERSION \
+       | while IFS="$(printf '\t')" read -r sha subj; do
+           [ "$(git -C "$HOME" show "$sha:VERSION" 2>/dev/null | head -1)" = "$PREV_VER" ] && break
+           printf '%s\n' "$subj"
+         done | head -30
+     fi
+     ```
+   - `harness_version` — `claude --version 2>/dev/null | head -1` as printed
+     (null when unavailable), so a harness-side behavior change is visible
+     next to the model.
 8. **Regenerate and republish the accumulated report** — the always-current
    artifact holding every run and the complete comparison table:
 
@@ -218,8 +240,11 @@ Loop over the slugs sequentially; for each fixture:
 ### `results/<ts>.json`
 
 ```json
-{"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<session model id>",
+{"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
+ "harness_version": "<claude --version output or null>",
  "definition_version": "<head -1 $HOME/VERSION>",
+ "prev_version": "<definition_version of the previous run, or null>",
+ "changes_since_prev": ["<release-commit subject>", "..."],
  "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
  "fixtures": {
    "<slug>": {
@@ -231,8 +256,11 @@ Loop over the slugs sequentially; for each fixture:
  "raw_dir": "results/raw/"}
 ```
 
-`model` is the session model as the harness names it (Claude Code states it
-in the system prompt); when unavailable, write `unknown` and log it.
+`model` is the **exact model id** of the session as the harness names it
+(Claude Code states it in the system prompt); when unavailable, write
+`unknown` and log it. Every run therefore pins the full provenance triple —
+definition version, model id, harness version — and the report shows what
+changed in the definition between tested versions.
 
 ### `RESULTS.md`
 

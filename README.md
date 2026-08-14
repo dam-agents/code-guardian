@@ -77,9 +77,11 @@ of it per the `docs/` procedures:
   kept forever in `work/benchmark/`, and each run regenerates and
   republishes an accumulated report artifact
   ([`scripts/benchmark-report.sh`](scripts/benchmark-report.sh) — the
-  complete runs × fixtures comparison table at a stable URL), so review
-  quality is comparable across model upgrades and definition versions — per
-  [`docs/benchmark.md`](docs/benchmark.md).
+  complete runs × fixtures comparison table at a stable URL). Each run pins
+  its full provenance — the exact model id, the harness version, and the
+  definition version, with the list of release changes since the previously
+  tested version — so the benchmark doubles as a development-tracking tool
+  for the agent itself; per [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and

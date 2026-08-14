@@ -42,6 +42,7 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
   .[] | (.fixtures // {} | [.[]]) as $fx
   | "<tr><td>\(.ts | fmt | @html)</td><td>\(.trigger // "—" | @html)</td>"
     + "<td>\(.model // "—" | @html)</td><td>\(.definition_version // "—" | @html)</td>"
+    + "<td>\(.harness_version // "—" | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
     + "<td class=n>\($fx | avg(.first.f1) | fmt)</td>"
     + "<td class=n>\($fx | avg(.first.severity_accuracy) | fmt)</td>"
@@ -77,6 +78,19 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
        | join("\n"))
     + "\n</table>"')"
 
+# definition releases between tested versions — for development tracking
+VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
+  [.[] | select((.changes_since_prev // []) | length > 0)] as $c
+  | if ($c | length) == 0 then "" else
+      "<h2>Definition changes between tested runs</h2>\n"
+      + ([$c[]
+          | "<h3>\(.definition_version // "?" | @html) — tested \(.ts // "?" | @html)"
+            + (if .prev_version then " (since \(.prev_version | @html))" else "" end)
+            + "</h3>\n<ul>"
+            + ([.changes_since_prev[] | "<li>\(. | @html)</li>"] | join(""))
+            + "</ul>"] | join("\n"))
+    end')"
+
 GENERATED="$(printf '%s' "$ALL" | jq -r '(last // {}) | .ts // "no runs yet"')"
 
 cat <<EOF
@@ -98,10 +112,11 @@ higher is better; sec = wall-clock seconds, out-tok = output tokens (— = not
 measured). Semantics: docs/benchmark.md.</p>
 <h2>All runs</h2>
 <table>
-<tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>fixtures</th>
-<th>avg f1</th><th>avg sev</th><th>avg fixed</th><th>avg new</th>
+<tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>harness</th>
+<th>fixtures</th><th>avg f1</th><th>avg sev</th><th>avg fixed</th><th>avg new</th>
 <th>FPs</th><th>judge</th><th>sec</th><th>out-tok</th></tr>
 ${ROWS_ALL}
 </table>
+${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}
 EOF

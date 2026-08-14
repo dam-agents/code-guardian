@@ -16,7 +16,9 @@ cat > "$SANDBOX/bench/results/20260701T060000Z.json" <<'EOF'
    "rereview":{"fixed_recall":1,"new_recall":0.5,"false_fixed":1,"late_finds":0,"seconds":250,"tokens":{"output":12000}}}}}
 EOF
 cat > "$SANDBOX/bench/results/20260801T060000Z.json" <<'EOF'
-{"ts":"2026-08-01T06:00:00Z","trigger":"manual","model":"model-b","definition_version":"3.11.0",
+{"ts":"2026-08-01T06:00:00Z","trigger":"manual","model":"model-b","definition_version":"3.12.0",
+ "harness_version":"2.1.34 (Claude Code)","prev_version":"3.11.0",
+ "changes_since_prev":["feat(review): sibling sweep for warning-class defects (v3.12.0)","fix(shepherd): cooldown off-by-one (v3.11.1)"],
  "fixtures":{"ts-api":{"first":{"f1":0.85,"precision":0.9,"recall":0.81,"severity_accuracy":1,"fp":[],"length":{"words_total":640},"seconds":300,"tokens":null,"judge":null},
    "rereview":{"fixed_recall":1,"new_recall":0.9,"false_fixed":0,"late_finds":0,"seconds":200,"tokens":null}}}}
 EOF
@@ -31,8 +33,8 @@ else printf 'FAIL %s: run 1 avg f1 wrong\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<td class=n>66000</td>'; then
   printf 'ok   %s: run 1 output tokens summed\n' "$CASE"
 else printf 'FAIL %s: token sum wrong\n' "$CASE"; FAILED=1; fi
-if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "3" ]; then
-  printf 'ok   %s: all-runs table + one section per fixture\n' "$CASE"
+if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "4" ]; then
+  printf 'ok   %s: all-runs table + version changes + one section per fixture\n' "$CASE"
 else printf 'FAIL %s: section count wrong\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q 'Latest run: 2026-08-01T06:00:00Z'; then
   printf 'ok   %s: latest run named\n' "$CASE"
@@ -41,6 +43,15 @@ missing_tok_row="$(printf '%s' "$OUT" | grep -A1 'model-b' | grep -c '—' || tr
 if [ "$missing_tok_row" -ge 1 ]; then
   printf 'ok   %s: unmeasured tokens render as dashes\n' "$CASE"
 else printf 'FAIL %s: missing-token rendering\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<td>2.1.34 (Claude Code)</td>'; then
+  printf 'ok   %s: harness version column rendered\n' "$CASE"
+else printf 'FAIL %s: harness version missing\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<h3>3.12.0 — tested 2026-08-01T06:00:00Z (since 3.11.0)</h3>'; then
+  printf 'ok   %s: version-change block names versions and run\n' "$CASE"
+else printf 'FAIL %s: version-change heading missing\n' "$CASE"; FAILED=1; fi
+if [ "$(printf '%s' "$OUT" | grep -o '<li>' | grep -c '')" = "2" ]; then
+  printf 'ok   %s: release-commit subjects listed as bullets\n' "$CASE"
+else printf 'FAIL %s: changes bullet list wrong\n' "$CASE"; FAILED=1; fi
 
 new_case report_empty_results
 mkdir -p "$SANDBOX/empty/results"
