@@ -8,6 +8,13 @@
 args="$*"
 slug="$(printf '%s' "$args" | tr -c 'A-Za-z0-9._-' '_')"
 [ -n "${GH_CALLS_LOG:-}" ] && printf '%s\n' "$args" >> "$GH_CALLS_LOG"
+# <slug>.rc simulates a failing call (fx_fail / fx_fail_once in helpers.sh):
+# exit with the stored code; a `once:<code>` value fails this call only
+if [ -n "${GH_FIXTURES:-}" ] && [ -f "$GH_FIXTURES/$slug.rc" ]; then
+  rc="$(cat "$GH_FIXTURES/$slug.rc")"
+  case "$rc" in (once:*) rm -f "$GH_FIXTURES/$slug.rc"; rc="${rc#once:}";; esac
+  exit "$rc"
+fi
 if [ -n "${GH_FIXTURES:-}" ] && [ -f "$GH_FIXTURES/$slug" ]; then
   cat "$GH_FIXTURES/$slug"
   exit 0

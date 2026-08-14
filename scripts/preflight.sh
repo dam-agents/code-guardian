@@ -15,7 +15,7 @@
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
 #     (via scripts/log.sh — docs/logging.md), the skill install cache, the
 #     git credential helper (`gh auth setup-git`, before the agent clones), and
-#     the 14-day log retention cleanup in audit mode.
+#     the audit-mode cleanups (14-day log retention, stale-clone sweep).
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / status_resets_due / artifacts_due
@@ -218,20 +218,44 @@ flip_awaiting_label() { # number
     > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
 }
 
+# GET with one silent retry, captured per attempt so a failed attempt's error
+# body never reaches the caller -> body on stdout; rc 1 after two failed attempts
+gh_get() { # <gh api args…>
+  local out
+  out="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$out"; return 0; }
+  sleep 1
+  out="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$out"; return 0; }
+  return 1
+}
+# marker scans distinguish three outcomes: a timestamp (marker found), ""
+# (endpoints answered, marker verified absent), and the sentinel __api_error__
+# (an endpoint failed twice — unknown, never to be treated as absent). Callers
+# bump API_ERRS on the sentinel and stop probing once it reaches 2 — by then
+# the API is down for the run, and each skipped call costs a retry + sleep.
+API_ERRS=0
+
 # marker-based remote dedup, anchored at one SHA -> prints GitHub timestamp
 remote_reviewed_at() { # number full_sha
-  local m="<!-- $REVIEW_MARKER headRefOid=$2 -->" ts
-  ts="$(gh api "repos/$REPO/pulls/$1/reviews?per_page=100" 2>/dev/null \
-        | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty')"
-  [ -n "$ts" ] && { printf '%s' "$ts"; return; }
-  gh api "repos/$REPO/issues/$1/comments?per_page=100" 2>/dev/null \
-    | jq -r --arg m "$m" '[.[] | select(.body | contains($m)) | .created_at] | last // empty'
+  local m="<!-- $REVIEW_MARKER headRefOid=$2 -->" body ts err=0
+  if body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")"; then
+    ts="$(printf '%s' "$body" \
+      | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty')"
+    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
+  else err=1; fi
+  if body="$(gh_get "repos/$REPO/issues/$1/comments?per_page=100")"; then
+    ts="$(printf '%s' "$body" \
+      | jq -r --arg m "$m" '[.[] | select(.body | contains($m)) | .created_at] | last // empty')"
+    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
+  else err=1; fi
+  [ "$err" -eq 1 ] && printf '__api_error__'
+  return 0
 }
 
 # unanchored: any marker-carrying review at ANY SHA -> prints "sha<TAB>ts"
 remote_reviewed_any() { # number
-  gh api "repos/$REPO/pulls/$1/reviews?per_page=100" 2>/dev/null \
-    | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=" '
+  local body
+  body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")" || { printf '__api_error__'; return 0; }
+  printf '%s' "$body" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=" '
         [.[] | select(.body != null) | select(.body | contains($m))
              | {sha: (.body | capture("headRefOid=(?<s>[0-9a-f]{40})").s), ts: .submitted_at}]
         | last // empty | if . == "" or . == null then empty else "\(.sha)\t\(.ts)" end' 2>/dev/null
@@ -430,15 +454,24 @@ if [ "$MODE" = "review" ]; then
         fi   # already awaiting_label -> stay silent
       fi
     else
-      # no local row: anchored remote check first, then the unanchored one
-      ts="$(remote_reviewed_at "$n" "$sha")"
-      if [ -n "$ts" ]; then
+      # no local row: anchored remote check first, then the unanchored one.
+      # __api_error__ defers the PR to the next heartbeat — the scan failed,
+      # not the marker, and a blind add_review here would schedule a review
+      # the remote may already carry.
+      if [ "$API_ERRS" -ge 2 ]; then ts="__api_error__"; else ts="$(remote_reviewed_at "$n" "$sha")"; fi
+      if [ "$ts" = "__api_error__" ]; then
+        API_ERRS=$((API_ERRS+1))
+        log_warn "PR #$n: marker scan unavailable (API errors) — review decision deferred to the next heartbeat"
+      elif [ -n "$ts" ]; then
         SELFHEALS_DUE="$(printf '%s' "$SELFHEALS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg sha "$sha" --arg ts "$ts" \
           '{number:$n, sha:$sha, ts:$ts, status:"done"}')" '. + [$e]')"
         log "PR #$n: remote marker found at live HEAD — self-heal due"
       else
-        any="$(remote_reviewed_any "$n")"
-        if [ -n "$any" ]; then
+        if [ "$API_ERRS" -ge 2 ]; then any="__api_error__"; else any="$(remote_reviewed_any "$n")"; fi
+        if [ "$any" = "__api_error__" ]; then
+          API_ERRS=$((API_ERRS+1))
+          log_warn "PR #$n: marker scan unavailable (API errors) — review decision deferred to the next heartbeat"
+        elif [ -n "$any" ]; then
           asha="${any%%$'\t'*}"; ats="${any##*$'\t'}"
           if [ "$triggered" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false \
@@ -953,17 +986,27 @@ if [ "$MODE" = "audit" ]; then
   done
   [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row" || check orphan_history ok "history files all match rows"
 
-  drift=""; verified=0
+  drift=""; verified=0; unverifiable=0
   while IFS=$'\t' read -r n sha; do
     row="$(row_for "$n")"; [ -z "$row" ] && continue
     st="$(row_field "$row" 6)"; { [ "$st" = "done" ] || [ "$st" = "awaiting_label" ]; } || continue
-    [ "$verified" -ge 25 ] && break
-    verified=$((verified+1))
+    [ $((verified + unverifiable)) -ge 25 ] && break
     rsha="$(row_field "$row" 3)"
-    [ -z "$(remote_reviewed_at "$n" "$rsha")" ] && drift="${drift:+$drift, }#$n"
+    if [ "$API_ERRS" -ge 2 ]; then ts="__api_error__"; else ts="$(remote_reviewed_at "$n" "$rsha")"; fi
+    case "$ts" in
+      (__api_error__) API_ERRS=$((API_ERRS+1)); unverifiable=$((unverifiable+1));;
+      ('')            verified=$((verified+1)); drift="${drift:+$drift, }#$n";;
+      (*)             verified=$((verified+1));;
+    esac
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha] | @tsv')
-  [ -n "$drift" ] && check state_drift fail "rows whose SHA has no marker on GitHub: $drift" \
-    || check state_drift ok "$verified open-PR rows verified against GitHub markers"
+  if [ -n "$drift" ]; then
+    extra=""; [ "$unverifiable" -gt 0 ] && extra="; $unverifiable more unverifiable (marker scan API errors)"
+    check state_drift fail "rows whose SHA has no marker on GitHub: $drift$extra"
+  elif [ "$unverifiable" -gt 0 ]; then
+    check state_drift warn "$unverifiable of $((verified + unverifiable)) rows unverifiable (marker scan API errors); $verified verified ok"
+  else
+    check state_drift ok "$verified open-PR rows verified against GitHub markers"
+  fi
 
   # --- artifacts & hygiene --------------------------------------------------
   [ -n "$ARTIFACT_OFF_REASON" ] && check artifact_targets warn "artifact_skill configured but disabled: $ARTIFACT_OFF_REASON"
@@ -976,8 +1019,25 @@ if [ "$MODE" = "audit" ]; then
       || check orphan_gists ok "every artifact gist is tracked by a marker"
   fi
 
-  tmp_left="$(ls -d /tmp/review-pr-* 2>/dev/null | grep -c . || true)"
-  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left leftover /tmp/review-pr-* directories" || check tmp_leftovers ok "no clone leftovers"
+  # stale-clone sweep: clones a dead session never removed (live-run cleanup is
+  # the review pipeline's, docs/review.md). Reclaim only entries past the lock
+  # TTL whose PR holds no in_progress lock; the number is compared exactly so
+  # PR #4's sweep can never take PR #42's dirs (docs/skills.md).
+  TMP_ROOT="${TMPDIR:-/tmp}"
+  swept=0
+  for d in "$TMP_ROOT"/review-pr-*; do
+    [ -e "$d" ] || continue
+    cn="${d##*/review-pr-}"; cn="${cn%%.*}"
+    case "$cn" in (''|*[!0-9]*) continue;; esac
+    [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] && continue
+    [ -n "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ] || continue
+    rm -rf "$d" && swept=$((swept+1))
+  done
+  [ "$swept" -gt 0 ] && logev info tmp_cleanup "stale-clone sweep: reclaimed $swept review-pr-* leftover(s) from dead sessions"
+
+  sw_note=""; [ "$swept" -gt 0 ] && sw_note=" ($swept stale reclaimed)"
+  tmp_left="$(ls -d "$TMP_ROOT"/review-pr-* 2>/dev/null | grep -c . || true)"
+  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left leftover /tmp/review-pr-* entries$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
 
   disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
   if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
