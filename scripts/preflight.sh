@@ -32,6 +32,9 @@
 #                             checks (auth, state consistency, log gaps/errors,
 #                             orphaned gists, disk, skills); the agent adds the
 #                             judgment checks and sends the report (docs/audit.md)
+#   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
+#                             `benchmark: enabled` and the monthly gate passes
+#                             (docs/benchmark.md); purely local, no API calls
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
@@ -194,6 +197,52 @@ fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
 
 [ -z "$REPO" ] && fail_out "target repo unresolved (GITHUB_REPO / CONFIG.md github_repo missing)"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
+
+# ========================================================= BENCHMARK MODE ====
+# Purely local gate — deciding a benchmark run needs no GitHub call, so this
+# block sits before the open-PR fetch. The actions live in docs/benchmark.md:
+# create_fixture (no fixture yet) and run (monthly, or first run after the
+# fixture exists). The scheduled cadence is monthly; the 27-day floor keeps a
+# drifting cron from double-running inside one calendar month.
+if [ "$MODE" = "benchmark" ]; then
+  bench_out() { # <nothing_to_do bool> <benchmark_due json | null>
+    printf '%s\n' "$NOW_ISO benchmark nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+    logev info heartbeat "mode=benchmark nothing_to_do=$1"
+    jq -n --argjson nothing "$1" --argjson due "$2" \
+      --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+      '{mode:"benchmark", nothing_to_do:$nothing, logs:$logs}
+       + (if $due == null then {} else {benchmark_due:$due} end)'
+    exit 0
+  }
+  BENCH="$(cfg benchmark)"
+  if [ "$BENCH" != "enabled" ]; then
+    log "benchmark disabled — nothing to do"
+    bench_out true null
+  fi
+  BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
+  BENCH_DIR="$WORK/benchmark"
+  FIXTURE_DIR="$(ls -d "$BENCH_DIR"/fixture/fx-* 2>/dev/null | sort | tail -1)"
+  if [ -z "$FIXTURE_DIR" ] || [ ! -f "$FIXTURE_DIR/manifest.json" ]; then
+    log "benchmark enabled, no fixture yet — create_fixture due"
+    bench_out false '{"action":"create_fixture"}'
+  fi
+  FIXTURE_ID="${FIXTURE_DIR##*/}"
+  # monthly gate: age of the newest RESULTS.md row (cell 2 = the run's ISO ts)
+  LAST_TS="$(grep -E '^\| *[0-9]{4}-' "$BENCH_DIR/RESULTS.md" 2>/dev/null | tail -1 \
+             | cut -d'|' -f2 | sed -e 's/^ *//' -e 's/ *$//')"
+  if [ -n "$LAST_TS" ]; then
+    BENCH_AGE_D=$(( (NOW_EPOCH - $(iso2epoch "$LAST_TS")) / 86400 ))
+    if [ "$BENCH_AGE_D" -lt 27 ]; then
+      log "benchmark ran ${BENCH_AGE_D}d ago (< 27d) — nothing to do"
+      bench_out true null
+    fi
+  fi
+  log "benchmark run due on $FIXTURE_ID (last run: ${LAST_TS:-never})"
+  bench_out false "$(jq -n --arg f "$FIXTURE_ID" --arg d "$FIXTURE_DIR" \
+    --arg j "$BENCH_JUDGE" --arg l "${LAST_TS:-}" \
+    '{action:"run", fixture:$f, fixture_dir:$d, judge:$j,
+      last_run:(if $l == "" then null else $l end)}')"
+fi
 
 # ------------------------------------------------------------ open PR set ----
 OPEN_JSON="$(gh api "repos/$REPO/pulls?state=open&per_page=100" 2>/dev/null)"
@@ -1345,4 +1394,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark)"

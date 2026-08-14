@@ -235,6 +235,11 @@ The definition is project-agnostic: every instance-specific value lives in `work
 
    **No / no reply** → `disabled`; everything else works, only the shepherd sweep is skipped (can be enabled later in chat — then re-run this sub-step + roster + item 9 + Step 6b). **Yes** → `enabled`, then build the roster (below) and pick the escalation owner.
 9. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who should I escalate to when a PR stays unreviewed despite repeated reminders (nudge level 4)? Pick one person from the roster.* Must be a roster login **with a `slack_id`**.
+10. **`benchmark`** — optional monthly self-benchmark, off by default. Ask:
+
+   > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed synthetic review task — generated from your repo's stack and the configured skills — through my full review pipeline, score the output against known seeded defects, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`).
+
+   **No / no reply** → omit the key. **Yes** → write `benchmark: enabled`, ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality scores; default `off` = deterministic scoring only), and register the schedule in Step 6d — the first scheduled run creates the fixture.
 
 Final shape:
 
@@ -256,6 +261,8 @@ Final shape:
 - artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
+- benchmark: enabled                   # monthly self-benchmark; omit = disabled
+- benchmark_judge: claude-sonnet-5     # pinned judge model; omit/off = deterministic scoring only
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
 
@@ -305,7 +312,7 @@ The agent then skips already-reviewed SHAs correctly on the very first heartbeat
 
 ## Step 6 — Ensure the scheduled jobs exist
 
-Two independent schedules (the shepherd one only when `slack_notifications: enabled`). Check with `mcp__platform-outbound__list_schedules` first — a schedule whose `name` starts with the same prefix already exists → skip creating it. Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
+Independent schedules — the shepherd one only when `slack_notifications: enabled`, the benchmark one only when `benchmark: enabled`. Check with `mcp__platform-outbound__list_schedules` first — a schedule whose `name` starts with the same prefix already exists → skip creating it. Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
 
 **6a — Review heartbeat.** Ask: *How often should I check for new PRs? Default is every 10 minutes.* Create `name: code-guardian-review-<cadence-shorthand>` (e.g. `…-10m`), cron default `*/10 * * * *`, `sessionMode: fresh`, `task`:
 
@@ -318,6 +325,10 @@ Two independent schedules (the shepherd one only when `slack_notifications: enab
 **6c — Weekly audit.** Ask: *When should I send the weekly health report? Default is Friday 07:00 (platform timezone).* Create `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`, `sessionMode: fresh`, `task`:
 
    > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+
+**6d — Model benchmark** (only when `benchmark: enabled`; create it later if the benchmark is enabled in chat). Ask: *When should the monthly benchmark run? Default is the 1st of the month, 06:00 (platform timezone).* Create `name: code-guardian-benchmark-monthly`, cron default `0 6 1 * *`, `sessionMode: fresh`, `task`:
+
+   > Model benchmark. Run `bash "$HOME/scripts/preflight.sh" benchmark` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture generates the fixture and ends the run; run replays the fixture review with the configured skills, scores it with scripts/benchmark-score.sh (plus the judge when configured), appends the result to work/benchmark/, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 (`toggle_schedule` / `delete_schedule` exist for management.) Nudging cadence note: the nudge rules are hour-granular (24h age gate, 20h cooldown, 2-day escalation), so an hourly work-hours sweep loses nothing versus a continuous one — it only stops burning tokens at night and on weekends.
 
@@ -342,7 +353,7 @@ bash "$HOME/scripts/verify-onboarding.sh" --live
 Then give the operator a short **onboarding summary** in the chat UI, starting with the verification result (the `PASS` line plus any warnings):
 
 1. The final `work/CONFIG.md` (verbatim).
-2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, state persistence (`GITHUB_REPO_WORK` or local-only).
+2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, benchmark day (when enabled), state persistence (`GITHUB_REPO_WORK` or local-only).
 3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (a complete review of the whole PR; the agent removes the label once it is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel or in a comment @-mentioning **`<bot_login>`** (both delta-only — docs/review.md → **On-demand review**); labeling a PR **`<urgent_label>`** (when configured) makes its reviews jump the queue, rapid-preliminary-first; assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides) — and @-mentioning **`<bot_login>`** in any PR/issue comment or PR description gets a reply, with review feedback recorded to memory (`docs/mentions.md`); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

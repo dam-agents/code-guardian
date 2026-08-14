@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# benchmark-score.sh — deterministic scorer over a fixed manifest and raw
+# reviews (docs/benchmark.md). Pure local: no gh, no preflight.
+. "$(dirname "$0")/helpers.sh"
+
+SCORE="$REPO_ROOT/scripts/benchmark-score.sh"
+
+write_manifest() {
+  cat > "$SANDBOX/manifest.json" <<'EOF'
+{"fixture":"fx-test","created":"2026-08-01T00:00:00Z","defects":[
+ {"id":"D01","file":"src/auth.ts","line_v1":42,"line_v2":null,"class":"security","severity":"critical","summary":"token ==","fixed_in_v2":true,"in_prior_review":true},
+ {"id":"D02","file":"src/auth.ts","line_v1":60,"line_v2":58,"class":"correctness","severity":"warning","summary":"off by one","fixed_in_v2":false,"in_prior_review":true},
+ {"id":"D03","file":"src/db.ts","line_v1":10,"line_v2":10,"class":"performance","severity":"warning","summary":"n+1","fixed_in_v2":false,"in_prior_review":false},
+ {"id":"D04","file":"src/db.ts","line_v1":null,"line_v2":30,"class":"correctness","severity":"critical","summary":"null deref","fixed_in_v2":false,"in_prior_review":false}
+]}
+EOF
+}
+
+run_score() { OUT="$(bash "$SCORE" "$1" "$2" "$SANDBOX/manifest.json")"; }
+
+new_case score_first
+write_manifest
+cat > "$SANDBOX/first.md" <<'EOF'
+## PR #0: Test PR
+### Summary
+This PR adds auth. It is small.
+### Findings
+- 🔴 **Critical:** token compared with == (`src/auth.ts:41`)
+- 🟡 **Warning:** N+1 query (`src/db.ts:11`)
+- 🟡 **Warning:** made-up thing (`src/other.ts:5`)
+- 🟢 **Suggestion:** rename helper (`src/auth.ts:80`)
+### Verdict
+REQUEST_CHANGES — one critical finding is open.
+
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":41,"inline":true,"summary":"token compared with ==","fix":"constant-time compare"},{"status":"new","severity":"warning","file":"src/db.ts","line":11,"inline":true,"summary":"n+1 query","fix":"batch the lookup"},{"status":"new","severity":"warning","file":"src/other.ts","line":5,"inline":false,"summary":"made-up","fix":"none"},{"status":"new","severity":"suggestion","file":"src/auth.ts","line":80,"inline":false,"summary":"rename","fix":null}] -->
+<!-- cg:review headRefOid=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->
+EOF
+run_score first "$SANDBOX/first.md"
+assert_jq '.gt == 3' 'v1 ground-truth set counts line_v1 defects only'
+assert_jq '.tp | length == 2' 'two findings match within the ±3 window'
+assert_jq '.fn == ["D02"]' 'the missed defect is named'
+assert_jq '.fp | length == 1 and .[0].file == "src/other.ts"' 'the unmatched blocking finding is an FP'
+assert_jq '.suggestions_unmatched == 1' 'unmatched suggestions are counted, not FPs'
+assert_jq '.precision == 0.667 and .recall == 0.667 and .f1 == 0.667' 'precision/recall/f1'
+assert_jq '.recall_critical == 1 and .recall_warning == 0.5' 'per-severity recall'
+assert_jq '.severity_accuracy == 1' 'matched severities agree'
+assert_jq '[.format.findings_json, .format.marker, .format.sections, .format.fix_lines, .format.verdict_consistent] | all' 'format checks pass'
+assert_jq '.length.words_total > 0 and .length.findings == 4' 'length block'
+assert_jq '.ste.sentences > 0' 'ste block'
+
+new_case score_first_degraded
+write_manifest
+cat > "$SANDBOX/plain.md" <<'EOF'
+Looks good to me!
+EOF
+run_score first "$SANDBOX/plain.md"
+assert_jq '.format.findings_json == false and .format.marker == false and .format.sections == false' 'missing structure is reported'
+assert_jq '.recall == 0 and (.fn | length) == 3' 'an unparseable review scores zero recall'
+assert_jq '.format.verdict == "missing"' 'missing verdict is named'
+
+new_case score_verdict_inconsistent
+write_manifest
+cat > "$SANDBOX/soft.md" <<'EOF'
+### Summary
+Small change.
+### Findings
+- 🔴 **Critical:** token compared with == (`src/auth.ts:42`)
+### Verdict
+APPROVE — fine overall.
+
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":false,"summary":"token ==","fix":"constant-time compare"}] -->
+<!-- cg:review headRefOid=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->
+EOF
+run_score first "$SANDBOX/soft.md"
+assert_jq '.format.verdict_consistent == false' 'APPROVE over an open critical is flagged'
+assert_jq '.recall_critical == 1' 'the finding itself still matches'
+
+new_case score_rereview
+write_manifest
+cat > "$SANDBOX/re.md" <<'EOF'
+### Summary
+Delta re-review.
+### Changes since last review
+Previous HEAD: aaaaaaa — verdict REQUEST_CHANGES
+- ✅ **Fixed:** token compared with == (`src/auth.ts:42`)
+- 🔁 **Still present:** off by one (`src/auth.ts:58`)
+- 🆕 **New:** null deref (`src/db.ts:31`)
+- 🆕 **New:** n+1 query (`src/db.ts:10`)
+- 🆕 **New:** invented issue (`src/other.ts:99`)
+### Findings
+- 🔴 **Critical:** null deref (`src/db.ts:31`)
+### Verdict
+REQUEST_CHANGES — one critical finding is open.
+
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/auth.ts","line":42,"inline":false,"summary":"token ==","fix":null},{"status":"still","severity":"warning","file":"src/auth.ts","line":58,"inline":false,"summary":"off by one","fix":"fix the bound"},{"status":"new","severity":"critical","file":"src/db.ts","line":31,"inline":true,"summary":"null deref","fix":"guard the null"},{"status":"new","severity":"warning","file":"src/db.ts","line":10,"inline":true,"summary":"n+1","fix":"batch the lookup"},{"status":"new","severity":"warning","file":"src/other.ts","line":99,"inline":false,"summary":"invented","fix":"whatever"}] -->
+<!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
+EOF
+run_score rereview "$SANDBOX/re.md"
+assert_jq '.fixed_gt == 1 and .still_gt == 1 and .new_gt == 1' 'ground-truth buckets'
+assert_jq '.fixed_recall == 1 and .still_recall == 1 and .new_recall == 1' 'all buckets matched'
+assert_jq '.false_fixed == 0' 'no kept defect reported fixed'
+assert_jq '.late_finds == 1' 'the v1 defect outside the prior review is a late find'
+assert_jq '.new_fp == 1' 'the invented new finding is an FP'
+assert_jq '.format.delta_section == true' 'the delta section is present'
+
+new_case score_false_fixed
+write_manifest
+cat > "$SANDBOX/ff.md" <<'EOF'
+### Summary
+Delta re-review.
+### Changes since last review
+- ✅ **Fixed:** off by one (`src/auth.ts:60`)
+### Findings
+_No new findings at this HEAD._
+### Verdict
+APPROVE — everything resolved.
+
+<!-- findings-json: [{"status":"fixed","severity":"warning","file":"src/auth.ts","line":60,"inline":false,"summary":"off by one","fix":null}] -->
+<!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
+EOF
+run_score rereview "$SANDBOX/ff.md"
+assert_jq '.false_fixed == 1' 'a kept defect reported fixed is counted'
+assert_jq '.fixed_recall == 0' 'the truly fixed defect went unreported'
+
+finish

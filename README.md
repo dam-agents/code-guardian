@@ -9,7 +9,7 @@ wait too long for human review (the **PR Shepherd** role).
 
 ## How it works
 
-Three independent schedules exist, and **all start with a deterministic
+Four independent schedules exist, and **all start with a deterministic
 pre-flight script** ([`scripts/preflight.sh`](scripts/preflight.sh)). The
 script only *detects* — it makes no GitHub writes and computes the run's
 worklist; when the worklist is empty the agent never wakes up (idle
@@ -63,6 +63,18 @@ of it per the `docs/` procedures:
   👎-flagged findings) and sends a traffic-light report to Slack (when enabled) and
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
+- **Model benchmark** (default the 1st of the month; exists only when the
+  `benchmark` key was enabled): the agent replays a fixed synthetic review
+  task — a fixture generated once from the repo's stack and the configured
+  skills, with seeded defects of known place and severity — through its full
+  review pipeline, then scores the output deterministically
+  ([`scripts/benchmark-score.sh`](scripts/benchmark-score.sh): finding
+  recall/precision, severity accuracy, format compliance, length, plus an
+  optional pinned-model judge) against the fixture's manifest, including a
+  re-review pass that measures fixed/still/new detection. Every result is
+  kept forever in `work/benchmark/`, so review quality is comparable across
+  model upgrades and definition versions — per
+  [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
@@ -185,6 +197,8 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to vetted targets — chat UI, a Slack channel, or a comment on the PR (`docs/watches.md`). Keeps team-specific triggers and channels out of this public definition — rules are private runtime state. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
+| `benchmark` | asked (default: off, key omitted) | Monthly self-benchmark of the review pipeline on a synthetic fixture with known defects; every result kept in `work/benchmark/` for over-time comparison (`docs/benchmark.md`). |
+| `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the benchmark's LLM-judged quality scores; `off` = deterministic scoring only. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
 
@@ -266,7 +280,7 @@ configured output surfaces (`CLAUDE.md` → **Hard invariants**).
 - [`CLAUDE.md`](CLAUDE.md) — the slim core manual loaded by the agent on every
   run (run types, pre-flight contract, config semantics, hard invariants).
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
-  both run types; detects work, never acts on GitHub.
+  every run type; detects work, never acts on GitHub.
 - [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
   post-onboarding check (ONBOARDING Step 7): definition checkout + `work/`
   state files against the templates, and with `--live` the environment a run
@@ -287,7 +301,7 @@ configured output surfaces (`CLAUDE.md` → **Hard invariants**).
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
   [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
-  [`logging.md`](docs/logging.md),
+  [`benchmark.md`](docs/benchmark.md), [`logging.md`](docs/logging.md),
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — first-run setup runbook (see **Setup** above);
   also carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).

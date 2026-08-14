@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.11.0 — 2026-08-14
+
+**Upgrade:** adds the optional monthly self-benchmark, off by default — it
+replays a fixed synthetic review fixture through the full pipeline and scores
+the output against known defects, keeping every result in `work/benchmark/`
+(docs/benchmark.md). Enable by writing `- benchmark: enabled` (and optionally
+`- benchmark_judge: <pinned-model-id>`) to `work/CONFIG.md` and registering
+the `code-guardian-benchmark-monthly` schedule per ONBOARDING.md Step 6d; the
+first scheduled run creates the fixture. Without the key, nothing changes.
+
 ## 3.10.2 — 2026-08-14
 
 **Upgrade:** Nothing — scripts are re-read per run; the next weekly audit
