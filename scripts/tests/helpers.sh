@@ -58,6 +58,11 @@ open_prs_fx() { jq -s . | fx 'api repos/acme/widgets/pulls?state=open&per_page=1
 # write a fixture from stdin for the given gh argument string
 fx() { cat > "$GH_FIXTURES/$(fx_for "$1")"; }
 
+# make the given gh invocation fail with an exit code (default 1) — tests/bin/gh
+fx_fail()      { printf '%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
+# same, but only the next call fails; later calls serve the body fixture
+fx_fail_once() { printf 'once:%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
+
 # ISO-8601 UTC timestamp <n> seconds in the past (GNU + BSD date)
 iso_ago() {
   local s=$(( $(date -u +%s) - $1 ))

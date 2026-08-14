@@ -11,6 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.10.2 — 2026-08-14
+
+**Upgrade:** Nothing — scripts are re-read per run; the next weekly audit
+reclaims leftover clones of past dead sessions on its own.
+
 ## 3.10.1 — 2026-08-13
 
 **Upgrade:** Nothing — the mention scan re-reads its query per run. Mentions
