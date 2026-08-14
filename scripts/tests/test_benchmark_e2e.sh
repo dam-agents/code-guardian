@@ -67,6 +67,8 @@ export function firstItem(items: Item[]): Item {
   return items[0];
 }
 EOF
+  # anchors: interpolated SQL on 7, unawaited persist on 21 — 14 apart, so the
+  # scorer's ±3 windows cannot overlap (validated by manifest_spacing)
   cat > "$F/head-v1/src/store.ts" <<'EOF'
 import type { Item } from "./cart";
 
@@ -76,6 +78,15 @@ export class Store {
   async load(ids: string[]): Promise<Item[]> {
     const q = `SELECT * FROM items WHERE id IN ('${ids.join("','")}')`;
     return this.query(q);
+  }
+
+  async count(): Promise<number> {
+    const all = await this.query("SELECT * FROM items");
+    return all.length;
+  }
+
+  async clear(): Promise<void> {
+    this.rows = [];
   }
 
   async save(item: Item): Promise<void> {
@@ -107,10 +118,19 @@ export function firstItem(items: Item[]): Item {
   return items[0];
 }
 
+export function itemCount(items: Item[]): number {
+  return items.length;
+}
+
+export function formatTotal(items: Item[]): string {
+  return total(items).toFixed(2);
+}
+
 export function parseQty(raw: string): number {
   return parseInt(raw);
 }
 EOF
+  # v2: the SQL fix lands on 7 (fix_line_v2), the persist defect stays on 21
   cat > "$F/head-v2/src/store.ts" <<'EOF'
 import type { Item } from "./cart";
 
@@ -120,6 +140,15 @@ export class Store {
   async load(ids: string[]): Promise<Item[]> {
     const marks = ids.map(() => "?").join(",");
     return this.query(`SELECT * FROM items WHERE id IN (${marks})`, ids);
+  }
+
+  async count(): Promise<number> {
+    const all = await this.query("SELECT * FROM items");
+    return all.length;
+  }
+
+  async clear(): Promise<void> {
+    this.rows = [];
   }
 
   async save(item: Item): Promise<void> {
@@ -138,13 +167,13 @@ EOF
   {"id": "D01", "file": "src/store.ts", "line_v1": 7, "line_v2": null, "fix_line_v2": 7,
    "class": "security", "severity": "critical", "summary": "SQL built by interpolation",
    "fixed_in_v2": true, "in_prior_review": true},
-  {"id": "D02", "file": "src/store.ts", "line_v1": 12, "line_v2": 13,
+  {"id": "D02", "file": "src/store.ts", "line_v1": 21, "line_v2": 21,
    "class": "correctness", "severity": "warning", "summary": "promise not awaited",
    "fixed_in_v2": false, "in_prior_review": true},
   {"id": "D03", "file": "src/cart.ts", "line_v1": 12, "line_v2": 12,
    "class": "correctness", "severity": "warning", "summary": "discount not clamped",
    "fixed_in_v2": false, "in_prior_review": false},
-  {"id": "D04", "file": "src/cart.ts", "line_v1": null, "line_v2": 20,
+  {"id": "D04", "file": "src/cart.ts", "line_v1": null, "line_v2": 28,
    "class": "correctness", "severity": "warning", "summary": "parseInt without radix",
    "fixed_in_v2": false, "in_prior_review": false}
  ]}
@@ -160,13 +189,13 @@ Adds a discount helper and a bulk load path.
 ### Findings
 - 🔴 **Critical:** query text is built by string interpolation (`src/store.ts:7`)
   **Fix:** pass the ids as bound parameters.
-- 🟡 **Warning:** the persist promise is not awaited (`src/store.ts:12`)
+- 🟡 **Warning:** the persist promise is not awaited (`src/store.ts:21`)
   **Fix:** await the call so failures propagate.
 
 ### Verdict
 REQUEST_CHANGES — one critical finding is open.
 
-<!-- findings-json: [{"status":"new","severity":"critical","file":"src/store.ts","line":7,"inline":true,"summary":"SQL by interpolation","fix":"bind the ids as parameters"},{"status":"new","severity":"warning","file":"src/store.ts","line":12,"inline":true,"summary":"promise not awaited","fix":"await the persist call"}] -->
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/store.ts","line":7,"inline":true,"summary":"SQL by interpolation","fix":"bind the ids as parameters"},{"status":"new","severity":"warning","file":"src/store.ts","line":21,"inline":true,"summary":"promise not awaited","fix":"await the persist call"}] -->
 <!-- cg:review headRefOid=1111111111111111111111111111111111111111 -->
 EOF
   printf '{"number":0,"title":"Add discount helper and bulk load","body":"Cart totals and a batched item load.","author":"alice","head_ref":"feat/cart","base_ref":"main","head_sha_v1":"1111111111111111111111111111111111111111","head_sha_v2":"2222222222222222222222222222222222222222"}\n' > "$F/pr.json"
@@ -224,6 +253,28 @@ assert_out_contains 'FAIL leak_fixmarks' 'a v2 delta giveaway fails validation'
 assert_out_contains 'rc=1' 'validation exits non-zero so the run aborts'
 assert_out_contains 'ids belong in manifest.json only' 'the failure carries its fix'
 
+new_case e2e_retired_container_and_anchor_spacing
+FIX="$SANDBOX/benchmark/fixture"
+build_clean_fixture "$FIX" ts-cart
+PR_DIR="$SANDBOX/pr"
+build_working_repo "$FIX/ts-cart" "$PR_DIR"
+git -C "$PR_DIR" diff main..pr~1 > "$FIX/ts-cart/diff-v1.patch"
+git -C "$PR_DIR" diff pr~1..pr   > "$FIX/ts-cart/diff-v1-v2.patch"
+# a retired set sits beside the active one; the documented fixture/*/ glob
+# matches its container, which must not read as a broken fixture
+mkdir -p "$FIX/retired/old-ts-api"
+OUT="$(bash "$VALIDATE" fixture "$FIX"/*/; printf 'rc=%s' "$?")"
+assert_out_contains 'skip retired/' 'the retired container is skipped, not failed'
+assert_out_absent 'structure\[retired\]' 'no spurious structure failure for retired/'
+assert_out_contains 'rc=0' 'a set with retired fixtures beside it still passes'
+assert_out_contains 'manifest_spacing\[ts-cart\].*≥10 lines apart' 'anchor spacing is checked'
+# anchors closer than the ±3 matching window would overlap
+jq '.defects[1].line_v1 = 9 | .defects[1].line_v2 = 9' "$FIX/ts-cart/manifest.json" \
+  > "$FIX/ts-cart/manifest.tmp" && mv "$FIX/ts-cart/manifest.tmp" "$FIX/ts-cart/manifest.json"
+OUT="$(bash "$VALIDATE" fixture "$FIX/ts-cart"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL manifest_spacing' 'colliding anchors fail validation'
+assert_out_contains 'rc=1' 'the run would abort before scoring an ambiguous fixture'
+
 new_case e2e_prefixed_diffs_are_rejected
 FIX="$SANDBOX/benchmark/fixture"
 build_clean_fixture "$FIX" prefixed
@@ -248,13 +299,13 @@ Adds a discount helper and a batched load path.
   **Fix:** bind the ids as parameters instead of splicing them in.
 - 🟡 **Warning:** the discount factor is not clamped to 0..1 (`src/cart.ts:12`)
   **Fix:** clamp pct before applying it.
-- 🟡 **Warning:** filter allocates a new array per call (`src/store.ts:20`)
+- 🟡 **Warning:** filter allocates a new array per call (`src/store.ts:33`)
   **Fix:** reuse a map keyed by id.
 
 ### Verdict
 REQUEST_CHANGES — one critical finding is open.
 
-<!-- findings-json: [{"status":"new","severity":"critical","file":"src/store.ts","line":7,"inline":true,"summary":"SQL by interpolation","fix":"bind the ids as parameters"},{"status":"new","severity":"warning","file":"src/cart.ts","line":12,"inline":true,"summary":"discount not clamped","fix":"clamp pct to 0..1"},{"status":"new","severity":"warning","file":"src/store.ts","line":20,"inline":false,"summary":"allocation per call","fix":"reuse a map"}] -->
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/store.ts","line":7,"inline":true,"summary":"SQL by interpolation","fix":"bind the ids as parameters"},{"status":"new","severity":"warning","file":"src/cart.ts","line":12,"inline":true,"summary":"discount not clamped","fix":"clamp pct to 0..1"},{"status":"new","severity":"warning","file":"src/store.ts","line":33,"inline":false,"summary":"allocation per call","fix":"reuse a map"}] -->
 <!-- cg:review headRefOid=1111111111111111111111111111111111111111 -->
 EOF
 OUT="$(bash "$SCORE" first "$SANDBOX/first.md" "$FIX/manifest.json")"
@@ -273,18 +324,18 @@ Delta re-review of two new commits.
 ### Changes since last review
 Previous HEAD: 1111111 (2026-08-01T00:00:00Z) — verdict REQUEST_CHANGES
 - ✅ **Fixed:** query now binds its parameters (`src/store.ts:7`)
-- 🔁 **Still present:** persist promise not awaited (`src/store.ts:13`)
-- 🆕 **New:** parseInt without radix (`src/cart.ts:20`)
+- 🔁 **Still present:** persist promise not awaited (`src/store.ts:21`)
+- 🆕 **New:** parseInt without radix (`src/cart.ts:28`)
 - 🆕 **New:** placeholder string is rebuilt per call (`src/store.ts:7`)
 ### Findings
-- 🟡 **Warning:** parseInt without an explicit radix (`src/cart.ts:20`)
+- 🟡 **Warning:** parseInt without an explicit radix (`src/cart.ts:28`)
   **Fix:** pass 10 as the radix.
 - 🟡 **Warning:** the placeholder list is rebuilt on every load (`src/store.ts:7`)
   **Fix:** cache the joined marks.
 ### Verdict
 COMMENT — warnings only.
 
-<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/store.ts","line":7,"inline":false,"summary":"SQL by interpolation","fix":null},{"status":"still","severity":"warning","file":"src/store.ts","line":13,"inline":false,"summary":"promise not awaited","fix":"await the persist call"},{"status":"new","severity":"warning","file":"src/cart.ts","line":20,"inline":true,"summary":"parseInt without radix","fix":"pass radix 10"},{"status":"new","severity":"warning","file":"src/store.ts","line":7,"inline":true,"summary":"marks rebuilt per call","fix":"cache the joined marks"}] -->
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/store.ts","line":7,"inline":false,"summary":"SQL by interpolation","fix":null},{"status":"still","severity":"warning","file":"src/store.ts","line":21,"inline":false,"summary":"promise not awaited","fix":"await the persist call"},{"status":"new","severity":"warning","file":"src/cart.ts","line":28,"inline":true,"summary":"parseInt without radix","fix":"pass radix 10"},{"status":"new","severity":"warning","file":"src/store.ts","line":7,"inline":true,"summary":"marks rebuilt per call","fix":"cache the joined marks"}] -->
 <!-- cg:review headRefOid=2222222222222222222222222222222222222222 -->
 EOF
 OUT="$(bash "$SCORE" rereview "$SANDBOX/rr.md" "$FIX/manifest.json")"

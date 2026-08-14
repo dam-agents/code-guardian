@@ -115,10 +115,22 @@ head -1 /home/agent/work/VERSION 2>/dev/null                                # ad
 ```
 
 Checked-out < latest → **tell the operator the agent is not up to date**
-(state both versions); update only when they ask, never silently —
-`git -C /home/agent reset --hard "origin/$DEF_BRANCH"` (never `git clean`), then
-migrate in the same session. Adopted ≠ checked-out → migrate now. All
-equal → report "up to date".
+(state both versions); update only when they ask, never silently, then migrate
+in the same session. Adopted ≠ checked-out → migrate now. All equal → report
+"up to date".
+
+Update a clean checkout by fast-forward — it reaches the same commit without
+discarding anything, so it also passes an auto-mode guard that refuses
+destructive commands:
+
+```bash
+git -C /home/agent status --porcelain          # must be empty; otherwise stop and ask
+git -C /home/agent merge --ff-only "origin/$DEF_BRANCH" \
+  || git -C /home/agent reset --hard "origin/$DEF_BRANCH"   # only when the checkout diverged
+```
+
+The fallback is for a diverged checkout (a platform reset, an abandoned local
+commit) — it discards, so surface that it was needed. **Never `git clean`.**
 
 **Migration** (`from` = adopted, `to` = checked-out):
 

@@ -59,6 +59,9 @@ validate_fixture() { # <dir>
   local d f miss="" hits n slug
   d="${1%/}"; slug="${d##*/}"
   [ -d "$d" ] || { fail "structure[$slug]" "not a directory"; return; }
+  # the documented invocation globs fixture/*/, which also matches the
+  # retired-fixtures container — it is not a fixture and holds no manifest
+  [ "$slug" = "retired" ] && { printf 'skip retired/: container of retired fixtures, not validated\n'; return; }
 
   # ---- structure
   for f in base head-v1 head-v2; do [ -d "$d/$f" ] || miss="$miss $f/"; done
@@ -127,6 +130,30 @@ validate_fixture() { # <dir>
       fail "manifest[$slug]" "$bad; fix: docs/benchmark.md → manifest.json (fixed defects need fix_line_v2 for the churn metric)"
     else
       ok "manifest[$slug]" "$(jq '.defects | length' "$d/manifest.json") defect(s), all complete"
+    fi
+
+    # Anchors in one file and one tree must sit >= 10 lines apart: the scorer
+    # matches on a +/-3 window, so closer anchors overlap and a finding is
+    # attributed to the wrong defect. v2 anchors include fix_line_v2, which is
+    # what the churn metric matches against.
+    bad="$(jq -r '
+      def collide($pairs):
+        [ $pairs[] | .lines |= (map(select(. != null)) | sort)
+          | . as $g
+          | [ range(0; ($g.lines | length) - 1) as $i
+              | select(($g.lines[$i+1] - $g.lines[$i]) < 10)
+              | "\($g.file)@\($g.tree) \($g.lines[$i])/\($g.lines[$i+1])" ] ]
+        | flatten;
+      ( [ .defects | group_by(.file)[]
+          | {file: .[0].file, tree: "v1", lines: [.[].line_v1]} ] ) as $v1
+      | ( [ .defects | group_by(.file)[]
+          | {file: .[0].file, tree: "v2", lines: ([.[].line_v2] + [.[].fix_line_v2])} ] ) as $v2
+      | (collide($v1) + collide($v2)) | unique
+      | if length == 0 then "" else (.[0:4] | join(", ")) end' "$d/manifest.json" 2>/dev/null)"
+    if [ -n "$bad" ]; then
+      fail "manifest_spacing[$slug]" "anchors closer than 10 lines: $bad; fix: move the defects apart — the scorer's ±3 windows would overlap and mis-attribute findings"
+    else
+      ok "manifest_spacing[$slug]" "all anchors ≥10 lines apart per file and tree"
     fi
   fi
 }
