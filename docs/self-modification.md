@@ -179,6 +179,12 @@ image, the harness, an external service — rather than fixing it at its source:
 - New behavior gets its line in the relevant self-check and, when it's a
   guarantee, in `CLAUDE.md → Hard invariants`; removed behavior removes
   its lines in the same PR.
+- For a change that alters review behavior (docs/review.md, docs/skills.md,
+  preflight's review path, finding/verdict formats), **offer the operator a
+  trial benchmark** of the feature branch before opening the PR
+  ([benchmark.md](benchmark.md) → **Trial runs**) — recommended for larger
+  refactors, never required (a run costs real tokens; small fixes proceed
+  without it), and available only where benchmark fixtures exist.
 
 ## 10. Invariants that may never be weakened
 

@@ -172,7 +172,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | [docs/artifact.md](docs/artifact.md) | `artifacts_due` non-empty — gist publishing / retry-unassign procedure |
 | [docs/shepherd.md](docs/shepherd.md) | `nudges_due` non-empty — send-then-record, templates, target selection |
 | [docs/audit.md](docs/audit.md) | An audit run — agent-side checks, report format, send rules |
-| [docs/benchmark.md](docs/benchmark.md) | `benchmark_due` non-empty, or the operator asks to create/run/inspect the benchmark — fixture creation, session separation, review replay, scoring, results |
+| [docs/benchmark.md](docs/benchmark.md) | `benchmark_due` non-empty, or the operator asks to create/run/inspect the benchmark — fixture creation, session separation, review replay, scoring, results, unrecorded trial runs for PR development |
 | [docs/preferences.md](docs/preferences.md) | User feedback, a dispute resolution, or an observed insight arrives; a verified failure cause worth keeping; audit-time memory consolidation — scope routing |
 | [docs/persistence.md](docs/persistence.md) | End-of-run persist; an update / version-check request; any request to change the definition |
 | [docs/logging.md](docs/logging.md) | Writing/reading structured log events, debugging a past run, harness adapters, retention — format, event duties, triage |

@@ -321,6 +321,43 @@ Append one row per fixture per run (create the file with this header when
 missing; the publish markers are added when the first publish succeeds):
 `| <ISO> | <model> | <definition_version> | <slug> | <trigger> | <first.f1> | <first.severity_accuracy> | <rereview.fixed_recall> | <rereview.new_recall> | <first.length.words_total> | <first.seconds + rereview.seconds> | <summed tokens.output or —> |`
 
+## Trial runs (PR development — scored, never recorded)
+
+A trial run scores the definition **as currently checked out** (typically a
+feature branch under development) without touching the permanent history:
+its results live only under the trial's own folder and never enter
+`RESULTS.md`, `report.html`, or the published artifact, so the monthly
+baseline stays clean while a PR is tuned in cycles — run, adjust, run again.
+
+- **Trigger: operator only, in the direct session** — "run a trial
+  benchmark" (optionally naming the PR/branch). Repeatable at will; each
+  run appends one more result to the same trial.
+- **Procedure**: exactly the run steps above, with these substitutions:
+  - `TRIAL="$HOME/work/benchmark/trials/<id>"` where `<id>` =
+    `pr-<n>` or the branch slug; results go to `$TRIAL/results/<ts>.json`,
+    raw reviews and skill archives to `$TRIAL/results/raw/…`.
+  - `trigger: "trial"`, and provenance additionally records
+    `definition_ref: {branch, sha}` from
+    `git -C "$HOME" rev-parse --abbrev-ref HEAD` / `--short=12 HEAD` — on a
+    feature branch, `VERSION` alone does not identify the code.
+  - **Skip entirely**: RESULTS.md rows, `report.html` regeneration,
+    publishing, and `prev_version`/`changes_since_prev` (a trial compares
+    to the baselines below, not to released versions).
+  - The monthly gate and trials ignore each other: preflight reads only
+    `RESULTS.md`, and a trial never writes it.
+- **Compare**: render the trial's own mini report —
+  `bash "$HOME/scripts/benchmark-report.sh" "$TRIAL" > "$TRIAL/report.html"`
+  (the script reads any directory holding `results/`) — and report to the
+  chat UI the delta against **(a)** the previous run of the same trial (the
+  tuning cycle) and **(b)** the latest official run in `results/` (the
+  production baseline).
+- **Session separation applies unchanged**: a session that read any
+  `manifest.json` (tuning fixtures, inspecting scores) does not run the
+  trial — score it from a fresh session.
+- **Cleanup**: a merged or abandoned PR's `trials/<id>/` is removed when the
+  operator asks; the `work/` backup keeps every version in git history
+  either way, so nothing is ever truly lost.
+
 ## On-demand (operator, direct session)
 
 - "Create the benchmark fixtures" → the creation steps above (top-up to the

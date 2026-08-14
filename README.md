@@ -81,7 +81,9 @@ of it per the `docs/` procedures:
   its full provenance — the exact model id, the harness version, and the
   definition version, with the list of release changes since the previously
   tested version — so the benchmark doubles as a development-tracking tool
-  for the agent itself; per [`docs/benchmark.md`](docs/benchmark.md).
+  for the agent itself. During definition development, unrecorded **trial
+  runs** score a feature branch in tuning cycles without touching the
+  official history; per [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
 [`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
