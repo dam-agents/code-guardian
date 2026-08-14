@@ -59,7 +59,8 @@ if one is impossible this week (missing data, API error), report it as
 ### B. Platform & schedules
 
 5. `mcp__platform-outbound__list_schedules`: the review heartbeat, the
-   shepherd sweep (when `slack_notifications: enabled`), and this audit job all
+   shepherd sweep (when `slack_notifications: enabled`), the monthly
+   benchmark (when `benchmark: enabled`), and this audit job all
    exist and are **enabled**, crons matching ONBOARDING Step 6.
    Missing/disabled → **fail** (a dead schedule is invisible to every other
    check — the heartbeat-gap check catches the past, this catches the future).

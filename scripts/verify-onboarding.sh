@@ -186,7 +186,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report escalation_owner stall_alert_threshold log_level"
+    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -413,7 +413,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews .gitignore .stall-alert-day .stall-alert.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews benchmark .gitignore .stall-alert-day .stall-alert.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

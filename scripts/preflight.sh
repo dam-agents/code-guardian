@@ -32,6 +32,9 @@
 #                             checks (auth, state consistency, log gaps/errors,
 #                             orphaned gists, disk, skills); the agent adds the
 #                             judgment checks and sends the report (docs/audit.md)
+#   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
+#                             `benchmark: enabled` and the monthly gate passes
+#                             (docs/benchmark.md); purely local, no API calls
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
@@ -99,6 +102,88 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 # GNU first; the BSD fallback needs -u or the trailing Z is read as local time
 iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
 
+# Every repo reference is `[<host>/]<owner>/<repo>`: three segments name the
+# host, two use the ambient default. DEFAULT_HOST is captured before GH_HOST is
+# re-exported in the config section, so each reference resolves independently.
+DEFAULT_HOST="${GH_HOST:-github.com}"
+refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
+refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+
+# ========================================================= BENCHMARK MODE ====
+# Purely local — deciding a benchmark run needs no GitHub call, so this block
+# sits before the target-repo resolution (whose last fallback is a gh call)
+# and the open-PR fetch: a disabled or gated benchmark tick never touches the
+# network, and a missing CONFIG degrades to nothing_to_do instead of a
+# resolution failure. The actions live in docs/benchmark.md: create_fixture
+# (set incomplete) and run (monthly). The scheduled cadence is monthly; the
+# 27-day floor keeps a drifting cron from double-running inside one calendar
+# month, and only `trigger: scheduled` results feed it — manual and trial
+# runs never move the official cadence.
+if [ "$MODE" = "benchmark" ]; then
+  bench_out() { # <nothing_to_do bool> <benchmark_due json | null>
+    printf '%s\n' "$NOW_ISO benchmark nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+    logev info heartbeat "mode=benchmark nothing_to_do=$1"
+    jq -n --argjson nothing "$1" --argjson due "$2" \
+      --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+      '{mode:"benchmark", nothing_to_do:$nothing, logs:$logs}
+       + (if $due == null then {} else {benchmark_due:$due} end)'
+    exit 0
+  }
+  BENCH="$(cfg benchmark)"
+  if [ "$BENCH" != "enabled" ]; then
+    log "benchmark disabled — nothing to do"
+    bench_out true null
+  fi
+  BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
+  # report surfaces: same host semantics as artifact_targets — gist renders
+  # through an external service that only reaches github.com, so it is
+  # dropped on any other target host (resolved without any gh fallback)
+  BENCH_REPORT="$(cfg benchmark_report)"; BENCH_REPORT="${BENCH_REPORT:-gist}"
+  BENCH_HOST="$(refhost "${GITHUB_REPO:-$(cfg github_repo)}")"
+  EFF_REPORT=""
+  for t in $(printf '%s' "$BENCH_REPORT" | tr ',' ' '); do
+    case "$t" in (off|'') continue;; esac
+    { [ "$t" = "gist" ] && [ "$BENCH_HOST" != "github.com" ]; } \
+      && { log "benchmark_report surface gist dropped (target host $BENCH_HOST)"; continue; }
+    EFF_REPORT="${EFF_REPORT:+$EFF_REPORT,}$t"
+  done
+  EFF_REPORT="${EFF_REPORT:-off}"
+  BENCH_DIR="$WORK/benchmark"
+  BENCH_MIN_FIXTURES=5
+  # the active set: every fixture/<slug>/ carrying a manifest (each immutable)
+  BENCH_SLUGS="$(for d in "$BENCH_DIR"/fixture/*/; do
+    [ -f "${d}manifest.json" ] || continue
+    d="${d%/}"; printf '%s\n' "${d##*/}"
+  done 2>/dev/null | sort)"
+  BENCH_SLUGS_JSON="$(printf '%s\n' "$BENCH_SLUGS" | jq -R . | jq -s '[.[] | select(length > 0)]')"
+  BENCH_COUNT="$(printf '%s' "$BENCH_SLUGS_JSON" | jq length)"
+  if [ "$BENCH_COUNT" -lt "$BENCH_MIN_FIXTURES" ]; then
+    log "benchmark enabled, fixture set incomplete ($BENCH_COUNT/$BENCH_MIN_FIXTURES) — create_fixture due"
+    bench_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
+      '{action:"create_fixture", existing:$e, min:$m}')"
+  fi
+  # monthly gate: newest scheduled run in the canonical results/*.json (the
+  # RESULTS.md index is presentation; manual/trial runs never feed the gate).
+  # Per-file tolerant load — one corrupt results file never erases the gate.
+  LAST_TS="$(for f in "$BENCH_DIR"/results/*.json; do
+               [ -f "$f" ] || continue
+               jq -c 'select(type == "object")' "$f" 2>/dev/null || true
+             done | jq -rs '[.[] | select(.trigger == "scheduled") | .ts // empty]
+                            | sort | last // empty')"
+  if [ -n "$LAST_TS" ]; then
+    BENCH_AGE_D=$(( (NOW_EPOCH - $(iso2epoch "$LAST_TS")) / 86400 ))
+    if [ "$BENCH_AGE_D" -lt 27 ]; then
+      log "benchmark ran ${BENCH_AGE_D}d ago (< 27d) — nothing to do"
+      bench_out true null
+    fi
+  fi
+  log "benchmark run due on $BENCH_COUNT fixture(s) (last scheduled run: ${LAST_TS:-never})"
+  bench_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
+    --arg j "$BENCH_JUDGE" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
+    '{action:"run", fixtures:$f, fixture_root:$r, judge:$j, report:$rep,
+      last_run:(if $l == "" then null else $l end)}')"
+fi
+
 # Is the session holding PR #<n>'s lock still working? Two local signals, no API
 # call: a `review_step … PR #<n> … locked` event identifies the holder's run id,
 # and any later event from that run proves it alive. Falls back to the newest
@@ -129,13 +214,6 @@ holder_alive() { # <pr-number> <lock-ts>
 }
 
 # ---------------------------------------------------------------- config ----
-# Every repo reference is `[<host>/]<owner>/<repo>`: three segments name the
-# host, two use the ambient default. DEFAULT_HOST is captured before GH_HOST is
-# re-exported below, so each reference resolves independently of the others.
-DEFAULT_HOST="${GH_HOST:-github.com}"
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
-
 TARGET_REF="${GITHUB_REPO:-$(cfg github_repo)}"
 [ -z "$TARGET_REF" ] && TARGET_REF="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
@@ -986,6 +1064,17 @@ if [ "$MODE" = "audit" ]; then
   done
   [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row" || check orphan_history ok "history files all match rows"
 
+  # benchmark hygiene: the official results history must never hold a trial
+  # run — trials live under trials/<id>/ only (docs/benchmark.md → Trial runs)
+  if [ -d "$WORK/benchmark/results" ]; then
+    tr_leak="$(grep -l '"trigger": *"trial"' "$WORK/benchmark/results"/*.json 2>/dev/null | head -3 | tr '\n' ' ')"
+    if [ -n "${tr_leak// /}" ]; then
+      check benchmark_hygiene fail "trial run(s) sitting in the official results/: $tr_leak— move them under trials/ per docs/benchmark.md"
+    else
+      check benchmark_hygiene ok "no trial runs in the official results history"
+    fi
+  fi
+
   drift=""; verified=0; unverifiable=0
   while IFS=$'\t' read -r n sha; do
     row="$(row_for "$n")"; [ -z "$row" ] && continue
@@ -1345,4 +1434,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark)"
