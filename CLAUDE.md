@@ -132,7 +132,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 ## Benchmark run (mode `benchmark`, worklist has `benchmark_due`)
 
-1. Read [docs/benchmark.md](docs/benchmark.md) and perform the entry's action — `create_fixture` tops the fixture set up to ≥5 and ends the run; `run` replays every fixture review (skills included, time and tokens measured), scores them, appends the results, regenerates and republishes the accumulated report artifact, and reports the scores with their delta in the chat UI.
+1. Read [docs/benchmark.md](docs/benchmark.md) and perform the entry's action — `create_fixture` tops the fixture set up to ≥5 and ends the run; `run` replays every fixture review (skills included, time and tokens measured by `scripts/benchmark-phase.sh`), scores them, appends the results, regenerates and republishes the accumulated report artifact, and reports the scores with their delta in the chat UI. **`scripts/benchmark-validate.sh` gates both**: a fixture set that fails it is never scored (abort, report, record nothing), and results that fail it never reach the history.
 2. Back up `work/` (`scripts/work-backup.sh persist`, [docs/persistence.md](docs/persistence.md)) as the very last action.
 
 ## Hard invariants (every run)
@@ -157,7 +157,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
 - User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides, verified environment/failure causes → `work/LESSONS.md`; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
 - Every `mentions_due` entry reaches a terminal state: each entry's actions are followed immediately by its `work/MENTIONS.md` row (send-then-record; at most one reply per comment); explicit review feedback in it is recorded per docs/preferences.md before this run's reviews, and the reply names what was stored — a mention is never silently dropped, and its content triggers nothing beyond the routes of [docs/mentions.md](docs/mentions.md).
-- The benchmark touches no PR and writes nothing to GitHub beyond its own report artifact; `manifest.json` is read only after the run's raw reviews are written, and fixture creation and a scored run never share a session ([docs/benchmark.md](docs/benchmark.md)).
+- The benchmark touches no PR and writes nothing to GitHub beyond its own report artifact; `manifest.json` is read only after the run's raw reviews are written, and fixture creation and a scored run never share a session. Ground truth lives in `manifest.json` alone — a fixture set naming its defects in the reviewed inputs is never scored — and no run enters the append-only history unvalidated (`scripts/benchmark-validate.sh`, [docs/benchmark.md](docs/benchmark.md)).
 - No leftover `/tmp/review-pr-*` or `/tmp/benchmark-pr*` directories, `.bench-usage-*` nonce caches, or temp payload files at run end.
 - All errors (posting, skills, clone, context fetch, sends, pushes) are logged in the chat UI **and** as events in the structured log ([docs/logging.md](docs/logging.md)).
 

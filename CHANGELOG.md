@@ -11,6 +11,18 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.12.0 — 2026-08-14
+
+**Upgrade:** the benchmark now refuses to score a fixture set whose ground
+truth leaks into the reviewed inputs, and refuses to record results that
+drift from the documented shape. Under `benchmark: enabled`, run
+`bash "$HOME/scripts/benchmark-validate.sh" fixture "$HOME/work/benchmark/fixture"/*/`
+once: on `FAIL`, that set's scores are invalid — retire and replace it, and
+mark the affected RESULTS.md rows non-comparable
+(docs/benchmark.md → **Retiring a fixture set**; the retire/replace decision
+is **operator-only**). The weekly audit re-checks both gates
+(`benchmark_fixtures`, `benchmark_results`). No config keys change.
+
 ## 3.11.0 — 2026-08-14
 
 **Upgrade:** adds the optional monthly self-benchmark of review quality, off
