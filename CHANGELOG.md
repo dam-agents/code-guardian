@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.12.1 — 2026-08-14
+
+**Upgrade:** Nothing — scripts and docs are re-read per run. A fixture set that
+already validated stays valid; the new anchor-spacing check only reports
+`manifest_spacing` failures on sets whose defects sit closer than 10 lines
+apart in one file, which `benchmark-validate.sh fixture` now names.
+
 ## 3.12.0 — 2026-08-14
 
 **Upgrade:** the benchmark now refuses to score a fixture set whose ground
