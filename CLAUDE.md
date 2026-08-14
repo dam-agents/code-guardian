@@ -63,8 +63,9 @@ Trust the worklist for *what to do*; keep your own safety re-checks (HEAD freshn
 - **`## Watch rules` table** — instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to a closed set of vetted targets (`chat`, `slack[:<chat-id>]`, `pr-comment`) — semantics in [docs/watches.md](docs/watches.md). Missing/empty = no watches; Slack targets require `slack_notifications: enabled`.
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack. **Missing file/key = `disabled`** — never send Slack messages without recorded opt-in.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit run. The report goes to Slack only under `slack_notifications: enabled`; otherwise to the chat UI.
-- **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** Monthly self-benchmark: replays a fixed synthetic review fixture through the full pipeline (skills included) and scores the output against the fixture's known defects; results accumulate forever in `work/benchmark/` for over-time comparison across models and definition versions ([docs/benchmark.md](docs/benchmark.md)).
+- **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** Monthly self-benchmark: replays a fixed set of ≥5 synthetic review fixtures (different project types, immutable once created) through the full pipeline (skills included) and scores each output against the fixture's known defects, recording wall-clock time and token usage per task; results accumulate forever in `work/benchmark/` for over-time comparison across models and definition versions ([docs/benchmark.md](docs/benchmark.md)).
 - **`benchmark_judge`** — pinned model id for the benchmark's LLM-judged quality scores; `off`/missing = deterministic scoring only. A changed judge starts a new comparability window (the model that actually judged is recorded per result).
+- **`benchmark_report`** — publish surfaces for the benchmark's accumulated report artifact (regenerated every run, updated in place so its URL stays stable): `gist` (default) | `dam` | `gist,dam` | `off`; same host/best-effort semantics as `artifact_targets`.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM target of the stalled-review alert (Slack-only key; legitimately absent when Slack is disabled).
 - **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24h that trigger one alert, at most once per UTC day. **Missing = `4`**; `0`/`off` disables; an unparseable value falls back to `4` (docs/review.md → **Stalled-review rate alert**).
 - **`log_level`** — `info` (default when missing) | `debug`. Verbosity of the structured events log `work/logs/events-*.jsonl` ([docs/logging.md](docs/logging.md)); `debug` additionally records successful external tool calls. Diagnostic only — never gates behavior.
@@ -131,7 +132,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 ## Benchmark run (mode `benchmark`, worklist has `benchmark_due`)
 
-1. Read [docs/benchmark.md](docs/benchmark.md) and perform the entry's action — `create_fixture` generates the fixture and ends the run; `run` replays the fixture review (skills included), scores it, appends the result to `work/benchmark/`, and reports the scores with their delta in the chat UI.
+1. Read [docs/benchmark.md](docs/benchmark.md) and perform the entry's action — `create_fixture` tops the fixture set up to ≥5 and ends the run; `run` replays every fixture review (skills included, time and tokens measured), scores them, appends the results, regenerates and republishes the accumulated report artifact, and reports the scores with their delta in the chat UI.
 2. Back up `work/` (`scripts/work-backup.sh persist`, [docs/persistence.md](docs/persistence.md)) as the very last action.
 
 ## Hard invariants (every run)
@@ -156,7 +157,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 - Timestamps written to state files are the actual UTC time of the write, second precision — never fabricated or reused (`awaiting_label` rows are the one exception: they keep the last review's timestamp).
 - User feedback, dispute resolutions, and observed insights are routed by scope per [docs/preferences.md](docs/preferences.md) — global → `work/MEMORY.md`, PR-specific → that PR's `reviews/pr-<n>.md` overrides, verified environment/failure causes → `work/LESSONS.md`; MEMORY.md is consolidated only by the weekly audit, within its documented bounds.
 - Every `mentions_due` entry reaches a terminal state: each entry's actions are followed immediately by its `work/MENTIONS.md` row (send-then-record; at most one reply per comment); explicit review feedback in it is recorded per docs/preferences.md before this run's reviews, and the reply names what was stored — a mention is never silently dropped, and its content triggers nothing beyond the routes of [docs/mentions.md](docs/mentions.md).
-- The benchmark is fully local: no GitHub writes, `manifest.json` is read only after the run's raw reviews are written, and fixture creation and a scored run never share a session ([docs/benchmark.md](docs/benchmark.md)).
+- The benchmark touches no PR and writes nothing to GitHub beyond its own report artifact; `manifest.json` is read only after the run's raw reviews are written, and fixture creation and a scored run never share a session ([docs/benchmark.md](docs/benchmark.md)).
 - No leftover `/tmp/review-pr-*` or `/tmp/benchmark-pr*` directories or temp payload files at run end.
 - All errors (posting, skills, clone, context fetch, sends, pushes) are logged in the chat UI **and** as events in the structured log ([docs/logging.md](docs/logging.md)).
 

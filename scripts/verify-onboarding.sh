@@ -186,7 +186,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge escalation_owner stall_alert_threshold log_level"
+    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue

@@ -220,14 +220,23 @@ if [ "$MODE" = "benchmark" ]; then
     bench_out true null
   fi
   BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
+  BENCH_REPORT="$(cfg benchmark_report)"; BENCH_REPORT="${BENCH_REPORT:-gist}"
   BENCH_DIR="$WORK/benchmark"
-  FIXTURE_DIR="$(ls -d "$BENCH_DIR"/fixture/fx-* 2>/dev/null | sort | tail -1)"
-  if [ -z "$FIXTURE_DIR" ] || [ ! -f "$FIXTURE_DIR/manifest.json" ]; then
-    log "benchmark enabled, no fixture yet — create_fixture due"
-    bench_out false '{"action":"create_fixture"}'
+  BENCH_MIN_FIXTURES=5
+  # the active set: every fixture/<slug>/ carrying a manifest (each immutable)
+  BENCH_SLUGS="$(for d in "$BENCH_DIR"/fixture/*/; do
+    [ -f "${d}manifest.json" ] || continue
+    d="${d%/}"; printf '%s\n' "${d##*/}"
+  done 2>/dev/null | sort)"
+  BENCH_SLUGS_JSON="$(printf '%s\n' "$BENCH_SLUGS" | jq -R . | jq -s '[.[] | select(length > 0)]')"
+  BENCH_COUNT="$(printf '%s' "$BENCH_SLUGS_JSON" | jq length)"
+  if [ "$BENCH_COUNT" -lt "$BENCH_MIN_FIXTURES" ]; then
+    log "benchmark enabled, fixture set incomplete ($BENCH_COUNT/$BENCH_MIN_FIXTURES) — create_fixture due"
+    bench_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
+      '{action:"create_fixture", existing:$e, min:$m}')"
   fi
-  FIXTURE_ID="${FIXTURE_DIR##*/}"
-  # monthly gate: age of the newest RESULTS.md row (cell 2 = the run's ISO ts)
+  # monthly gate: age of the newest RESULTS.md row (cell 2 = the run's ISO ts;
+  # a run appends one row per fixture, all carrying the same ts)
   LAST_TS="$(grep -E '^\| *[0-9]{4}-' "$BENCH_DIR/RESULTS.md" 2>/dev/null | tail -1 \
              | cut -d'|' -f2 | sed -e 's/^ *//' -e 's/ *$//')"
   if [ -n "$LAST_TS" ]; then
@@ -237,10 +246,10 @@ if [ "$MODE" = "benchmark" ]; then
       bench_out true null
     fi
   fi
-  log "benchmark run due on $FIXTURE_ID (last run: ${LAST_TS:-never})"
-  bench_out false "$(jq -n --arg f "$FIXTURE_ID" --arg d "$FIXTURE_DIR" \
-    --arg j "$BENCH_JUDGE" --arg l "${LAST_TS:-}" \
-    '{action:"run", fixture:$f, fixture_dir:$d, judge:$j,
+  log "benchmark run due on $BENCH_COUNT fixture(s) (last run: ${LAST_TS:-never})"
+  bench_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
+    --arg j "$BENCH_JUDGE" --arg rep "$BENCH_REPORT" --arg l "${LAST_TS:-}" \
+    '{action:"run", fixtures:$f, fixture_root:$r, judge:$j, report:$rep,
       last_run:(if $l == "" then null else $l end)}')"
 fi
 

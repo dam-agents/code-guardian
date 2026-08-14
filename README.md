@@ -64,16 +64,21 @@ of it per the `docs/` procedures:
   the chat UI — per [`docs/audit.md`](docs/audit.md). Gated by the
   `audit_report` config key (default `enabled`).
 - **Model benchmark** (default the 1st of the month; exists only when the
-  `benchmark` key was enabled): the agent replays a fixed synthetic review
-  task — a fixture generated once from the repo's stack and the configured
-  skills, with seeded defects of known place and severity — through its full
-  review pipeline, then scores the output deterministically
+  `benchmark` key was enabled): the agent replays a fixed set of **at least
+  five synthetic review tasks** — fixtures of different project types,
+  generated once from the repo's stack and the configured skills, each with
+  seeded defects of known place and severity — through its full review
+  pipeline, measuring wall-clock time and token usage per review, then
+  scores each output deterministically
   ([`scripts/benchmark-score.sh`](scripts/benchmark-score.sh): finding
   recall/precision, severity accuracy, format compliance, length, plus an
   optional pinned-model judge) against the fixture's manifest, including a
   re-review pass that measures fixed/still/new detection. Every result is
-  kept forever in `work/benchmark/`, so review quality is comparable across
-  model upgrades and definition versions — per
+  kept forever in `work/benchmark/`, and each run regenerates and
+  republishes an accumulated report artifact
+  ([`scripts/benchmark-report.sh`](scripts/benchmark-report.sh) — the
+  complete runs × fixtures comparison table at a stable URL), so review
+  quality is comparable across model upgrades and definition versions — per
   [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
@@ -197,8 +202,9 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, evaluated during reviews and delivered to vetted targets — chat UI, a Slack channel, or a comment on the PR (`docs/watches.md`). Keeps team-specific triggers and channels out of this public definition — rules are private runtime state. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (PR Shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check + report (Slack when enabled, chat UI otherwise). |
-| `benchmark` | asked (default: off, key omitted) | Monthly self-benchmark of the review pipeline on a synthetic fixture with known defects; every result kept in `work/benchmark/` for over-time comparison (`docs/benchmark.md`). |
+| `benchmark` | asked (default: off, key omitted) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures (different project types) with known defects, time and tokens measured per review; every result kept in `work/benchmark/` for over-time comparison (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the benchmark's LLM-judged quality scores; `off` = deterministic scoring only. |
+| `benchmark_report` | asked with `benchmark` (default `gist`) | Surfaces for the benchmark's accumulated report artifact, updated in place at a stable URL every run: `gist`, `dam`, `gist,dam`, or `off`. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
 
