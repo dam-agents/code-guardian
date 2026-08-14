@@ -33,7 +33,12 @@
 #   late_finds             v1 defects outside the prior review reported as new
 #                          now (read together with the first run's recall —
 #                          a consistency signal, not an error by itself)
-#   new_fp                 unmatched blocking "new" predictions
+#   churn                  blocking "new" predictions sitting on a fix site
+#                          (manifest fix_line_v2 of a fixed defect, ±3) — the
+#                          review flags the very fix the prior review asked
+#                          for: the going-in-circles signal. Disjoint from
+#                          new_fp.
+#   new_fp                 blocking "new" predictions matching nothing at all
 #
 # both modes:
 #   format  {findings_json, marker, sections, fix_lines, verdict,
@@ -186,6 +191,8 @@ else
     | ($fj | map(select(.status == "fixed"))) as $pF
     | ($fj | map(select(.status == "still"))) as $pS
     | ($fj | map(select(.status == "new")))   as $pN
+    | ($d | map(select(.fixed_in_v2 == true and (.fix_line_v2 // null) != null)
+                | {file, line_v1: null, line_v2: .fix_line_v2}))              as $fixSites
     | bmatch($fixedGT; $pF; true)  as $mf
     | bmatch($stillGT; $pS; false) as $ms
     | bmatch($newGT;   $pN; false) as $mn
@@ -193,9 +200,9 @@ else
            | map(select(.key as $k | ($mn.used | index($k)) == null) | .value)) as $restN
     | bmatch($lateGT; $restN; false) as $ml
     | ($restN | to_entries
-              | map(select(.key as $k | ($ml.used | index($k)) == null) | .value)
-              | map(select(.severity == "critical" or .severity == "warning"))
-              | length) as $newfp
+              | map(select(.key as $k | ($ml.used | index($k)) == null) | .value)) as $restN2
+    | bmatch($fixSites; ($restN2 | map(select(.severity == "critical" or .severity == "warning"))); false) as $mc
+    | ($restN2 | map(select(.severity == "critical" or .severity == "warning")) | length) as $blockrest
     | {fixed_gt: ($fixedGT | length), still_gt: ($stillGT | length),
        new_gt: ($newGT | length),
        fixed_recall: (frac($mf.hit; $fixedGT | length) | r3),
@@ -203,7 +210,8 @@ else
        new_recall:   (frac($mn.hit; $newGT   | length) | r3),
        false_fixed: (bmatch($stillGT; $pF; true) | .hit),
        late_finds: $ml.hit,
-       new_fp: $newfp}')"
+       churn: $mc.hit,
+       new_fp: ($blockrest - $mc.hit)}')"
 fi
 
 # ------------------------------------------------------------- assembly ----

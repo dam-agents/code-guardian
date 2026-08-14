@@ -30,6 +30,15 @@ else printf 'FAIL %s: run count missing\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<td class=n>0.66</td>'; then
   printf 'ok   %s: run 1 avg f1 across fixtures\n' "$CASE"
 else printf 'FAIL %s: run 1 avg f1 wrong\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<td class=n><b>0.762</b></td>'; then
+  printf 'ok   %s: run 1 quality index is the baseline (no delta)\n' "$CASE"
+else printf 'FAIL %s: run 1 index wrong\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<b>0.935</b> (+0.173)'; then
+  printf 'ok   %s: run 2 index carries the delta vs run 1\n' "$CASE"
+else printf 'FAIL %s: run 2 index delta wrong\n' "$CASE"; FAILED=1; fi
+if printf '%s' "$OUT" | grep -q '<th>churn</th>'; then
+  printf 'ok   %s: per-fixture tables carry the churn column\n' "$CASE"
+else printf 'FAIL %s: churn column missing\n' "$CASE"; FAILED=1; fi
 if printf '%s' "$OUT" | grep -q '<td class=n>66000</td>'; then
   printf 'ok   %s: run 1 output tokens summed\n' "$CASE"
 else printf 'FAIL %s: token sum wrong\n' "$CASE"; FAILED=1; fi

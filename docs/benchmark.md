@@ -66,7 +66,9 @@ ones are immutable and stay as they are.
    config), and a docs-heavy mixed change — in the languages of the target
    repo, and so that every extension-triggered skill receives ≥ 1 file from
    ≥ 1 fixture. Name each slug after its type (`ts-api`, `react-ui`,
-   `py-cli`, `infra-ci`, `docs-mixed`).
+   `py-cli`, `infra-ci`, `docs-mixed`). When the skill table later gains an
+   extension trigger no fixture covers, add a fixture for it the same way
+   (the set grows past 5; existing fixtures stay untouched).
 2. Generate each `fixture/<slug>/`: `base/` = 3–6 plausible source files,
    ~150–400 lines total; `head-v1/` = base plus 10–14 seeded defects
    (severities `critical`/`warning`, spread across correctness / security /
@@ -104,7 +106,9 @@ ones are immutable and stay as they are.
 ```
 
 Per defect: kept in v2 → both lines set, `fixed_in_v2: false`; fixed in v2 →
-`line_v2: null`, `fixed_in_v2: true`; introduced in v2 → `line_v1: null`.
+`line_v2: null`, `fixed_in_v2: true`, plus **`fix_line_v2`** — the line the
+fix landed on in `head-v2` (the scorer's `churn` metric matches re-flagged
+fixes against it); introduced in v2 → `line_v1: null`.
 
 ## Running the benchmark (`action: run`, or operator ask)
 
@@ -173,12 +177,21 @@ Loop over the slugs sequentially; for each fixture:
 6. **Judge** (when `judge` is a model id): one subagent per raw review,
    pinned to that model when the harness supports a per-agent model
    override, else the session model — record what actually judged as
-   `judge_model_used`. Input: the raw review, the fixture's manifest, and
-   the scorer's tp/fp/fn. Output, integers 1–5 plus a one-line `notes`:
+   `judge_model_used`. Input: the raw review, the fixture's manifest
+   (defect `class` included), and the scorer's tp/fp/fn. Output, integers
+   1–5 plus a one-line `notes`:
    `finding_accuracy` (do TP descriptions state the real defect?),
+   `category_accuracy` (does each TP describe the defect as its manifest
+   `class` — a security issue named as security, not as style?),
    `fix_quality` (does each Fix line resolve its class?),
    `fp_defensibility` (are FPs defensible readings or fabrications?),
+   `clarity` (would the author know what to change and why without reading
+   the diff again — structure, ordering, no filler?),
    `language` (STE: short sentences, active voice, one term per concept).
+   Re-review judges additionally receive `prior-review.md` and score
+   `loop_risk` (5 = no circling: fixes acknowledged, never re-flagged or
+   asked to be reverted; reads the scorer's `churn`/`false_fixed` as
+   evidence).
 7. Assemble `results/<ts>.json` (schema below) and append one RESULTS.md row
    per fixture. Three fields exist for tracking the agent's own development
    across runs — fill them now (ground truth is already open):
@@ -203,6 +216,16 @@ Loop over the slugs sequentially; for each fixture:
    - `harness_version` — `claude --version 2>/dev/null | head -1` as printed
      (null when unavailable), so a harness-side behavior change is visible
      next to the model.
+
+   Two more provenance fields pin the run's *inputs* — review output also
+   depends on the live memory and the installed skill versions, and both
+   drift between runs; recording them keeps a score change attributable:
+   - `memory_sha` — `git hash-object "$HOME/work/MEMORY.md"` (null when the
+     file is missing).
+   - `skill_sources` — per configured repo-sourced skill, the short source
+     SHA from the install cache:
+     `head -c 12 "$HOME/.claude/skills/.cache/<skill>.sha"` (skip skills
+     with no cache entry).
 8. **Regenerate and republish the accumulated report** — the always-current
    artifact holding every run and the complete comparison table:
 
@@ -229,9 +252,13 @@ Loop over the slugs sequentially; for each fixture:
      and skip, never fail the run.
    A failed publish is logged; the local `report.html` is always current
    regardless.
-9. Report to the chat UI: per-fixture headline scores, run totals (seconds,
-   output tokens), the delta against the previous run (first run:
-   "baseline"), and the report URL when published.
+9. Report to the chat UI: the run's **quality index** with its delta against
+   the previous run (the report script's weighted index — components and
+   weights in [benchmark-report.sh](../scripts/benchmark-report.sh)'s
+   header), per-fixture headline scores, run totals (seconds, output
+   tokens) with their deltas, any non-zero `churn`/`false_fixed` called out
+   by name (the going-in-circles signals), and the report URL when
+   published. First run: "baseline".
 10. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
     `.s-*` variants) and temp payload files; log
     `benchmark run scored (avg f1=<x> over <n> fixtures)`; back up `work/`
@@ -245,6 +272,8 @@ Loop over the slugs sequentially; for each fixture:
  "definition_version": "<head -1 $HOME/VERSION>",
  "prev_version": "<definition_version of the previous run, or null>",
  "changes_since_prev": ["<release-commit subject>", "..."],
+ "memory_sha": "<git hash-object of work/MEMORY.md, or null>",
+ "skill_sources": {"<skill>": "<12-char source sha>"},
  "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
  "fixtures": {
    "<slug>": {

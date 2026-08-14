@@ -8,7 +8,7 @@ SCORE="$REPO_ROOT/scripts/benchmark-score.sh"
 write_manifest() {
   cat > "$SANDBOX/manifest.json" <<'EOF'
 {"fixture":"fx-test","created":"2026-08-01T00:00:00Z","defects":[
- {"id":"D01","file":"src/auth.ts","line_v1":42,"line_v2":null,"class":"security","severity":"critical","summary":"token ==","fixed_in_v2":true,"in_prior_review":true},
+ {"id":"D01","file":"src/auth.ts","line_v1":42,"line_v2":null,"fix_line_v2":42,"class":"security","severity":"critical","summary":"token ==","fixed_in_v2":true,"in_prior_review":true},
  {"id":"D02","file":"src/auth.ts","line_v1":60,"line_v2":58,"class":"correctness","severity":"warning","summary":"off by one","fixed_in_v2":false,"in_prior_review":true},
  {"id":"D03","file":"src/db.ts","line_v1":10,"line_v2":10,"class":"performance","severity":"warning","summary":"n+1","fixed_in_v2":false,"in_prior_review":false},
  {"id":"D04","file":"src/db.ts","line_v1":null,"line_v2":30,"class":"correctness","severity":"critical","summary":"null deref","fixed_in_v2":false,"in_prior_review":false}
@@ -92,7 +92,7 @@ Previous HEAD: aaaaaaa — verdict REQUEST_CHANGES
 ### Verdict
 REQUEST_CHANGES — one critical finding is open.
 
-<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/auth.ts","line":42,"inline":false,"summary":"token ==","fix":null},{"status":"still","severity":"warning","file":"src/auth.ts","line":58,"inline":false,"summary":"off by one","fix":"fix the bound"},{"status":"new","severity":"critical","file":"src/db.ts","line":31,"inline":true,"summary":"null deref","fix":"guard the null"},{"status":"new","severity":"warning","file":"src/db.ts","line":10,"inline":true,"summary":"n+1","fix":"batch the lookup"},{"status":"new","severity":"warning","file":"src/other.ts","line":99,"inline":false,"summary":"invented","fix":"whatever"}] -->
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/auth.ts","line":42,"inline":false,"summary":"token ==","fix":null},{"status":"still","severity":"warning","file":"src/auth.ts","line":58,"inline":false,"summary":"off by one","fix":"fix the bound"},{"status":"new","severity":"critical","file":"src/db.ts","line":31,"inline":true,"summary":"null deref","fix":"guard the null"},{"status":"new","severity":"warning","file":"src/db.ts","line":10,"inline":true,"summary":"n+1","fix":"batch the lookup"},{"status":"new","severity":"warning","file":"src/auth.ts","line":43,"inline":true,"summary":"constant-time compare is slow","fix":"revert to =="},{"status":"new","severity":"warning","file":"src/other.ts","line":99,"inline":false,"summary":"invented","fix":"whatever"}] -->
 <!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
 EOF
 run_score rereview "$SANDBOX/re.md"
@@ -100,7 +100,8 @@ assert_jq '.fixed_gt == 1 and .still_gt == 1 and .new_gt == 1' 'ground-truth buc
 assert_jq '.fixed_recall == 1 and .still_recall == 1 and .new_recall == 1' 'all buckets matched'
 assert_jq '.false_fixed == 0' 'no kept defect reported fixed'
 assert_jq '.late_finds == 1' 'the v1 defect outside the prior review is a late find'
-assert_jq '.new_fp == 1' 'the invented new finding is an FP'
+assert_jq '.churn == 1' 'a blocking finding on a fix site is churn (going in circles)'
+assert_jq '.new_fp == 1' 'the invented new finding is an FP, disjoint from churn'
 assert_jq '.format.delta_section == true' 'the delta section is present'
 
 new_case score_false_fixed
