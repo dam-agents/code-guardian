@@ -22,8 +22,8 @@ rc_comment() { # <id> <author> <type> <body> <pr-number> <in_reply_to|null>
       created_at:"2026-08-07T09:05:00Z", html_url:("https://example.test/rc/"+($id|tostring)),
       pull_request_url:("https://api.github.com/repos/acme/widgets/pulls/"+($n|tostring))}'
 }
-ic_fx() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$MS&per_page=100"; }
-rc_fx() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100"; }
+ic_fx() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$MS&per_page=100&sort=created&direction=desc"; }
+rc_fx() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=created&direction=desc"; }
 
 # --- @-mention in an issue comment → mentions_due -----------------------------
 new_case mention_due
@@ -86,5 +86,18 @@ base_config '- mention_replies: disabled'
 ic_comment 101 alice User "@test-bot ping" 7 | ic_fx
 run_preflight review
 assert_jq '.nothing_to_do == true' 'disabled key turns the scan off'
+
+# --- page cap: the scan asks newest-first, so a full page keeps fresh mentions -
+# The fixture key encodes the query string: it resolves only when the request
+# carries sort=created&direction=desc. An ascending scan on a repo whose window
+# holds more than 100 comments never reaches the newest ones.
+new_case mention_page_cap_newest_first
+base_config
+{ for i in $(seq 1 99); do ic_comment "$((400+i))" carol User "ordinary chatter $i" 7; done
+  ic_comment 999 alice User "@test-bot please look at this" 7; } | ic_fx
+run_preflight review
+assert_jq '.mentions_due | length == 1' 'mention on a full page is still found'
+assert_jq '.mentions_due[0].comment_id == 999' 'the newest-first page carries the mention'
+assert_jq '.logs | any(test("issue-comment page cap"))' 'the cap is reported'
 
 finish

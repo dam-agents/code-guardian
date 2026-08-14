@@ -520,8 +520,9 @@ if [ "$MODE" = "review" ]; then
   # Human comments addressed to the bot: an @-mention anywhere in the repo's
   # PR/issue comments, or a reply inside an inline review thread rooted by a
   # bot comment. Repo-wide scan, 7-day window (2 GET calls, day-rounded so the
-  # window is cache/test-stable); work/MENTIONS.md rows are the dedup — the
-  # agent appends a row before acting (docs/mentions.md).
+  # window is cache/test-stable, newest-first so the page cap drops the oldest);
+  # work/MENTIONS.md rows are the dedup — the agent appends a row before acting
+  # (docs/mentions.md).
   MENTION_REPLIES="$(cfg mention_replies)"; MENTION_REPLIES="${MENTION_REPLIES:-enabled}"
   if [ "$MENTION_REPLIES" = "enabled" ] && [ -z "$BOT_LOGIN" ]; then
     log "bot_login missing — mention handling disabled this run"
@@ -531,14 +532,17 @@ if [ "$MODE" = "review" ]; then
     MSINCE="$(date -u -d "@$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null \
               || date -u -r "$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null)T00:00:00Z"
     mention_seen() { grep -qE "^\| *$1 *\|" "$WORK/MENTIONS.md" 2>/dev/null; }
-    IC="$(gh api "repos/$REPO/issues/comments?since=$MSINCE&per_page=100" 2>/dev/null)"
-    RC="$(gh api "repos/$REPO/pulls/comments?since=$MSINCE&per_page=100" 2>/dev/null)"
+    # newest-first: on a busy repo the window holds more than one page, and the
+    # cap must drop the oldest comments (already answered, or aged out) rather
+    # than the newest ones — ascending order starves fresh mentions forever.
+    IC="$(gh api "repos/$REPO/issues/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    RC="$(gh api "repos/$REPO/pulls/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
     { printf '%s' "$IC" | jq -e 'type=="array"' >/dev/null 2>&1; } || IC='[]'
     { printf '%s' "$RC" | jq -e 'type=="array"' >/dev/null 2>&1; } || RC='[]'
     [ "$(printf '%s' "$IC" | jq length)" -eq 100 ] \
-      && log "mention scan: issue-comment page cap (100) hit — the rest waits for the sliding window"
+      && log "mention scan: issue-comment page cap (100) hit — scanned the newest 100 in the window"
     [ "$(printf '%s' "$RC" | jq length)" -eq 100 ] \
-      && log "mention scan: review-comment page cap (100) hit — the rest waits for the sliding window"
+      && log "mention scan: review-comment page cap (100) hit — scanned the newest 100 in the window"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
     CAND="$(jq -n --argjson ic "$IC" --argjson rc "$RC" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
       [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
