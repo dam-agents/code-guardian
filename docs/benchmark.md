@@ -27,6 +27,7 @@ fixture/<slug>/          # one benchmark project (immutable once created); the s
   diff-v1-v2.patch       # head-v1 → head-v2
 results/<ts>.json        # one scored run, all fixtures (ts = YYYYMMDDTHHMMSSZ, UTC)
 results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
+.run-notes-<ts>.md       # segmented-run ledger (Segmented run below); absent otherwise
 RESULTS.md               # append-only index — one row per run × fixture, newest last
 report.html              # the accumulated report, regenerated every run (script below);
                          # self-contained and interactive client-side — every table
@@ -262,7 +263,10 @@ Then loop over the slugs sequentially; for each fixture:
    verbatim — plus `suppressed`, the count from the review's suppression
    audit note (docs/review.md → PR context; 0 when none): a memory
    preference that suppresses a seeded defect is a scoring confound, and
-   this field is what makes it visible.
+   this field is what makes it visible. A preference scoped to the target
+   repository (a repo convention, a CI-enforced rule) is **not applied** to
+   fixtures; findings withheld under one count into `suppressed` the same
+   way.
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
@@ -403,6 +407,42 @@ Append one row per fixture per run (create the file with this header when
 missing; the publish markers are added when the first publish succeeds):
 `| <ISO> | <model> | <definition_version> | <slug> | <trigger> | <first.f1> | <first.severity_accuracy> | <rereview.fixed_recall> | <rereview.new_recall> | <first.length.words_total> | <first.seconds + rereview.seconds> | <summed tokens.output or —> |`
 
+## Segmented run (operator, direct session)
+
+A manual run may be split into segments — **one fixture per session** — when
+one session cannot give every fixture the same review depth (a baseline with
+a depth gradient across fixtures measures the context budget, not the
+configuration). Operator-triggered only; a scheduled run is never segmented.
+
+- **One identity across segments**: segment 1 takes the run's `TS` +
+  `trigger` and creates the ledger
+  `$HOME/work/benchmark/.run-notes-<TS>.md`, recording the adopted
+  definition version and, per measured fixture, the phase-helper
+  `seconds`/`tokens`/`suppressed` verbatim. The ledger is the single source
+  of truth for what is done; raw reviews and skill archives are written per
+  segment exactly as in a single-session run.
+- **Each segment**: verify the adopted definition version still matches the
+  ledger (drift → stop and report; never mix versions inside one run), take
+  the run lock, run Phase 1 for exactly **one** unmeasured fixture (skill
+  install/refresh included, its own printed nonce), append the fixture's
+  numbers to the ledger, clean the segment's `/tmp` trees / phase state /
+  nonce cache, **release the lock**, back up `work/`. Never re-run a
+  fixture the ledger lists as measured; a measured fixture with missing raw
+  files → stop and report.
+- **Final segment**: the ledger shows every fixture measured → continue in
+  the same session with Phase 2 unchanged (score → validate → RESULTS.md →
+  report → publish), recording the ledger's numbers verbatim; the cleanup
+  step additionally deletes the ledger (superseded by `results/<TS>.json`;
+  the backup keeps its history).
+- **Between segments** the lock is released and the ledger marks the run
+  live: preflight's benchmark mode emits `nothing_to_do` while any
+  `.run-notes-*.md` is younger than **7 days**, so a scheduled tick never
+  starts a second run mid-pause. An older ledger is an abandoned run — the
+  tick is emitted over it and the ledger is reported, not deleted (operator
+  decides).
+- Session separation holds unchanged: `manifest.json` is read only in the
+  final segment, after that segment's raw reviews are written.
+
 ## Retiring a fixture set (operator decision, direct session)
 
 A fixture is immutable, so a set that turns out invalid — validation fails,
@@ -475,7 +515,8 @@ baseline stays clean while a PR is tuned in cycles — run, adjust, run again.
   run still lands on the 1st even after a mid-month manual run, so the
   official monthly series stays unbroken. To benchmark a specific model, the
   operator switches the session model first — a run measures the session it
-  runs in.
+  runs in. On request the run is split one-fixture-per-session
+  (**Segmented run**).
 - "Show benchmark results" → read `RESULTS.md` / `report.html` (and
   `results/*.json` for detail) and summarize the trend; reading results is
   free of the session separation rule when no `run` follows in the same

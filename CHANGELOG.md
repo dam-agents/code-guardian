@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.13.0 — 2026-08-16
+
+**Upgrade:** Nothing — scripts and docs are re-read per run. A manual
+benchmark run may now be segmented one-fixture-per-session
+([docs/benchmark.md](docs/benchmark.md) → **Segmented run**); a paused
+segmented run is marked by `work/benchmark/.run-notes-<ts>.md`, which gates
+scheduled benchmark ticks until it finishes or ages past 7 days.
+
 ## 3.12.2 — 2026-08-14
 
 **Upgrade:** Nothing — scripts and docs are re-read per run. A scored
