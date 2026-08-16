@@ -98,6 +98,24 @@ run_preflight benchmark
 assert_jq '.benchmark_due.action == "run"' 'a stale lock does not block forever'
 assert_jq '.logs | any(contains("stale benchmark run lock"))' 'the takeover is logged'
 
+new_case benchmark_segmented_ledger_gates
+base_config '- benchmark: enabled'
+seed_full_set
+mkdir -p "$WORK/benchmark"
+touch "$WORK/benchmark/.run-notes-20260816T190527Z.md"   # fresh — run paused between segments
+run_preflight benchmark
+assert_jq '.nothing_to_do == true' 'a fresh segmented-run ledger gates the tick'
+assert_jq '.logs | any(contains("segmented benchmark run in progress"))' 'the pause is named in the logs'
+
+new_case benchmark_abandoned_ledger_overridden
+base_config '- benchmark: enabled'
+seed_full_set
+mkdir -p "$WORK/benchmark"
+touch -t 202601010000 "$WORK/benchmark/.run-notes-20260101T000000Z.md"   # >7d — abandoned
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run"' 'an abandoned ledger does not gate forever'
+assert_jq '.logs | any(contains("stale segmented-run notes"))' 'the staleness is logged'
+
 new_case benchmark_monthly_gate_holds
 base_config '- benchmark: enabled'
 seed_full_set

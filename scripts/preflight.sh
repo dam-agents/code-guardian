@@ -183,6 +183,19 @@ if [ "$MODE" = "benchmark" ]; then
     log "stale benchmark run lock (${BENCH_LOCK_AGE_M}m ≥ ${BENCH_LOCK_TTL_MIN}m) — emitting run over it"
   fi
 
+  # segmented-run ledger (docs/benchmark.md → Segmented run): a manual run
+  # paused between one-fixture segments holds no lock, so the ledger is what
+  # keeps a scheduled tick from starting a second run mid-pause. Past 7 days
+  # the run counts as abandoned and the tick is emitted over it.
+  for rn in "$BENCH_DIR"/.run-notes-*.md; do
+    [ -f "$rn" ] || continue
+    if [ -n "$(find "$rn" -maxdepth 0 -mtime -7 2>/dev/null)" ]; then
+      log "segmented benchmark run in progress ($(basename "$rn")) — nothing to do"
+      bench_out true null
+    fi
+    log "stale segmented-run notes ($(basename "$rn"), >7d) — emitting run over it"
+  done
+
   # monthly gate: newest scheduled run in the canonical results/*.json (the
   # RESULTS.md index is presentation; manual/trial runs never feed the gate).
   # Per-file tolerant load — one corrupt results file never erases the gate.
