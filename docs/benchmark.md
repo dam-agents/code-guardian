@@ -219,7 +219,21 @@ provenance stays complete. A configured extension skill that routes zero
 files across **all** fixtures is named in the run's chat summary as missing
 fixture coverage (the operator tops the set up per fixture creation).
 
-Then loop over the slugs sequentially; for each fixture:
+Review execution is **delegated**: each phase's review is composed by a
+fresh reviewer subagent (the same mechanism the skill fan-out uses), while
+the session only orchestrates — builds trees, runs fan-outs, brackets
+phases, and collects paths and counts. It never loads fixture sources,
+diffs, skill outputs, or review bodies; that is what lets one session hold
+every fixture at full depth, and it mirrors production, where every review
+starts from a fresh context. Subagent usage lands in the session
+transcript, so the phase helper's token deltas cover it unchanged. On a
+harness without subagents, review inline and fall back to **Segmented run**
+when depth would degrade.
+
+Then loop over the slugs sequentially — fixtures and phases never run
+concurrently (`benchmark-phase.sh` refuses an overlapping `begin`: the
+token delta spans the whole session, so parallel phases would absorb each
+other's usage, and contention would distort `seconds`). For each fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`; `work/` is NFS
    — docs/persistence.md):
@@ -238,27 +252,34 @@ Then loop over the slugs sequentially; for each fixture:
    ```
 
 2. **First review** — bracket it with `benchmark-phase.sh begin/end
-   "$PSTATE" "<slug>-first"`: perform docs/review.md steps c–d and the
-   docs/skills.md fan-out **as written there**, with the benchmark
-   substitutions: diff = `diff-v1.patch`, PR context = `pr.json`
-   (title/body/author), working tree = `$PR_DIR` with base branch `main`,
-   and the changed-file list that routes extension triggers =
-   `git -C "$PR_DIR" diff --name-only main..pr` (the benchmark's equivalent
-   of the production `gh pr diff` list). Compose the **first-review Output
-   format** with the marker line at `head_sha_v1` and its findings-json, and
-   write it verbatim to `results/raw/<ts>-<slug>-first.md` — nothing is
-   posted. Archive the skill outputs beside it:
+   "$PSTATE" "<slug>-first"`. Inside the bracket: run the docs/skills.md
+   fan-out from the session (outputs in `$PR_DIR.out`; routing list =
+   `git -C "$PR_DIR" diff --name-only main..pr`, the benchmark's equivalent
+   of the production `gh pr diff` list), then spawn **one fresh reviewer
+   subagent** whose prompt carries: perform docs/review.md steps c–d
+   reading `work/MEMORY.md` + `work/LESSONS.md`, with diff =
+   `diff-v1.patch`, PR context = `pr.json` (title/body/author), working
+   tree = `$PR_DIR` with base branch `main`, skill outputs = `$PR_DIR.out`,
+   and marker SHA = `head_sha_v1`. The subagent composes the **first-review
+   Output format** with its findings-json and itself writes it verbatim to
+   `results/raw/<ts>-<slug>-first.md` — nothing is posted — returning only
+   the path and finding counts. Never pass it `manifest.json`, past
+   results, or anything ground-truth-adjacent. Archive the skill outputs
+   beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
    (when the fan-out ran).
 3. **Re-review** — bracket it the same way (`"<slug>-rereview"`): advance the tree to v2
-   (repeat the swap-and-commit on `pr` with `head-v2/`), take
-   `prior-review.md` as the prior review, scope = delta (request-equivalent
-   trigger), changes since prior = `diff-v1-v2.patch`, skills per
-   docs/review.md → **Re-review output** (routing from the same
-   `git diff --name-only main..pr`, now at v2). Compose the delta re-review
-   (marker at `head_sha_v2`, findings-json with `new`/`still`/`fixed`
-   statuses) → `results/raw/<ts>-<slug>-rereview.md`, archiving the skill
-   outputs the same way (`…/<ts>-<slug>-rereview-skills`).
+   (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out
+   per docs/review.md → **Re-review output** (routing from the same
+   `git diff --name-only main..pr`, now at v2), then spawn a **separate
+   fresh reviewer subagent** — never the one that wrote the first review,
+   so it knows only the posted prior review, as in production: same prompt
+   shape with `prior-review.md` as the prior review, scope = delta
+   (request-equivalent trigger), changes since prior = `diff-v1-v2.patch`.
+   It composes the delta re-review (marker at `head_sha_v2`, findings-json
+   with `new`/`still`/`fixed` statuses) →
+   `results/raw/<ts>-<slug>-rereview.md`, archiving the skill outputs the
+   same way (`…/<ts>-<slug>-rereview-skills`).
 4. Record per task the `seconds` and `tokens` the phase helper printed,
    verbatim — plus `suppressed`, the count from the review's suppression
    audit note (docs/review.md → PR context; 0 when none): a memory
@@ -409,10 +430,12 @@ missing; the publish markers are added when the first publish succeeds):
 
 ## Segmented run (operator, direct session)
 
-A manual run may be split into segments — **one fixture per session** — when
-one session cannot give every fixture the same review depth (a baseline with
-a depth gradient across fixtures measures the context budget, not the
-configuration). Operator-triggered only; a scheduled run is never segmented.
+The fallback when delegated execution is unavailable (a harness without
+subagents) and one session cannot give every fixture the same review depth —
+a baseline with a depth gradient across fixtures measures the context
+budget, not the configuration: a manual run split into segments, **one
+fixture per session**. Operator-triggered only; a scheduled run is never
+segmented.
 
 - **One identity across segments**: segment 1 takes the run's `TS` +
   `trigger` and creates the ledger
