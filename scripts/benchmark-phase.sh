@@ -33,6 +33,16 @@ T="$STATE/$LABEL.t0"; S="$STATE/$LABEL.s0"
 case "$ACTION" in
   (begin)
     mkdir -p "$STATE" || { printf 'cannot create state dir %s\n' "$STATE" >&2; exit 2; }
+    # phases never overlap: the token count is a delta of two whole-session
+    # snapshots, so two open phases would each absorb the other's usage.
+    # A leftover stamp from an aborted phase is cleared deliberately
+    # (rm -rf the state dir), never begun over.
+    for open in "$STATE"/*.t0; do
+      [ -e "$open" ] || continue
+      o="${open##*/}"; o="${o%.t0}"
+      printf 'phase %s is still open — end it first; phases never overlap\n' "$o" >&2
+      exit 2
+    done
     date -u +%s > "$T" || exit 2
     bash "$SNAP" "$NONCE" > "$S" 2>/dev/null || : > "$S"
     printf 'phase %s started\n' "$LABEL"

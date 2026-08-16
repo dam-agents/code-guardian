@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.14.0 — 2026-08-16
+
+**Upgrade:** Nothing — scripts and docs are re-read per run. Benchmark
+review execution is now delegated to per-phase reviewer subagents
+([docs/benchmark.md](docs/benchmark.md) → Phase 1), so a full run fits one
+session; the segmented mode remains as the no-subagent fallback. An
+in-flight segmented run finishes under the version it started on before
+adopting this one.
+
 ## 3.13.0 — 2026-08-16
 
 **Upgrade:** Nothing — scripts and docs are re-read per run. A manual

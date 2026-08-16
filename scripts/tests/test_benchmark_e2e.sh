@@ -354,6 +354,21 @@ assert_jq '.seconds | type == "number"' 'run A ends its phase despite run B meas
 OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-B" slug-first NONCE-B)"
 assert_jq '.seconds | type == "number"' 'run B still holds its own stamp'
 
+new_case e2e_phases_never_overlap
+# within one run, a second begin while any phase is open is refused: the
+# token delta spans the whole session, so overlapping phases would each
+# absorb the other's usage
+HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchmark-phase-OV" slug-first NONCE-OV >/dev/null
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchmark-phase-OV" slug-rereview NONCE-OV 2>&1; echo "rc=$?")"
+assert_out_contains 'rc=2' 'a second begin while a phase is open is refused'
+assert_out_contains 'phases never overlap' 'the refusal names the rule'
+assert_out_contains 'slug-first' 'the refusal names the open phase'
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-OV" slug-first NONCE-OV)"
+assert_jq '.seconds | type == "number"' 'the open phase still ends normally'
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchmark-phase-OV" slug-rereview NONCE-OV)"
+assert_out_contains 'phase slug-rereview started' 'the next phase begins once the first ended'
+HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-OV" slug-rereview NONCE-OV >/dev/null
+
 new_case e2e_phase_measurement_and_results_validation
 mkdir -p "$SANDBOX/bench/results"
 # a measured phase (no transcript here, so tokens is honestly null)
