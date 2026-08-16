@@ -263,8 +263,10 @@ other's usage, and contention would distort `seconds`). For each fixture:
    and marker SHA = `head_sha_v1`. The subagent composes the **first-review
    Output format** with its findings-json and itself writes it verbatim to
    `results/raw/<ts>-<slug>-first.md` — nothing is posted — returning only
-   the path and finding counts. Never pass it `manifest.json`, past
-   results, or anything ground-truth-adjacent. Archive the skill outputs
+   the path, the finding counts, and its `suppressed` count (step 4; the
+   orchestrator never reads the review body, so a count the subagent does
+   not return is a count nobody records). Never pass it `manifest.json`,
+   past results, or anything ground-truth-adjacent. Archive the skill outputs
    beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`
    (when the fan-out ran).
@@ -281,8 +283,9 @@ other's usage, and contention would distort `seconds`). For each fixture:
    `results/raw/<ts>-<slug>-rereview.md`, archiving the skill outputs the
    same way (`…/<ts>-<slug>-rereview-skills`).
 4. Record per task the `seconds` and `tokens` the phase helper printed,
-   verbatim — plus `suppressed`, the count from the review's suppression
-   audit note (docs/review.md → PR context; 0 when none): a memory
+   verbatim — plus `suppressed`, the count the reviewer subagent returned
+   (from its suppression audit note, docs/review.md → PR context; 0 when
+   none): a memory
    preference that suppresses a seeded defect is a scoring confound, and
    this field is what makes it visible. A preference scoped to the target
    repository (a repo convention, a CI-enforced rule) is **not applied** to
