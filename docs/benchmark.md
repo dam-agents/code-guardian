@@ -31,7 +31,9 @@ results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
 RESULTS.md               # append-only index — one row per run × fixture, newest last
 report.html              # the accumulated report, regenerated every run (script below);
                          # self-contained and interactive client-side — every table
-                         # sorts by header click, filters by substring, and pages
+                         # sorts by header click, filters by substring, and pages;
+                         # follows the reader's light/dark setting, and every delta
+                         # carries an arrow so direction never rests on color alone
 ```
 
 `results/`, `results/raw/`, and `RESULTS.md` are append-only history: runs add
