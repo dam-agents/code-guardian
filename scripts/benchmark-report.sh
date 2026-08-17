@@ -132,8 +132,20 @@ JQ_COMMON='
   def fixture_judge:
     (jnums(.first.judge) + jnums(.rereview.judge)) as $jn
     | if ($jn | length) == 0 then null else (($jn | add / length) | r3) end;
-  def delta($c; $p): if $c == null or $p == null then ""
-    else (($c - $p) | if . >= 0 then " (+\(r3))" else " (\(r3))" end) end;
+  # delta vs the previous same-model run. The arrow duplicates the sign so the
+  # direction never rests on color alone; $g flips which direction is "good"
+  # (1 = higher is better, -1 = lower is better, as for seconds/tokens/cost).
+  def delta($c; $p; $g): if $c == null or $p == null then ""
+    else (($c - $p) | r3) as $d
+      | (if $d == 0 then "z" elif ($d * $g) > 0 then "up" else "down" end) as $cls
+      | (if $d > 0 then "▲+\($d)" elif $d < 0 then "▼\($d)" else "±0" end) as $txt
+      | " <span class=\"d \($cls)\">\($txt)</span>" end;
+  def delta($c; $p): delta($c; $p; 1);
+  # thin magnitude bar for a bounded 0–1 score, drawn under the value
+  def bar: if . == null then "" else
+    "<span class=bar style=\"width:\((. * 100 | round) | if . < 2 then 2 else . end)%\"></span>" end;
+  # "—" cells carry a muted class so missing data recedes instead of reading as a value
+  def ncell: if . == null then "<td class=\"n dash\">—</td>" else "<td class=n>\(.)</td>" end;
 '
 
 if [ "$OUT_MODE" = "index" ]; then
@@ -159,48 +171,49 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
     + "<td>\($r.model // "—" | @html)</td><td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
-    + "<td class=n><b>\($idx | fmt)</b>\(delta($idx; $prev | run_index))</td>"
-    + "<td class=n>\($fx | avg(.first.f1) | fmt)</td>"
-    + "<td class=n>\($fx | avg(.first.severity_accuracy) | fmt)</td>"
-    + "<td class=n>\($fx | avg(.rereview.fixed_recall) | fmt)</td>"
-    + "<td class=n>\($fx | avg(.rereview.new_recall) | fmt)</td>"
-    + "<td class=n>\($fx | total(if .rereview == null then null
-                                 else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | fmt)</td>"
-    + "<td class=n>\($fx | total(.first.fp | if . == null then null else length end) | fmt)</td>"
-    + "<td class=n>\($fx | avg(fixture_judge) | fmt)</td>"
-    + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs))</td>"
-    + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens))</td>"
-    + "<td class=n>\(if $cost == null then "—" else "$\($cost)" end)\(delta($cost; $prev | run_cost))</td></tr>"')"
+    + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
+    + ($fx | avg(.first.f1) | ncell)
+    + ($fx | avg(.first.severity_accuracy) | ncell)
+    + ($fx | avg(.rereview.fixed_recall) | ncell)
+    + ($fx | avg(.rereview.new_recall) | ncell)
+    + ($fx | total(if .rereview == null then null
+                   else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | ncell)
+    + ($fx | total(.first.fp | if . == null then null else length end) | ncell)
+    + ($fx | avg(fixture_judge) | ncell)
+    + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs; -1))</td>"
+    + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
+    + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td></tr>"')"
 
 FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
-  | "<h2>\($s | @html)</h2>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th>"
+  | "<h2>\($s | @html)</h2>\n<div class=scroll>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th>"
     + "<th>f1</th><th>prec</th><th>rec</th><th>hard</th><th>sev</th><th>fp</th><th>words</th>"
     + "<th>fixed</th><th>new</th><th>churn</th><th>false-fixed</th><th>late</th>"
     + "<th>sec</th><th>out-tok</th></tr>\n"
     + ([$all[] | select((.fixtures // {}) | has($s))
         | (.fixtures[$s]) as $f
+        | ($f | fixture_index) as $fi
         | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
-          + "<td class=n><b>\($f | fixture_index | fmt)</b></td>"
-          + "<td class=n>\($f | fixture_judge | fmt)</td>"
-          + "<td class=n>\($f.first.f1 | fmt)</td>"
-          + "<td class=n>\($f.first.precision | fmt)</td>"
-          + "<td class=n>\($f.first.recall | fmt)</td>"
-          + "<td class=n>\($f.first.recall_hard | fmt)</td>"
-          + "<td class=n>\($f.first.severity_accuracy | fmt)</td>"
-          + "<td class=n>\($f.first.fp | if . == null then "—" else length end)</td>"
-          + "<td class=n>\($f.first.length.words_total | fmt)</td>"
-          + "<td class=n>\($f.rereview.fixed_recall | fmt)</td>"
-          + "<td class=n>\($f.rereview.new_recall | fmt)</td>"
-          + "<td class=n>\($f.rereview.churn | fmt)</td>"
-          + "<td class=n>\($f.rereview.false_fixed | fmt)</td>"
-          + "<td class=n>\($f.rereview.late_finds | fmt)</td>"
-          + "<td class=n>\([$f | .first.seconds, .rereview.seconds] | total(.) | fmt)</td>"
-          + "<td class=n>\([$f | .first.tokens.output?, .rereview.tokens.output?] | total(.) | fmt)</td></tr>"]
+          + "<td class=\"n idx\"><b>\($fi | fmt)</b>\($fi | bar)</td>"
+          + ($f | fixture_judge | ncell)
+          + ($f.first.f1 | ncell)
+          + ($f.first.precision | ncell)
+          + ($f.first.recall | ncell)
+          + ($f.first.recall_hard | ncell)
+          + ($f.first.severity_accuracy | ncell)
+          + ($f.first.fp | if . == null then null else length end | ncell)
+          + ($f.first.length.words_total | ncell)
+          + ($f.rereview.fixed_recall | ncell)
+          + ($f.rereview.new_recall | ncell)
+          + ($f.rereview.churn | ncell)
+          + ($f.rereview.false_fixed | ncell)
+          + ($f.rereview.late_finds | ncell)
+          + ([$f | .first.seconds, .rereview.seconds] | total(.) | ncell)
+          + ([$f | .first.tokens.output?, .rereview.tokens.output?] | total(.) | ncell) + "</tr>"]
        | join("\n"))
-    + "\n</table>"')"
+    + "\n</table>\n</div>"')"
 
 # definition releases between tested versions — for development tracking
 VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
@@ -222,38 +235,89 @@ cat <<EOF
 <meta charset="utf-8">
 <title>Benchmark report</title>
 <style>
-body{font-family:-apple-system,'Segoe UI',sans-serif;margin:2rem auto;max-width:72rem;padding:0 1rem;color:#1a1a1a;background:#fff}
-h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:2rem}
-table{border-collapse:collapse;width:100%;font-size:.85rem;margin:.5rem 0}
-th,td{border:1px solid #d0d0d0;padding:.3rem .55rem;text-align:left}
-th{background:#f2f2f2;cursor:pointer;user-select:none;white-space:nowrap}
-th[data-d="a"]::after{content:" ▲"}th[data-d="d"]::after{content:" ▼"}
+/* Role tokens; both modes selected (never an automatic flip). Values and the
+   validated light/dark steps come from the data-viz palette — swapping a brand
+   palette means editing only this block. */
+:root{
+  color-scheme:light dark;
+  --surface:#fcfcfb;--plane:#f9f9f7;--head:#f2f2f0;
+  --ink:#0b0b0b;--ink-2:#52514e;--ink-muted:#898781;
+  --rule:#e1e0d9;--rule-strong:#c3c2b7;
+  --seq:#2a78d6;--good:#006300;--bad:#d03b3b;
+}
+@media (prefers-color-scheme:dark){:root{
+  --surface:#1a1a19;--plane:#0d0d0d;--head:#232322;
+  --ink:#fff;--ink-2:#c3c2b7;--ink-muted:#898781;
+  --rule:#2c2c2a;--rule-strong:#383835;
+  --seq:#3987e5;--good:#0ca30c;--bad:#e66767;
+}}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0 auto;
+  padding:2rem 1rem;max-width:84rem;color:var(--ink);background:var(--plane);
+  line-height:1.5;-webkit-text-size-adjust:100%}
+h1{font-size:1.35rem;letter-spacing:-.01em;margin:0 0 .4rem}
+h2{font-size:1.05rem;letter-spacing:-.005em;margin:2.2rem 0 .3rem;
+  padding-bottom:.25rem;border-bottom:1px solid var(--rule-strong)}
+h3{font-size:.9rem;margin:1rem 0 .2rem;color:var(--ink-2)}
+p.meta{color:var(--ink-2);font-size:.82rem;max-width:60rem;margin:.3rem 0 1.4rem}
+/* horizontal scroller: these tables run to ~17 columns. Vertical sticky headers
+   would conflict with it (an overflow-x container also scrolls y), and paging
+   already bounds row count — so scroll wins over sticky here. */
+.scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);
+  border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.82rem;margin:0}
+/* hairline horizontal rules only — a full grid on every cell reads as noise */
+th,td{padding:.36rem .6rem;text-align:left;border-bottom:1px solid var(--rule);
+  white-space:nowrap}
+th{background:var(--head);cursor:pointer;user-select:none;font-weight:600;
+  color:var(--ink-2);position:relative}
+th:hover{color:var(--ink)}
+th[data-d="a"]::after{content:" ▲";color:var(--seq)}
+th[data-d="d"]::after{content:" ▼";color:var(--seq)}
+tbody tr:last-child td{border-bottom:0}
 td.n{text-align:right;font-variant-numeric:tabular-nums}
-tr.alt td{background:#fafafa}
-p.meta{color:#666;font-size:.85rem}
-.tbar{display:flex;gap:.6rem;align-items:center;font-size:.85rem;margin:.5rem 0 0}
-.tbar input,.tbar select{font-size:.85rem;padding:.15rem .4rem;border:1px solid #c0c0c0;border-radius:3px}
-.tbar button{font-size:.85rem;padding:.1rem .5rem;border:1px solid #c0c0c0;border-radius:3px;background:#f7f7f7;cursor:pointer}
-.tbar button:disabled{opacity:.4;cursor:default}
-.tbar .info{color:#666;margin-left:auto}
+tr.alt td{background:color-mix(in srgb,var(--ink) 3%,transparent)}
+tr:hover td{background:color-mix(in srgb,var(--seq) 8%,transparent)}
+/* index cell: value plus a thin magnitude bar. Honest because the index is a
+   bounded 0–1 scale anchored at a shared left baseline; unbounded columns
+   (sec, tokens, cost) get no bar — there is no non-arbitrary maximum. */
+td.idx .bar{display:block;height:3px;margin-top:3px;border-radius:2px;
+  background:var(--seq);min-width:1px}
+/* deltas: arrow duplicates the sign, so color is never the only signal */
+.d{font-size:.75rem;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
+.d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
+td.dash{color:var(--ink-muted)}
+.tbar{display:flex;gap:.5rem;align-items:center;font-size:.8rem;margin:.6rem 0 .35rem}
+.tbar input,.tbar select,.tbar button{font:inherit;padding:.2rem .45rem;
+  color:var(--ink);background:var(--surface);
+  border:1px solid var(--rule-strong);border-radius:4px}
+.tbar button{cursor:pointer;min-width:1.9rem}
+.tbar button:hover:not(:disabled){border-color:var(--seq);color:var(--seq)}
+.tbar button:disabled{opacity:.35;cursor:default}
+.tbar .info{color:var(--ink-muted);margin-left:auto;font-variant-numeric:tabular-nums}
+ul{margin:.2rem 0 .6rem;padding-left:1.1rem;font-size:.82rem;color:var(--ink-2)}
+li{margin:.1rem 0}
 </style>
 <h1>Review benchmark — accumulated results</h1>
 <p class="meta">Latest run: ${GENERATED} · ${RUNS} run(s) on record. Scores 0–1,
 higher is better; sec = wall-clock seconds, out-tok = output tokens, est $ =
 tokens priced by the CONFIG model-price table (— = not measured / not priced).
-Deltas in parentheses compare against the previous run of the <b>same
-model</b> — cross-model comparison is the table itself. The index is
-deterministic — computed from scorer output only, judge scores never enter it
-(the judge column is its own 1–5 scale; hard = recall on defects the manifest
-marks hard, reported beside the index, never inside it). Click a header to
-sort, type to filter, page long histories. Semantics: docs/benchmark.md.</p>
+The bar under each index is that same 0–1 value; unbounded columns get no bar.
+Deltas (▲▼) compare against the previous run of the <b>same model</b> — green
+means moved the good way for that column, so ▼ on sec/tokens/cost is green.
+Cross-model comparison is the table itself. The index is deterministic —
+computed from scorer output only, judge scores never enter it (the judge column
+is its own 1–5 scale; hard = recall on defects the manifest marks hard,
+reported beside the index, never inside it). Click a header to sort, type to
+filter, page long histories. Semantics: docs/benchmark.md.</p>
 <h2>All runs</h2>
+<div class=scroll>
 <table>
 <tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>harness</th>
 <th>fixtures</th><th>index</th><th>avg f1</th><th>avg sev</th><th>avg fixed</th>
 <th>avg new</th><th>circles</th><th>FPs</th><th>judge</th><th>sec</th><th>out-tok</th><th>est $</th></tr>
 ${ROWS_ALL}
 </table>
+</div>
 ${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}
 <script>
@@ -280,7 +344,10 @@ document.querySelectorAll('table').forEach(function (t) {
   var info = document.createElement('span'); info.className = 'info';
   bar.appendChild(inp); bar.appendChild(sel);
   bar.appendChild(prev); bar.appendChild(next); bar.appendChild(info);
-  t.parentNode.insertBefore(bar, t);
+  // the toolbar goes ABOVE the horizontal scroller, not inside it — otherwise
+  // the controls scroll sideways out of view with the table
+  var anchor = t.closest('.scroll') || t;
+  anchor.parentNode.insertBefore(bar, anchor);
 
   var page = 0, filter = '';
   function size() { return sel.value === 'all' ? Infinity : parseInt(sel.value, 10); }
