@@ -7,6 +7,9 @@
 REPORT="$REPO_ROOT/scripts/benchmark-report.sh"
 SNAP="$REPO_ROOT/scripts/harness/claude-code/usage-snapshot.sh"
 PROV="$REPO_ROOT/scripts/benchmark-provenance.sh"
+# a live pod/dev CONFIG.md must never leak prices into these cases; the
+# price-table case overrides this per call
+export BENCH_CONFIG=/dev/null
 
 seed_results() {
   mkdir -p "$SANDBOX/bench/results"
@@ -34,7 +37,8 @@ assert_out_contains '<td class=n>0.66</td>' 'run 1 avg f1 across fixtures'
 assert_out_contains '<td class=n>66000</td>' 'run 1 output tokens summed'
 assert_out_contains 'Latest run: 2026-08-01T06:00:00Z' 'latest run named'
 assert_out_contains '<td class=n><b>0.769</b></td>' 'run 1 quality index is the baseline (no delta)'
-assert_out_contains '<b>0.944</b> (+0.175)' 'run 2 index carries the delta vs run 1'
+assert_out_contains '<td class=n><b>0.944</b></td>' 'run 2 (a different model) carries NO cross-model delta'
+assert_out_absent '0\.944</b> \(\+' 'deltas never compare across models'
 assert_out_contains '<td class=n>3.5</td>' 'judge column averages all dimensions on its own 1-5 scale'
 assert_out_contains 'judge scores never enter it' 'page states the index is judge-free'
 assert_out_contains '<td>2.1.34 (Claude Code)</td>' 'harness version column rendered'
@@ -53,6 +57,36 @@ missing_tok_row="$(printf '%s' "$OUT" | grep -A1 'model-b' | grep -c '—' || tr
 if [ "$missing_tok_row" -ge 1 ]; then
   printf 'ok   %s: unmeasured tokens render as dashes\n' "$CASE"
 else printf 'FAIL %s: missing-token rendering\n' "$CASE"; FAILED=1; fi
+
+new_case report_same_model_delta_and_cost
+seed_results
+# a third run repeats model-a: its deltas compare against run 1, skipping the
+# model-b run in between; prices enable the est $ column for model-a only
+cat > "$SANDBOX/bench/results/20260901T060000Z.json" <<'EOF'
+{"ts":"2026-09-01T06:00:00Z","trigger":"scheduled","model":"model-a","definition_version":"3.15.0",
+ "fixtures":{"ts-api":{"first":{"f1":0.8,"precision":0.85,"recall":0.75,"recall_hard":0.5,"severity_accuracy":0.9,"fp":[{"f":1}],"length":{"words_total":800},"seconds":400,"tokens":{"input":1000000,"output":200000,"cache_read":0,"cache_creation":0,"msgs":40},"judge":null},
+   "rereview":{"fixed_recall":0.8,"still_recall":1,"new_recall":0.7,"false_fixed":0,"churn":0,"late_finds":1,"seconds":300,"tokens":{"input":500000,"output":100000,"cache_read":0,"cache_creation":0,"msgs":20}}},
+  "react-ui":{"first":{"f1":0.6,"precision":0.7,"recall":0.55,"severity_accuracy":0.85,"fp":[],"length":{"words_total":700},"seconds":380,"tokens":null,"judge":null},
+   "rereview":{"fixed_recall":1,"still_recall":0.5,"new_recall":0.5,"false_fixed":1,"churn":0,"late_finds":0,"seconds":250,"tokens":null}}}}
+EOF
+cat > "$SANDBOX/bench-config.md" <<'EOF'
+## Benchmark model prices
+
+| model substring | input | output | cache_read | cache_write |
+|---|---|---|---|---|
+| model-a | 10 | 50 | 1 | 12.5 |
+EOF
+OUT="$(BENCH_CONFIG="$SANDBOX/bench-config.md" bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains '<th>est \$</th>' 'cost column present'
+assert_out_contains '\$30 (+26\.7)</td>' 'run 3 priced ($30: 1.5M in + 0.3M out) with cost delta vs run 1 (same model)'
+assert_out_contains '1330 (-10)' 'seconds delta compares vs run 1 (same model), not run 2'
+assert_out_contains '<th>hard</th>' 'per-fixture tables carry the recall_hard column'
+assert_out_contains '<td class=n>0.5</td>' 'recall_hard value rendered'
+model_b_cost="$(printf '%s' "$OUT" | grep 'model-b' | grep -c '\$' || true)"
+if [ "$model_b_cost" = "0" ]; then
+  printf 'ok   %s: an unpriced model renders no cost, never a guess\n' "$CASE"
+else printf 'FAIL %s: model-b row must carry no $ cost\n' "$CASE"; FAILED=1; fi
+rm -f "$SANDBOX/bench/results/20260901T060000Z.json" "$SANDBOX/bench-config.md"
 
 new_case report_index_mode
 seed_results
@@ -90,6 +124,29 @@ if [ -f "$SANDBOX/.bench-usage-$NONCE" ]; then
 else printf 'FAIL %s: nonce cache not written\n' "$CASE"; FAILED=1; fi
 OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$SNAP" "$NONCE")"
 assert_jq '.output == 125' 'second snapshot serves from the cached path'
+
+new_case usage_snapshot_sums_subagent_transcripts
+# a subagent transcript carrying the nonce (its prompt includes it) appears
+# AFTER the first snapshot resolved — the delegated-review case: the set of
+# matching transcripts grows mid-run, and the sum must grow with it
+mkdir -p "$FAKE_HOME/.claude/projects/p1"
+NONCE="bench-delegated-nonce-7"
+cat > "$FAKE_HOME/.claude/projects/p1/session.jsonl" <<EOF
+{"type":"user","message":{"content":"usage-nonce:$NONCE"}}
+{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":10}}}
+EOF
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$SNAP" "$NONCE")"
+assert_jq '.output == 50 and .msgs == 1' 'baseline snapshot sees the session transcript only'
+cat > "$FAKE_HOME/.claude/projects/p1/subagent.jsonl" <<EOF
+{"type":"user","message":{"content":"print usage-nonce:$NONCE first, then review"}}
+{"type":"assistant","message":{"id":"s1","usage":{"input_tokens":5000,"output_tokens":900,"cache_read_input_tokens":20000,"cache_creation_input_tokens":300}}}
+EOF
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$SNAP" "$NONCE")"
+assert_jq '.input == 5100 and .output == 950 and .msgs == 2' 'a late subagent transcript joins the sum despite the cache'
+assert_jq '.cache_read == 21000 and .cache_creation == 310' 'subagent cache usage counted'
+if [ "$(grep -c . "$SANDBOX/.bench-usage-$NONCE")" = "2" ]; then
+  printf 'ok   %s: cache now unions both transcripts\n' "$CASE"
+else printf 'FAIL %s: cache should list 2 transcripts\n' "$CASE"; FAILED=1; fi
 
 new_case usage_snapshot_no_match
 OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$SNAP" "no-such-nonce-anywhere"; printf 'rc=%s' "$?")"

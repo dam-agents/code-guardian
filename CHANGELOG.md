@@ -11,6 +11,20 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.15.0 — 2026-08-17
+
+**Upgrade:**
+- Offer the operator the optional `## Benchmark model prices` table in
+  `work/CONFIG.md` ([docs/benchmark.md](docs/benchmark.md) → **Model
+  prices**) — it enables the benchmark report's `est $` cost column; the
+  offer only, never enable unasked.
+- **Operator-only:** benchmark runs recorded under 3.14.x delegated
+  execution undercounted tokens (subagent usage was not summed). If any
+  exist in `work/benchmark/results/`, add one line under the RESULTS.md
+  header marking those timestamps' token/cost columns non-comparable
+  (same pattern as docs/benchmark.md → **Retiring a fixture set**, step 2);
+  check first — the line may already be present.
+
 ## 3.14.1 — 2026-08-16
 
 **Upgrade:** Nothing — docs are re-read per run.

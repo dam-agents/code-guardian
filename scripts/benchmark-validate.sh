@@ -34,7 +34,10 @@
 #                   (an array renders its sections as 0,1,2… and breaks the
 #                   index submode)
 #   per_fixture     each slug has first + rereview; seconds numeric; tokens
-#                   is null or carries all five counters
+#                   is null or carries all five counters; first.fp is an
+#                   array and rereview.churn numeric (scorer output copied
+#                   whole — a dropped field renders "—" forever, since the
+#                   history is append-only)
 #   judge_key       the run-level judge field is `judge` (not benchmark_judge)
 set -u
 export LC_ALL=C
@@ -123,11 +126,12 @@ validate_fixture() { # <dir>
              | select((.id // "") == "" or (.file // "") == ""
                       or (.class // "") == "" or (.severity // "") == ""
                       or ((.line_v1 // null) == null and (.line_v2 // null) == null)
-                      or (.fixed_in_v2 == true and (.fix_line_v2 // null) == null))
+                      or (.fixed_in_v2 == true and (.fix_line_v2 // null) == null)
+                      or (has("difficulty") and .difficulty != "hard"))
              | .id // "?"] | if length == 0 then "" else "incomplete defect(s): " + join(",") end)
       end' "$d/manifest.json" 2>/dev/null)" || bad="not valid JSON"
     if [ -n "$bad" ]; then
-      fail "manifest[$slug]" "$bad; fix: docs/benchmark.md → manifest.json (fixed defects need fix_line_v2 for the churn metric)"
+      fail "manifest[$slug]" "$bad; fix: docs/benchmark.md → manifest.json (fixed defects need fix_line_v2; difficulty, when present, is exactly \"hard\")"
     else
       ok "manifest[$slug]" "$(jq '.defects | length' "$d/manifest.json") defect(s), all complete"
     fi
@@ -192,10 +196,12 @@ validate_results() { # <file>
         (if (.first.seconds | type) != "number" then "\($s): first.seconds not numeric" else empty end),
         (if (.rereview.seconds | type) != "number" then "\($s): rereview.seconds not numeric" else empty end),
         (if (.first.tokens | tokens_ok) then empty else "\($s): first.tokens malformed" end),
-        (if (.rereview.tokens | tokens_ok) then empty else "\($s): rereview.tokens malformed" end)
+        (if (.rereview.tokens | tokens_ok) then empty else "\($s): rereview.tokens malformed" end),
+        (if (.first.fp | type) == "array" then empty else "\($s): first.fp not an array" end),
+        (if (.rereview.churn | type) == "number" then empty else "\($s): rereview.churn not numeric" end)
     ] | join("; ") end' "$f" 2>/dev/null)"
-  [ -n "$bad" ] && fail per_fixture "$bad; fix: seconds come from benchmark-phase.sh (never estimated); tokens is null or all five counters" \
-                || ok per_fixture "every fixture carries first+rereview with numeric seconds and well-formed tokens"
+  [ -n "$bad" ] && fail per_fixture "$bad; fix: seconds come from benchmark-phase.sh (never estimated); tokens is null or all five counters; copy the scorer output whole — dropped fields render as — forever" \
+                || ok per_fixture "every fixture carries first+rereview with numeric seconds, well-formed tokens, and whole scorer output"
 
   bad="$(jq -r 'if has("benchmark_judge") and (has("judge") | not) then "benchmark_judge" else "" end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail judge_key "run-level judge field is '$bad'; fix: the key is 'judge' (report and history read that name)" \

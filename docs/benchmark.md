@@ -94,7 +94,15 @@ skill. `benchmark-validate.sh fixture` (step 7) is the gate that catches it.
    ≥ 10 lines apart — the scorer matches on a ±3-line window — and make
    every defect a **distinct pattern**: the production sibling sweep merges
    same-class occurrences into one finding, which the scorer would count as
-   a miss.
+   a miss. Mark 2–3 defects per fixture `"difficulty": "hard"` in the
+   manifest — ones that require reasoning across files or control flow
+   (a lock released on one path but not another, an invariant broken two
+   calls away, a unit mismatch between producer and consumer), never a
+   greppable pattern. They feed the scorer's `recall_hard` — the headroom
+   that keeps the set challenging for stronger models — and when a model
+   holds a fixture at `f1 = 1.0` for two consecutive runs, the fixture is
+   saturated: add a harder sibling slug (the set grows past 5; the
+   saturated fixture stays for continuity).
 3. Write `manifest.json`, verifying every `line_v1`/`line_v2` against the
    actual trees (grep the seeded line).
 4. Write `prior-review.md` in the posted-review format (docs/review.md →
@@ -139,8 +147,12 @@ skill. `benchmark-validate.sh fixture` (step 7) is the gate that catches it.
  "defects": [{"id": "D01", "file": "src/auth.ts", "line_v1": 42, "line_v2": 42,
               "class": "security", "severity": "critical",
               "summary": "token compared with ==",
-              "fixed_in_v2": false, "in_prior_review": true}]}
+              "fixed_in_v2": false, "in_prior_review": true,
+              "difficulty": "hard"}]}
 ```
+
+`difficulty` is optional and, when present, exactly `"hard"` (step 2); it
+feeds `recall_hard` and nothing else — the index never reads it.
 
 Per defect: kept in v2 → both lines set, `fixed_in_v2: false`; fixed in v2 →
 `line_v2: null`, `fixed_in_v2: true`, plus **`fix_line_v2`** — the line the
@@ -225,10 +237,13 @@ the session only orchestrates — builds trees, runs fan-outs, brackets
 phases, and collects paths and counts. It never loads fixture sources,
 diffs, skill outputs, or review bodies; that is what lets one session hold
 every fixture at full depth, and it mirrors production, where every review
-starts from a fresh context. Subagent usage lands in the session
-transcript, so the phase helper's token deltas cover it unchanged. On a
-harness without subagents, review inline and fall back to **Segmented run**
-when depth would degrade.
+starts from a fresh context. **Every subagent prompt inside a phase bracket
+— skill fan-out and reviewer alike — carries the usage nonce and the
+instruction to print `usage-nonce:<NONCE>` as its first output line**: the
+snapshot sums every transcript holding the nonce, so delegated work is
+counted (a subagent spawned without it is work the token columns silently
+miss). On a harness without subagents, review inline and fall back to
+**Segmented run** when depth would degrade.
 
 Then loop over the slugs sequentially — fixtures and phases never run
 concurrently (`benchmark-phase.sh` refuses an overlapping `begin`: the
@@ -375,13 +390,17 @@ other's usage, and contention would distort `seconds`). For each fixture:
    A failed publish is logged; the local `report.html` is always current
    regardless.
 10. Report to the chat UI: the run's **quality index** with its delta against
-   the previous run — read both from
+   the previous run **of the same model** — read both from
    `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
-   (one JSON row per run; the weights live only in that script) —
-   per-fixture headline scores, run totals (seconds, output tokens) with
-   their deltas, any non-zero `churn`/`false_fixed` called out by name (the
-   going-in-circles signals), any skill with no fixture coverage, and the
-   report URL when published. First run: "baseline".
+   (one JSON row per run with `cost_usd`; the weights and the price lookup
+   live only in that script) — per-fixture headline scores, run totals
+   (seconds, output tokens, estimated cost when the CONFIG price table
+   covers the model — **Model prices** below) with their deltas, any
+   non-zero `churn`/`false_fixed` called out by name (the going-in-circles
+   signals), any skill with no fixture coverage, any **saturated fixture**
+   (`f1 = 1.0` in this and the same model's previous run — recommend a
+   harder sibling, step 2 of fixture creation), and the report URL when
+   published. First run of a model: "baseline".
 11. Cleanup every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
     `.s-*` variants), your phase-state directory (`rm -rf "$PSTATE"`), your
     nonce cache (`rm -f "${TMPDIR:-/tmp}/.bench-usage-$NONCE"`), and temp
@@ -468,6 +487,28 @@ segmented.
   decides).
 - Session separation holds unchanged: `manifest.json` is read only in the
   final segment, after that segment's raw reviews are written.
+
+## Model prices (cost column)
+
+The report prices each run's summed token counters into an `est $` column —
+the money side of the time/cost/quality comparison. Prices are
+operator-maintained in `work/CONFIG.md` as a table the report reads directly
+(`benchmark-report.sh`; absent table, unmatched model, or unmeasured tokens
+render "—", never a guess):
+
+```markdown
+## Benchmark model prices
+
+| model substring | input | output | cache_read | cache_write |
+|---|---|---|---|---|
+| claude-opus-5 | 15 | 75 | 1.5 | 18.75 |
+```
+
+USD per MTok; a row matches when its first cell is a substring of the run's
+recorded model id. Prices change over time — the table holds the **current**
+prices and the report prices all history with them (a constant-price view:
+cost deltas then reflect token usage, not price moves). Update the table in
+the direct session like any other config change.
 
 ## Retiring a fixture set (operator decision, direct session)
 

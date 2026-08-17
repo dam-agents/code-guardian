@@ -25,10 +25,19 @@
 # missing drops out and the remaining weights renormalize. The separate
 # "judge" column is the LLM-judged view: all judge dimensions averaged on
 # their own 1–5 scale, reported beside the index, never mixed into it. The
-# all-runs table also prints the delta against the previous run for index,
-# seconds, and output tokens — the regression signal for quality, speed, and
-# cost. `benchmark-report.sh index <dir>` prints the same per-run index as
-# JSON for chat summaries and trial comparisons.
+# all-runs table also prints the delta against the previous run OF THE SAME
+# MODEL for index, seconds, output tokens, and cost — the regression signal
+# for quality, speed, and cost (a cross-model delta conflates the model change
+# with everything else; the table itself is the cross-model comparison).
+#
+# The `est $` column prices each run's summed token counters with the
+# operator-maintained `## Benchmark model prices` table in work/CONFIG.md
+# (USD per MTok: input, output, cache_read, cache_write; rows matched as a
+# substring of the run's model id — docs/benchmark.md → Model prices). No
+# table, no matching row, or no measured tokens → "—", never a guess.
+# `BENCH_CONFIG` overrides the CONFIG.md path (tests).
+# `benchmark-report.sh index <dir>` prints the same per-run index (plus cost)
+# as JSON for chat summaries and trial comparisons.
 set -u
 export LC_ALL=C
 
@@ -50,6 +59,21 @@ DIR="${1:-}"
 # `fixture` field, so an old run still renders under its slug instead of
 # under 0,1,2… — history is append-only, so the reader tolerates what is
 # already stored (benchmark-validate.sh keeps new writes to the object shape).
+# operator-maintained price table (work/CONFIG.md → ## Benchmark model
+# prices): markdown rows | model substring | input | output | cache_read |
+# cache_write |, USD per MTok. Header/separator rows drop out because their
+# price cells do not parse as numbers. Missing file/section → [].
+CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
+PRICES="$(sed -n '/^## Benchmark model prices/,/^## [^B]/p' "$CONFIG_MD" 2>/dev/null \
+  | grep '^|' \
+  | jq -Rn '[inputs | split("|") | map(gsub("^\\s+|\\s+$"; ""))
+             | select(length >= 6)
+             | {m: .[1], i: (.[2] | tonumber?), o: (.[3] | tonumber?),
+                cr: (.[4] | tonumber?), cw: (.[5] | tonumber?)}
+             | select(.m != "" and .i != null and .o != null
+                      and .cr != null and .cw != null)]' 2>/dev/null)"
+PRICES="${PRICES:-[]}"
+
 ALL="$(for f in "$DIR"/results/*.json; do
          [ -f "$f" ] || continue
          jq -c 'select(type == "object")
@@ -69,6 +93,18 @@ JQ_COMMON='
     | if ($v | length) == 0 then null else ($v | add) end;
   def run_secs: [.fixtures // {} | .[] | (.first.seconds, .rereview.seconds)] | total(.);
   def run_out_tokens: [.fixtures // {} | .[] | (.first.tokens.output?, .rereview.tokens.output?)] | total(.);
+  # estimated run cost in USD from the CONFIG price table ($prices global);
+  # null without measured tokens or a matching price row — never a guess
+  def run_cost:
+    ([.fixtures // {} | .[] | (.first.tokens?, .rereview.tokens?)
+      | select(type == "object")]) as $t
+    | (.model // "") as $m
+    | ([$prices[] | select(. as $p | $m | contains($p.m))] | first) as $p
+    | if ($t | length) == 0 or $p == null then null
+      else ((([$t[].input // 0] | add) * $p.i + ([$t[].output // 0] | add) * $p.o
+             + ([$t[].cache_read // 0] | add) * $p.cr
+             + ([$t[].cache_creation // 0] | add) * $p.cw) / 1000000
+            | (. * 100 | round) / 100) end;
   def bools($o): [$o // {} | to_entries[] | .value | select(type == "boolean")];
   def jnums($o): [$o // {} | to_entries[] | .value | numbers];
   # weighted, fully deterministic quality index of one fixture object —
@@ -101,20 +137,24 @@ JQ_COMMON='
 '
 
 if [ "$OUT_MODE" = "index" ]; then
-  printf '%s' "$ALL" | jq "$JQ_COMMON"'
+  printf '%s' "$ALL" | jq --argjson prices "$PRICES" "$JQ_COMMON"'
     [.[] | {ts, trigger, model, definition_version,
             index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
+            cost_usd: run_cost,
             fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
   exit 0
 fi
 
-ROWS_ALL="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
+ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
-  | (if $i == 0 then null else $all[$i - 1] end) as $prev
+  # deltas compare against the previous run of the SAME model — a cross-model
+  # delta would conflate the model change with the regression being watched
+  | ([$all[0:$i][] | select(.model == $r.model)] | last) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
   | ($r | run_secs) as $sec
   | ($r | run_out_tokens) as $tok
+  | ($r | run_cost) as $cost
   | "<tr><td>\($r.ts | fmt | @html)</td><td>\($r.trigger // "—" | @html)</td>"
     + "<td>\($r.model // "—" | @html)</td><td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
@@ -129,14 +169,15 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
     + "<td class=n>\($fx | total(.first.fp | if . == null then null else length end) | fmt)</td>"
     + "<td class=n>\($fx | avg(fixture_judge) | fmt)</td>"
     + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs))</td>"
-    + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens))</td></tr>"')"
+    + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens))</td>"
+    + "<td class=n>\(if $cost == null then "—" else "$\($cost)" end)\(delta($cost; $prev | run_cost))</td></tr>"')"
 
-FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
+FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
   | "<h2>\($s | @html)</h2>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th>"
-    + "<th>f1</th><th>prec</th><th>rec</th><th>sev</th><th>words</th>"
+    + "<th>f1</th><th>prec</th><th>rec</th><th>hard</th><th>sev</th><th>fp</th><th>words</th>"
     + "<th>fixed</th><th>new</th><th>churn</th><th>false-fixed</th><th>late</th>"
     + "<th>sec</th><th>out-tok</th></tr>\n"
     + ([$all[] | select((.fixtures // {}) | has($s))
@@ -147,7 +188,9 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r "$JQ_COMMON"'
           + "<td class=n>\($f.first.f1 | fmt)</td>"
           + "<td class=n>\($f.first.precision | fmt)</td>"
           + "<td class=n>\($f.first.recall | fmt)</td>"
+          + "<td class=n>\($f.first.recall_hard | fmt)</td>"
           + "<td class=n>\($f.first.severity_accuracy | fmt)</td>"
+          + "<td class=n>\($f.first.fp | if . == null then "—" else length end)</td>"
           + "<td class=n>\($f.first.length.words_total | fmt)</td>"
           + "<td class=n>\($f.rereview.fixed_recall | fmt)</td>"
           + "<td class=n>\($f.rereview.new_recall | fmt)</td>"
@@ -196,16 +239,19 @@ p.meta{color:#666;font-size:.85rem}
 </style>
 <h1>Review benchmark — accumulated results</h1>
 <p class="meta">Latest run: ${GENERATED} · ${RUNS} run(s) on record. Scores 0–1,
-higher is better; sec = wall-clock seconds, out-tok = output tokens (— = not
-measured). The index is deterministic — computed from scorer output only,
-judge scores never enter it (the judge column is its own 1–5 scale). Click a
-header to sort, type to filter, page long histories. Semantics:
-docs/benchmark.md.</p>
+higher is better; sec = wall-clock seconds, out-tok = output tokens, est $ =
+tokens priced by the CONFIG model-price table (— = not measured / not priced).
+Deltas in parentheses compare against the previous run of the <b>same
+model</b> — cross-model comparison is the table itself. The index is
+deterministic — computed from scorer output only, judge scores never enter it
+(the judge column is its own 1–5 scale; hard = recall on defects the manifest
+marks hard, reported beside the index, never inside it). Click a header to
+sort, type to filter, page long histories. Semantics: docs/benchmark.md.</p>
 <h2>All runs</h2>
 <table>
 <tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>harness</th>
 <th>fixtures</th><th>index</th><th>avg f1</th><th>avg sev</th><th>avg fixed</th>
-<th>avg new</th><th>circles</th><th>FPs</th><th>judge</th><th>sec</th><th>out-tok</th></tr>
+<th>avg new</th><th>circles</th><th>FPs</th><th>judge</th><th>sec</th><th>out-tok</th><th>est $</th></tr>
 ${ROWS_ALL}
 </table>
 ${VERSION_CHANGES}
