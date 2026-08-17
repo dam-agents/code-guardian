@@ -22,6 +22,10 @@
 #   suggestions_unmatched  unmatched suggestion predictions (recorded, not FPs)
 #   precision              tp / (tp + fp)   (null when there are no blocking predictions)
 #   recall                 tp / gt          (+ recall_critical / recall_warning per severity)
+#   recall_hard            recall over defects the manifest marks
+#                          `"difficulty": "hard"` (null when none are marked) —
+#                          the headroom metric: kept OUT of the index so old
+#                          runs stay comparable, reported beside it
 #   f1                     harmonic mean of precision and recall (null-safe)
 #   severity_accuracy      share of tp with pred_severity == gt_severity (null when tp = 0)
 #
@@ -169,11 +173,15 @@ if [ "$MODE" = "first" ]; then
        else (2 * $p * $rec / ($p + $rec)) end) as $f1
     | (if $tpn == 0 then null
        else (($r.tp | map(select(.gt_severity == .pred_severity)) | length) / $tpn) end) as $seva
+    | ($gt | map(select(.difficulty == "hard") | .id)) as $hids
     | {gt: $gtn, tp: $r.tp, fn: $r.fn, fp: $fp,
        suggestions_unmatched: ($un | map(select(.severity == "suggestion")) | length),
        precision: ($p | r3), recall: ($rec | r3), f1: ($f1 | r3),
        recall_critical: (sevrec($gt; $r.tp; "critical") | r3),
        recall_warning: (sevrec($gt; $r.tp; "warning") | r3),
+       recall_hard: (if ($hids | length) == 0 then null
+                     else (([$r.tp[] | select(.id as $i | $hids | index($i))] | length)
+                           / ($hids | length)) end | r3),
        severity_accuracy: ($seva | r3)}')"
 else
   SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'

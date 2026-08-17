@@ -169,10 +169,10 @@ EOF
    "fixed_in_v2": true, "in_prior_review": true},
   {"id": "D02", "file": "src/store.ts", "line_v1": 21, "line_v2": 21,
    "class": "correctness", "severity": "warning", "summary": "promise not awaited",
-   "fixed_in_v2": false, "in_prior_review": true},
+   "fixed_in_v2": false, "in_prior_review": true, "difficulty": "hard"},
   {"id": "D03", "file": "src/cart.ts", "line_v1": 12, "line_v2": 12,
    "class": "correctness", "severity": "warning", "summary": "discount not clamped",
-   "fixed_in_v2": false, "in_prior_review": false},
+   "fixed_in_v2": false, "in_prior_review": false, "difficulty": "hard"},
   {"id": "D04", "file": "src/cart.ts", "line_v1": null, "line_v2": 28,
    "class": "correctness", "severity": "warning", "summary": "parseInt without radix",
    "fixed_in_v2": false, "in_prior_review": false}
@@ -314,6 +314,7 @@ assert_jq '.tp | length == 2' 'the two real findings match'
 assert_jq '.fn == ["D02"]' 'the missed defect is named'
 assert_jq '.fp | length == 1' 'the invented finding is a false positive'
 assert_jq '.recall_critical == 1 and .severity_accuracy == 1' 'critical found, severities agree'
+assert_jq '.recall_hard == 0.5' 'hard-marked defects scored separately (D03 hit, D02 missed)'
 assert_jq '.format.verdict_consistent == true and .format.fix_lines == true' 'format checks pass on a well-formed review'
 
 # a delta re-review: D01 fixed, D02 still, D04 new, plus one churn finding
@@ -415,6 +416,17 @@ jq -n '{ts: "2026-09-01T06:00:00Z", trigger: "manual", model: "m",
   > "$SANDBOX/bad/r2.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r2.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'FAIL per_fixture' 'missing/non-numeric seconds and malformed tokens are caught'
+# scorer output dropped during assembly — the drift the second live run
+# shipped (first.fp missing → the FPs column rendered "—" forever)
+jq -n '{ts: "2026-09-02T06:00:00Z", trigger: "manual", model: "m",
+        definition_version: "3.14.1",
+        fixtures: {"ts-cart": {first: {f1: 0.8, seconds: 100, tokens: null},
+                               rereview: {seconds: 90, tokens: null}}}}' \
+  > "$SANDBOX/bad/r3.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r3.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'first.fp not an array' 'a dropped fp array is rejected'
+assert_out_contains 'rereview.churn not numeric' 'a dropped churn is rejected'
+assert_out_contains 'rc=1' 'incomplete scorer output never reaches the history'
 
 new_case e2e_report_renders_and_normalizes_legacy_shape
 mkdir -p "$SANDBOX/rep/results"
