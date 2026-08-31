@@ -32,4 +32,37 @@ else
   printf 'FAIL %s: gh failure lost its error event\n' "$CASE"; FAILED=1
 fi
 
+# --- the classifier matches the basename of the command that set the status ---
+# absolute paths are required inside review clones and calls are routinely
+# prefixed `cd … &&`, so a prefix match could never fire on a real instance
+new_case tool_event_inspect_shapes
+base_config
+mkdir -p "$WORK/logs"
+EVENTS="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+: > "$EVENTS"
+
+expect() { # <want: use|failure> <marker> <command>
+  : > "$EVENTS"
+  run_failure "$3"
+  if [ "$(events "tool_$1" "$2")" -ge 1 ]; then
+    printf 'ok   %s: %s -> tool_%s\n' "$CASE" "$2" "$1"
+  else
+    printf 'FAIL %s: %s not logged as tool_%s (got: %s)\n' \
+      "$CASE" "$2" "$1" "$(jq -r '.event' "$EVENTS" | tr '\n' ' ')"; FAILED=1
+  fi
+}
+
+expect use     'absolute-grep' '/usr/bin/grep -rn absolute-grep /home/agent/work'
+expect use     'shimmed-rg'    '/usr/local/share/lazy-tools/rg -n shimmed-rg src'
+expect use     'chained-grep'  'cd /home/agent/work && grep -n chained-grep MEMORY.md'
+expect use     'pr-3498'       'cat CONFIG.md && cat MEMORY.md && ls reviews/pr-3498.md'
+expect use     'quoted-alt'    "/usr/bin/grep -rnE 'quoted-alt|other' ."
+expect failure 'npm'           'cd /tmp/review-pr-9 && npm install'
+expect failure 'wc'            'grep -rn x . | wc -l'
+
+# a chain's failing tail must survive the cmd cap, or the event cannot be attributed
+: > "$EVENTS"
+run_failure "cat A && cat B && $(printf 'echo %0.spadding-padding-padding-padding ' 1 2 3 4 5 6 7 8 9 10)&& ls /tmp/tail-marker-here"
+assert_file_contains "$EVENTS" 'tail-marker-here' 'the failing tail of a long chain is still logged'
+
 finish

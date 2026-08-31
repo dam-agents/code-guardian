@@ -135,7 +135,10 @@ onto the step's existing command, never as a separate tool call:
 
 with step ∈ `locked` (a) · `done` (j) · `aborted <reason>` (e) — plus
 `rapid posted` (Urgent PRs phase 1). These are exactly the steps the `Stop` hook
-below judges terminality on.
+below judges terminality on, which is why the event's filename and `msg` shape
+are a contract — a step written any other way is invisible to the hook and reads
+as a review that never finished ([logging.md](logging.md) → **The shape is a
+contract**).
 
 **Lock heartbeat — refresh the row as you go.** Before each of steps c, d, e and
 h, rewrite your PR's REVIEWS.md row with the **current** UTC time (same fields

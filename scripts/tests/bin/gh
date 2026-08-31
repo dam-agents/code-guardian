@@ -7,6 +7,14 @@
 # (anything with a query string), `{}` otherwise.
 args="$*"
 slug="$(printf '%s' "$args" | tr -c 'A-Za-z0-9._-' '_')"
+# GraphQL calls get a stable slug keyed by the PR number: the query text is
+# multi-line and changes whenever the query is edited, which would silently
+# orphan every fixture named after it.
+case "$args" in
+  (*graphql*pullRequest*reviews*)
+    slug="graphql_pr_reviews_$(printf '%s' "$args" | tr ' ' '\n' \
+            | grep -E '^n=[0-9]+$' | head -1 | cut -d= -f2)";;
+esac
 [ -n "${GH_CALLS_LOG:-}" ] && printf '%s\n' "$args" >> "$GH_CALLS_LOG"
 # <slug>.rc simulates a failing call (fx_fail / fx_fail_once in helpers.sh):
 # exit with the stored code; a `once:<code>` value fails this call only

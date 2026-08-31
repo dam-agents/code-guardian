@@ -181,7 +181,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     explicit correction or dismissal → record it per
     [preferences.md](preferences.md) (same routes as mention feedback) and
     give the report one line per recorded lesson. A 👎 with no readable
-    reason is reported as-is, never guessed at.
+    reason is reported as-is, never guessed at. **`scanned: null` means the
+    scan failed, not that there were no reactions** — it arrives with a
+    `reaction_scan` warn in `checks`, and the report says so instead of
+    printing zeros.
 
 ### H. Report & wrap-up
 
@@ -205,7 +208,7 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 • Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
 • Nudges: <claimed> claimed · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
-• Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0)
+• Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)

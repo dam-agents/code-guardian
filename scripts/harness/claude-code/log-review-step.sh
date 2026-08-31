@@ -78,9 +78,29 @@ case "$tool" in
       (*pulls/*/reviews*)
         case "$cmd" in
           (*--method\ GET*|*-X\ GET*) ;;
-          (*-f\ event=*|*--field\ event=*|*event=APPROVE*|*event=COMMENT*|*event=REQUEST_CHANGES*)
+          (*-X\ POST*|*--method\ POST*|*-f\ event=*|*--field\ event=*|*--input*)
             pr="$(printf '%s' "$cmd" | grep -oE 'pulls/[0-9]{1,7}/reviews' | grep -oE '[0-9]{1,7}' | head -1)"
-            v="$(printf '%s' "$cmd" | grep -oE 'event=(APPROVE|COMMENT|REQUEST_CHANGES)' | head -1 | cut -d= -f2)"
+            # The verdict comes from the API's own answer first. Reading it out
+            # of the command text couples this hook to how the request happens
+            # to be phrased, and docs/review.md posts with `--input <payload>`,
+            # which carries no `event=` at all — that is how `posted UNKNOWN`
+            # got logged (work/LESSONS.md §11).
+            v="$(printf '%s' "$INPUT" \
+              | jq -r '.tool_response | if type=="string" then . else (.stdout // tojson) end' 2>/dev/null \
+              | grep -oE '"state"[[:space:]]*:[[:space:]]*"(APPROVED|CHANGES_REQUESTED|COMMENTED)"' \
+              | head -1 | grep -oE 'APPROVED|CHANGES_REQUESTED|COMMENTED')"
+            case "$v" in
+              (APPROVED)          v=APPROVE;;
+              (CHANGES_REQUESTED) v=REQUEST_CHANGES;;
+              (COMMENTED)         v=COMMENT;;
+            esac
+            # fall back to the payload file the command names, then to the
+            # command text itself
+            if [ -z "$v" ]; then
+              pf="$(printf '%s' "$cmd" | sed -nE 's/.*--input[= ]+"?([^" ]+)"?.*/\1/p' | head -1)"
+              [ -n "$pf" ] && v="$(jq -r '.event // empty' "$pf" 2>/dev/null)"
+            fi
+            [ -n "$v" ] || v="$(printf '%s' "$cmd" | grep -oE 'event=(APPROVE|COMMENT|REQUEST_CHANGES)' | head -1 | cut -d= -f2)"
             [ -n "$pr" ] && emit "$pr" "posted ${v:-UNKNOWN}" "posted"
             ;;
         esac

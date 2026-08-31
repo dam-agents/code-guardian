@@ -40,14 +40,14 @@ export LOG_RUN_ID="$sid"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
 [ -f "$LOG_WORK/CONFIG.md" ] || exit 0   # not a deployed instance
 
-# the run may span UTC midnight — read yesterday's file too; the run-id
-# filter below keeps other runs' events out
-YDAY_EPOCH="$(( $(date -u +%s) - 86400 ))"
+# Every retained events file, not a computed today/yesterday pair: the run-id
+# filter below is what selects this run, and a step written to a differently
+# named file (a hand-rolled fallback that guessed `events-2026-08.jsonl`) was
+# invisible here and produced a false mid-pipeline block. Retention caps this
+# at 14 files (docs/logging.md -> Retention).
 LOG_FILES=()
-for d in "$(date -u -d "@$YDAY_EPOCH" +%Y-%m-%d 2>/dev/null \
-            || date -u -r "$YDAY_EPOCH" +%Y-%m-%d 2>/dev/null)" \
-         "$(date -u +%Y-%m-%d)"; do
-  [ -f "$LOG_DIR/events-$d.jsonl" ] && LOG_FILES+=("$LOG_DIR/events-$d.jsonl")
+for f in "$LOG_DIR"/events-*.jsonl; do
+  [ -f "$f" ] && LOG_FILES+=("$f")
 done
 [ "${#LOG_FILES[@]}" -gt 0 ] || exit 0
 
