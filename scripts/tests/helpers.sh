@@ -61,6 +61,13 @@ fx() { cat > "$GH_FIXTURES/$(fx_for "$1")"; }
 # fixture for the GraphQL reviews query of PR <n> (slug per tests/bin/gh)
 fx_graphql_reviews() { cat > "$GH_FIXTURES/graphql_pr_reviews_$1"; }
 
+# PR <n>'s body-edit timestamp for the lastEditedAt query ('-' = never edited)
+fx_body_edited() { # <number> <iso-ts|->
+  local v="null"; [ "$2" = "-" ] || v="\"$2\""
+  printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":%s}}}}' "$v" \
+    > "$GH_FIXTURES/graphql_pr_lastedited_$1"
+}
+
 # make the given gh invocation fail with an exit code (default 1) — tests/bin/gh
 fx_fail()      { printf '%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
 # same, but only the next call fails; later calls serve the body fixture
