@@ -853,4 +853,4 @@ Before declaring the run done, verify:
 - **Every `reviews_due` PR reached a posted-or-aborted terminal state — the
   run never ended mid-pipeline** (e.g. after a skill report); transient
   failures retried once then aborted-with-lock-released · all errors logged ·
-  no literal repo slug in any output.
+  no unexpanded `$GITHUB_REPO` in any output.
