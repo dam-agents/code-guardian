@@ -829,6 +829,23 @@ if [ "$MODE" = "shepherd" ]; then
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
   shep_row()  { shep_rows | grep -E "^\| *$1 *\|" | head -1; }
 
+  # Review classification from independent reviews (bot + author excluded,
+  # marker-carrying reviews excluded). Reads the reviews array on stdin and
+  # prints approved | changes_requested | awaiting_review — or NOTHING when the
+  # input is not an array, so a faulted read stays distinguishable from an
+  # answer (the caller defers the PR rather than recording a guess).
+  classify_reviews() { # <author>   < reviews-json
+    jq -r --arg a "$1" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+        if type != "array" then empty else
+          [ .[] | select(.user.login != $b and .user.login != $a)
+                | select((.body // "") | contains($m) | not) ]
+          | group_by(.user.login) | map(last | .state)
+          | if any(. == "APPROVED") then "approved"
+            elif any(. == "CHANGES_REQUESTED") then "changes_requested"
+            else "awaiting_review" end
+        end' 2>/dev/null
+  }
+
   NEW_TABLE=""; NUDGES_DUE='[]'
   while IFS=$'\t' read -r n title author created labels requested url; do
     row="$(shep_row "$n")"
@@ -845,16 +862,29 @@ if [ "$MODE" = "shepherd" ]; then
     level="$(row_field "$row" 8)"; level="${level:-1}"; case "$level" in ''|*[!0-9]*) level=1;; esac
     status="$(row_field "$row" 9)"
 
-    # classification from independent reviews (bot + author excluded, marker-carrying excluded)
-    cls="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null \
-      | jq -r --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
-          [ .[] | select(.user.login != $b and .user.login != $a)
-                | select((.body // "") | contains($m) | not) ]
-          | group_by(.user.login) | map(last | .state)
-          | if any(. == "APPROVED") then "approved"
-            elif any(. == "CHANGES_REQUESTED") then "changes_requested"
-            else "awaiting_review" end')"
-    [ -z "$cls" ] && { logev warn gh_api "PR #$n: review classification did not respond — defaulting to awaiting_review"; cls="awaiting_review"; }
+    # Classification, with an outage never allowed to read as an answer: REST
+    # first, GraphQL as the second opinion (during the 2026-08-17 incident the
+    # REST endpoint returned 404 bodies carrying a GraphQL error while the
+    # GraphQL endpoint answered correctly), and if neither responds the PR is
+    # deferred with its ledger row carried over untouched — the same deferral
+    # the review path makes on __api_error__.
+    cls="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null | classify_reviews "$author")"
+    if [ -z "$cls" ]; then
+      cls="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
+               query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
+                 pullRequest(number:$n){reviews(last:100){nodes{state body author{login}}}}}}' 2>/dev/null \
+             | jq -c 'if (.data.repository.pullRequest.reviews.nodes | type) == "array"
+                      then [ .data.repository.pullRequest.reviews.nodes[]
+                             | {user:{login:(.author.login // "")}, state, body} ]
+                      else empty end' 2>/dev/null \
+             | classify_reviews "$author")"
+      [ -n "$cls" ] && logev warn gh_api "PR #$n: reviews REST read faulted — classified via GraphQL"
+    fi
+    if [ -z "$cls" ]; then
+      logev warn gh_api "PR #$n: review classification unavailable (REST and GraphQL both faulted) — PR deferred, ledger row untouched"
+      [ -n "$row" ] && NEW_TABLE="$NEW_TABLE$row"$'\n'
+      continue
+    fi
 
     # merge-conflict flag (detail call — the list endpoint omits mergeable
     # state; null = still computing, treated as clean until the next sweep)
@@ -1468,15 +1498,32 @@ if [ "$MODE" = "audit" ]; then
   if [ -n "$BOT_LOGIN" ]; then
     rrc="$(gh api "repos/$REPO/pulls/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
     ric="$(gh api "repos/$REPO/issues/comments?per_page=100&sort=created&direction=desc" 2>/dev/null)"
-    { printf '%s' "$rrc" | jq -e 'type=="array"' >/dev/null 2>&1; } || rrc='[]'
-    { printf '%s' "$ric" | jq -e 'type=="array"' >/dev/null 2>&1; } || ric='[]'
-    REACTIONS="$(jq -n --argjson a "$rrc" --argjson b "$ric" --arg bot "$BOT_LOGIN" '
-      [ ($a + $b)[] | select((.user.login // "") == $bot) ]
+    # an unusable read is remembered, not smoothed into an empty list: `[]` from
+    # the API is a measured zero, a faulted body is not
+    rx_bad=0
+    { printf '%s' "$rrc" | jq -e 'type=="array"' >/dev/null 2>&1; } || { rrc='[]'; rx_bad=1; }
+    { printf '%s' "$ric" | jq -e 'type=="array"' >/dev/null 2>&1; } || { ric='[]'; rx_bad=1; }
+    # stdin, not argv: two pages of comments are ~768 KB, and Linux caps a
+    # SINGLE argument at MAX_ARG_STRLEN (128 KiB) regardless of the much larger
+    # ARG_MAX, so --argjson made execve fail with "Argument list too long" and
+    # the scan silently returned nothing on every busy week.
+    REACTIONS="$(printf '%s\n%s\n' "$rrc" "$ric" | jq -s --arg bot "$BOT_LOGIN" '
+      [ (.[0] + .[1])[] | select((.user.login // "") == $bot) ]
       | {up: (map(.reactions["+1"] // 0) | add // 0),
          down: (map(.reactions["-1"] // 0) | add // 0),
          down_urls: (map(select((.reactions["-1"] // 0) > 0) | .html_url) | .[0:10]),
          scanned: length}' 2>/dev/null)"
-    [ -n "$REACTIONS" ] || REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":0}'
+    # a failed scan reports scanned:null — never an all-zero literal, which is
+    # indistinguishable from a genuine zero and reads as "no reactions"
+    if [ -z "$REACTIONS" ] || [ "$rx_bad" -eq 1 ]; then
+      REACTIONS='{"up":0,"down":0,"down_urls":[],"scanned":null}'
+      logev warn reaction_scan "reaction feedback unreadable — stats.reactions.scanned is null, not a measured zero"
+    fi
+    # the scan is only useful if it can fail loudly: a null `scanned` becomes a
+    # warn the report must carry, so a dead check can never read as a clean zero
+    if [ "$(printf '%s' "$REACTIONS" | jq -r '.scanned')" = "null" ]; then
+      check reaction_scan warn "reaction feedback could not be read this week — treat stats.reactions as unmeasured, not zero"
+    fi
   fi
 
   STATS="$(jq -n --arg since "$SINCE_ISO" \

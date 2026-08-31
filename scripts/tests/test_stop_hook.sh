@@ -135,6 +135,17 @@ step r1 "PR #10 abc1234 done"
 run_hook r1
 assert_rc 0 "yesterday's lock terminated today stops cleanly"
 
+# --- a terminal step in an off-cadence events file is still read --------------
+# a hand-rolled fallback that guessed the filename used to be invisible here and
+# produced a false mid-pipeline block (docs/logging.md → The shape is a contract)
+hook_case stop_offcadence_filename
+step r1 "PR #10 abc1234 locked"
+jq -nc '{ts:"2026-07-30T23:58:00Z", run:"r1", job:"review", level:"info",
+         event:"review_step", msg:"PR #10 abc1234 done"}' \
+  >> "$WORK/logs/events-2026-07-30.jsonl"
+run_hook r1
+assert_rc 0 'a terminal step in any retained events file counts'
+
 # --- not a deployed instance (no CONFIG.md) → no-op --------------------------
 hook_case stop_not_deployed
 rm -f "$WORK/CONFIG.md"
