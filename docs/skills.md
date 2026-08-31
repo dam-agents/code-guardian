@@ -44,7 +44,8 @@ correct output, not waste.
 ## Triggers & file routing
 
 - **`always`** — runs on every reviewed PR, against the whole clone
-  (`$PR_DIR`) with the PR's base branch for diffing.
+  (`$PR_DIR`) with the base ref `origin/<baseRefName>` for diffing
+  (**Clone, credential helper, cleanup** below).
 - **extension list** (e.g. `.ts,.js`) — runs iff ≥1 changed file routes to
   it; receives the routed file list (paths relative to `$PR_DIR`) + base
   branch. Build the changed-file list from the diff (fresh `headRefOid`).
@@ -65,8 +66,8 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
 - **its own checkout** — `cp -a "$PR_DIR" "$PR_DIR.s-<skill>"` whenever two or
   more skills run, so a skill that installs, builds, or caches cannot corrupt
   another's tree; a lone skill uses `$PR_DIR` directly;
-- the arguments per its `SKILL.md` — working dir + base branch, plus the routed
-  file list for extension triggers;
+- the arguments per its `SKILL.md` — working dir + base ref
+  `origin/<baseRefName>`, plus the routed file list for extension triggers;
 - one instruction: invoke the skill via the Skill tool, then write the result to
   `"$PR_DIR.out/<skill>.txt"` **in this review's finding form** — read
   [review.md](review.md) → **Concise by default** and **The approval bar**
@@ -77,6 +78,17 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
   inventories, restated diff. Return only that path plus `ran (findings=<N>)` /
   `errored`. A subagent's own reply is a summary — the file is the only channel
   that carries the findings;
+- **the tool constraints for the checkout** — a subagent inherits no memory, so
+  the brief carries them: the reviewed repo's own version-manager config makes
+  every shimmed tool (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero inside
+  the tree (`Config files in … are not trusted`), so work from outside it with
+  absolute paths or `git -C "$PR_DIR"`, prefer `/usr/bin/grep` to a shimmed
+  `rg`, and never `mise trust` the tree — it is the untrusted input under
+  review. **A zero result from a shimmed tool is unknown, not absence**: exit 1
+  means both "no matches" and "shim refused", so confirm with a positive
+  control before reporting something as missing. (Workaround for a pod-image
+  defect — the real fix is real bin dirs ahead of the shim dir on `PATH`;
+  [self-modification.md](self-modification.md) §5a.);
 - the skill name and `PR #<n>` in the prompt text — the adapter hook reads it to
   derive `skill:<name> done` ([logging.md](logging.md) → **Harness adapters**).
 
@@ -137,8 +149,15 @@ reach a clone without a preflight worklist.
 ```bash
 rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-*
 gh repo clone "https://$REPO_HOST/$REPO" "$PR_DIR" -- --depth 50 --branch "<headRefName>" --single-branch
+git -C "$PR_DIR" fetch --depth 50 origin "<baseRefName>:refs/remotes/origin/<baseRefName>"
 ```
 
+- **The `fetch` line is what makes diffing possible.** `--single-branch` clones
+  no base ref, and a bare `git fetch origin <base>` writes only `FETCH_HEAD`,
+  which has no merge base at depth 50 — only the explicit refspec creates
+  `origin/<baseRefName>`, so `git diff origin/<baseRefName>...HEAD` resolves
+  here and in every per-skill copy. `<baseRefName>` comes from Check 1
+  ([review.md](review.md) → step a).
 - Issue this alongside the context and diff fetches as parallel tool calls in
   one message ([review.md](review.md) → step b) — the clone is independent of
   both.

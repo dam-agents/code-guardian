@@ -58,7 +58,7 @@ come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
 a. **Check 1 — re-fetch state**:
-   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
+   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, baseRefName: .base.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
    Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
    prunes). On a `re-review`, no active re-review trigger still
    present → skip (request withdrawn; leave the `awaiting_label` row) — the
@@ -69,11 +69,11 @@ a. **Check 1 — re-fetch state**:
    **Re-review output** below).
    Re-verify `urgent` from the live labels (`$URGENT_LABEL` present). Use the
    fresh SHA/branch as source of truth everywhere (clone, diff, skills,
-   marker). Then **write the `in_progress` lock row** to REVIEWS.md (fresh
-   SHA + current UTC time). `takeover: true` → re-check the holder is really
-   gone and stand down if it isn't (**Live holder** below); otherwise overwrite
-   the stale lock and log `PR #<n>: taking over stale in_progress lock`. Never
-   lock a PR you're about to skip. Entries flagged `closed: true` skip these gates — see
+   marker). Then **re-check for a live holder — every entry, whatever its
+   `takeover` flag** (**Live holder** below); one that lives → stand down.
+   Only then **write the `in_progress` lock row** to REVIEWS.md (fresh SHA +
+   current UTC time), logging `PR #<n>: taking over stale in_progress lock`
+   when `takeover` was set. Never lock a PR you're about to skip. Entries flagged `closed: true` skip these gates — see
    **PR closed mid-review** below. Urgent entries now run **phase 1 (rapid
    preliminary review)** per **Urgent PRs** below, then continue with b.
 b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
@@ -239,13 +239,16 @@ short line — GitHub truncates it past 140 characters.
 | a — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
 | b — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
 | Urgent phase 1 — rapid posted | `pending` | `rapid preliminary review posted · full review running` | the rapid review |
-| j — review posted | `success` | `<VERDICT> · <a>🔴 <b>🟡 <c>🟢 · took <m>m` | the posted review |
+| j — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
 | e — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
 | PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
 | `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
 
 - `<eta>` is ` · usually ~<N> min` from the entry's `eta_seconds` — whole
   minutes, minimum 1 — and is left out entirely when that field is `null`.
+- **`description` is ASCII** — the statuses API rejects 4-byte UTF-8
+  (`Description doesn't accept 4-byte Unicode`), so severity words replace the
+  emoji here; the review body keeps them.
 - Write on the SHA the review locked at Check 1, so a status never describes a
   commit it did not read.
 - Every terminal outcome is `success`, aborts included: `failure`/`error` would
@@ -643,12 +646,25 @@ lock past the TTL is never a reason to abandon or skip posting; keep refreshing
 if a second job posted at your SHA meanwhile, the pre-post dedup check turns your
 run into a self-healing abort, so no duplicate can post.
 
-**As the taker, `takeover: true` means "preflight saw no life", not proof of
-death** — the holder may wake between preflight and you. Re-check at Check 1:
-anything in `$PR_DIR.out/` you did not write, or a row timestamp newer than your
-worklist's `prior.ts`, means it lives → **stand down before the `rm -rf`**: touch
-neither the row nor `/tmp`, log `PR #<n>: holder alive at Check 1 — stood down`,
-continue with the next PR.
+**As the taker, exclusivity is re-checked at Check 1 for every entry, whatever
+its `takeover` flag.** `takeover: true` means "preflight saw no life", not proof
+of death — the holder may wake between preflight and you. `takeover: false`
+means only that the worklist's snapshot saw no lock: on a busy heartbeat that
+snapshot predates your arrival by minutes, and another run may have locked the
+PR in between. Any one of these signals means the PR lives:
+
+```bash
+ls -d "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-* 2>/dev/null        # a tree this run did not create
+jq -c -R 'fromjson? // empty' work/logs/events-$(date -u +%Y-%m-%d).jsonl 2>/dev/null \
+  | jq -c --arg n "PR #<n> " --arg me "${LOG_RUN_ID:-$CLAUDE_CODE_SESSION_ID}" \
+      'select((.msg|startswith($n)) and .run != $me)' | tail -3   # a foreign run on this PR
+```
+
+plus a REVIEWS.md row timestamp newer than the worklist's `prior.ts`. Then
+**stand down before the `rm -rf`**: touch neither the row nor `/tmp`, log
+`PR #<n>: holder alive at Check 1 — stood down`, continue with the next PR.
+Step b's `rm -rf` is destructive and runs first, so this check must precede
+both it and the lock write — never only on takeovers.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 
@@ -797,9 +813,9 @@ Before declaring the run done, verify:
   Check 1 + Check 2 + pre-post dedup done (incl. the trigger check on
   re-reviews) · lock → `done` lifecycle correct (aborted re-reviews restored
   `awaiting_label`; no `in_progress` left behind) · lock row refreshed at each
-  milestone (**Lock heartbeat**) · every `takeover` entry re-checked for a woken
-  holder before the clone `rm -rf`, standing down instead of displacing it
-  (**Live holder**) · label removed after every
+  milestone (**Lock heartbeat**) · every entry re-checked for a live holder
+  before the lock write and the clone `rm -rf`, standing down instead of
+  displacing it (**Live holder**) · label removed after every
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
