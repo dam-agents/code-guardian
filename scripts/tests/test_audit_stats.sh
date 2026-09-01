@@ -158,6 +158,42 @@ run_preflight audit
 assert_jq '.stats.reactions == {up: 3, down: 1, down_urls: ["https://example.test/rc/1"], scanned: 2}' \
   'reactions summed over bot comments only, 👎 URLs listed'
 
+# --- a realistic comment payload still gets scanned ---------------------------
+# two pages of real comments are ~768 KB; passed as jq arguments they exceed
+# MAX_ARG_STRLEN (128 KiB per single argument on Linux, independent of the much
+# larger ARG_MAX) and execve fails, so the scan silently reported zeros on every
+# busy week. Sized here to break the argv form on macOS too, so the guard holds
+# wherever the suite runs.
+new_case audit_reactions_large_payload
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc '[range(150) | {user:{login:"test-bot"},
+                       html_url:("https://example.test/rc/" + (.|tostring)),
+                       body:("x" * 4000),
+                       reactions:{"+1":1,"-1":0}}]' \
+  | fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc'
+jq -nc '[range(150) | {user:{login:"alice"},
+                       html_url:("https://example.test/c/" + (.|tostring)),
+                       body:("y" * 4000),
+                       reactions:{"+1":1,"-1":1}}]' \
+  | fx 'api repos/acme/widgets/issues/comments?per_page=100&sort=created&direction=desc'
+run_preflight audit
+assert_jq '.stats.reactions.scanned == 150 and .stats.reactions.up == 150' \
+  'a ~1.2 MB payload is scanned, not silently dropped'
+assert_jq '[.checks[] | select(.id == "reaction_scan")] | length == 0' \
+  'a working scan raises no warn'
+
+# --- an unreadable comment list is unmeasured, not zero ------------------------
+new_case audit_reactions_unreadable
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '{"message":"Not Found"}' \
+  | fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc'
+run_preflight audit
+assert_jq '.stats.reactions.scanned == null' 'a faulted read reports null, not 0'
+assert_jq '.checks[] | select(.id == "reaction_scan") | .status == "warn"' \
+  'the dead check warns instead of reporting a clean zero'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config

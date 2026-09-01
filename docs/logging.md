@@ -30,6 +30,21 @@ Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`.
 It never fails a run (all error paths swallowed) and creates `work/logs/`
 on first write.
 
+### The shape is a contract, not a convention
+
+Three readers parse these lines — the `Stop` hook, preflight's live-holder and
+stall detection, and the audit's triage — so a line written any other way is
+invisible to them, and an invisible terminal step reads as a review that never
+finished. When `logev` is unavailable and a line is hand-rolled, it matches
+exactly:
+
+- **File** — `work/logs/events-<UTC YYYY-MM-DD>.jsonl` for the write day. No
+  other name is ever read (`events-2026-08.jsonl`, `review-steps.log`: not read).
+- **Object** — the seven fields above, one line, no trailing comma; `event` and
+  `msg` are strings; `run` is the harness session id.
+- **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
+  `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
+
 ### Tool path resolution (`scripts/lib/toolpath.sh`)
 
 `log.sh` sources it, so anything sourcing `log.sh` inherits it; the harness
@@ -70,9 +85,12 @@ directly.
    fullest error context available — `tool_response`, then error/stderr/stdout
    fields, then the raw `tool_input`/`tool_response` payload, so a failure is
    never logged as bare `null`). Exception: read-only inspect commands
-   (`grep`/`ls`/`find`/`test`/`command -v`) answer "no match" with a
+   (`grep`/`rg`/`ls`/`find`/`test`/`command`/`stat`) answer "no match" with a
    non-zero exit — those land as info `tool_use` events, keeping the
-   `failures[]` triage on real failures. Under `log_level: debug`, successful external
+   `failures[]` triage on real failures. The match is on the **basename of the
+   command that set the exit status** — the last element of a `&&`/`;`/`|`
+   chain — so `/usr/bin/grep …` and `cd … && grep …` are recognised as the
+   inspects they are. Under `log_level: debug`, successful external
    calls (Bash
    `gh`/`git`/`curl` commands, `mcp__*` tools) also land as `tool_use`
    debug events with a truncated result. At session end, one **`tokens`**

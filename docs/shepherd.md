@@ -11,7 +11,9 @@ age gate, the 20h per-PR cooldown, and the ≥2-day escalation tick, reset the
 ladder (but never the clock) on class transitions, kept `held` rows held,
 flagged merge conflicts (`conflict: true` — such nudges are author-directed;
 an approved PR nudges only while conflicted), and
-updated the ledger's bookkeeping columns. **Rows with a due nudge were left
+updated the ledger's bookkeeping columns. A PR whose reviews could not be read
+at all is **deferred** — no class, no nudge, its ledger row carried over
+verbatim until a sweep can read it. **Rows with a due nudge were left
 untouched** — advancing them is your post-send record step.
 
 ## Hard rules

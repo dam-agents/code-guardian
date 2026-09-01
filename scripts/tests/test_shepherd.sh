@@ -60,4 +60,32 @@ run_preflight shepherd
 assert_jq '.nudges_due | length == 1' 'approved+dirty nudges'
 assert_jq '.nudges_due[0] | .conflict == true and .class == "approved" and .targets == "alice!"' 'rebase ask targets the author'
 
+# --- reviews REST faults, GraphQL answers → classified from GraphQL -----------
+new_case shepherd_classify_graphql_fallback
+shep_setup
+pr_json 1 "approved PR" '[]' "$SHA1" | open_prs_fx
+fx_fail "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"state":"APPROVED","body":"","author":{"login":"bob"}}]}}}}}' \
+  | fx_graphql_reviews 1
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'GraphQL-classified approval silences the PR'
+assert_file_contains "$WORK/SHEPHERD.md" 'approved' 'ledger records the GraphQL classification'
+
+# --- both reads fault → PR deferred, ledger row untouched ---------------------
+new_case shepherd_classify_unavailable
+shep_setup
+pr_json 1 "unreadable PR" '[]' "$SHA1" | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob | changes_requested | 2 | $(iso_ago 3600) | 2 | nudging-author |
+EOF
+fx_fail "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'an unclassifiable PR never nudges'
+assert_file_contains "$WORK/SHEPHERD.md" 'changes_requested' 'ledger keeps the last known state'
+assert_out_absent 'awaiting_review' 'an outage is never recorded as a read answer'
+
 finish
