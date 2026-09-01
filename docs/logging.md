@@ -20,7 +20,7 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
   only when `work/CONFIG.md` has `log_level: debug` (missing key = `info`).
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,
-  `gh_api`, `skill_install`, `tool_failure`, `tool_use`, `review_step`,
+  `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`, `review_step`,
   `review_incomplete`, `progress_status`, `mention_handled`, `stall_rate`,
   `stall_alert_sent`, `pod_boot`, `log_cleanup`, …); the audit groups recurring
   errors by it.
@@ -197,3 +197,12 @@ cat work/logs/events-*.jsonl | jq -c -R 'fromjson? // empty' \
   | jq -s '[.[] | select(.level=="error")] | group_by(.event) | map({event: .[0].event, n: length})'
 jq -c -R 'fromjson? // empty' "work/logs/events-$(date -u +%Y-%m-%d).jsonl" | jq -c 'select(.run=="<run-id>")'
 ```
+
+### Reading skill timings
+
+`skill:<name> done` is derived from the subagent tool call **returning**, so a
+parallel fan-out stamps every skill within milliseconds of the collection and
+carries no per-skill duration — differencing those events measures nothing.
+Read the phase from `review_step` `fanned out (n=<N>)` → `verified` → `posted`,
+and per-skill finish times from the `skill_timing` event
+([review.md](review.md) → **Progress logging**).

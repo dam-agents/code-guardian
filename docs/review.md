@@ -135,12 +135,21 @@ onto the step's existing command, never as a separate tool call:
 . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
 ```
 
-with step ∈ `locked` (a) · `done` (j) · `aborted <reason>` (e) — plus
-`rapid posted` (Urgent PRs phase 1). These are exactly the steps the `Stop` hook
-below judges terminality on, which is why the event's filename and `msg` shape
-are a contract — a step written any other way is invisible to the hook and reads
-as a review that never finished ([logging.md](logging.md) → **The shape is a
+with step ∈ `locked` (a) · `fanned out (n=<N>)` and `verified` (d) ·
+`done` (j) · `aborted <reason>` (e) — plus `rapid posted` (Urgent PRs phase 1).
+The `Stop` hook below judges terminality on `locked` / `done` /
+`aborted <reason>`, which is why the event's filename and `msg` shape are a
+contract — a step written any other way is invisible to the hook and reads as a
+review that never finished ([logging.md](logging.md) → **The shape is a
 contract**).
+
+**The two step-d events bound the phases that dominate a slow review.**
+`fanned out (n=<N>)` goes immediately before the skill fan-out and `verified`
+immediately after full-file verification, so three durations become readable:
+fan-out to first collected output (the skill phase), `verified` to `posted`
+(compose plus Check 2), and the verification window between them. Per-skill
+durations come from the output-file mtimes, not from `skill:<name> done`
+([skills.md](skills.md) → **Invocation & audit log**).
 
 **Lock heartbeat — refresh the row as you go.** Before each of steps c, d, e and
 h, rewrite your PR's REVIEWS.md row with the **current** UTC time (same fields
@@ -152,7 +161,7 @@ the liveness signal it reads (**Live holder** below). A review that refreshes
 never crosses the TTL at all. Skipping it is what makes a healthy 50-minute
 review indistinguishable from a dead one.
 
-**When the adapter is not active, all seven steps are yours** — a non-Claude-Code
+**When the adapter is not active, all nine steps are yours** — a non-Claude-Code
 harness, or the audit's `harness_adapter` check warning that
 `log-review-step.sh` is unregistered. Duplicate events are harmless (the hook
 reads steps as a set), so when in doubt, log it.
@@ -840,8 +849,9 @@ Before declaring the run done, verify:
   across sources with no finding lost (**Merging findings across sources**) ·
   stale approval dismissed when the verdict
   dropped below APPROVE · clone + per-skill copies deleted ·
-  `review_step` events logged (`locked` → … → `posted`/`aborted`/`done`,
-  [logging.md](logging.md)).
+  `review_step` events logged (`locked` → `fanned out (n=<N>)` → `verified` →
+  `posted`/`aborted`/`done`) with the collected `skill_timing`
+  ([logging.md](logging.md)).
 - Style: findings concise and diff-anchored, inline text never repeated in
   the summary; re-review scope matched the trigger — label = complete (all
   current findings, 🆕-only inline), request/on-demand = delta (Findings =
