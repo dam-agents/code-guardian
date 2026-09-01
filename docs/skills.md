@@ -6,8 +6,7 @@ the `## Review skills` table of `work/CONFIG.md`. Each row: **skill** (name
 invoked via the Skill tool), **source** (`harness`, or the
 `[<host>/]<owner>/<repo>` it installs from — its host may differ from the
 target repo's), **trigger**, **section** (exact `###` heading for its
-output). Table order = routing priority for extension triggers **and**
-section order in the output.
+output). Table order = section order in the output.
 
 ## Installation — done by preflight
 
@@ -49,10 +48,13 @@ correct output, not waste.
 - **extension list** (e.g. `.ts,.js`) — runs iff ≥1 changed file routes to
   it; receives the routed file list (paths relative to `$PR_DIR`) + base
   branch. Build the changed-file list from the diff (fresh `headRefOid`).
-  Each changed file goes to **at most one** extension-triggered skill:
-  scanning the table top-down, the first row whose trigger list contains the
-  file's extension claims it (first-match-wins — e.g. `.tsx` goes only to
-  the React skill, never also to the TypeScript one).
+  **Routing is inclusive: every skill whose trigger list contains a file's
+  extension receives that file** — a skill runs on every PR it has something
+  to say about, and two skills whose lists overlap both get the file, because
+  they report different things about it. The same defect reported twice is
+  merged once, when the review is composed ([review.md](review.md) →
+  **Merging findings across sources**). Narrow what a skill sees by editing
+  its trigger list, never by its position in the table.
 
 ## Invocation & audit log
 
