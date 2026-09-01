@@ -20,10 +20,12 @@ Do these before the review loop; one log line each.
   `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
 - **Same-SHA trigger cleanup** (`label_cleanups_due` entry
   `{number, label, request}`): a re-review trigger sits on a PR whose live
-  HEAD is already reviewed — nothing to review. Clear what the entry flags —
+  HEAD is already reviewed **and whose description has not been edited since**
+  — nothing to review (an edited description arrives as a `reviews_due` entry
+  instead, **Description-only re-review** below). Clear what the entry flags —
   `label: true` → remove the label, `request: true` → remove your pending
   review request (commands under **Trigger removal** below) — and log
-  `PR #<n>: re-review trigger present but no new commits since <short-sha> — cleared (<label / request / label + request>), no re-review`.
+  `PR #<n>: re-review trigger present but nothing new since <short-sha> — cleared (<label / request / label + request>), no re-review`.
   Post nothing. A failed removal is logged, not fatal (preflight re-emits it
   next run).
 
@@ -539,7 +541,7 @@ defect can arrive more than once. Compose the output from all of them together:
   skill reported: each skill keeps its own `findings=<N>` audit line
   ([skills.md](skills.md)).
 
-## Re-review output (trigger-gated; new commits since the last review)
+## Re-review output (trigger-gated; new commits or an edited description)
 
 The trigger sets the scope:
 
@@ -555,6 +557,15 @@ The trigger sets the scope:
 - **Review request / on-demand ask → delta re-review** (`full: false`):
   report the delta only, never a restatement of the previous review — the
   conciseness rules below.
+
+**Description-only re-review** (`description_changed: true`): the trigger is
+answered by an edited PR body, not by new commits — the diff and the SHA are
+the ones already reviewed. Re-read the body (**PR context: body, comments, reviews** above) and redo the review against it: a justification that has been removed no
+longer suppresses its finding, and one that has been added now does. Scope
+still follows the trigger. In `### Changes since last review`, `Previous HEAD`
+is the same SHA — say `description edited, no new commits` on that line, and
+let the buckets carry what the corrected description changed. Nothing changed
+in substance → say so in one line rather than re-posting the previous review.
 
 Both scopes: read the prior review from
 `reviews/pr-<n>.md` first — match findings against its `findings-json` line

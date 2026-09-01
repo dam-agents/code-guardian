@@ -445,14 +445,17 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
 
-  add_review() { # number sha ref title author kind takeover prior_json urgent closed full
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc
     # full: complete-review scope — always true for kind=first; on a re-review
     # true iff the label is the trigger (review-request / on-demand = delta)
+    # desc: the trigger is answered by an edited PR body, not by new commits —
+    # the diff is unchanged and the description is the new input
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
       --argjson u "${9:-false}" --argjson c "${10:-false}" --argjson f "${11:-false}" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f}')" '. + [$e]')"
+      --argjson d "${12:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f, description_changed:$d}')" '. + [$e]')"
     [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
       && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
     return 0
@@ -544,16 +547,30 @@ if [ "$MODE" = "review" ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
         fi
       elif [ "$row_sha" = "$sha" ]; then
-        # reviewed at live HEAD; trigger present -> same-SHA cleanup (agent clears it)
+        # Reviewed at live HEAD. A trigger here is not automatically stale: a PR
+        # body can be corrected without a new commit, and the body is a review
+        # input (docs/review.md -> PR context), so an edit after the recorded
+        # review IS something new to review. One GraphQL call, and only in this
+        # branch — the case that would otherwise do nothing at all.
         if [ "$triggered" -eq 1 ]; then
           trig=""
           [ "$has_label" -eq 1 ] && trig="$REREVIEW_LABEL"
           [ "$has_request" -eq 1 ] && trig="${trig:+$trig + }review request"
-          CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
-            --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
-            --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
-            '{number:$n, label:$l, request:$r}')" '. + [$e]')"
-          log "PR #$n: $trig present but no new commits since ${row_sha:0:7} — trigger cleanup due"
+          body_edited="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
+              query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
+                pullRequest(number:$n){lastEditedAt}}}' 2>/dev/null \
+            | jq -r '.data.repository.pullRequest.lastEditedAt // empty' 2>/dev/null)"
+          if [ -n "$body_edited" ] && [ "$(iso2epoch "$body_edited")" -gt "$(iso2epoch "$row_ts")" ]; then
+            add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)" true
+            log "PR #$n: $trig present, no new commits since ${row_sha:0:7} but the description was edited $body_edited — re-review due"
+          else
+            CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
+              --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
+              --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
+              '{number:$n, label:$l, request:$r}')" '. + [$e]')"
+            log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
+          fi
         fi
       else
         # new commits since the recorded review
