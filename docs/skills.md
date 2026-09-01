@@ -92,6 +92,23 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
 - the skill name and `PR #<n>` in the prompt text — the adapter hook reads it to
   derive `skill:<name> done` ([logging.md](logging.md) → **Harness adapters**).
 
+**Log the fan-out** — `fanned out (n=<N>)` immediately before launching, and
+each output file's **mtime** as that skill's finish time when you collect
+([review.md](review.md) → **Progress logging**), chained onto the read you are
+already doing:
+
+```bash
+. "$HOME/scripts/log.sh" && LOG_JOB=review logev info skill_timing \
+  "PR #<n> $(cd "$PR_DIR.out" && stat -c '%n=%Y' *.txt | tr '\n' ' ')"
+```
+
+`%Y` is the finish time as epoch seconds, one `<skill>.txt=<epoch>` pair per
+skill; the event's own `ts` carries the collection time.
+
+The hook-derived `skill:<name> done` events are written when the subagent
+results are **collected**, so they all carry nearly the same timestamp and no
+per-skill duration ([logging.md](logging.md) → **Reading skill timings**).
+
 **Then collect in table order**, whatever order the subagents finished in: each
 file's findings become that skill's `### <section>`, merged across sources per
 [review.md](review.md) → **Merging findings across sources** — a section is

@@ -49,6 +49,14 @@ assert_rc 2 'mid-pipeline stop refused'
 assert_file_contains "$SANDBOX/stderr" 'PR(s) 10' 'stderr names the owed PR'
 assert_file_contains "$EVENTS" 'review_incomplete' 'logged a review_incomplete warn'
 
+# --- the step-d timing milestones are not terminal ---------------------------
+hook_case stop_step_d_milestones_not_terminal
+step r1 "PR #10 abc1234 locked"
+step r1 "PR #10 abc1234 fanned out (n=2)"
+step r1 "PR #10 abc1234 verified"
+run_hook r1
+assert_rc 2 'fanned out / verified do not terminate a review'
+
 # --- posted + done → clean stop ----------------------------------------------
 hook_case stop_completed
 step r1 "PR #10 abc1234 locked"
