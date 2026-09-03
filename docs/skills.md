@@ -80,12 +80,14 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
   checked-and-clean inventories, restated diff. Return only that path plus
   `ran (findings=<N>)` / `errored`. A subagent's own reply is a summary — the
   file is the only channel that carries the findings;
-- **a work budget — at most 30 tool calls**, then write what it has and
-  return. One lookup settles a question: a file, document, symbol, or
-  reference the first search does not find is absent — report it so, or skip
-  the check as not applicable — never hunted for with variant queries, other
-  refs, or history walks; a command whose result is already known is never
-  re-run;
+- **no circling** — whatever fails or comes back empty (a file, document,
+  symbol, or reference it cannot find; a command, install, or build that
+  does not work) gets at most one retry (for a shimmed tool, its positive
+  control is that retry), then the skill continues without it: the output
+  names what was skipped (`<what> not found — skipped`) or drops the check
+  as not applicable, and the same thing is not attempted again with variant
+  queries, other refs, history walks, or another install. A command whose
+  result is already known is not re-run;
 - **the tool constraints for the checkout** — a subagent inherits no memory, so
   the brief carries them: the reviewed repo's own version-manager config makes
   every shimmed tool (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero inside
