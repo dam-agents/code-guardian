@@ -107,7 +107,7 @@ The agent's behavior is changed **only by the operator in the direct agent sessi
 Output channels: the chat UI **and** a GitHub PR review — every reviewed PR must produce a structured review in both.
 
 1. Echo preflight's `logs` to the chat UI; note per-skill install statuses from `skills` (an `install-failed` skill is skipped for every PR this run, with its audit line).
-2. Read [docs/review.md](docs/review.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md` and operational lessons from `work/LESSONS.md` ([docs/preferences.md](docs/preferences.md)); when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md); when `mentions_due` is non-empty, read [docs/mentions.md](docs/mentions.md).
+2. Read [docs/review.md](docs/review.md), [docs/finding-form.md](docs/finding-form.md) and [docs/skills.md](docs/skills.md); read preferences from `work/MEMORY.md` and operational lessons from `work/LESSONS.md` ([docs/preferences.md](docs/preferences.md)); when `work/CONFIG.md` has watch rules, read [docs/watches.md](docs/watches.md); when `mentions_due` is non-empty, read [docs/mentions.md](docs/mentions.md).
 3. Send every `urgent_alerts_due` alert **first** — marker write immediately after the send, roster-only mentions (docs/review.md → **Urgent PRs**).
 4. Apply the bookkeeping arrays — `selfheals_due`, `label_cleanups_due`, `prunes_due`, `status_resets_due` — per docs/review.md (each with per-PR log lines).
 5. Handle every `mentions_due` entry per [docs/mentions.md](docs/mentions.md) — ledger row immediately after each entry's actions, feedback recorded **before this run's reviews** so it applies to them.
@@ -141,7 +141,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 
 - Never emit an unexpanded `$GITHUB_REPO` — the literal string in an output is a resolution bug. The resolved target repo is named and linked freely where the recipient already has it (target-repo reviews/comments/issues, chat UI, Slack), and never on `$DEFINITION_REPO`, whose tracking issues identify PRs by number alone.
 - Every posted review carries the trailing full-SHA marker line; `review_marker` never changes once used.
-- Every posted review states its approval bar: each open 🔴/🟡 carries the fix that resolves it, in the review and in `findings-json` (docs/review.md → **The approval bar**).
+- Every posted review states its approval bar: each open 🔴/🟡 carries the fix that resolves it, in the review and in `findings-json` (docs/finding-form.md → **The approval bar**).
 - Never post a review whose marker SHA isn't the live HEAD at post time (Check 2 + `commit_id` server-side guard; a stale posted review is expensive, discarding is cheap). A PR closed at post time gets no review — 🔴 findings become one deduplicated linked issue instead (docs/review.md → **PR closed mid-review**).
 - Re-reviews are trigger-gated: no re-review without an explicit request — `$REREVIEW_LABEL` or, when `rereview_trigger` enables it, a pending review request for `bot_login` (new commits or a description edit alone never trigger one, and a trigger is answered by either); the trigger is cleared after every posted review (label removed; a served review request clears itself); untriggered new commits get the one-time `awaiting_label` flip.
 - Configured review skills are never pre-filtered away — routing is inclusive (every skill whose trigger matches a changed file receives it), and accepted skips are only `no-matching-files` and technical failures (docs/skills.md). Their findings are reformatted to the review's finding form and deduplicated against the other sources, never dropped or capped (docs/review.md → **Merging findings across sources**).
@@ -169,6 +169,7 @@ When `slack_notifications` is not `enabled`, there is no shepherd schedule and n
 | File | Read when |
 | --- | --- |
 | [docs/review.md](docs/review.md) | A review run starts, or a channel asks for a PR review — per-PR sequence, re-review trigger gate & bookkeeping, urgent rapid-first delivery, closed-PR issue, re-review output, posting, tracking, pruning, overrides, on-demand review, self-check |
+| [docs/finding-form.md](docs/finding-form.md) | Writing a finding — the diff review, a skill subagent's reformat, the benchmark reviewer: the approval bar and the conciseness rules |
 | [docs/skills.md](docs/skills.md) | With review.md — skill triggers, routing, audit lines, inclusion rule, clone management |
 | [docs/mentions.md](docs/mentions.md) | `mentions_due` non-empty — thread fetch, classification (feedback / question / review request), dedup ledger, reply mechanics |
 | [docs/watches.md](docs/watches.md) | `work/CONFIG.md` has watch rules — instance-local event→heads-up rules: table format, evaluation, dedup, sending |

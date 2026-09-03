@@ -80,7 +80,8 @@ a. **Check 1 — re-fetch state**:
    preliminary review)** per **Urgent PRs** below, then continue with b.
 b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
    the three are independent. Context: see below. Diff:
-   `gh pr diff <n> --repo "$REPO"`. Clone: [skills.md](skills.md) →
+   `gh pr diff <n> --repo "$REPO"` — plus, on a delta re-review, the changes
+   since the prior review (**Re-review output**). Clone: [skills.md](skills.md) →
    **Clone, credential helper, cleanup**.
 c. **Review the diff.**
 d. **Run every configured review skill** per [skills.md](skills.md) — one audit
@@ -465,7 +466,8 @@ nit). No clone (`clone-failed`) → verify against the diff context you have.
 PR changes for further occurrences of the same defect class. Report them as
 one finding listing every location, so one fix round closes the class. The
 sweep covers changed files only; an occurrence in untouched code stays a
-single 🟢 line suggesting a separate issue.
+single 🟢 line suggesting a separate issue. On a delta re-review both passes
+cover only the files changed since the prior review (**Re-review output**).
 
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
 text (reviews, inline comments, issues, mention replies, chat, Slack) in STE
@@ -473,30 +475,9 @@ style: one topic
 per sentence (aim ≤ 20 words), active voice, simple tenses, one term per
 concept, no idioms or synonym variation. STE governs wording, never content.
 
-**The approval bar.** 🔴 and 🟡 are blocking — they hold the verdict below
-`APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
-carries the fix that resolves it, so the bar reads off the findings
-themselves.
-
-**Concise by default (all reviews, all channels):**
-
-- One finding = what is wrong, why it matters, where — in 1–2 sentences. No
-  essays, no restated diff context, no hedging filler.
-- Every 🔴 and 🟡 carries a **Fix:** line — the remedy that resolves the
-  finding, in 1–2 sentences. State it as a rule for the whole defect class,
-  and name its scope when more than one place is affected. It sits with the
-  description (the inline comment when the finding is inline-carried,
-  `### Findings` otherwise), above any ` ```suggestion ` block. A finding
-  whose remedy you cannot state is not verified — drop it.
-- Findings anchor to this PR's diff; a pre-existing problem spotted in
-  passing is at most one 🟢 line suggesting a separate issue.
-- 🟢 **Suggestion** only when the improvement is substantial (a real
-  correctness/security/performance/simplification win). Style nits,
-  micro-refactors, and "consider…" filler are dropped entirely, not demoted.
-- `✅ Looks good` — at most one bullet, only when it carries real information
-  (e.g. a risky-looking change verified safe); never filler. None on
-  re-reviews.
-- `### Summary` stays 1–2 sentences.
+**Finding form.** Every finding — yours or a skill's — follows
+[finding-form.md](finding-form.md): the approval bar and the conciseness
+rules live there and nowhere else.
 
 ## Output format (first reviews)
 
@@ -516,7 +497,7 @@ themselves.
 - ✅ **Looks good:** <description>
 
 ### <section — one per configured review skill that ran, in table order>
-<that skill's findings, per **Concise by default** (or its clean-run line)>
+<that skill's findings, per finding-form.md (or its clean-run line)>
 
 ### Verdict
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
@@ -589,6 +570,24 @@ Previous HEAD: <short-sha> (<timestamp>) — verdict <PREV_VERDICT>
 - 🔁 **Still present:** <one-liner> (`file:line`)
 - 🆕 **New:** <description> (`file:line`)
 ```
+
+Delta-scope review depth (steps c–d):
+
+- **Candidates come from the changes since the prior review only** —
+  `gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/compare/<prior-sha>...<head-sha>"`
+  (`prior.sha`). The full PR diff is context for reading them, never a
+  second pass over hunks the prior review already covered.
+- **Each prior finding is settled at its anchor**: open every `file:line` of
+  the prior `findings-json` at HEAD and classify it `fixed` / `still` /
+  moved — never re-derive the prior review from scratch.
+- **Full-file verification and the sibling sweep cover the files changed
+  since the prior review.** Extension-triggered skills route from that same
+  list ([skills.md](skills.md) → **Triggers & file routing**); a file
+  unchanged since the prior review keeps its prior skill findings as `still`.
+  `always` skills run unchanged.
+- Prior SHA not comparable (the compare call 404s — force-pushed away) →
+  review at complete depth, keep the delta output format, and say
+  `prior HEAD <short-sha> unreachable — reviewed the whole PR` in `### Summary`.
 
 Delta-scope conciseness rules (all output channels — chat UI, GitHub body,
 history file):
@@ -855,7 +854,8 @@ Before declaring the run done, verify:
 - Style: findings concise and diff-anchored, inline text never repeated in
   the summary; re-review scope matched the trigger — label = complete (all
   current findings, 🆕-only inline), request/on-demand = delta (Findings =
-  🆕 only, one-line carryovers, no ✅).
+  🆕 only, one-line carryovers, no ✅; candidates, verification, sweep and
+  extension-skill routing from the changes since the prior review).
 - Urgent entries: rapid preliminary posted (or dedup-skipped) **before** the
   full review; `RAPID` row + `rapid posted` step recorded; terminal = full
   review posted (or closed-PR issue / abort). Closed entries: no review

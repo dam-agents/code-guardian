@@ -289,8 +289,9 @@ other's usage, and contention would distort `seconds`). For each fixture:
    (when the fan-out ran).
 3. **Re-review** — bracket it the same way (`"<slug>-rereview"`): advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out
-   per docs/review.md → **Re-review output** (routing from the same
-   `git diff --name-only main..pr`, now at v2), then spawn a **separate
+   per docs/review.md → **Re-review output** (routing from
+   `git -C "$PR_DIR" diff --name-only pr~1..pr` — the changes since the prior
+   review), then spawn a **separate
    fresh reviewer subagent** — never the one that wrote the first review,
    so it knows only the posted prior review, as in production: same prompt
    shape with `prior-review.md` as the prior review, scope = delta
