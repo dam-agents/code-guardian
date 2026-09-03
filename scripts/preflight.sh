@@ -792,11 +792,12 @@ if [ "$MODE" = "review" ]; then
           || slice="$(jq -c '{files:(map(. + {class:"code"})), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$FILES_TMP")"
         # extension routing per docs/skills.md — inclusive: every skill whose
         # trigger list holds the file's extension receives it; `always` skills
-        # route nothing (they run on the whole clone)
+        # route nothing (they run on the whole clone); noise classes and
+        # deleted files route nowhere
         routing="$(printf '%s' "$slice" | jq -c --argjson t "$SKILLS_TABLE" '
           [ $t[] | select(.trigger != "always")
             | {skill, exts: (.trigger | split(",") | map(gsub("\\s";"") | select(length>0)))} ] as $rows
-          | [ .files[]?.path ] as $paths
+          | [ .files[]? | select((.class | IN("code","test","docs","config")) and .status != "removed") | .path ] as $paths
           | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(
               (split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $ext
               | $r.exts | index($ext) != null) ])')"

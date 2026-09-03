@@ -139,7 +139,7 @@ case "$tool" in
           esac
         else
           case "$cmd" in
-            (*/d*|*grep\ -v*|*grep\ -Ev*|*grep\ -vE*)
+            (*sed*/d\'*|*sed*/d\"*|*sed*/d\ *|*grep\ -v*|*grep\ -Ev*|*grep\ -vE*)   # a sed delete or an inverted grep
               pr="$(printf '%s' "$cmd" | grep -oE '\| *[0-9]{1,7} *\|' | grep -oE '[0-9]{1,7}' | head -1)"
               [ -n "$pr" ] && [ -d "$d/$pr-locked" ] && [ ! -d "$d/$pr-done" ] \
                 && emit "$pr" "aborted (lock released)" "aborted";;

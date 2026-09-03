@@ -44,7 +44,7 @@ skills_config() { # [extra config lines…]
   base_config "$@" '' '## Review skills' '' \
     '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
     '| doc-drift | harness | always | Documentation Check |' \
-    '| typescript-engineering | harness | .ts,.js | TypeScript Review |'
+    '| typescript-engineering | harness | .ts,.js,.yaml | TypeScript Review |'
 }
 setup() { # fresh case with repo, config and open-PR fixtures
   new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; skills_config "${@:2}"; pr_fx; ctx_fx
@@ -75,7 +75,8 @@ assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | - | in_progress |"
 assert_event 'PR #1 '"${B1_SHA:0:7}"' locked' 'locked event'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' cloned' 'cloned event'
 assert_jq '.files | map(.class) == ["lockfile","code","code"]' 'changed files classified'
-assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineering"].status == "run" and (.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"])' 'always + extension routing'
+assert_jq '.files | map(.status) == ["modified","modified","added"]' 'file status read from the diff headers'
+assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineering"].status == "run" and (.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"])' 'always + extension routing; the .yaml lockfile is noise and routes nowhere'
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
   && printf 'ok   %s: per-skill copies and .out exist\n' "$CASE" || { printf 'FAIL %s: copies/.out missing\n' "$CASE"; FAILED=1; }
@@ -150,6 +151,19 @@ touch -t 202001010000 "$(PR_DIR)"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'an old tree with no events is reclaimed'
 run_rp abort 1 "reset"
+# another run's events: a terminal step is not life, a mid-pipeline step is
+foreign_step() { # <msg> — a review_step by a different run, now
+  mkdir -p "$WORK/logs"
+  jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg m "$1" \
+    '{ts:$ts, run:"other-run", job:"review", level:"info", event:"review_step", msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+foreign_step "PR #1 abc1234 done"; foreign_step "PR #1 abc1234 posted COMMENT"; foreign_step "PR #1 abc1234 aborted HEAD moved"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'another run finishing this PR minutes ago does not hold it'
+run_rp abort 1 "reset"
+foreign_step "PR #1 abc1234 fanned out (n=2)"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'another run mid-pipeline on this PR holds it'
 
 # --- delta against the prior findings-json + overrides ---------------------------
 setup delta_case
@@ -159,6 +173,8 @@ cat > "$WORK/reviews/pr-1.md" <<EOF
 ## PR-local overrides
 
 - [2026-09-01 from user] Ignore: retry loop on \`src/gamma.ts:1\` — confirmed intentional
+- [2026-09-01 from user] Ignore: unbounded logging in \`src/alpha.ts\` — accepted
+- [2026-09-01 from user] Ignore: \`query\` in \`src/uses-alpha.ts\` — thin wrapper
 
 ## Review at aaaaaaa — $(iso_ago 7200) — COMMENT
 
@@ -170,13 +186,13 @@ EOF
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '["cg-rereview"]'
 run_rp prepare 1
-printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query in loop","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":true,"summary":"retry loop without backoff","fix":"add backoff"},{"status":"new","severity":"suggestion","file":"src/alpha.ts","line":7,"inline":false,"summary":"name the constant","fix":null}]' > "$SANDBOX/cur.json"
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query in loop","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":true,"summary":"retry loop without backoff","fix":"add backoff"},{"status":"new","severity":"suggestion","file":"src/alpha.ts","line":7,"inline":false,"summary":"name the constant","fix":null},{"status":"new","severity":"warning","file":"src/uses-alpha.ts","line":1,"inline":true,"summary":"`query` call without a limit","fix":"pass a limit"}]' > "$SANDBOX/cur.json"
 run_rp delta 1 "$SANDBOX/cur.json"
-assert_jq '.still | length == 1 and .[0].file == "src/alpha.ts" and .[0].prior_line == 5' 'same defect one line down is still present'
+assert_jq '.still | length == 1 and .[0].file == "src/alpha.ts" and .[0].prior_line == 5' 'same defect one line down is still present; a shared plain word with an override is no match'
 assert_jq '.fixed | length == 1 and .[0].file == "src/beta.ts"' 'a vanished prior finding is fixed'
 assert_jq '.new | length == 0' 'nothing is new without the agent deciding the near miss'
 assert_jq '.ambiguous | length == 1 and .[0].current.summary == "name the constant" and .[0].prior.line == 5' 'a dissimilar finding near a prior one is left to the agent'
-assert_jq '.suppressed | length == 1 and .[0].file == "src/gamma.ts"' 'PR-local override suppresses the gamma finding'
+assert_jq '.suppressed | length == 2 and (map(.file) | sort) == ["src/gamma.ts","src/uses-alpha.ts"]' 'overrides suppress by file:line and by the backticked symbol'
 assert_jq '.block | contains("✅ **Fixed:** dead export") and contains("🔁 **Still present:** unbounded query")' 'block skeleton rendered'
 run_rp abort 1 "reset"
 
@@ -226,6 +242,17 @@ printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "duplicate"' 'duplicate detected before posting'
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | 2026-09-02T10:00:00Z | SEE-GITHUB | done |" 'row self-healed with the GitHub timestamp'
+
+# --- post: the dedup check unreadable after its retry → abort, lock released -------
+setup post_dedup_unreadable
+run_rp prepare 1
+fx_fail 'api repos/acme/widgets/pulls/1/reviews?per_page=100' 1
+fx_fail 'api repos/acme/widgets/issues/1/comments?per_page=100' 1
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "aborted" and (.reason | contains("dedup unreadable"))' 'no post when the marker check cannot be read'
+grep -q '^| 1 |' "$WORK/REVIEWS.md" && { printf 'FAIL %s: lock row left behind\n' "$CASE"; FAILED=1; } || printf 'ok   %s: first-review lock released\n' "$CASE"
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" && { printf 'FAIL %s: a review was posted\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing posted\n' "$CASE"
 
 # --- post: 422 on inline lines → retry with every comment in the summary ----------
 setup post_422

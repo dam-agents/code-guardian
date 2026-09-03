@@ -123,7 +123,8 @@ f. **Post** — `bash "$HOME/scripts/review-pr.sh" post <n> --verdict <VERDICT>
    <verdict>` and `done`, and deletes the clone, its copies, the diff and the
    state — exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
    `label_removed`, `dismissed_approval`) · `aborted` (HEAD moved, draft,
-   trigger withdrawn, 422 `commit_id`, post failed after one retry — the lock
+   trigger withdrawn, the dedup check unreadable after its retry, 422
+   `commit_id`, post failed after one retry — the lock
    released per kind: `first` deletes the row, `re-review` restores the prior
    row — `awaiting_label`, or `done` for a same-SHA re-review; log the reason
    in the chat UI) · `duplicate`
@@ -744,7 +745,9 @@ published. Watch-rule dedup markers (`<!-- watch-sent: <id> -->`,
 
 **Strictly scoped to their own PR.** Reload the list fresh per PR; discard
 before the next PR. Suppress candidate findings matching an entry (same file
-+ overlapping line, or same symbol) and add the Summary audit note. Overrides
++ overlapping line, or the same backticked symbol in an entry naming the file —
+`` `query()` `` in the finding and `` `query()` `` + `` `src/a.ts` `` in the
+override) and add the Summary audit note. Overrides
 only suppress, never add; if the code moved so an override no longer matches,
 the finding surfaces normally.
 

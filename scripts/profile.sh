@@ -586,10 +586,10 @@ generate() { # tree already loaded; writes PROFILE.json + PROFILE.md
   render_md
 }
 
-refresh_history() { # verified + history only; the structure is unchanged
+refresh_history() { # verified + history (+ the branch name) only; the structure is unchanged
   gen_history
-  jq --arg sha "$REMOTE_SHA" --arg now "$NOW_ISO" --slurpfile h "$TMP/history.json" \
-    '.verified = {sha:$sha, ts:$now} | .history = $h[0]' "$PROFILE_JSON" > "$PROFILE_JSON.tmp" 2>/dev/null \
+  jq --arg sha "$REMOTE_SHA" --arg now "$NOW_ISO" --arg br "$BRANCH" --slurpfile h "$TMP/history.json" \
+    '.verified = {sha:$sha, ts:$now} | .history = $h[0] | .default_branch = $br' "$PROFILE_JSON" > "$PROFILE_JSON.tmp" 2>/dev/null \
     && mv "$PROFILE_JSON.tmp" "$PROFILE_JSON"
   render_md
 }
@@ -601,20 +601,29 @@ profile_lock() { # one writer at a time; a lock older than 15 min is a dead run'
 profile_unlock() { rmdir "$PROFILE_JSON.lock" 2>/dev/null || true; }
 
 run_check() { # <force>
-  local force="$1" stored_fp stored_gen stored_ver stored_sha age_d fp
+  local force="$1" stored_fp stored_gen stored_ver stored_ts age_d fp live_branch
   [ "$(cfg project_profile)" = "disabled" ] && emit_status disabled none
   [ -n "$REPO" ] || emit_status unavailable none "target repo unresolved"
   BRANCH="$(default_branch)"
   REMOTE_SHA="$(remote_sha)"
-  stored_fp=""; stored_gen=""; stored_ver=""; stored_sha=""; age_d=999999
+  if [ -z "$REMOTE_SHA" ]; then
+    # no tip under the stored branch name: the default branch may have been
+    # renamed — re-resolve it from the repository once and retry
+    live_branch="$(gh api "repos/$REPO" 2>/dev/null | jq -r '.default_branch // empty' 2>/dev/null)"
+    if [ -n "$live_branch" ] && [ "$live_branch" != "$BRANCH" ]; then
+      logev info profile "default branch is now $live_branch (profile had $BRANCH)"
+      BRANCH="$live_branch"; REMOTE_SHA="$(remote_sha)"
+    fi
+  fi
+  stored_fp=""; stored_gen=""; stored_ver=""; stored_ts=""; age_d=999999
   if [ -f "$PROFILE_JSON" ]; then
     stored_fp="$(jq -r '.fingerprint // empty' "$PROFILE_JSON" 2>/dev/null)"
     stored_gen="$(jq -r '.generator // empty' "$PROFILE_JSON" 2>/dev/null)"
     stored_ver="$(jq -r '.verified.sha // empty' "$PROFILE_JSON" 2>/dev/null)"
-    stored_sha="$(jq -r '.generated // empty' "$PROFILE_JSON" 2>/dev/null)"
-    [ -n "$stored_sha" ] && age_d=$(( (NOW_EPOCH - $(iso2epoch "$stored_sha")) / 86400 ))
+    stored_ts="$(jq -r '.generated // empty' "$PROFILE_JSON" 2>/dev/null)"
+    [ -n "$stored_ts" ] && age_d=$(( (NOW_EPOCH - $(iso2epoch "$stored_ts")) / 86400 ))
   fi
-  if [ -z "$REMOTE_SHA" ] && [ "$MODE" != api ]; then
+  if [ -z "$REMOTE_SHA" ]; then
     # git cannot reach the remote — the API decides whether a tree is available
     REMOTE_SHA="$(gh api "repos/$REPO/branches/$BRANCH" 2>/dev/null | jq -r '.commit.sha // empty' 2>/dev/null)"
     if [ -z "$REMOTE_SHA" ]; then

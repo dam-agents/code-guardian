@@ -48,7 +48,9 @@ correct output, not waste.
 - **extension list** (e.g. `.ts,.js`) — runs iff ≥1 changed file routes to
   it; receives the routed file list (paths relative to `$PR_DIR`) + base
   branch. The changed-file list is the diff's at the fresh `headRefOid`
-  (`review-pr.sh prepare` → `files[]`).
+  (`review-pr.sh prepare` → `files[]`); the `code`, `test`, `docs` and
+  `config` classes route, the noise classes and deleted files do not
+  ([profile.md](profile.md) → **In the worklist**).
   **Routing is inclusive: every skill whose trigger list contains a file's
   extension receives that file** — a skill runs on every PR it has something
   to say about, and two skills whose lists overlap both get the file, because

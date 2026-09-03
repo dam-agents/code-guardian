@@ -56,6 +56,7 @@ PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
 INLINE_CAP=25
 NOW_EPOCH=$(date -u +%s)
+TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now_hm()  { date -u +%H:%M; }
 
@@ -189,7 +190,9 @@ remote_reviewed_at() { # <sha>
 # ------------------------------------------------------------ live holder ----
 # Another run owns this PR when a tree or diff of its exists AND shows life —
 # a recent mtime or a foreign run's event on this PR within HOLDER_QUIET_MIN.
-# A tree older than that with no such event is a dead run's leftover.
+# A tree older than that with no such event is a dead run's leftover. Terminal
+# steps (`done`, `aborted …`, `posted <verdict>`) end a run's ownership and
+# are not life: a PR reviewed minutes ago is free for its next commit.
 holder_alive() {
   local recent=0 e cutoff
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
@@ -202,7 +205,8 @@ holder_alive() {
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
     foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
       | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" \
-          '[ .[] | select(.ts >= $cut and (.msg|startswith($n)) and .run != $me and .event == "review_step") ] | length' 2>/dev/null)"
+          '[ .[] | select(.ts >= $cut and (.msg|startswith($n)) and .run != $me and .event == "review_step"
+                          and ((.msg | test(" done$| aborted| posted (APPROVE|COMMENT|REQUEST_CHANGES)$")) | not)) ] | length' 2>/dev/null)"
     foreign="${foreign:-0}"
   fi
   [ "$recent" -eq 1 ] || [ "${foreign:-0}" -gt 0 ]
@@ -350,7 +354,17 @@ cmd_prepare() {
   # --- diff + hunk index + files ---
   gh pr diff "$N" --repo "$REPO" > "$DIFF" 2>/dev/null || { : > "$DIFF"; logev warn gh_api "PR #$N: diff fetch did not respond"; }
   build_hunks
-  grep -E '^\+\+\+ b/' "$DIFF" | sed 's#^+++ b/##' | sort -u | jq -R . | jq -s 'map({path:., status:"modified"})' > "$CTX/files.raw.json"
+  # the file list with its status from the diff headers: `--- /dev/null` is an
+  # added file, `+++ /dev/null` a deleted one (absent from the clone, listed as
+  # `removed` and routed to no skill), anything else modified
+  grep -E '^(--- |\+\+\+ )' "$DIFF" | paste -d "$TAB" - - \
+    | sed -nE "s#^--- (/dev/null|a/.*)${TAB}\+\+\+ (/dev/null|b/(.*))\$#\1${TAB}\2#p" \
+    | while IFS="$TAB" read -r old new; do
+        case "$new" in
+          (/dev/null) printf '%s\tremoved\n' "${old#a/}";;
+          (*) [ "$old" = /dev/null ] && printf '%s\tadded\n' "${new#b/}" || printf '%s\tmodified\n' "${new#b/}";;
+        esac
+      done | sort -u | jq -R 'split("\t") | {path:.[0], status:.[1]}' | jq -s . > "$CTX/files.raw.json"
   local slice
   slice="$(bash "$SCRIPT_DIR/profile.sh" slice "$CTX/files.raw.json" 2>/dev/null)"
   { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
@@ -391,8 +405,10 @@ cmd_prepare() {
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
     files='[]'; status=run
     if [ "$trig" != "always" ]; then
+      # reviewable classes only: noise files and deleted files route nowhere
       files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
-        | [ .[] | .path | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$CTX/files.json")"
+        | [ .[] | select((.class | IN("code","test","docs","config")) and .status != "removed") | .path
+            | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$CTX/files.json")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
@@ -441,7 +457,7 @@ cmd_prepare() {
       pack="$(printf '%s' "$pack" | jq --arg p "$p" --argjson d "$deps" --argjson t "$tests" \
         --argjson h "$(jq -c --arg p "$p" '.[$p].right // []' "$CTX/hunks.json")" \
         '.[$p] = {dependents: ($d - $t), tests: $t, changed_lines: $h}')"
-    done < <(jq -r '.[] | select(.class == "code" or .class == "test") | .path' "$CTX/files.json" | head -30)
+    done < <(jq -r '.[] | select((.class == "code" or .class == "test") and .status != "removed") | .path' "$CTX/files.json" | head -30)
     printf '%s' "$pack" > "$CTX/pack.json"
   else printf '{}\n' > "$CTX/pack.json"; fi
 
@@ -467,7 +483,7 @@ cmd_context() {
   need_ctx
   local path="${1:-}" line="${2:-}" radius="${3:-40}"
   [ -n "$path" ] && [ -n "$line" ] || fail "usage: context <n> <path> <line> [radius]"
-  case "$path" in (/*|*..*) fail "path must be relative to the clone, without ..";; esac
+  case "$path" in (/*|..|../*|*/..|*/../*) fail "path must be relative to the clone, without a .. component";; esac
   case "$line$radius" in (*[!0-9]*) fail "line and radius must be numbers";; esac
   [ -f "$PR_DIR/$path" ] || fail "$path is not in the clone (clone failed, or the path is wrong)"
   local from to total inpr="no (pre-existing at this line)"
@@ -486,7 +502,7 @@ cmd_sweep() {
   local re="${1:-}"; [ -n "$re" ] || fail "usage: sweep <n> <ERE>"
   [ -d "$PR_DIR" ] || fail "no clone for PR #$N"
   local files hits untouched
-  files="$(jq -r '.[] | select(.class == "code" or .class == "test" or .class == "config" or .class == "docs") | .path' "$CTX/files.json")"
+  files="$(jq -r '.[] | select((.class | IN("code","test","config","docs")) and .status != "removed") | .path' "$CTX/files.json")"
   hits="$( [ -n "$files" ] && printf '%s\n' "$files" | while IFS= read -r f; do git -C "$PR_DIR" grep -nE -- "$re" -- "$f" 2>/dev/null; done | jq -R . | jq -s . )"
   [ -n "$hits" ] || hits='[]'
   local all=0 c
@@ -553,11 +569,16 @@ cmd_delta() {
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     def near($a; $b; $tol): ($a.file == $b.file) and ($a.line != null) and ($b.line != null) and ((($a.line - $b.line) | fabs) <= $tol);
-    def ovr_hits($f): ($f.file // "") as $file | ($f.line // -1000) as $l
-      | ((($f.summary // "") | ascii_downcase | split(" ") | .[0]) // "") as $w
+    # an override matches by file:line (±2) or by a symbol: a backticked token
+    # of the finding (its `symbol` field or any `code` span in its summary that
+    # is not a path:line anchor) quoted the same way in an override that names
+    # the file
+    def symbols($f): ([ $f.symbol // empty ] + [ ($f.summary // "") | scan("`([^`]+)`") | .[0] ])
+      | map(select(length > 0 and (test("^[^`]+:[0-9]+$") | not))) | unique;
+    def ovr_hits($f): ($f.file // "") as $file | ($f.line // -1000) as $l | symbols($f) as $syms
       | [ $o[] | select(. as $line
           | ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $file + ":" + (($l + $d)|tostring) + "`")))
-            or ($w != "" and ($line | ascii_downcase | contains($w)) and ($line | contains("`" + $file + "`")))) ];
+            or (($line | contains("`" + $file + "`")) and any($syms[]; . as $s | $line | contains("`" + $s + "`")))) ];
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
     | { still: [ $open[] as $x | $cur[] | select(near(.; $x; 3) and similar(.summary; $x.summary)) | . + {prior_line: $x.line} ],
@@ -633,8 +654,11 @@ cmd_post() {
       release_lock "closed mid-review — discarded (no critical findings)"; cleanup
       out "$(jq -nc '{outcome:"closed_discarded"}')"
     fi
-    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing
-    existing="$(gh_get "repos/$REPO/issues?state=all&per_page=100" | jq -r --arg m "$im" '[.[] | select((.body // "") | contains($m)) | .number] | first // empty' 2>/dev/null)"
+    # the bot's own issues, every page — the marker is in one of them or in none
+    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing q="state=all&per_page=100"
+    [ -n "$BOT_LOGIN" ] && q="$q&creator=$BOT_LOGIN"
+    existing="$(gh api --paginate "repos/$REPO/issues?$q" 2>/dev/null | jq -s --arg m "$im" \
+      '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
     out "$(jq -nc --argjson c "$crit" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \
       '{outcome:"closed_criticals", criticals:$c, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
         next:"file the issue per docs/review.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
@@ -650,7 +674,13 @@ cmd_post() {
   # (an edited description) and the marker is older than our lock: then it is
   # the prior review being superseded, not a concurrent post.
   local ts; ts="$(remote_reviewed_at "$sha")"
-  if [ -n "$ts" ] && [ "$ts" != "__api_error__" ]; then
+  if [ "$ts" = "__api_error__" ]; then
+    # the dedup check could not be read after its retry: a duplicate is
+    # expensive, the next heartbeat is cheap
+    release_lock "pre-post dedup unreadable (API) after retry"; cleanup
+    out "$(jq -nc '{outcome:"aborted", reason:"pre-post dedup unreadable"}')"
+  fi
+  if [ -n "$ts" ]; then
     if [ "$kind" = "re-review" ] && [ "$(ctx_get '.prior.sha // empty')" = "$sha" ] \
        && [ "$(iso2epoch "$ts")" -lt "$(iso2epoch "$(ctx_get '.locked_at')")" ]; then
       logev info review_pr "PR #$N: same-SHA re-review — the marker at $sha7 ($ts) is the prior review"
