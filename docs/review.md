@@ -576,7 +576,9 @@ Delta-scope review depth (steps c–d):
 - **Candidates come from the changes since the prior review only** —
   `gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/compare/<prior-sha>...<head-sha>"`
   (`prior.sha`). The full PR diff is context for reading them, never a
-  second pass over hunks the prior review already covered.
+  second pass over hunks the prior review already covered. A
+  description-only re-review has an empty range: its candidates are the
+  already-reviewed diff, re-read against the edited body.
 - **Each prior finding is settled at its anchor**: open every `file:line` of
   the prior `findings-json` at HEAD and classify it `fixed` / `still` /
   moved — never re-derive the prior review from scratch.
