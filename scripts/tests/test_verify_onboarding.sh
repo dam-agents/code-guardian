@@ -190,6 +190,35 @@ run_verify
 assert_rc 1 'invalid enum value fails'
 assert_out 'FAIL config-slack_notifications' 'names the key'
 
+new_case cadence_keys_valid
+seed_home; seed_memory; seed_lessons
+verify_config '- active_hours: 08-21' '- active_days: Mon-Fri' \
+  '- review_interval_active: 5' '- review_interval_quiet: 60'
+run_verify
+assert_rc 0 'a well-formed cadence passes'
+assert_out 'ok +config-active_hours' 'the window is reported'
+
+new_case cadence_interval_not_divisor
+seed_home; seed_memory; seed_lessons
+verify_config '- review_interval_active: 7'
+run_verify
+assert_rc 1 'an interval that does not divide 60 fails'
+assert_out 'FAIL config-review_interval_active' 'names the key'
+
+new_case cadence_days_outside_documented_forms
+seed_home; seed_memory; seed_lessons
+verify_config '- active_days: Mon-Sat'
+run_verify
+assert_rc 1 'a day form no doc surface documents fails'
+assert_out 'FAIL config-active_days' 'the comma list is the documented way to say it'
+
+new_case cadence_window_wraps_midnight
+seed_home; seed_memory; seed_lessons
+verify_config '- active_hours: 21-06'
+run_verify
+assert_rc 1 'a window spanning midnight fails'
+assert_out 'FAIL config-active_hours .*midnight' 'says why one cron cannot express it'
+
 new_case unexpected_extras_warn_only
 seed_home; seed_memory; seed_lessons
 verify_config

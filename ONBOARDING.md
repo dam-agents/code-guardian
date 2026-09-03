@@ -241,6 +241,12 @@ The definition is project-agnostic: every instance-specific value lives in `work
 
     **No / no reply** → omit the key. **Yes** → write `benchmark: enabled`, ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality scores; default `off` = deterministic scoring only) and **`benchmark_report`** (where the accumulated report publishes: `gist` default / `dam` / `gist,dam` / `off`), offer the optional `## Benchmark model prices` table (docs/benchmark.md → **Model prices** — enables the report's cost column), and register the schedule in Step 6d — the first scheduled run creates the fixture set, and the first scores land on the next monthly tick (or sooner on an on-demand ask).
 
+11. **Review cadence** (`active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` — semantics in `CLAUDE.md` → **Runtime configuration**; the crons themselves are registered in Step 6a). Ask:
+
+    > When is this repo actively worked on? During those hours I check for new PRs every 5 minutes; outside them (nights, weekends) I drop to once an hour, which is where most of the idle cost lives. Default: **Mon–Fri, 08–21 (platform timezone)**. Answer `24/7` and I keep the 5-minute cadence around the clock.
+
+    Write all four keys explicitly, even when the answer is the default — the audit compares the registered crons against them. Validate before writing: both intervals must be divisors of 60 (`1 2 3 4 5 6 10 12 15 20 30 60`), and `active_hours` must be an ascending `HH-HH` range (a window that spans midnight is not expressible as one cron — express it as two operator-managed schedules instead, and leave the keys at their 24/7 values). Tell the operator the trade the quiet cadence makes: a PR opened at 02:00 waits up to `review_interval_quiet` minutes, and that includes an `urgent_label` one.
+
 Final shape:
 
 ```markdown
@@ -266,6 +272,10 @@ Final shape:
 - benchmark_report: gist               # accumulated-report surfaces: gist (default) | dam | gist,dam | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
+- active_hours: 08-21                  # platform timezone, both ends inclusive; missing = 00-23
+- active_days: Mon-Fri                 # or: Mon-Sun / a comma list; missing = Mon-Sun
+- review_interval_active: 5            # minutes in the active window; divisor of 60
+- review_interval_quiet: 60            # minutes in quiet hours (nights, weekends)
 
 ## Review skills
 
@@ -313,9 +323,17 @@ The agent then skips already-reviewed SHAs correctly on the very first heartbeat
 
 ## Step 6 — Ensure the scheduled jobs exist
 
-Independent schedules — the shepherd one only when `slack_notifications: enabled`, the benchmark one only when `benchmark: enabled`. Check with `mcp__platform-outbound__list_schedules` first — a schedule whose `name` starts with the same prefix already exists → skip creating it. Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
+Independent schedules — the shepherd one only when `slack_notifications: enabled`, the benchmark one only when `benchmark: enabled`. Check with `mcp__platform-outbound__list_schedules` first — a schedule with the same `name` already exists → skip creating it (the review schedules of 6a share a prefix, so compare full names, not prefixes). Never use an in-process cron tool — only platform schedules survive restarts and are visible to the operator.
 
-**6a — Review heartbeat.** Ask: *How often should I check for new PRs? Default is every 10 minutes.* Create `name: code-guardian-review-<cadence-shorthand>` (e.g. `…-10m`), cron default `*/10 * * * *`, `sessionMode: fresh`, `task`:
+**6a — Review heartbeat.** Registers the cadence of Step 4 item 11 as **one to three** schedules: one for the active window, plus a quiet-hour schedule for each part of the week that window leaves uncovered. All of them are `sessionMode: fresh` and carry the **same** `task` text (below) — the cadence is their only difference. With `A` = `review_interval_active`, `Q` = `review_interval_quiet`, `H1-H2` = `active_hours`, and `D` = `active_days` as cron day numbers (`Mon-Fri` → `1-5`):
+
+   | `name` | exists when | cron | example (`A=5`, `Q=60`, `08-21`, `Mon-Fri`) |
+   | --- | --- | --- | --- |
+   | `code-guardian-review-active` | always | `*/A H1-H2 * * D` | `*/5 8-21 * * 1-5` |
+   | `code-guardian-review-quiet` | `active_hours` ≠ `00-23` | `M Hq * * D` | `0 22-23,0-7 * * 1-5` |
+   | `code-guardian-review-offdays` | `active_days` ≠ `Mon-Sun` | `M * * * Dq` | `0 * * * 6,0` |
+
+   `M` is the quiet interval's minute field — `0` at 60 minutes, `*/Q` below it. `Hq` is the hour complement of `H1-H2` and `Dq` the day complement of `D`, both written as ascending cron ranges: cron has no wrap-around, so `08-21` becomes `22-23,0-7`. Keys left at their 24/7 defaults (`00-23` + `Mon-Sun`) produce the active schedule alone. `task` for each:
 
    > Review heartbeat. Run `bash "$HOME/scripts/preflight.sh" review` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
@@ -354,7 +372,7 @@ bash "$HOME/scripts/verify-onboarding.sh" --live
 Then give the operator a short **onboarding summary** in the chat UI, starting with the verification result (the `PASS` line plus any warnings):
 
 1. The final `work/CONFIG.md` (verbatim).
-2. What runs where: target repo, review cadence, shepherd cadence (when Slack is on), audit day, benchmark day (when enabled), state persistence (`GITHUB_REPO_WORK` or local-only).
+2. What runs where: target repo, both review cadences (the active window and the quiet-hour interval a night or weekend PR waits for), shepherd cadence (when Slack is on), audit day, benchmark day (when enabled), state persistence (`GITHUB_REPO_WORK` or local-only).
 3. Day-to-day usage: the first review of every open non-draft PR lands automatically (chat UI + GitHub); after new commits a re-review happens **only** when someone adds the **`<rereview_label>`** label to the PR (a complete review of the whole PR; the agent removes the label once it is posted), re-requests **`<bot_login>`**'s review on GitHub (when `rereview_trigger` is `review-request`/`both`), or asks for it in the connected Slack channel or in a comment @-mentioning **`<bot_login>`** (both delta-only — docs/review.md → **On-demand review**); labeling a PR **`<urgent_label>`** (when configured) makes its reviews jump the queue, rapid-preliminary-first; assigning **`<bot_login>`** to a PR requests a visual artifact (when configured); feedback/dismissals are given simply by saying so in chat (global → `MEMORY.md`, PR-specific → that PR's overrides) — and @-mentioning **`<bot_login>`** in any PR/issue comment or PR description gets a reply, with review feedback recorded to memory (`docs/mentions.md`); team-specific watch rules ("when a PR does X, give a heads-up in Y" — a Slack channel, the chat UI, or a PR comment) can be added any time in chat (`docs/watches.md`); any config value can be changed in chat later — except `review_marker` once reviews exist.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

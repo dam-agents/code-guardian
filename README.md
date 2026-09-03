@@ -16,7 +16,9 @@ worklist; when the worklist is empty the agent never wakes up (idle
 heartbeats are nearly free), and when there is work the agent performs all
 of it per the `docs/` procedures:
 
-- **Review heartbeat** (default every 10 minutes, 24/7): `preflight.sh
+- **Review heartbeat** (two cadences, both set at onboarding: every 5 minutes
+  inside the active window — by default Mon–Fri 08–21 platform time — and
+  hourly in the quiet hours outside it): `preflight.sh
   review` lists open non-draft PRs in one REST call and decides per PR what
   is due — never-reviewed PRs get a first review automatically;
   already-reviewed PRs get a re-review **only on an explicit trigger** (the
@@ -128,7 +130,7 @@ That is enough for a complete initialization. The agent reads the runbook and,
 in one pass, checks out its own definition, wires up `work/`, walks you through
 a short configuration dialog (bot name, review marker, skills repo, Slack —
 each value lands in `work/CONFIG.md`, see **Configuration** below), registers
-the schedules (the every-10-minutes review heartbeat, the Friday audit, plus
+the schedules (the review heartbeat on its two cadences, the Friday audit, plus
 the hourly work-hours shepherd sweep when Slack is enabled), and marks itself
 onboarded
 so it never repeats the process. From then on it runs on schedule.
@@ -201,6 +203,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `benchmark` | asked (default: off, key omitted) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures (different project types) with known defects, time and tokens measured per review; every result kept in `work/benchmark/` for over-time comparison (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the benchmark's LLM-judged quality scores; `off` = deterministic scoring only. |
 | `benchmark_report` | asked with `benchmark` (default `gist`) | Surfaces for the benchmark's accumulated report artifact, updated in place at a stable URL every run: `gist`, `dam`, `gist,dam`, or `off`. |
+| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The review heartbeat's two cadences and the window that separates them. The active interval defaults to 5 minutes to stay under the harness prompt-cache TTL, so back-to-back idle ticks re-read the cached prefix instead of rewriting it; quiet hours (nights, weekends) drop to hourly, where most idle spend sits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4. |
 
