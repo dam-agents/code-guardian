@@ -300,6 +300,12 @@ configured output surfaces (`docs/runbook.md` → **Hard invariants**).
   needs (auth per host, repo access, re-review label, skill sources, one
   read-only `preflight.sh review`); prints `FAIL … — fix: …` lines for the
   agent to apply, read-only throughout.
+- [`scripts/review-pr.sh`](scripts/review-pr.sh) — the mechanical half of one
+  PR review: `prepare` (Check 1, lock, context, diff with hunk index, clone,
+  skill briefs), `step`, `context`, `sweep`, `collect`, `delta`, `rapid`,
+  `post` (Check 2, dedup, inline eligibility, payload, 422 handling, label,
+  history, cleanup) and `abort`; the agent decides what the review says
+  (`docs/review.md`).
 - [`scripts/profile.sh`](scripts/profile.sh) — the project profile: builds
   and refreshes `work/PROFILE.md` from the target repo's default branch
   (fingerprint-driven) and slices it per PR for the worklist (`docs/profile.md`).

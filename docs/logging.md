@@ -101,9 +101,16 @@ directly.
    `heartbeat` event for the job's mode. Best-effort: a hard-crashed session
    has no tokens event; subagent transcripts are not included. See
    **Harness adapters** below.
-3. **The agent (manual)** — two duties:
-   - **Review milestones**: the `review_step` events of
-     [review.md](review.md) → Progress logging.
+3. **`scripts/review-pr.sh` (automatic)** — the review milestones its
+   subcommands perform: `locked`, `cloned` (`prepare`), `locked (refresh, …)`
+   and the milestone text (`step`), `rapid posted`, `posted <verdict>`, `done`,
+   `aborted <reason>`, plus `skill_timing` (`collect`) and the semantic
+   failures it meets (`clone`, `post_retry`, `post_failed`, `progress_status`,
+   `label_remove`, `dismiss`, `review_abort`).
+4. **The agent (manual)** — two duties:
+   - **Review milestones** the script cannot know — none on the script-driven
+     path; every step of [review.md](review.md) → Progress logging when the
+     script is unavailable.
    - **Semantic failures hooks can't see** (the tool succeeded but the
      action failed): posting aborts, findings dropped to summary via 422,
      a failed Slack send or unassign, a failed `work/` push. Whenever a

@@ -3,9 +3,10 @@
 Read this file at the start of every **review run** (a run whose preflight
 worklist has any of `reviews_due` / `label_cleanups_due` / `selfheals_due` /
 `prunes_due` / `urgent_alerts_due` / `mentions_due` non-empty). Preflight
-already made every decision — you perform the actions. Keep the two HEAD-freshness checks and
-the pre-post dedup re-check below; they guard the race windows that open
-between preflight and post time.
+already made every decision — you perform the actions, with
+`scripts/review-pr.sh` doing the mechanical steps, the two HEAD-freshness
+checks and the pre-post dedup re-check included: they guard the race windows
+that open between preflight and post time.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
 
@@ -59,73 +60,80 @@ route through **Urgent PRs** / **PR closed mid-review** below (urgent entries
 come first in the worklist — keep that order). Complete ALL steps before the
 next PR:
 
-a. **Check 1 — re-fetch state**:
-   `gh api "repos/$REPO/pulls/<n>" --jq '{state, merged, headRefOid: .head.sha, headRefName: .head.ref, baseRefName: .base.ref, isDraft: .draft, labels: [.labels[].name], requested: [.requested_reviewers[]?.login]}'`.
-   Now draft → skip. Now closed (`state` ≠ `open`) → skip (the next heartbeat
-   prunes). On a `re-review`, no active re-review trigger still
-   present → skip (request withdrawn; leave the `awaiting_label` row) — the
-   trigger is live per `rereview_trigger`: `$REREVIEW_LABEL` in `labels`
-   and/or `bot_login` in `requested`. The live trigger also sets the
-   re-review **scope**: `$REREVIEW_LABEL` present → complete, else delta
-   (preflight's `full` flag is the plan, the labels at Check 1 decide —
-   **Re-review output** below).
-   Re-verify `urgent` from the live labels (`$URGENT_LABEL` present). Use the
-   fresh SHA/branch as source of truth everywhere (clone, diff, skills,
-   marker). Then **re-check for a live holder — every entry, whatever its
-   `takeover` flag** (**Live holder** below); one that lives → stand down.
-   Only then **write the `in_progress` lock row** to REVIEWS.md (fresh SHA +
-   current UTC time), logging `PR #<n>: taking over stale in_progress lock`
-   when `takeover` was set. Never lock a PR you're about to skip. Entries flagged `closed: true` skip these gates — see
-   **PR closed mid-review** below. Urgent entries now run **phase 1 (rapid
-   preliminary review)** per **Urgent PRs** below, then continue with b.
-b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
-   the three are independent. Context: see below. Diff:
-   `gh pr diff <n> --repo "$REPO" > "$PR_DIR.diff"`, read per file in the
-   order of the entry's `files[]`. Clone: [skills.md](skills.md) →
-   **Clone, credential helper, cleanup**. Orientation comes with the entry
-   ([profile.md](profile.md) → **In the worklist**): `profile_slice` (the
-   modules, doc pages, decisions, owners and checks this PR touches),
-   `history_slice` (where this repository's findings have clustered),
-   `memory_due` (area memory to read now), `structure_changed`. A
-   `verify_live: true` row names a source this PR changes — read the live
-   file, not the row. `files: null` or `files_truncated: true` → build the
-   changed-file list from the diff.
-c. **Review the diff** — the `code`, `test`, `docs` and `config` files. The
-   noise classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
+a. **Prepare** — `bash "$HOME/scripts/review-pr.sh" prepare <n>` (`--eta
+   <seconds>` from the entry under `review_progress: enabled`; `--on-demand`
+   for an on-demand review). It performs Check 1 from the live PR: draft →
+   `skip`; closed → `skip` (the next heartbeat prunes) unless a `RAPID` lock
+   still owes the full review (mode `closed`, **PR closed mid-review**); a
+   `re-review` whose trigger is gone → `skip` (the trigger is live per
+   `rereview_trigger` — `$REREVIEW_LABEL` in the labels and/or `bot_login`
+   among the requested reviewers — and it sets the scope: label → `full:
+   true`, else delta, **Re-review output**); a live holder → `stand_down`
+   (**Live holder**). Then it writes the `in_progress` lock row (fresh SHA,
+   current UTC time), logs `locked`, writes the progress status, fetches the
+   PR context and the diff into `$PR_DIR.diff` with a hunk index, clones the
+   branch with its base ref ([skills.md](skills.md) → **Clone, credential
+   helper, cleanup**), makes the per-skill copies and briefs, and builds the
+   context pack. Its JSON carries `outcome` (`ready` | `skip` | `stand_down`
+   | `error`), `kind`, `full`, `urgent`, `prior`, `files[]` (classified),
+   `skills{}` (per skill `run` | `no-matching-files` | `clone-failed`, routed
+   files, brief, workdir), `profile_slice`, `history_slice`, `memory_due`,
+   `structure_changed`, `paths`. `error` → retry once, then move on (no lock
+   was written). `urgent: true` → **phase 1** (**Urgent PRs**) before b.
+b. **Orient.** Read the `memory_due` files and the entry's `profile_slice` and
+   `history_slice` ([profile.md](profile.md)); a `verify_live` row names a
+   source this PR changes — read the live file, not the row. `paths.pack`
+   lists, per changed code file, its dependents, its tests and its changed
+   lines; `paths.context` holds body, comments, reviews and inline threads
+   with your own past reviews dropped and bots flagged (**PR context**).
+c. **Review the diff** — `$PR_DIR.diff`, file by file in the order of
+   `files[]`: the `code`, `test`, `docs` and `config` classes. The noise
+   classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
    `sourcemap`, `generated`) are not reviewed as code and get one line in
    `### Summary`: `_<N> generated/lockfile file(s) not reviewed: <paths, or
    the classes when more than five>._`
-d. **Run every configured review skill** per [skills.md](skills.md) — one audit
-   line per configured skill, no exceptions. Then verify your candidate
-   findings against the full files in the clone (**Full-file verification**
-   below).
-e. **Check 2 — re-verify** right before posting (same call as Check 1). Now
-   closed (`state` ≠ `open`) → **PR closed mid-review** below (criticals
-   become an issue, never a review). SHA
-   moved, now draft, or (re-review) trigger withdrawn (same check as Check 1)
-   → **abort posting**: no
-   chat review, no GitHub review, no history append; **release the lock** —
-   `first`: delete the row; `re-review`: restore the `awaiting_label` row
-   (previous review's SHA/verdict/timestamp from `prior` /
-   `reviews/pr-<n>.md`; unreadable → delete the row and let self-heal fix it
-   later); delete the clone; log
-   `PR #<n>: HEAD moved <old> → <new> mid-review (or became draft / trigger withdrawn) — discarding`; continue.
-f. **Re-run the remote dedup check** for the reviewed SHA (both halves —
-   reviews and legacy comments; snippet below). A hit → treat as Check 2
-   failure + self-heal the row with the GitHub timestamp.
-g. Output the structured review to the chat UI.
-h. Post it to GitHub as a single PR review (below). Then evaluate any
-   configured watch rules against this PR and send due heads-ups per
-   [watches.md](watches.md).
-i. **If `$REREVIEW_LABEL` is on the PR, remove it** (see **Trigger removal**
-   below) — after every posted review, first reviews included (the request
-   is served). Failure = log, not fatal. A pending review request needs no
-   action here — GitHub clears it itself when your review posts.
-j. **Replace the lock with a `done` row** — post-time UTC timestamp, final
-   verdict.
-k. **Delete the clone, its per-skill copies, and the skill outputs**
-   ([skills.md](skills.md) → **Clone, credential helper, cleanup**), exactly
-   once per PR.
+d. **Run every configured review skill** per [skills.md](skills.md):
+   `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
+   status `run` — its prompt is the brief file `prepare` wrote — then
+   `review-pr.sh collect <n>`: the audit lines (one per configured skill, echo
+   them), form warnings, the `skill_timing` event. Verify your candidates
+   (**Full-file verification**) with `review-pr.sh context <n> <path> <line>`
+   — the numbered surrounding code, and whether the line lies inside this
+   PR's hunks — and sweep siblings with `review-pr.sh sweep <n> '<regex>'`
+   (**Sibling sweep**); then `review-pr.sh step <n> verified`. On a re-review,
+   `review-pr.sh delta <n> findings.json` classifies your findings against the
+   prior `findings-json` — `fixed` / `still` / `new`, `suppressed` by PR-local
+   overrides, `ambiguous` pairs left to you — and returns the `### Changes
+   since last review` skeleton (**Re-review output**).
+e. **Compose**: `body.md` (the structured review from `### Summary` to
+   `### Verdict` — **Output format**), `findings.json` (the `findings-json`
+   array) and, for inline-carried findings, `comments.json` — `[{path, line,
+   side, body[, start_line]}]` with each comment's full text (**Mapping
+   findings to inline comments**). Output the review to the chat UI.
+f. **Post** — `bash "$HOME/scripts/review-pr.sh" post <n> --verdict <VERDICT>
+   --body body.md --findings findings.json [--comments comments.json]`. It
+   performs Check 2 and the pre-post dedup re-check, maps every inline comment
+   against the hunk index (outside the hunks or beyond the cap of 25 → moved
+   to the summary under `### Findings not anchorable inline`, its
+   `findings-json` entry set to `inline: false`), assembles the payload
+   (**Posting the GitHub review**), posts with the documented 422 handling,
+   removes `$REREVIEW_LABEL` when present, dismisses a stale approval on a
+   re-review below `APPROVE`, appends the posted body to `reviews/pr-<n>.md`,
+   writes the `done` row and the terminal progress status, logs `posted
+   <verdict>` and `done`, and deletes the clone, its copies, the diff and the
+   state — exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
+   `label_removed`, `dismissed_approval`) · `aborted` (HEAD moved, draft,
+   trigger withdrawn, 422 `commit_id`, post failed after one retry — the lock
+   released per kind: `first` deletes the row, `re-review` restores
+   `awaiting_label` from `prior`; log the reason in the chat UI) · `duplicate`
+   (this marker is already on GitHub — the row self-healed with its
+   timestamp) · `closed_*` (**PR closed mid-review**). Then evaluate any
+   configured watch rules ([watches.md](watches.md)).
+g. **Anything else that ends the PR** — a transient failure after its retry,
+   a decision not to post — `bash "$HOME/scripts/review-pr.sh" abort <n>
+   <reason>`: the lock released per kind, the abort status, `aborted
+   <reason>` logged, everything cleaned up. Every entry ends in `posted`,
+   `duplicate`, `closed_filed` / `closed_discarded`, or `aborted`.
 
 Under `review_progress: enabled` this sequence also publishes its progress to
 the PR — **Progress signal on GitHub** below.
@@ -136,22 +144,20 @@ leave a trace of where it stopped, so each milestone of this sequence appends a
 event logged for a PR pins the exact step a stall stopped at; consecutive
 timestamps give per-step durations.
 
-**Most steps are logged for you.** `cloned` (b), `skill:<name> done` (d),
-`posted <verdict>` (h), and `locked` / `locked (refresh)` / `done` /
-`aborted (lock released)` — read off the REVIEWS.md row write in its documented
-shape (**Review tracking state**) — are derived by the `PostToolUse` adapter
-hook from the tool call that performs them ([logging.md](logging.md) →
-**Harness adapters**). The steps the harness cannot see are yours, chained onto
-the step's existing command, never as a separate tool call:
+**Every step is logged for you.** `review-pr.sh` writes them as it performs
+them — `locked` and `cloned` (`prepare`), `locked (refresh, …)`, `fanned out
+(n=<N>)` and `verified` (`step`), `rapid posted` (`rapid`), `posted <verdict>`
+and `done` (`post`), `aborted <reason>` (`post` / `abort`) — and the
+`PostToolUse` adapter hook derives `skill:<name> done` from each subagent call
+([logging.md](logging.md) → **Harness adapters**). In the manual fallback
+(no script) the hook still derives `cloned`, `posted <verdict>` and `locked` /
+`done` / `aborted (lock released)` from the commands that perform them
+(**Review tracking state**), and the rest is yours, chained onto the step's
+existing command:
 
 ```bash
 . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
 ```
-
-with step ∈ `fanned out (n=<N>)` and `verified` (d) · `aborted <reason>` (e —
-the reason is yours; the hook's `aborted (lock released)` carries none) ·
-`rapid posted` (Urgent PRs phase 1) — and `locked` (a) / `done` (j) whenever
-your row edit takes another form than the documented `sed`.
 The `Stop` hook below judges terminality on `locked` / `done` /
 `aborted <reason>`, which is why the event's filename and `msg` shape are a
 contract — a step written any other way is invisible to the hook and reads as a
@@ -166,15 +172,15 @@ fan-out to first collected output (the skill phase), `verified` to `posted`
 durations come from the output-file mtimes, not from `skill:<name> done`
 ([skills.md](skills.md) → **Invocation & audit log**).
 
-**Lock heartbeat — refresh the row as you go.** Before each of steps c, d, e and
-h, rewrite your PR's REVIEWS.md row with the **current** UTC time (same fields
-otherwise, status stays `in_progress`) and log
-`locked (refresh, <what comes next>)`. Cheap — one `sed` per milestone, chained
-onto work you are already doing — and it is what keeps a long review from
-*looking* abandoned: the timestamp is the age preflight measures and the event is
-the liveness signal it reads (**Live holder** below). A review that refreshes
-never crosses the TTL at all. Skipping it is what makes a healthy 50-minute
-review indistinguishable from a dead one.
+**Lock heartbeat — refresh the row as you go.** Before each of steps c, d, e
+and f, `review-pr.sh step <n> "<what comes next>"` rewrites your PR's
+REVIEWS.md row with the **current** UTC time (same fields otherwise, status
+stays `in_progress`) and logs `locked (refresh, <what comes next>)`; the
+`fanned out (n=<N>)` and `verified` milestones of step d are `step` calls too.
+Cheap, and it is what keeps a long review from *looking* abandoned: the
+timestamp is the age preflight measures and the event is the liveness signal it
+reads (**Live holder** below). A review that refreshes never crosses the TTL at
+all.
 
 **When the adapter is not active, every step is yours** — a non-Claude-Code
 harness, or the audit's `harness_adapter` check warning that
@@ -265,11 +271,11 @@ short line — GitHub truncates it past 140 characters.
 
 | Written at | `state` | `description` | `target_url` |
 | --- | --- | --- | --- |
-| a — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
-| b — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
+| `prepare` — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
+| `prepare` — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
 | Urgent phase 1 — rapid posted | `pending` | `rapid preliminary review posted · full review running` | the rapid review |
-| j — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
-| e — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
+| `post` — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
+| `post` / `abort` — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
 | PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
 | `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
 
@@ -283,8 +289,9 @@ short line — GitHub truncates it past 140 characters.
 - Every terminal outcome is `success`, aborts included: `failure`/`error` would
   turn the agent into a merge gate the moment someone makes the context a
   required check.
-- **Chain each call onto the command that step already runs** — never a
-  separate tool call.
+- **Written by `review-pr.sh`** at the step that owns the row (`prepare`,
+  `rapid`, `post`, `abort`); the manual fallback issues the same call at the
+  same step, chained onto the command that step already runs.
 - **Best-effort throughout**: a failed write is logged
   (`progress_status`, warn — [logging.md](logging.md)) and changes nothing
   about the review; never retried, never a reason to abort.
@@ -320,19 +327,13 @@ enabled`. Send these **first, before any other run work**:
    writes no marker and is logged — the next heartbeat re-emits the alert.
 4. Log `PR #<n>: urgent alert sent (<k> mentioned)`.
 
-**Phase 1 — rapid preliminary review.** Optimize for delivery speed; skip
-everything skippable:
+**Phase 1 — rapid preliminary review.** Optimize for delivery speed — right
+after `prepare` returns, before orientation and skills:
 
-1. Dedup: run the marker check (snippet above) with the **rapid marker**
-   `<!-- <review_marker>:rapid headRefOid=<full-sha> -->` at the live HEAD —
-   found (or `prior.verdict` = `RAPID` at this SHA) → phase 1 already
-   delivered, go straight to phase 2.
-2. No clone, no skills, no artifact, no full context fetch. Review the diff
-   only (`gh pr diff`; on re-reviews prefer the range since the prior review
-   — `gh api "repos/$REPO/compare/<prior-sha>...<head-sha>"` — full diff as
-   fallback) for **🔴 Critical findings only**.
-3. Post immediately: single review, `event: COMMENT`, `commit_id` = reviewed
-   HEAD, body only (no inline comments):
+1. Review the diff only (`$PR_DIR.diff`; on re-reviews prefer the range since
+   the prior review — `gh api "repos/$REPO/compare/<prior-sha>...<head-sha>"`
+   — full diff as fallback) for **🔴 Critical findings only**.
+2. Write `rapid.md`, body only (no inline comments):
 
    ```
    ⚡ **<bot_display_name>** — ⏱️ Rapid preliminary review @ `<sha-short>`
@@ -342,15 +343,17 @@ everything skippable:
 
    ### Critical findings
    - 🔴 **Critical:** <one-liner> (`file:line`)
-
-   <!-- <review_marker>:rapid headRefOid=<full-sha> -->
    ```
 
    No criticals → the section body is the single line
    `_None found at rapid-review depth._`
-4. Update the PR's REVIEWS.md row in place: status stays `in_progress`,
-   verdict cell `RAPID`, fresh UTC timestamp (extends the lock). Log
-   `review_step` `rapid posted`.
+3. `bash "$HOME/scripts/review-pr.sh" rapid <n> --body rapid.md` — it dedups
+   by the **rapid marker** `<!-- <review_marker>:rapid headRefOid=<full-sha> -->`
+   at the live HEAD (`already_posted` → phase 1 was delivered, go straight to
+   phase 2), posts a single `event: COMMENT` review with the marker appended,
+   sets the REVIEWS.md verdict cell to `RAPID` with a fresh UTC timestamp
+   (status stays `in_progress`), logs `rapid posted`, and writes the progress
+   status.
 
 **Phase 2 — full review, immediately after** — the normal per-PR sequence
 from step b. The `:rapid` marker is invisible to the normal dedup (different
@@ -361,32 +364,32 @@ stale-lock takeover — verdict `RAPID` tells the next run to skip phase 1).
 
 ## PR closed mid-review — critical findings become an issue
 
-Applies to **every** review, urgent or not. When Check 2 (or the POST itself)
-finds the PR `CLOSED`/`MERGED`, never post the review; instead:
+Applies to **every** review, urgent or not. When `post` finds the PR
+`CLOSED`/`MERGED` at Check 2, no review is posted; its outcome says what is
+left:
 
-- **≥1 🔴 Critical finding** (yours + skill sections) → deliver them as one
-  GitHub issue:
-  1. Dedup: `gh api "repos/$REPO/issues?state=all&per_page=100"` — any body
-     containing `<!-- <review_marker>:issue headRefOid=<sha> -->` → already
-     filed, skip creation.
-  2. `gh api "repos/$REPO/issues" -X POST -f title="Critical findings from review of closed PR #<n>" -f body=… -f "assignees[]=<author>"`
-     — body: the 🔴 findings in full, a `#<n>` reference (links the issue to
-     the PR), and the trailing `:issue` marker line. A failed assignment is
-     logged; the issue stands.
-  3. Append the review to `reviews/pr-<n>.md` with a
-     `_Delivered as issue #<id> — PR closed before posting._` note; replace
-     the lock with a `done` row. Log
-     `PR #<n>: closed mid-review — <k> critical finding(s) filed as issue #<id>`.
-     The next heartbeat prunes the closed PR's state as usual.
-- **No 🔴 findings** → discard exactly like a Check 2 abort (release the lock
-  per kind); log `PR #<n>: closed mid-review — discarded (no critical findings)`.
+- **`closed_discarded`** — no 🔴 finding in `findings.json`: the lock was
+  released per kind, exactly like a Check 2 abort; log
+  `PR #<n>: closed mid-review — discarded (no critical findings)`.
+- **`closed_criticals`** — the 🔴 findings (`criticals`), the issue marker
+  (`issue_marker`) and `existing_issue` when an issue with that marker is
+  already filed. Deliver them as one GitHub issue: reuse `existing_issue`, or
+  `gh api "repos/$REPO/issues" -X POST -f title="Critical findings from review of closed PR #<n>" -f body=… -f "assignees[]=<author>"`
+  — body: the 🔴 findings in full, a `#<n>` reference (links the issue to the
+  PR), and the trailing `:issue` marker line; a failed assignment is logged,
+  the issue stands. Then rerun `post … --closed-issue <id>` →
+  **`closed_filed`**: the review is appended to `reviews/pr-<n>.md` with a
+  `_Delivered as issue #<id> — PR closed before posting._` note, the lock
+  becomes a `done` row, the progress status names the issue. Log
+  `PR #<n>: closed mid-review — <k> critical finding(s) filed as issue #<id>`.
+  The next heartbeat prunes the closed PR's state as usual.
 
 Crash recovery: preflight emits a closed PR whose row is an `in_progress`
 lock with verdict `RAPID` (rapid posted, full review still owed) as a review
-entry flagged `closed: true` instead of a prune. Run it as phase 2 in
-diff-only mode — refresh the lock (keep verdict `RAPID`), no clone, no skills
-(the branch may be gone), Check 1 gates don't apply — then the two bullets
-above.
+entry flagged `closed: true` instead of a prune. `prepare` runs it in mode
+`closed` — the lock refreshed with verdict `RAPID`, no clone, no skills (the
+branch may be gone), the Check 1 gates not applied — then review the diff and
+`post` as above.
 
 ## On-demand review (Slack or mention)
 
@@ -420,13 +423,12 @@ not require `slack_notifications: enabled` (that gates outbound nudging).
 
 ## PR context: body, comments, reviews
 
-```bash
-gh pr view <n> --repo "$REPO" --json body,author,comments,reviews
-gh api repos/$REPO/pulls/<n>/comments     # inline threads (path, line, body, user)
-```
-
-If a call errors, log it and proceed — reviewing without context just means
-more conservative output. Use context as input, not authoritative truth:
+`prepare` fetches them into `paths.context` (`context.json`: `body`,
+`comments`, `reviews`, `inline` threads — every item with `author`, `is_bot`
+and its timestamp; your own marker-carrying artefacts already dropped). A
+fetch that did not respond leaves an empty list and a logged warning —
+reviewing without context just means more conservative output. Use context as
+input, not authoritative truth:
 
 1. **Body** — feeds the Summary; if it explicitly justifies a pattern you'd
    flag, suppress that finding.
@@ -437,9 +439,9 @@ more conservative output. Use context as input, not authoritative truth:
 4. **Inline threads** — resolved on the same file/line → suppress overlapping
    findings; unresolved → consider whether yours adds anything.
 
-**Skip your own prior artefacts** — anything containing
-`<!-- <review_marker> headRefOid=... -->` is your past self. **Weight humans
-over bots** unless a human endorsed the bot's claim.
+**Weight humans over bots** (`is_bot`) unless a human endorsed the bot's
+claim; anything containing `<!-- <review_marker> headRefOid=... -->` is your
+past self and is not context.
 
 **Learn while you read**: context revealing a generalizable team convention
 or recurring human-reviewer concern is recorded after posting, per
@@ -471,14 +473,18 @@ its contract). Never request restructuring purely for human readers.
 **Full-file verification (end of step d — candidates come from step c's diff
 review, verification runs after the skills, before composing output).** The diff
 nominates findings; the surrounding code confirms them. Re-check each candidate
-against the code around it in the clone (`$PR_DIR`): the enclosing function or
-±40 lines via `sed -n '<from>,<to>p'`, and the whole file only when that range
-leaves the question open. Keep what survives;
+against the code around it in the clone: `review-pr.sh context <n> <path>
+<line> [radius]` prints the numbered lines around it (±40 by default) and
+whether the line lies inside this PR's hunks — `no` marks a pre-existing
+problem, at most one 🟢 line — and the whole file only when that range leaves
+the question open. Keep what survives;
 when unsure, drop it (a false positive costs more credibility than a missed
 nit). No clone (`clone-failed`) → verify against the diff context you have.
 
 **Sibling sweep (same pass).** For each surviving 🔴/🟡, check the files this
-PR changes for further occurrences of the same defect class. Report them as
+PR changes for further occurrences of the same defect class —
+`review-pr.sh sweep <n> '<regex>'` returns the hits in the changed files and a
+count in untouched code. Report them as
 one finding listing every location, so one fix round closes the class. The
 sweep covers changed files only; an occurrence in untouched code stays a
 single 🟢 line suggesting a separate issue.
@@ -592,10 +598,12 @@ is the same SHA — say `description edited, no new commits` on that line, and
 let the buckets carry what the corrected description changed. Nothing changed
 in substance → say so in one line rather than re-posting the previous review.
 
-Both scopes: read the prior review from
-`reviews/pr-<n>.md` first — match findings against its `findings-json` line
-when present (older reviews without one: parse the visible text) — then
-insert between `### Summary` and `### Findings`:
+Both scopes: `review-pr.sh delta <n> findings.json` matches your findings
+against the prior review's `findings-json` line in `reviews/pr-<n>.md` (older
+reviews without one: parse the visible text yourself) and returns the block
+below with its `fixed` / `still` / `new` buckets, the `suppressed` overrides
+and the `ambiguous` pairs you decide; then insert it between `### Summary` and
+`### Findings`:
 
 ```
 ### Changes since last review
@@ -651,7 +659,9 @@ format), append `(no prior review on file)` to `### Summary`.
   [preflight.sh](../scripts/preflight.sh); takeover flagged by preflight only
   when the holder is *also* silent — **Live holder** below) — the remote dedup
   check stays authoritative.
-- Row edits (lock, `done`, `awaiting_label` restore) rewrite the PR's line in
+- `review-pr.sh` writes every row (`prepare` locks, `step` refreshes,
+  `rapid` sets `RAPID`, `post` / `abort` finish). In the manual fallback, row
+  edits (lock, `done`, `awaiting_label` restore) rewrite the PR's line in
   place; rows are full of `|`, so give sed a different delimiter:
 
   ```bash
@@ -678,13 +688,13 @@ keeps its PR.
 
 The holder finishes because it is *further along* than any fresh job: letting it
 post is both the fastest delivery and the only way to keep the work — a
-takeover's first act is step b's `rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-*`
+takeover's first act is `prepare`'s reclaim of `/tmp/review-pr-<n>*`
 ([skills.md](skills.md) → **Clone, credential helper, cleanup**), which destroys
 a finished fan-out before any judgement applies.
 
 **As the holder you own the PR to a terminal state whatever your lock age** — a
 lock past the TTL is never a reason to abandon or skip posting; keep refreshing
-(**Lock heartbeat** above) and finish. Safety is already guaranteed by step e —
+(**Lock heartbeat** above) and finish. Safety is already guaranteed by step f —
 if a second job posted at your SHA meanwhile, the pre-post dedup check turns your
 run into a self-healing abort, so no duplicate can post.
 
@@ -693,20 +703,13 @@ its `takeover` flag.** `takeover: true` means "preflight saw no life", not proof
 of death — the holder may wake between preflight and you. `takeover: false`
 means only that the worklist's snapshot saw no lock: on a busy heartbeat that
 snapshot predates your arrival by minutes, and another run may have locked the
-PR in between. Any one of these signals means the PR lives:
-
-```bash
-ls -d "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-* "$PR_DIR".diff 2>/dev/null   # a tree or diff this run did not create
-jq -c -R 'fromjson? // empty' work/logs/events-$(date -u +%Y-%m-%d).jsonl 2>/dev/null \
-  | jq -c --arg n "PR #<n> " --arg me "${LOG_RUN_ID:-$CLAUDE_CODE_SESSION_ID}" \
-      'select((.msg|startswith($n)) and .run != $me)' | tail -3   # a foreign run on this PR
-```
-
-plus a REVIEWS.md row timestamp newer than the worklist's `prior.ts`. Then
-**stand down before the `rm -rf`**: touch neither the row nor `/tmp`, log
-`PR #<n>: holder alive at Check 1 — stood down`, continue with the next PR.
-Step b's `rm -rf` is destructive and runs first, so this check must precede
-both it and the lock write — never only on takeovers.
+PR in between. `review-pr.sh prepare` re-checks it before anything else: the
+PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
+20 minutes (`HOLDER_QUIET_MIN`), or when another run logged a `review_step` on
+this PR within those 20 minutes. Then it stands down — `outcome: stand_down`,
+nothing touched, `holder alive at Check 1 — stood down` logged — and you
+continue with the next PR. A tree older than that with no such event is a dead
+run's leftover and is reclaimed; the lock write comes only after this check.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 
@@ -745,25 +748,21 @@ the finding surfaces normally.
 
 ## Posting the GitHub review
 
-Single PR review (summary + inline comments in one submission):
+`review-pr.sh post` submits one PR review — summary and inline comments in a
+single submission — from three inputs: `body.md` (**Output format**, from
+`### Summary` to `### Verdict`), `findings.json` (the `findings-json` array
+below) and `comments.json` (`[{path, line, side, body[, start_line]}]`, one
+entry per inline-carried finding, `body` its full text). The payload it
+builds and posts to `repos/$REPO/pulls/<n>/reviews`:
 
-```bash
-cat > "/tmp/review-post-<n>.json" <<'JSON'
-{
-  "commit_id": "<full headRefOid>",
-  "event": "<COMMENT | APPROVE | REQUEST_CHANGES>",
-  "body": "<summary markdown — see below>",
-  "comments": [
-    {"path": "src/foo.ts", "line": 42, "side": "RIGHT", "body": "🟡 **Warning:** ..."}
-  ]
-}
-JSON
-gh api "repos/$REPO/pulls/<n>/reviews" -X POST --input "/tmp/review-post-<n>.json"
-rm -f "/tmp/review-post-<n>.json"
+```json
+{ "commit_id": "<full headRefOid>", "event": "<COMMENT | APPROVE | REQUEST_CHANGES>",
+  "body": "<summary body — below>",
+  "comments": [ {"path": "src/foo.ts", "line": 42, "side": "RIGHT", "body": "🟡 **Warning:** …"} ] }
 ```
 
-`event` = the Verdict verbatim; `commit_id` **must** be the reviewed
-`headRefOid` (server-side stale guard — GitHub 422s if HEAD moved).
+`event` = the Verdict verbatim; `commit_id` = the reviewed `headRefOid`
+(server-side stale guard — GitHub 422s if HEAD moved, and `post` aborts).
 
 ### Summary body format
 
@@ -801,10 +800,13 @@ carry it. A prior review without `fix` (pre-3.1.0) parses as before.
 1. Inline-eligible = `(file, line)` inside a diff hunk: `path` repo-relative,
    `line` in the new file (`side: "RIGHT"`; `"LEFT"` + old line for deleted
    code); multi-line: `start_line`, both ends in the same hunk.
-2. Not in any hunk / no precise line → summary-only (else the whole POST 422s).
+2. Not in any hunk / no precise line → summary-only: `post` checks every
+   comment against the hunk index and moves the ineligible ones under
+   `### Findings not anchorable inline` (else the whole POST 422s).
 3. `✅ Looks good` → summary-only, never inline (first reviews only — none on
    re-reviews at all).
-4. **Cap ~25 inline comments** — prioritize 🔴/🟡, demote excess 🟢.
+4. **Cap 25 inline comments** — `post` keeps 🔴/🟡 first and moves the excess
+   🟢 to the summary.
 5. **Re-reviews: only `🆕 New` findings inline** — carryovers keep their
    existing thread; `✅ Fixed` get nothing.
 
@@ -815,30 +817,30 @@ preferences.
 
 ### Revoking a stale approval on re-review
 
-On any re-review whose verdict is **not** `APPROVE`:
-
-1. Find the agent's most recent `APPROVED` review (body carries the marker —
-   never touch a human's). None → done.
-2. After the new review posts:
-   `gh api "repos/$REPO/pulls/<n>/reviews/<id>/dismissals" -X PUT -f event="DISMISS" -f message="Superseded by $BOT_NAME re-review at <new-sha> — verdict is now <new-verdict>."`
-3. Log `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)`.
-
-New verdict `APPROVE` → leave it. A failed dismissal is logged, not fatal.
+On any re-review whose verdict is **not** `APPROVE`, `post` finds the agent's
+most recent `APPROVED` review (its own login or the marker — never a human's)
+and, after the new review posts, dismisses it —
+`gh api "repos/$REPO/pulls/<n>/reviews/<id>/dismissals" -X PUT -f event="DISMISS" -f message="Superseded by $BOT_NAME re-review at <new-sha> — verdict is now <new-verdict>."`
+— logging `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)`
+(`dismissed_approval` in its outcome). New verdict `APPROVE` → left in place.
+A failed dismissal is logged, not fatal.
 
 ### Error handling
 
 - **Transient tool failure** (context fetch, clone, skill run, post — network
-  error, timeout, 5xx, rate-limit) → **retry once**. Still failing → **abort
-  the PR and release its lock** exactly as a Check 2 failure does (step e:
-  `first` deletes the row, `re-review` restores `awaiting_label`), delete the
-  clone, log `PR #<n>: <step> failed after retry — aborted, lock released`,
-  continue with the next PR. Never leave an `in_progress` lock behind on a
-  failure, and never retry a call more than once (a stuck call must not burn
-  the run — the next heartbeat picks the PR up fresh).
-- **422 line-not-in-diff** → move the named entries to summary-only, retry
-  the POST; never retry the same payload blindly. Note dropped comments once
-  in the chat UI.
-- **422 commit_id mismatch** → HEAD moved: same handling as Check 2 failure.
+  error, timeout, 5xx, rate-limit) → **retry once**. `review-pr.sh` retries
+  its own calls once and then aborts the PR with the lock released (`post`
+  outcome `aborted`); a failure in your own steps ends the PR with
+  `review-pr.sh abort <n> <reason>`, which does the same (`first` deletes the
+  row, `re-review` restores `awaiting_label`; clone and state deleted;
+  `aborted <reason>` logged). Log `PR #<n>: <step> failed after retry —
+  aborted, lock released` in the chat UI and continue with the next PR. Never
+  leave an `in_progress` lock behind, and never retry a call more than once —
+  the next heartbeat picks the PR up fresh.
+- **422 line-not-in-diff** → `post` moves every inline comment to the summary
+  and retries the POST once (`moved_to_summary`, reason `422 line not in
+  diff`); note the moved comments once in the chat UI.
+- **422 commit_id mismatch** → HEAD moved: `post` aborts as a Check 2 failure.
 
 ## Review-run self-check
 
@@ -852,13 +854,14 @@ Before declaring the run done, verify:
   `review` / `no-action` / `send-failed` with its `mention_handled` event —
   and every explicit correction has its memory write, named in the reply.
 - Per reviewed PR: one GitHub review with the trailing full-SHA marker ·
-  Check 1 + Check 2 + pre-post dedup done (incl. the trigger check on
-  re-reviews) · lock → `done` lifecycle correct (aborted re-reviews restored
+  Check 1 + Check 2 + pre-post dedup done by `prepare` / `post` (incl. the
+  trigger check on re-reviews) · every entry ended in a `post` or `abort`
+  outcome — lock → `done` lifecycle correct (aborted re-reviews restored
   `awaiting_label`; no `in_progress` left behind) · lock row refreshed at each
   milestone (**Lock heartbeat**) · every entry re-checked for a live holder
-  before the lock write and the clone `rm -rf`, standing down instead of
-  displacing it (**Live holder**) · label removed after every
-  posted review on a labeled PR · skill audit lines complete
+  before the lock write, standing down instead of displacing it (**Live
+  holder**) · label removed after every posted review on a labeled PR · skill
+  audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
   observed insights recorded ([preferences.md](preferences.md)) · `memory_due`
@@ -871,7 +874,8 @@ Before declaring the run done, verify:
   `findings-json` · skill sections reformatted to the finding form and merged
   across sources with no finding lost (**Merging findings across sources**) ·
   stale approval dismissed when the verdict
-  dropped below APPROVE · clone + per-skill copies deleted ·
+  dropped below APPROVE · clone, per-skill copies, diff and state deleted by
+  `post` / `abort` ·
   `review_step` events logged (`locked` → `fanned out (n=<N>)` → `verified` →
   `posted`/`aborted`/`done`) with the collected `skill_timing`
   ([logging.md](logging.md)).

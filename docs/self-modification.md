@@ -61,8 +61,14 @@ on it still takes the operator).
   deterministic and GitHub-read-only: no posts, no label/assignee writes,
   no gist operations, no Slack, no git commit/push. Its local writes stay
   limited to bookkeeping (status flips, ledger bookkeeping, logs, caches).
-  Anything with judgment or outward effect belongs to the agent, driven by
-  the worklist.
+  Anything with judgment belongs to the agent, driven by the worklist.
+- **`scripts/review-pr.sh` executes, never judges.** It performs the
+  mechanical steps of a review on the agent's explicit command and with the
+  agent's own content — the lock, context, clone, the payload and its POST,
+  the label removal, the row and history writes — and refuses when a guard
+  fails (HEAD moved, marker present, PR closed). It never composes, drops,
+  reorders or reformats a finding; the same holds for any script that acts
+  on GitHub for the agent (`work-backup.sh persist` for the work repo).
 - **CLAUDE.md stays a bootstrap** (repo resolution, the run-type table, the
   read-the-runbook rule); the worklist contract, run procedures and hard
   invariants live in `docs/runbook.md`, every other procedure in its own
