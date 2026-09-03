@@ -22,7 +22,7 @@ One place for everything diagnostic: `work/logs/events-YYYY-MM-DD.jsonl`
 - **event** — short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`, `review_step`,
   `review_incomplete`, `progress_status`, `mention_handled`, `stall_rate`,
-  `stall_alert_sent`, `pod_boot`, `log_cleanup`, …); the audit groups recurring
+  `stall_alert_sent`, `pod_boot`, `log_cleanup`, `profile`, …); the audit groups recurring
   errors by it.
 - **msg** — the human-readable message / error.
 
@@ -131,11 +131,14 @@ adapter is active, duty 3 above extends to logging tool failures manually.
   event (duty 2 above).
 - `log-review-step.sh` — `PostToolUse` (`Bash|Task`) hook target: derives the
   observable `review_step` milestones — `cloned`, `skill:<name> done`,
-  `posted <verdict>` — from the tool call that performs them, so they survive a
-  turn that ends before the agent logs them. Idempotent per (run, PR, step) via
-  a `/tmp/.cg-steps-<session>` marker dir; the steps needing agent knowledge
-  (`locked`, `done`, `aborted`) stay manual ([review.md](review.md) → **Progress
-  logging**).
+  `posted <verdict>`, and `locked` / `locked (refresh)` / `done` /
+  `aborted (lock released)` from the REVIEWS.md row write in its documented
+  shape — from the tool call that performs them, so they survive a turn that
+  ends before the agent logs them. Idempotent per (run, PR, step) via a
+  `/tmp/.cg-steps-<session>` marker dir (lock refreshes are logged every time —
+  they are the liveness signal); the steps needing agent knowledge
+  (`fanned out`, `verified`, `aborted <reason>`) stay manual
+  ([review.md](review.md) → **Progress logging**).
 - `enforce-review-completion.sh` — `Stop` hook target: refuses a stop that
   would leave a PR locked without a terminal `review_step`, logging a
   `review_incomplete` warn per block ([review.md](review.md) → **Completion

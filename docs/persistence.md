@@ -180,8 +180,8 @@ gh pr create --repo "$DEF_HOST/$DEFINITION_REPO" --base main --head "fix/<short-
 
 The definition repo may sit on a different GitHub host than the target repo, so
 **every definition-repo call names its host** — `-R "$DEF_HOST/$DEFINITION_REPO"`
-for `gh pr`/`gh issue`, `--hostname "$DEF_HOST"` for `gh api` (CLAUDE.md →
-**Runtime configuration**). The outer-repo `origin` URL already carries it, so
+for `gh pr`/`gh issue`, `--hostname "$DEF_HOST"` for `gh api`
+([config.md](config.md)). The outer-repo `origin` URL already carries it, so
 plain `git fetch`/`push` need nothing extra.
 
 After the PR merges, return the checkout to this instance's `definition_branch`

@@ -161,4 +161,37 @@ SID2="$SID-b"; rm -rf "/tmp/.cg-steps-$SID2"
 run_task "$SID2" "doc-drift for PR #42"
 assert_count 'skill:doc-drift done' 2 'a new session logs its own steps'
 
+# --- the REVIEWS.md row write derives locked / refresh / done -----------------
+SHA="1111111111111111111111111111111111111111"
+TS="2026-09-03T06:12:41Z"
+step_case locked_from_row_write
+run_bash "$SID" "printf '| 42 | $SHA | $TS | - | in_progress |\n' >> work/REVIEWS.md"
+assert_count 'PR #42 1111111 locked' 1 'an in_progress row write logs locked'
+run_bash "$SID" "sed -E \"s#^\| *42 \|.*#| 42 | $SHA | $TS | - | in_progress |#\" work/REVIEWS.md > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md"
+assert_count 'locked (refresh)' 1 'a later in_progress write is a lock refresh, not a second lock'
+assert_count 'PR #42 1111111 locked$' 1 'locked itself stays logged once'
+run_bash "$SID" "sed -E \"s#^\| *42 \|.*#| 42 | $SHA | $TS | APPROVE | done |#\" work/REVIEWS.md > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md"
+assert_count 'PR #42 1111111 done' 1 'the done row write logs done'
+
+# --- releasing a lock this run took without a done is an abort ---------------
+step_case aborted_from_awaiting_restore
+run_bash "$SID" "printf '| 42 | $SHA | $TS | - | in_progress |\n' >> work/REVIEWS.md"
+run_bash "$SID" "sed -E \"s#^\| *42 \|.*#| 42 | $SHA | $TS | COMMENT | awaiting_label |#\" work/REVIEWS.md > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md"
+assert_count 'PR #42 1111111 aborted (lock released)' 1 'an awaiting_label restore after a lock logs an abort'
+
+step_case aborted_from_row_delete
+run_bash "$SID" "printf '| 42 | $SHA | $TS | - | in_progress |\n' >> work/REVIEWS.md"
+run_bash "$SID" "sed -i '/^| 42 |/d' work/REVIEWS.md"
+assert_count 'PR #42 aborted (lock released)' 1 'deleting a locked row logs an abort'
+
+# --- a prune (row delete without a lock this run) logs nothing ----------------
+step_case prune_delete_not_an_abort
+run_bash "$SID" "grep -v '^| 42 |' work/REVIEWS.md > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md"
+assert_count 'review_step' 0 'a row deletion without a lock in this run is not an abort'
+
+# --- a preflight-style awaiting_label row on a PR never locked here is silent --
+step_case awaiting_without_lock
+run_bash "$SID" "printf '| 42 | $SHA | $TS | COMMENT | awaiting_label |\n' >> work/REVIEWS.md"
+assert_count 'review_step' 0 'an awaiting_label row without a lock in this run logs nothing'
+
 finish

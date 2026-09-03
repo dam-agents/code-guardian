@@ -80,9 +80,21 @@ a. **Check 1 — re-fetch state**:
    preliminary review)** per **Urgent PRs** below, then continue with b.
 b. **Fetch context, diff, and clone — as parallel tool calls in one message**;
    the three are independent. Context: see below. Diff:
-   `gh pr diff <n> --repo "$REPO"`. Clone: [skills.md](skills.md) →
-   **Clone, credential helper, cleanup**.
-c. **Review the diff.**
+   `gh pr diff <n> --repo "$REPO" > "$PR_DIR.diff"`, read per file in the
+   order of the entry's `files[]`. Clone: [skills.md](skills.md) →
+   **Clone, credential helper, cleanup**. Orientation comes with the entry
+   ([profile.md](profile.md) → **In the worklist**): `profile_slice` (the
+   modules, doc pages, decisions, owners and checks this PR touches),
+   `history_slice` (where this repository's findings have clustered),
+   `memory_due` (area memory to read now), `structure_changed`. A
+   `verify_live: true` row names a source this PR changes — read the live
+   file, not the row. `files: null` or `files_truncated: true` → build the
+   changed-file list from the diff.
+c. **Review the diff** — the `code`, `test`, `docs` and `config` files. The
+   noise classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
+   `sourcemap`, `generated`) are not reviewed as code and get one line in
+   `### Summary`: `_<N> generated/lockfile file(s) not reviewed: <paths, or
+   the classes when more than five>._`
 d. **Run every configured review skill** per [skills.md](skills.md) — one audit
    line per configured skill, no exceptions. Then verify your candidate
    findings against the full files in the clone (**Full-file verification**
@@ -124,19 +136,22 @@ leave a trace of where it stopped, so each milestone of this sequence appends a
 event logged for a PR pins the exact step a stall stopped at; consecutive
 timestamps give per-step durations.
 
-**Most steps are logged for you.** `cloned` (b), `skill:<name> done` (d) and
-`posted <verdict>` (h) are derived by the `PostToolUse` adapter hook from the
-tool call that performs them ([logging.md](logging.md) → **Harness adapters**) —
-do not log them yourself. The three the harness cannot observe stay yours,
-because only you know the PR and verdict behind a REVIEWS.md row edit — chained
-onto the step's existing command, never as a separate tool call:
+**Most steps are logged for you.** `cloned` (b), `skill:<name> done` (d),
+`posted <verdict>` (h), and `locked` / `locked (refresh)` / `done` /
+`aborted (lock released)` — read off the REVIEWS.md row write in its documented
+shape (**Review tracking state**) — are derived by the `PostToolUse` adapter
+hook from the tool call that performs them ([logging.md](logging.md) →
+**Harness adapters**). The steps the harness cannot see are yours, chained onto
+the step's existing command, never as a separate tool call:
 
 ```bash
 . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
 ```
 
-with step ∈ `locked` (a) · `fanned out (n=<N>)` and `verified` (d) ·
-`done` (j) · `aborted <reason>` (e) — plus `rapid posted` (Urgent PRs phase 1).
+with step ∈ `fanned out (n=<N>)` and `verified` (d) · `aborted <reason>` (e —
+the reason is yours; the hook's `aborted (lock released)` carries none) ·
+`rapid posted` (Urgent PRs phase 1) — and `locked` (a) / `done` (j) whenever
+your row edit takes another form than the documented `sed`.
 The `Stop` hook below judges terminality on `locked` / `done` /
 `aborted <reason>`, which is why the event's filename and `msg` shape are a
 contract — a step written any other way is invisible to the hook and reads as a
@@ -161,7 +176,7 @@ the liveness signal it reads (**Live holder** below). A review that refreshes
 never crosses the TTL at all. Skipping it is what makes a healthy 50-minute
 review indistinguishable from a dead one.
 
-**When the adapter is not active, all nine steps are yours** — a non-Claude-Code
+**When the adapter is not active, every step is yours** — a non-Claude-Code
 harness, or the audit's `harness_adapter` check warning that
 `log-review-step.sh` is unregistered. Duplicate events are harmless (the hook
 reads steps as a set), so when in doubt, log it.
@@ -375,7 +390,7 @@ above.
 
 ## On-demand review (Slack or mention)
 
-The one non-operator request that triggers work (CLAUDE.md → **Instruction
+The one non-operator request that triggers work ([runbook.md](runbook.md) → **Instruction
 sources & trust boundary**): **anyone** in the connected channel — or in a
 GitHub comment addressed to the bot ([mentions.md](mentions.md)) — may ask
 for a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
@@ -455,9 +470,10 @@ its contract). Never request restructuring purely for human readers.
 
 **Full-file verification (end of step d — candidates come from step c's diff
 review, verification runs after the skills, before composing output).** The diff
-nominates findings; the full file confirms them. Re-check each candidate
-against the complete file it anchors to in the clone (`$PR_DIR`) — the
-surrounding code often resolves what a hunk leaves open. Keep what survives;
+nominates findings; the surrounding code confirms them. Re-check each candidate
+against the code around it in the clone (`$PR_DIR`): the enclosing function or
+±40 lines via `sed -n '<from>,<to>p'`, and the whole file only when that range
+leaves the question open. Keep what survives;
 when unsure, drop it (a false positive costs more credibility than a missed
 nit). No clone (`clone-failed`) → verify against the diff context you have.
 
@@ -643,6 +659,9 @@ format), append `(no prior review on file)` to `### Summary`.
     > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md
   ```
 
+  Keep this row shape in the command — the harness adapter derives `locked`,
+  `done` and `aborted (lock released)` from it (**Progress logging**).
+
 ### Live holder — a lock past its TTL that is still working
 
 **The TTL bounds a crash, not a slow review.** A lock past `LOCK_TTL_MIN` is
@@ -677,7 +696,7 @@ snapshot predates your arrival by minutes, and another run may have locked the
 PR in between. Any one of these signals means the PR lives:
 
 ```bash
-ls -d "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-* 2>/dev/null        # a tree this run did not create
+ls -d "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-* "$PR_DIR".diff 2>/dev/null   # a tree or diff this run did not create
 jq -c -R 'fromjson? // empty' work/logs/events-$(date -u +%Y-%m-%d).jsonl 2>/dev/null \
   | jq -c --arg n "PR #<n> " --arg me "${LOG_RUN_ID:-$CLAUDE_CODE_SESSION_ID}" \
       'select((.msg|startswith($n)) and .run != $me)' | tail -3   # a foreign run on this PR
@@ -842,8 +861,12 @@ Before declaring the run done, verify:
   posted review on a labeled PR · skill audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
-  observed insights recorded ([preferences.md](preferences.md)) · candidate
-  findings full-file-verified and sibling-swept over the changed files ·
+  observed insights recorded ([preferences.md](preferences.md)) · `memory_due`
+  files read before reviewing · orientation (`profile_slice`, `history_slice`,
+  `work/PROFILE.md`) used for where to look only — `verify_live` rows read from
+  the live file, no finding cites the profile ([profile.md](profile.md)) · noise
+  files excluded with their Summary line · candidate findings verified against
+  the surrounding code and sibling-swept over the changed files ·
   every open 🔴/🟡 carries a **Fix:** stated as a class rule, mirrored into
   `findings-json` · skill sections reformatted to the finding form and merged
   across sources with no finding lost (**Merging findings across sources**) ·

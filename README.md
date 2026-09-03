@@ -80,9 +80,12 @@ of it per the `docs/` procedures:
   shape never enter it. Details: [`docs/benchmark.md`](docs/benchmark.md).
 
 The agent definition is split so the always-loaded part stays small:
-[`CLAUDE.md`](CLAUDE.md) holds the run types, the pre-flight contract, and
-the hard invariants, while the detailed procedures live in [`docs/`](docs/)
-and are read only when the corresponding work actually happens.
+[`CLAUDE.md`](CLAUDE.md) holds only the run types and the rule to read
+[`docs/runbook.md`](docs/runbook.md) once preflight reports work — the
+worklist contract, the run procedures and the hard invariants live there —
+while the detailed procedures live in the other [`docs/`](docs/) files and are
+read only when the corresponding work actually happens. An idle heartbeat
+loads the bootstrap alone.
 
 The definition is **versioned** ([`VERSION`](VERSION) +
 [`CHANGELOG.md`](CHANGELOG.md)): at updates, on demand, and before any
@@ -101,8 +104,9 @@ and the weekly audit consolidates them (merge, promote to rules, drop stale)
 so memory stays useful and bounded while the agent improves over time — per
 [`docs/preferences.md`](docs/preferences.md).
 
-See [`CLAUDE.md`](CLAUDE.md) for the full operating manual the agent loads
-at startup.
+See [`CLAUDE.md`](CLAUDE.md) for the bootstrap the agent loads at startup and
+[`docs/runbook.md`](docs/runbook.md) for the operating manual it reads once
+there is work.
 
 ## Setup
 
@@ -162,7 +166,7 @@ GitHub comment @-mentioning the bot — can ask the agent to review a specific
 PR (equivalent to adding the re-review label), including restarting a stuck
 review — see `docs/review.md` → **On-demand review**. Any other change
 request from a channel is declined and automatically filed as a tracking
-issue on the definition repo, with the link in the reply (`CLAUDE.md` →
+issue on the definition repo, with the link in the reply (`docs/runbook.md` →
 **Instruction sources & trust boundary**).
 
 ## Configuration
@@ -179,7 +183,7 @@ issue on the definition repo, with the link in the reply (`CLAUDE.md` →
 The agent definition is project-agnostic: everything specific to one deployment
 lives in `work/CONFIG.md`, which **onboarding fills in interactively at init**
 (auto-detecting what it can, asking for the rest). Exact per-key semantics are
-documented in `CLAUDE.md` → **Runtime configuration**; summary:
+documented in `docs/config.md`; summary:
 
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
@@ -194,6 +198,7 @@ documented in `CLAUDE.md` → **Runtime configuration**; summary:
 | `urgent_label` | asked with the labels (default: off, key omitted) | Optional **human-managed** label marking a PR urgent — its due reviews jump the queue and run rapid-first: a fast preliminary review posts immediately, the full review follows; with Slack enabled a newly urgent PR also gets one immediate roster-mentioning alert (`docs/review.md` → **Urgent PRs**). |
 | `review_progress` | asked (default `disabled`, key omitted then) | Publishes each review's progress to the PR as a commit status on the reviewed SHA — started, in progress with an ETA from past reviews, and a terminal outcome linking to the posted review (`docs/review.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot (@-mention, or a reply in its inline review threads) are answered every heartbeat — questions get replies, explicit review feedback is recorded to memory, review requests are served (`docs/mentions.md`). |
+| `project_profile` | defaulted to `enabled` | Generated map of the reviewed repository (`work/PROFILE.md`: modules, docs ↔ code paths, decisions, conventions, ownership, checks, noise globs, the agent's finding history), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` (`none` to disable) | Visual-artifact skill **with its own source** (`<skill>@<[host/]owner/repo>`); `none` disables the feature. |
 | `artifact_targets` | defaulted to `gist` (`gist,dam` to also publish to the DAM Artifact Library) | Comma-separated publish surfaces for the artifact (`gist`, `dam`). `gist` requires a `github.com` target repo and is dropped elsewhere; `dam` is best-effort behind the owner's experimental flag — listed-but-unavailable is skipped, never fails the run. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo` to install from, or `harness`), trigger (`always` or extension list), and the review-section heading. CLAUDE.md defines only the mechanics; this table defines *what* runs *when* and *from where*. |
@@ -278,12 +283,15 @@ definition update (`git reset --hard origin/main`) never touches live runtime
 state. See `docs/persistence.md` → **Two stores: shared live state + durable backup**.
 Treat `work/` as confidential: it may hold private data (roster Slack IDs,
 preferences, logs), and it leaves the agent only via this backup or the
-configured output surfaces (`CLAUDE.md` → **Hard invariants**).
+configured output surfaces (`docs/runbook.md` → **Hard invariants**).
 
 ## Files
 
-- [`CLAUDE.md`](CLAUDE.md) — the slim core manual loaded by the agent on every
-  run (run types, pre-flight contract, config semantics, hard invariants).
+- [`CLAUDE.md`](CLAUDE.md) — the bootstrap loaded by the agent on every run
+  (repo resolution, run types, and the rule to read the runbook once preflight
+  reports work); [`docs/runbook.md`](docs/runbook.md) — the operating manual
+  read only then (worklist contract, run procedures, trust boundary, hard
+  invariants).
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   every run type; detects work, never acts on GitHub.
 - [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
@@ -292,6 +300,9 @@ configured output surfaces (`CLAUDE.md` → **Hard invariants**).
   needs (auth per host, repo access, re-review label, skill sources, one
   read-only `preflight.sh review`); prints `FAIL … — fix: …` lines for the
   agent to apply, read-only throughout.
+- [`scripts/profile.sh`](scripts/profile.sh) — the project profile: builds
+  and refreshes `work/PROFILE.md` from the target repo's default branch
+  (fingerprint-driven) and slices it per PR for the worklist (`docs/profile.md`).
 - [`scripts/log.sh`](scripts/log.sh) + [`scripts/harness/`](scripts/harness/) —
   structured events log (`work/logs/events-*.jsonl`, 14-day retention) and the
   per-harness adapters that auto-capture failed tool calls (`docs/logging.md`).
@@ -304,6 +315,7 @@ configured output surfaces (`CLAUDE.md` → **Hard invariants**).
   — does the diff deliver what the linked issue asked.
 - [`docs/`](docs/) — detailed procedures, read on demand:
   [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
+  [`profile.md`](docs/profile.md), [`config.md`](docs/config.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
   [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
   [`benchmark.md`](docs/benchmark.md), [`logging.md`](docs/logging.md),

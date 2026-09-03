@@ -14,16 +14,22 @@
 #     nudge due,
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
 #     (via scripts/log.sh — docs/logging.md), the skill install cache, the
-#     git credential helper (`gh auth setup-git`, before the agent clones), and
-#     the audit-mode cleanups (14-day log retention, stale-clone sweep).
+#     git credential helper (`gh auth setup-git`, before the agent clones),
+#     the project profile refresh (work/PROFILE.{json,md} + its /tmp mirror,
+#     scripts/profile.sh — docs/profile.md), and the audit-mode cleanups
+#     (14-day log retention, stale-clone sweep).
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / status_resets_due / artifacts_due
 #                             / urgent_alerts_due
 #                             / mentions_due (comments addressed to the bot,
 #                             deduped against work/MENTIONS.md)
-#                             (+ skill install, SHA-cached, only when a
-#                             review/artifact is due)
+#                             (+ skill install, SHA-cached, and the profile
+#                             refresh + per-PR inventory — files, profile
+#                             slice, history, memory_due, skill_routing —
+#                             only when a review/artifact is due)
+#                             + config (resolved keys) and memory (budget)
+#                             whenever there is work
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder + merge-conflict flag already
 #                             computed; the agent applies each row_update right
@@ -38,7 +44,7 @@
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
-#   otherwise               -> process the arrays per CLAUDE.md + docs/.
+#   otherwise               -> process the arrays per docs/runbook.md + docs/.
 #
 # Requires: bash, gh (authenticated), jq, git, sed/grep/cut/tr, GNU date
 # (Linux pod). Deliberately awk-free — awk is not available in the pod.
@@ -279,7 +285,7 @@ case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
 esac
-# Review cadence (CLAUDE.md → Runtime configuration). The crons themselves live
+# Review cadence (docs/config.md). The crons themselves live
 # in the platform scheduler (ONBOARDING Step 6a); the only thing read here is
 # the quiet interval, because the audit's heartbeat-gap check is measured
 # against it — a legitimate quiet-hour gap must never read as a missed
@@ -307,6 +313,59 @@ case "$PROGRESS" in
   (enabled|disabled) ;;
   (*) log "review_progress '$PROGRESS' unknown — treating as disabled"; PROGRESS=disabled;;
 esac
+
+# The resolved configuration the agent works from (docs/config.md → Runtime
+# configuration): every key with its default applied, plus the two tables as
+# rows — emitted with the worklist whenever there is work, so a run never
+# parses work/CONFIG.md itself. Values only; nothing here is a decision.
+BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
+PROJECT_PROFILE="$(cfg project_profile)"; PROJECT_PROFILE="${PROJECT_PROFILE:-enabled}"
+SKILLS_TABLE="$(cfg_table 'Review skills' | while IFS='|' read -r _ s src trig sec _rest; do
+    s="$(trim "$s")"; case "$s" in (''|skill|-*|:*) continue;; esac
+    jq -nc --arg s "$s" --arg src "$(trim "$src")" --arg t "$(trim "$trig")" --arg sec "$(trim "$sec")" \
+      '{skill:$s, source:$src, trigger:$t, section:$sec}'
+  done | jq -s .)"; [ -n "$SKILLS_TABLE" ] || SKILLS_TABLE='[]'
+WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify note _rest; do
+    id="$(trim "$id")"; case "$id" in (''|id|-*|:*) continue;; esac
+    jq -nc --arg id "$id" --arg w "$(trim "$wf")" --arg n "$(trim "$notify")" --arg note "$(trim "$note")" \
+      '{id:$id, watch_for:$w, notify:$n, note:$note}'
+  done | jq -s .)"; [ -n "$WATCH_RULES" ] || WATCH_RULES='[]'
+CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
+  --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
+  --arg prog "$PROGRESS" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
+  --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
+  --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
+  --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
+  {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
+   active_hours:(if $ah=="" then "00-23" else $ah end), active_days:(if $ad=="" then "Mon-Sun" else $ad end),
+   review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
+   review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
+   rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
+   review_progress:$prog, mention_replies:(if $mr=="" then "enabled" else $mr end),
+   artifact_skill:(if $art=="" then "none" else $art end), artifact_targets:(if $at=="" then null else $at end),
+   slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
+   escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
+   log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
+   project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
+   skills_table:$skills, watch_rules:$watches}')"
+
+# Memory budget (docs/preferences.md → bounds): the documented caps, measured.
+# Review runs log an overrun; the audit turns it into a check and a mandatory
+# consolidation. Four local reads, no judgment.
+memory_budget_json() {
+  local ml=0 ins=0 fb=0 ls=0 over=false
+  [ -f "$WORK/MEMORY.md" ] && ml="$(grep -c '' "$WORK/MEMORY.md" 2>/dev/null || true)"
+  ins="$(sed -n '/^## Observed Insights/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
+  fb="$(sed -n '/^## Feedback Log/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
+  ls="$(grep -c '^## ' "$WORK/LESSONS.md" 2>/dev/null || true)"
+  { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] || [ "${ls:-0}" -gt 10 ]; } && over=true
+  jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" --argjson over "$over" \
+    '{memory_lines:$ml, memory_limit:120, insights:$ins, insights_limit:15, feedback:$fb, feedback_limit:20,
+      lessons_sections:$ls, lessons_limit:10, over_budget:$over}'
+}
+MEMORY_JSON="$(memory_budget_json)"
+PROFILE_JSON_OUT='null'
 
 fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
   logev error preflight "$1"
@@ -427,12 +486,15 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
     --argjson resets "$resets" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, skills:$skills, logs:$logs}
-     + (if $stall == null then {} else {stall_alert:$stall} end)'
+     + (if $stall == null then {} else {stall_alert:$stall} end)
+     + (if $nothing then {} else {config:$config, memory:$memory} end)
+     + (if $profile == null then {} else {profile:$profile} end)'
 }
 
 # =========================================================== REVIEW MODE ====
@@ -440,7 +502,7 @@ if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
   STATUS_RESETS_DUE='[]'
 
-  # re-review trigger gate (CLAUDE.md -> rereview_trigger): label | review-request | both
+  # re-review trigger gate (docs/config.md -> rereview_trigger): label | review-request | both
   REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
   TRIG_LABEL=1; TRIG_REQUEST=0
   case "$REREVIEW_TRIGGER" in
@@ -688,6 +750,63 @@ if [ "$MODE" = "review" ]; then
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
     fi
+  fi
+
+  # -------------------------------- project profile & per-PR inventory ----
+  # Only when a review is due (docs/profile.md): keep the profile current, then
+  # give every due entry its changed-file inventory (classified), the profile
+  # rows it touches, its history rows, the area-memory files whose scope
+  # matches, and the skill routing — deterministic orientation, so neither the
+  # agent nor a skill subagent rebuilds the repository map per PR. One API call
+  # per due PR (the file list); the slice is local. A failed list leaves
+  # `files: null` and the agent builds the list from the diff as before.
+  if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
+    if [ "$PROJECT_PROFILE" = "enabled" ]; then
+      PROFILE_JSON_OUT="$(LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check 2>/dev/null)"
+      { printf '%s' "$PROFILE_JSON_OUT" | jq -e 'has("status")' >/dev/null 2>&1; } \
+        || PROFILE_JSON_OUT='{"status":"unavailable","mode":"none","note":"profile.sh produced no status"}'
+      log "project profile: $(printf '%s' "$PROFILE_JSON_OUT" | jq -r '
+        "\(.status) (\(.mode)\(if .base then ", base " + .base else "" end)\(if .age_hours != null then ", \(.age_hours)h old" else "" end))\(if .note then " — " + .note else "" end)"')"
+    else
+      PROFILE_JSON_OUT='{"status":"disabled","mode":"none"}'
+    fi
+    [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ] \
+      && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"') — consolidation due at the next audit (docs/preferences.md)"
+    FILES_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-files.XXXXXX")"
+    NEW_DUE='[]'
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      n="$(printf '%s' "$entry" | jq -r '.number')"
+      # the call's own output first: a failed or empty answer must never read
+      # as "no files" (`jq -s` turns empty input into `[]`)
+      raw="$(gh api --paginate "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)" || raw=""
+      [ -n "$raw" ] && raw="$(printf '%s' "$raw" | jq -s 'map(select(type=="array")) | add // []' 2>/dev/null)"
+      if [ -z "$raw" ]; then
+        log_warn "PR #$n: changed-file list unavailable — build it from the diff"
+        entry="$(printf '%s' "$entry" | jq -c '. + {files:null}')"
+      else
+        trunc=false; [ "$(printf '%s' "$raw" | jq length)" -gt 1000 ] && trunc=true
+        printf '%s' "$raw" | jq -c '.[:1000] | map({path:.filename, status:.status})' > "$FILES_TMP"
+        slice="$(LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" slice "$FILES_TMP" 2>/dev/null)"
+        { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
+          || slice="$(jq -c '{files:(map(. + {class:"code"})), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$FILES_TMP")"
+        # extension routing per docs/skills.md — inclusive: every skill whose
+        # trigger list holds the file's extension receives it; `always` skills
+        # route nothing (they run on the whole clone)
+        routing="$(printf '%s' "$slice" | jq -c --argjson t "$SKILLS_TABLE" '
+          [ $t[] | select(.trigger != "always")
+            | {skill, exts: (.trigger | split(",") | map(gsub("\\s";"") | select(length>0)))} ] as $rows
+          | [ .files[]?.path ] as $paths
+          | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(
+              (split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $ext
+              | $r.exts | index($ext) != null) ])')"
+        entry="$(printf '%s' "$entry" | jq -c --argjson s "$slice" --argjson r "$routing" --argjson tr "$trunc" \
+          '. + $s + {files_truncated:$tr, skill_routing:$r}')"
+        [ "$trunc" = "true" ] && log "PR #$n: changed-file list capped at 1000 — build the full list from the diff"
+      fi
+      NEW_DUE="$(printf '%s' "$NEW_DUE" | jq -c --argjson e "$entry" '. + [$e]')"
+    done < <(printf '%s' "$REVIEWS_DUE" | jq -c '.[]')
+    REVIEWS_DUE="$NEW_DUE"; rm -f "$FILES_TMP"
   fi
 
   # --------------------------------------------------- mention detection ----
@@ -1156,6 +1275,34 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$(row_for "$n")" ] || orphan_files=$((orphan_files+1))
   done
   [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row" || check orphan_history ok "history files all match rows"
+
+  # memory budget (docs/preferences.md → bounds): over the documented cap is a
+  # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
+  mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"')"
+  if printf '%s' "$MEMORY_JSON" | jq -e '.memory_lines > 180 or .lessons_sections > 15' >/dev/null 2>&1; then
+    check memory_budget fail "far over the documented bounds — $mb_detail; consolidate now (docs/preferences.md → Weekly memory consolidation)"
+  elif [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ]; then
+    check memory_budget warn "over the documented bounds — $mb_detail; consolidation is mandatory this audit"
+  else
+    check memory_budget ok "within bounds — $mb_detail"
+  fi
+
+  # project profile currency (docs/profile.md → Freshness): the check refreshes
+  # a stale profile, so a `regenerated` here means no review refreshed it in
+  # time — reported, not hidden
+  if [ "$PROJECT_PROFILE" != "enabled" ]; then
+    check profile_fresh ok "project profile disabled by configuration"
+  else
+    pf="$(LOG_JOB=audit bash "$SCRIPT_DIR/profile.sh" check 2>/dev/null)"
+    pf_status="$(printf '%s' "$pf" | jq -r '.status // "unavailable"' 2>/dev/null)"
+    pf_note="$(printf '%s' "$pf" | jq -r '[.mode, (if .base then "base " + .base else empty end), (if .age_hours != null then "\(.age_hours)h old" else empty end), (.note // empty)] | join(", ")' 2>/dev/null)"
+    case "$pf_status" in
+      (current)      check profile_fresh ok "profile current ($pf_note)";;
+      (regenerated)  check profile_fresh warn "profile was stale until this audit refreshed it ($pf_note) — no review refreshed it in time";;
+      (unverified)   check profile_fresh warn "profile could not be verified ($pf_note)";;
+      (*)            check profile_fresh fail "profile unavailable ($pf_note) — reviews run without the repository map";;
+    esac
+  fi
 
   # benchmark hygiene: the official results history must never hold a trial
   # run — trials live under trials/<id>/ only (docs/benchmark.md → Trial runs)
