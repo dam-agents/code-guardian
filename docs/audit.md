@@ -62,16 +62,30 @@ if one is impossible this week (missing data, API error), report it as
 
 ### B. Platform & schedules
 
-5. `mcp__platform-outbound__list_schedules`: the review heartbeat, the
+5. `mcp__platform-outbound__list_schedules`: the review heartbeat (one to
+   three schedules — `…-review-active` plus the `…-review-quiet` /
+   `…-review-offdays` ones the cadence keys call for), the
    shepherd sweep (when `slack_notifications: enabled`), the monthly
    benchmark (when `benchmark: enabled`), and this audit job all
    exist and are **enabled**, crons matching ONBOARDING Step 6.
    Missing/disabled → **fail** (a dead schedule is invisible to every other
    check — the heartbeat-gap check catches the past, this catches the future).
    **Each must also be firing, not merely enabled:** per entry, `status.lastRun`
-   within 1.5× its own interval and `status.lastResult` = `success`. Enabled but
+   within 1.5× the interval of **its own cron**, measured from that cron's last
+   firing opportunity rather than from now, and `status.lastResult` = `success`.
+   The distinction is what keeps a window-limited schedule honest: a Friday-
+   morning audit sees the active heartbeat's `lastRun` from the previous
+   evening, which is correct for a `Mon-Fri 08-21` cron and would read as dead
+   against wall clock. Reconstruct that opportunity by walking backwards from
+   now to the newest minute the cron's day, hour and minute fields all admit —
+   for `*/5 8-21 * * 1-5` read at 07:00 on a Friday, Thursday 21:55 — and
+   measure the age from there. Enabled but
    not running, or a failing last result, is a **fail** — this is what notices a
    job that stopped silently. Name the offender, its `lastRun` and `lastResult`.
+   A registered cron that contradicts the cadence keys (`active_hours`,
+   `active_days`, `review_interval_active`, `review_interval_quiet`) is a
+   **warn** naming both values — config is the source of truth, and the fix is
+   to re-register the schedule (ONBOARDING Step 6a).
    Judge **only the schedules ONBOARDING Step 6 defines**; an operator may add
    temporary monitors of their own, and those are theirs to watch — report an
    unrecognised schedule as **info**, never a failure.

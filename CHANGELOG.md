@@ -11,6 +11,21 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.18.0 — 2026-09-03
+
+**Upgrade:** Optional — the review heartbeat gains a second, slower cadence for
+quiet hours. Four `work/CONFIG.md` keys drive it: `active_hours` and
+`active_days` delimit the active window, `review_interval_active` (default `5`)
+is the cadence inside it, `review_interval_quiet` (default `60`) the one
+outside. Missing keys change nothing — the instance keeps the single schedule it
+already has. To adopt: write the four keys, then re-register the review
+schedules per [ONBOARDING.md](ONBOARDING.md) Step 6a, which replaces the one
+existing `code-guardian-review-*` schedule with `…-review-active` plus the
+`…-review-quiet` / `…-review-offdays` ones the window calls for —
+`delete_schedule` the old one in the same step, or both cadences fire. The trade
+to state when offering it: a PR opened in a quiet hour waits up to
+`review_interval_quiet` minutes, an `urgent_label` one included.
+
 ## 3.17.0 — 2026-09-01
 
 **Upgrade:** Nothing — docs are re-read per run. Skills whose trigger lists

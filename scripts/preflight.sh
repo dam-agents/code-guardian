@@ -279,6 +279,18 @@ case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
 esac
+# Review cadence (CLAUDE.md → Runtime configuration). The crons themselves live
+# in the platform scheduler (ONBOARDING Step 6a); the only thing read here is
+# the quiet interval, because the audit's heartbeat-gap check is measured
+# against it — a legitimate quiet-hour gap must never read as a missed
+# heartbeat. Never stricter than the historical one-hour tolerance.
+REVIEW_INTERVAL_QUIET="$(cfg review_interval_quiet)"
+case "$REVIEW_INTERVAL_QUIET" in
+  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=60;;          # missing/unparseable -> default
+  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60;;
+esac
+HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
+[ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
 # in-progress lock TTL: minutes after which a lock is *candidate* for takeover.
 # Calibrated above the review pipeline's p95 (docs/review.md → Review tracking
 # state) — a value under it hands live reviews to a second job.
@@ -1101,7 +1113,7 @@ if [ "$MODE" = "audit" ]; then
   done < <(cat "$WORK/HEARTBEAT.log" 2>/dev/null)
   last_age_m=$(( last_e > 0 ? (NOW_EPOCH - last_e) / 60 : -1 ))
   if [ "$hb_total" -eq 0 ]; then check heartbeats fail "no review heartbeats logged in the last 7 days"
-  elif [ "$max_gap" -gt 3600 ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min; last ${last_age_m}m ago"
+  elif [ "$max_gap" -gt "$HB_GAP_MAX_S" ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min (over the $((HB_GAP_MAX_S/60))-min quiet-cadence tolerance); last ${last_age_m}m ago"
   else check heartbeats ok "$hb_total heartbeats, largest gap $((max_gap/60)) min, last ${last_age_m}m ago"; fi
 
   if [ "$SLACK" = "enabled" ]; then

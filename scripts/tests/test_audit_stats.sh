@@ -194,6 +194,27 @@ assert_jq '.stats.reactions.scanned == null' 'a faulted read reports null, not 0
 assert_jq '.checks[] | select(.id == "reaction_scan") | .status == "warn"' \
   'the dead check warns instead of reporting a clean zero'
 
+# --- heartbeat gap tolerance follows the quiet cadence ------------------------
+# A quiet-hour tick legitimately leaves a gap the length of review_interval_quiet;
+# the check must scale to it instead of warning on every configured night.
+hb() { printf '%s review nothing_to_do=true\n' "$(iso_ago "$1")" >> "$WORK/HEARTBEAT.log"; }
+
+new_case audit_gap_within_quiet_cadence
+base_config '- review_interval_quiet: 60'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+hb 9000; hb 4500; hb 3600   # 75-min gap, then 15 min
+run_preflight audit
+assert_jq '.checks[] | select(.id == "heartbeats") | .status == "ok"' \
+  'a 75-min gap is fine under a 60-min quiet cadence'
+
+new_case audit_gap_beyond_quiet_cadence
+base_config '- review_interval_quiet: 60'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+hb 9600; hb 3600            # 100-min gap — past 1.5x the quiet interval
+run_preflight audit
+assert_jq '.checks[] | select(.id == "heartbeats") | .status == "warn" and (.detail | contains("100 min"))' \
+  'a gap past 1.5x the quiet interval still warns'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config

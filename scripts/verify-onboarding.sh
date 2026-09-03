@@ -186,7 +186,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level"
+    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -216,6 +216,27 @@ EOF
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
+    # Review cadence (CLAUDE.md -> Runtime configuration). Both intervals must
+    # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
+    # window that wraps midnight is not expressible as a single cron.
+    chk_enum review_interval_active '1|2|3|4|5|6|10|12|15|20|30|60' 'a divisor of 60: 1 2 3 4 5 6 10 12 15 20 30 60'
+    chk_enum review_interval_quiet  '1|2|3|4|5|6|10|12|15|20|30|60' 'a divisor of 60: 1 2 3 4 5 6 10 12 15 20 30 60'
+    chk_enum active_days 'Mon-Fri|Mon-Sun|(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(,(Mon|Tue|Wed|Thu|Fri|Sat|Sun))*' \
+      'Mon-Fri | Mon-Sun | a comma list of day abbreviations (Mon,Tue,...)'
+    AH="$(cfg active_hours)"
+    if [ -n "$AH" ]; then
+      if printf '%s' "$AH" | grep -Eq '^([01][0-9]|2[0-3])-([01][0-9]|2[0-3])$'; then
+        if [ "${AH%-*}" -le "${AH#*-}" ]; then
+          ok config-active_hours "'$AH'"
+        else
+          fail config-active_hours "'$AH' spans midnight" \
+            "use an ascending HH-HH range — one cron cannot wrap midnight (ONBOARDING Step 6a)"
+        fi
+      else
+        fail config-active_hours "invalid value '$AH'" \
+          "use an ascending 'HH-HH' range of platform-timezone hours, both ends inclusive (e.g. 08-21)"
+      fi
+    fi
 
     AS="$(cfg artifact_skill)"
     if [ -n "$AS" ] && [ "$AS" != "none" ]; then
