@@ -126,16 +126,22 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
 # ---------------------------------------------------------------- cleanup ----
 cleanup() { rm -rf "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"; }
 
-# release the lock per kind (docs/review.md step e / Error handling)
+# release the lock per kind (docs/review.md → Error handling): a first review
+# deletes the row; a re-review restores the prior row as it was — `done` for a
+# same-SHA (description-only) re-review, `awaiting_label` otherwise. No usable
+# prior (a lock taken over from a dead run) → the row goes and self-heal
+# restores it from the remote marker.
 release_lock() { # <reason>
-  local kind prior_sha prior_ts prior_verdict
+  local kind prior_sha prior_ts prior_verdict prior_status
   kind="$(ctx_get '.kind')"
   if [ "$kind" = "re-review" ]; then
-    prior_sha="$(ctx_get '.prior.sha // empty')"; prior_ts="$(ctx_get '.prior.ts // empty')"; prior_verdict="$(ctx_get '.prior.verdict // empty')"
+    prior_sha="$(ctx_get '.prior.sha // empty')"; prior_ts="$(ctx_get '.prior.ts // empty')"
+    prior_verdict="$(ctx_get '.prior.verdict // empty')"; prior_status="$(ctx_get '.prior.status // empty')"
     if printf '%s' "$prior_sha" | grep -qE '^[0-9a-f]{40}$' && [ -n "$prior_ts" ]; then
-      write_row "$prior_sha" "$prior_ts" "${prior_verdict:-SEE-GITHUB}" awaiting_label
+      case "$prior_status" in (done) ;; (*) prior_status=awaiting_label;; esac
+      write_row "$prior_sha" "$prior_ts" "${prior_verdict:-SEE-GITHUB}" "$prior_status"
     else
-      delete_row   # unreadable prior → self-heal restores it later
+      delete_row
     fi
   else
     delete_row
@@ -248,10 +254,26 @@ skills_json() { # → [{skill, source, trigger, section}]
 }
 
 # ================================================================= prepare ====
+emit_ready() { # <resumed-bool> — the prepare summary from the state files
+  local j
+  j="$(jq -n --slurpfile pr "$CTX/pr.json" --slurpfile sk "$CTX/skills.json" --slurpfile sl "$CTX/slice.json" --slurpfile f "$CTX/files.json" \
+    --argjson resumed "$1" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
+    $pr[0] + {outcome:"ready", resumed:$resumed,
+      paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
+             pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
+      files:$f[0], skills:$sk[0]} + $sl[0]')"
+  out "$j"
+}
+
 cmd_prepare() {
-  local ETA="" ONDEMAND=0
-  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=1; shift;; (*) shift;; esac; done
+  local ETA="" ONDEMAND=false me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (*) shift;; esac; done
   [ -n "$REPO" ] || fail "target repo unresolved"
+  # re-entrant for the run that owns the state: a second prepare returns what
+  # the first one built instead of standing down against itself
+  if [ -f "$CTX/pr.json" ] && [ -f "$CTX/skills.json" ] && [ -n "$me" ] && [ "$(ctx_get '.run // empty')" = "$me" ]; then
+    emit_ready true
+  fi
   local PJ; PJ="$(pr_state)"; [ -n "$PJ" ] || fail "PR state unreadable (API) — retry once, then abort"
   local state draft merged sha ref base title author labels requested head_repo
   state="$(printf '%s' "$PJ" | jq -r .state)"; draft="$(printf '%s' "$PJ" | jq -r .draft)"; merged="$(printf '%s' "$PJ" | jq -r .merged)"
@@ -262,16 +284,25 @@ cmd_prepare() {
   local row row_status row_verdict row_sha row_ts kind=first full=true urgent=false mode=review prior=null
   row="$(row_for)"; row_status="$(row_field "$row" 6)"; row_verdict="$(row_field "$row" 5)"; row_sha="$(row_field "$row" 3)"; row_ts="$(row_field "$row" 4)"
   [ -f "$WORK/reviews/pr-$N.md" ] && kind="re-review"
-  [ -n "$row" ] && prior="$(jq -nc --arg s "$row_sha" --arg t "$row_ts" --arg v "$row_verdict" '{sha:$s, ts:$t, verdict:$v}')"
+  # the prior is a posted review the row records; a lock taken over from a
+  # dead run has none (release_lock then deletes the row for self-heal)
+  case "$row_status" in (done|awaiting_label)
+    prior="$(jq -nc --arg s "$row_sha" --arg t "$row_ts" --arg v "$row_verdict" --arg st "$row_status" '{sha:$s, ts:$t, verdict:$v, status:$st}')";; esac
   [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | jq -e --arg x "$URGENT_LABEL" 'index($x) != null' >/dev/null 2>&1 && urgent=true
 
   # --- gates (Check 1) ---
   [ "$draft" = "true" ] && out "$(jq -nc '{outcome:"skip", reason:"draft"}')"
+  # an on-demand ask for a PR already reviewed at its live HEAD: same-SHA dedup
+  # (preflight-driven entries decided this already — an edited description
+  # legitimately reviews the same SHA again)
+  if [ "$ONDEMAND" = true ] && [ "$row_sha" = "$sha" ]; then
+    case "$row_status" in (done|awaiting_label) out "$(jq -nc --arg s "${sha:0:7}" '{outcome:"skip", reason:("already reviewed at " + $s)}')";; esac
+  fi
   if [ "$state" != "open" ]; then
     if [ "$row_status" = "in_progress" ] && [ "$row_verdict" = "RAPID" ]; then mode=closed
     else out "$(jq -nc --arg s "$([ "$merged" = "true" ] && echo MERGED || echo CLOSED)" '{outcome:"skip", reason:("pr " + $s + " — the next heartbeat prunes")}')"; fi
   fi
-  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" -eq 0 ] && ! trigger_live "$labels" "$requested"; then
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested"; then
     out "$(jq -nc '{outcome:"skip", reason:"re-review trigger withdrawn"}')"
   fi
   if [ "$kind" = "re-review" ]; then
@@ -292,8 +323,10 @@ cmd_prepare() {
     --arg k "$kind" --argjson full "$full" --argjson urgent "$urgent" --arg mode "$mode" --argjson prior "$prior" \
     --arg now "$now" --argjson labels "$labels" --argjson lv "$(printf '%s' "$PJ" | jq -c '{additions, deletions, changed_files}')" \
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
+    --argjson od "$ONDEMAND" --arg run "$me" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
-      urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid}' > "$CTX/pr.json"
+      urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
+      on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending"}' > "$CTX/pr.json"
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
   local eta_txt=""; [ -n "$ETA" ] && eta_txt=" · usually ~$(( (ETA + 59) / 60 < 1 ? 1 : (ETA + 59) / 60 )) min"
@@ -343,6 +376,7 @@ cmd_prepare() {
     if [ "$clone" = "ok" ]; then logstep "${sha:0:7} cloned"
     else rm -rf "$PR_DIR"; logev error clone "PR #$N: clone of $ref did not succeed — every skill is clone-failed"; fi
   fi
+  jq --arg c "$clone" '.clone = $c' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
   # --- skills: inclusive routing, per-skill copies, briefs from the template ---
   local skills nrun=0 tpl profile="$WORK/PROFILE.md"
@@ -412,12 +446,7 @@ cmd_prepare() {
   else printf '{}\n' > "$CTX/pack.json"; fi
 
   progress pending "reviewing since $(now_hm)Z · diff + $nrun skill(s)$eta_txt"
-  jq -n --slurpfile pr "$CTX/pr.json" --slurpfile sk "$CTX/skills.json" --slurpfile sl "$CTX/slice.json" --slurpfile f "$CTX/files.json" \
-    --arg clone "$clone" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
-    $pr[0] + {outcome:"ready", clone:$clone,
-      paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
-             pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
-      files:$f[0], skills:$sk[0]} + $sl[0]' | out "$(cat)"
+  emit_ready false
 }
 
 # ==================================================================== step ====
@@ -438,6 +467,8 @@ cmd_context() {
   need_ctx
   local path="${1:-}" line="${2:-}" radius="${3:-40}"
   [ -n "$path" ] && [ -n "$line" ] || fail "usage: context <n> <path> <line> [radius]"
+  case "$path" in (/*|*..*) fail "path must be relative to the clone, without ..";; esac
+  case "$line$radius" in (*[!0-9]*) fail "line and radius must be numbers";; esac
   [ -f "$PR_DIR/$path" ] || fail "$path is not in the clone (clone failed, or the path is wrong)"
   local from to total inpr="no (pre-existing at this line)"
   total="$(grep -c '' "$PR_DIR/$path")"
@@ -517,14 +548,16 @@ cmd_delta() {
     { printf '%s' "$prior" | jq -e 'type=="array"' >/dev/null 2>&1; } || prior='[]'
     overrides="$(sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -s .)"
   fi
-  jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" '
+  local j
+  j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     def near($a; $b; $tol): ($a.file == $b.file) and ($a.line != null) and ($b.line != null) and ((($a.line - $b.line) | fabs) <= $tol);
-    def ovr_hits($f): [ $o[] | select(. as $line
-        | (($line | test("`" + ($f.file // "") + ":" + (($f.line // -1)|tostring) + "`")) or
-           ([ range(-2; 3) ] | any(. as $d | $line | test("`" + ($f.file // "") + ":" + ((($f.line // -1000) + $d)|tostring) + "`"))) or
-           (($f.summary // "") != "" and ($line | ascii_downcase | contains(($f.summary // "") | ascii_downcase | split(" ") | .[0] // " ")) and ($line | test("`" + ($f.file // "") + "`")))) ) ];
+    def ovr_hits($f): ($f.file // "") as $file | ($f.line // -1000) as $l
+      | ((($f.summary // "") | ascii_downcase | split(" ") | .[0]) // "") as $w
+      | [ $o[] | select(. as $line
+          | ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $file + ":" + (($l + $d)|tostring) + "`")))
+            or ($w != "" and ($line | ascii_downcase | contains($w)) and ($line | contains("`" + $file + "`")))) ];
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
     | { still: [ $open[] as $x | $cur[] | select(near(.; $x; 3) and similar(.summary; $x.summary)) | . + {prior_line: $x.line} ],
@@ -537,7 +570,8 @@ cmd_delta() {
         + [ .fixed[] | "- ✅ **Fixed:** \(.summary) (`\(.file):\(.line // "-")`)" ]
         + [ .still[] | "- 🔁 **Still present:** \(.summary) (`\(.file):\(.line // "-")`)" ]
         + [ .new[]   | "- 🆕 **New:** \(.summary) (`\(.file):\(.line // "-")`)" ] | join("\n") )
-    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o}' | out "$(cat)"
+    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o}')"
+  out "$j"
 }
 
 # =================================================================== rapid ====
@@ -612,12 +646,20 @@ cmd_post() {
   fi
 
   # --- pre-post dedup re-check ---
+  # A marker at this SHA is a duplicate — unless this is a same-SHA re-review
+  # (an edited description) and the marker is older than our lock: then it is
+  # the prior review being superseded, not a concurrent post.
   local ts; ts="$(remote_reviewed_at "$sha")"
   if [ -n "$ts" ] && [ "$ts" != "__api_error__" ]; then
-    write_row "$sha" "$ts" SEE-GITHUB done
-    logstep "$sha7 aborted duplicate (review already on GitHub at $ts)"
-    cleanup
-    out "$(jq -nc --arg t "$ts" '{outcome:"duplicate", reason:("a review with this marker already exists on GitHub (" + $t + ") — row self-healed")}')"
+    if [ "$kind" = "re-review" ] && [ "$(ctx_get '.prior.sha // empty')" = "$sha" ] \
+       && [ "$(iso2epoch "$ts")" -lt "$(iso2epoch "$(ctx_get '.locked_at')")" ]; then
+      logev info review_pr "PR #$N: same-SHA re-review — the marker at $sha7 ($ts) is the prior review"
+    else
+      write_row "$sha" "$ts" SEE-GITHUB done
+      logstep "$sha7 aborted duplicate (review already on GitHub at $ts)"
+      cleanup
+      out "$(jq -nc --arg t "$ts" '{outcome:"duplicate", reason:("a review with this marker already exists on GitHub (" + $t + ") — row self-healed")}')"
+    fi
   fi
 
   # --- inline comments: eligibility against the hunk index, cap, priority ---

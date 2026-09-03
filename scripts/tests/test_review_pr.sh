@@ -277,6 +277,56 @@ run_rp rapid 1 --body "$SANDBOX/rapid.md"
 assert_jq '.outcome == "already_posted"' 'rapid dedup by its own marker'
 run_rp abort 1 "reset"
 
+# --- on-demand: no trigger needed at prepare or post; same-SHA ask is a skip ------
+setup ondemand_case
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "ready" and .on_demand == true' 'on-demand prepare without a trigger'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":80,"html_url":"https://example.test/r/80","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'on-demand post is not read as a withdrawn trigger'
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "skip" and (.reason | contains("already reviewed at"))' 'an on-demand ask for the reviewed HEAD is a skip'
+
+# --- description-only re-review: the prior marker at this SHA is not a duplicate ---
+setup description_only
+printf '# PR #1: alpha PR\n\n## Review at %s — 2026-09-02T10:00:00Z — COMMENT\n\nx\n<!-- findings-json: [] -->\n' "${B1_SHA:0:7}" > "$WORK/reviews/pr-1.md"
+add_row 1 "$B1_SHA" "2026-09-02T10:00:00Z" COMMENT done
+pr_fx open '["cg-rereview"]'
+printf '[{"id":5,"state":"COMMENTED","user":{"login":"test-bot"},"submitted_at":"2026-09-02T10:00:00Z","body":"old <!-- cg:review headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "re-review" and .prior.sha == "'"$B1_SHA"'" and .prior.status == "done"' 'same-SHA re-review prepared with its done prior'
+run_rp abort 1 "checking the restore"
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | 2026-09-02T10:00:00Z | COMMENT | done |" 'abort restores the done row, not awaiting_label'
+run_rp prepare 1
+printf '### Summary\ndescription edited, no new commits\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":81,"html_url":"https://example.test/r/81","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .review_id == 81' 'the older marker at this SHA is the prior, not a duplicate'
+[ "$(grep -c '^## Review at' "$WORK/reviews/pr-1.md")" -eq 2 ] && printf 'ok   %s: second review appended\n' "$CASE" || { printf 'FAIL %s: history count\n' "$CASE"; FAILED=1; }
+
+# --- takeover of a dead run's lock: no usable prior, abort deletes the row ---------
+setup takeover_case
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 90000)" > "$WORK/reviews/pr-1.md"
+add_row 1 "$B1_SHA" "$(iso_ago 7200)" - in_progress
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "re-review" and .prior == null' 'a taken-over lock carries no prior'
+run_rp abort 1 "dead run"
+grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: row kept after abort without a prior\n' "$CASE"; FAILED=1; } || printf 'ok   %s: row deleted for self-heal\n' "$CASE"
+
+# --- re-entrant prepare for the same run; path guard on context --------------------
+setup reentrant_case
+run_rp prepare 1
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .resumed == true' 'a second prepare by the same run resumes instead of standing down'
+[ "$(events | grep -c ' locked$')" -eq 1 ] && printf 'ok   %s: one locked event\n' "$CASE" || { printf 'FAIL %s: locked logged %s times\n' "$CASE" "$(events | grep -c ' locked$')"; FAILED=1; }
+run_rp context 1 ../../etc/passwd 1
+assert_jq '.outcome == "error"' 'a path outside the clone is refused'
+run_rp abort 1 "reset"
+
 # --- post: re-review below APPROVE dismisses the stale approval -------------------
 setup post_dismiss
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — APPROVE\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"

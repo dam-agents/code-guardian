@@ -124,8 +124,9 @@ f. **Post** — `bash "$HOME/scripts/review-pr.sh" post <n> --verdict <VERDICT>
    state — exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
    `label_removed`, `dismissed_approval`) · `aborted` (HEAD moved, draft,
    trigger withdrawn, 422 `commit_id`, post failed after one retry — the lock
-   released per kind: `first` deletes the row, `re-review` restores
-   `awaiting_label` from `prior`; log the reason in the chat UI) · `duplicate`
+   released per kind: `first` deletes the row, `re-review` restores the prior
+   row — `awaiting_label`, or `done` for a same-SHA re-review; log the reason
+   in the chat UI) · `duplicate`
    (this marker is already on GitHub — the row self-healed with its
    timestamp) · `closed_*` (**PR closed mid-review**). Then evaluate any
    configured watch rules ([watches.md](watches.md)).
@@ -404,19 +405,18 @@ repo is never touched.
 1. Resolve the PR reference (number or URL; a mention's own PR when none is
    named); `gh pr view` — not found / closed / draft → reply so in the
    requesting channel or thread, done.
-2. Row `in_progress`: fresh (< `LOCK_TTL_MIN`), or past it with the holder
-   still active (**Live holder** below) → reply "review already running",
-   done. Stale **and** silent → the review is stuck: log
-   `PR #<n>: stale lock killed on on-demand request` and continue (the lock
-   is overwritten in the next step).
-3. Live HEAD already reviewed (row SHA or remote marker — snippet above) →
-   reply "already reviewed at <short-sha>"; same-SHA dedup always holds.
-4. Otherwise run the full per-PR sequence above (kind = `re-review` when a
+2. `bash "$HOME/scripts/review-pr.sh" prepare <n> --on-demand` —
+   `stand_down` (a live run owns the PR, **Live holder** below) → reply
+   "review already running", done; a stale, silent lock is taken over — log
+   `PR #<n>: stale lock killed on on-demand request`.
+3. `skip` with `already reviewed at <short-sha>` (the live HEAD is the
+   reviewed one) → reply so; same-SHA dedup always holds.
+4. `ready` → the per-PR sequence above from step b (kind = `re-review` when a
    prior review exists, else `first`; re-reviews run **delta scope** unless
-   `$REREVIEW_LABEL` is also on the PR; install missing skills per the
-   fallback in skills.md → Installation), reply in the requesting channel or
-   thread with a link to the posted review, and persist `work/`
-   (persistence.md).
+   `$REREVIEW_LABEL` is also on the PR — no trigger is required at `prepare`
+   or `post`; install missing skills per the fallback in skills.md →
+   Installation), reply in the requesting channel or thread with a link to
+   the posted review, and persist `work/` (persistence.md).
 
 Replying to the requesting surface is responsive, not proactive — it does
 not require `slack_notifications: enabled` (that gates outbound nudging).
@@ -591,7 +591,9 @@ The trigger sets the scope:
 
 **Description-only re-review** (`description_changed: true`): the trigger is
 answered by an edited PR body, not by new commits — the diff and the SHA are
-the ones already reviewed. Re-read the body (**PR context: body, comments, reviews** above) and redo the review against it: a justification that has been removed no
+the ones already reviewed, so `post` reads the earlier review's marker at this
+SHA as the prior being superseded, not as a duplicate, and an abort restores
+the `done` row. Re-read the body (**PR context: body, comments, reviews** above) and redo the review against it: a justification that has been removed no
 longer suppresses its finding, and one that has been added now does. Scope
 still follows the trigger. In `### Changes since last review`, `Previous HEAD`
 is the same SHA — say `description edited, no new commits` on that line, and
@@ -832,7 +834,7 @@ A failed dismissal is logged, not fatal.
   its own calls once and then aborts the PR with the lock released (`post`
   outcome `aborted`); a failure in your own steps ends the PR with
   `review-pr.sh abort <n> <reason>`, which does the same (`first` deletes the
-  row, `re-review` restores `awaiting_label`; clone and state deleted;
+  row, `re-review` restores the prior row; clone and state deleted;
   `aborted <reason>` logged). Log `PR #<n>: <step> failed after retry —
   aborted, lock released` in the chat UI and continue with the next PR. Never
   leave an `in_progress` lock behind, and never retry a call more than once —
