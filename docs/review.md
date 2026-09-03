@@ -575,18 +575,21 @@ Delta-scope review depth (steps c–d):
 
 - **Candidates come from the changes since the prior review only** —
   `gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/compare/<prior-sha>...<head-sha>"`
-  (`prior.sha`). The full PR diff is context for reading them, never a
-  second pass over hunks the prior review already covered. A
-  description-only re-review has an empty range: its candidates are the
-  already-reviewed diff, re-read against the edited body.
+  (`prior.sha`), restricted to files the PR diff touches (the range also
+  carries base-branch commits merged in since). The full PR diff is context
+  for reading them, never a second pass over hunks the prior review already
+  covered. A description-only re-review has an empty range: it keeps the
+  previous depth — the already-reviewed diff and its changed files, re-read
+  against the edited body.
 - **Each prior finding is settled at its anchor**: open every `file:line` of
   the prior `findings-json` at HEAD and classify it `fixed` / `still` /
   moved — never re-derive the prior review from scratch.
 - **Full-file verification and the sibling sweep cover the files changed
   since the prior review.** Extension-triggered skills route from that same
-  list ([skills.md](skills.md) → **Triggers & file routing**); a file
-  unchanged since the prior review keeps its prior skill findings as `still`.
-  `always` skills run unchanged.
+  list ([skills.md](skills.md) → **Triggers & file routing**) — one routed
+  no file is skipped `no-matching-files` as usual, and its prior blocking
+  findings are settled through `findings-json` like any other; `always`
+  skills run unchanged.
 - Prior SHA not comparable (the compare call 404s — force-pushed away) →
   review at complete depth, keep the delta output format, and say
   `prior HEAD <short-sha> unreachable — reviewed the whole PR` in `### Summary`.
