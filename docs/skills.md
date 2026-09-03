@@ -84,8 +84,9 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
   symbol, or reference it cannot find; a command, install, or build that
   does not work) gets at most one retry (for a shimmed tool, its positive
   control is that retry), then the skill continues without it: the output
-  names what was skipped (`<what> not found — skipped`) or drops the check
-  as not applicable, and the same thing is not attempted again with variant
+  names what was skipped (`<what> not found — skipped`) when its `SKILL.md`
+  needs that input, or drops the check as not applicable when it is
+  optional; the same thing is not attempted again with variant
   queries, other refs, history walks, or another install. A command whose
   result is already known is not re-run;
 - **the tool constraints for the checkout** — a subagent inherits no memory, so

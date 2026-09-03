@@ -315,8 +315,8 @@ everything skippable:
    delivered, go straight to phase 2.
 2. No clone, no skills, no artifact, no full context fetch. Review the diff
    only (`gh pr diff`; on re-reviews prefer the range since the prior review
-   — `gh api "repos/$REPO/compare/<prior-sha>...<head-sha>"` — full diff as
-   fallback) for **🔴 Critical findings only**.
+   — the compare call under **Re-review output** — full diff as fallback) for
+   **🔴 Critical findings only**.
 3. Post immediately: single review, `event: COMMENT`, `commit_id` = reviewed
    HEAD, body only (no inline comments):
 
@@ -476,8 +476,7 @@ per sentence (aim ≤ 20 words), active voice, simple tenses, one term per
 concept, no idioms or synonym variation. STE governs wording, never content.
 
 **Finding form.** Every finding — yours or a skill's — follows
-[finding-form.md](finding-form.md): the approval bar and the conciseness
-rules live there and nowhere else.
+[finding-form.md](finding-form.md).
 
 ## Output format (first reviews)
 
@@ -575,23 +574,26 @@ Delta-scope review depth (steps c–d):
 
 - **Candidates come from the changes since the prior review only** —
   `gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/compare/<prior-sha>...<head-sha>"`
-  (`prior.sha`), restricted to files the PR diff touches (the range also
-  carries base-branch commits merged in since). The full PR diff is context
-  for reading them, never a second pass over hunks the prior review already
-  covered. A description-only re-review has an empty range: it keeps the
-  previous depth — the already-reviewed diff and its changed files, re-read
-  against the edited body.
+  (`prior.sha`; on an on-demand review, the SHA of the PR's REVIEWS.md row),
+  dropping hunks of files the PR diff does not touch (the range also carries
+  base-branch commits merged in since). The full PR diff is context for
+  reading them, never a second pass over hunks the prior review already
+  covered. A description-only re-review has an empty range: candidates,
+  verification, the sweep and extension-skill routing all use the full PR
+  diff and its changed files, re-read against the edited body.
 - **Each prior finding is settled at its anchor**: open every `file:line` of
-  the prior `findings-json` at HEAD and classify it `fixed` / `still` /
-  moved — never re-derive the prior review from scratch.
+  the prior `findings-json` at HEAD and classify it `fixed` / `still` (code
+  that moved is `still`, at its new line); a `line: null` finding is settled
+  by re-reading its file. Never re-derive the prior review from scratch.
 - **Full-file verification and the sibling sweep cover the files changed
   since the prior review.** Extension-triggered skills route from that same
   list ([skills.md](skills.md) → **Triggers & file routing**) — one routed
   no file is skipped `no-matching-files` as usual, and its prior blocking
   findings are settled through `findings-json` like any other; `always`
   skills run unchanged.
-- Prior SHA not comparable (the compare call 404s — force-pushed away) →
-  review at complete depth, keep the delta output format, and say
+- Prior SHA not an ancestor of HEAD (`git -C "$PR_DIR" merge-base --is-ancestor <prior-sha> HEAD`
+  fails — force-pushed away, or outside the depth-50 clone) or the compare
+  call 404s → review at complete depth, keep the delta output format, and say
   `prior HEAD <short-sha> unreachable — reviewed the whole PR` in `### Summary`.
 
 Delta-scope conciseness rules (all output channels — chat UI, GitHub body,
