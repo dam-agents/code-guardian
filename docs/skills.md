@@ -82,13 +82,15 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
   file is the only channel that carries the findings;
 - **no circling** — whatever fails or comes back empty (a file, document,
   symbol, or reference it cannot find; a command, install, or build that
-  does not work) gets at most one retry (for a shimmed tool, its positive
-  control is that retry), then the skill continues without it: the output
-  names what was skipped (`<what> not found — skipped`) when its `SKILL.md`
-  needs that input, or drops the check as not applicable when it is
-  optional; the same thing is not attempted again with variant
-  queries, other refs, history walks, or another install. A command whose
-  result is already known is not re-run;
+  does not work) gets one retry, then the skill continues without it: the
+  output names what was skipped (`<what> not found — skipped`) when its
+  `SKILL.md` needs that input, or drops the check as not applicable when it
+  is optional; the same thing is not attempted again with variant queries,
+  other refs, history walks, or another install. A shimmed tool's positive
+  control is a diagnostic: a refused shim takes its one retry with the
+  unshimmed tool of the next bullet, and only a confirmed empty result is
+  reported as not found. A command whose result is already known is not
+  re-run;
 - **the tool constraints for the checkout** — a subagent inherits no memory, so
   the brief carries them: the reviewed repo's own version-manager config makes
   every shimmed tool (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero inside

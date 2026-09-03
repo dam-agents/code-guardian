@@ -296,7 +296,9 @@ other's usage, and contention would distort `seconds`). For each fixture:
    so it knows only the posted prior review, as in production: same prompt
    shape with `prior-review.md` as the prior review, diff =
    `git -C "$PR_DIR" diff main..pr` (the PR diff at v2), scope = delta
-   (request-equivalent trigger), changes since prior = `diff-v1-v2.patch`.
+   (request-equivalent trigger), changes since prior = `diff-v1-v2.patch` —
+   it stands in for the compare call of docs/review.md → **Re-review
+   output** (prior HEAD = `pr~1`, range `ahead`), so no compare call is made.
    It composes the delta re-review (marker at `head_sha_v2`, findings-json
    with `new`/`still`/`fixed` statuses) →
    `results/raw/<ts>-<slug>-rereview.md`, archiving the skill outputs the
