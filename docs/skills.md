@@ -47,7 +47,9 @@ correct output, not waste.
   (**Clone, credential helper, cleanup** below).
 - **extension list** (e.g. `.ts,.js`) — runs iff ≥1 changed file routes to
   it; receives the routed file list (paths relative to `$PR_DIR`) + base
-  branch. Build the changed-file list from the diff (fresh `headRefOid`).
+  branch. Build the changed-file list from the diff (fresh `headRefOid`); on
+  a delta re-review, from the changes since the prior review
+  ([review.md](review.md) → **Re-review output**).
   **Routing is inclusive: every skill whose trigger list contains a file's
   extension receives that file** — a skill runs on every PR it has something
   to say about, and two skills whose lists overlap both get the file, because
@@ -71,15 +73,24 @@ they run concurrently. Create `"$PR_DIR.out"`, then give each one:
 - the arguments per its `SKILL.md` — working dir + base ref
   `origin/<baseRefName>`, plus the routed file list for extension triggers;
 - one instruction: invoke the skill via the Skill tool, then write the result to
-  `"$PR_DIR.out/<skill>.txt"` **in this review's finding form** — read
-  [review.md](review.md) → **Concise by default** and **The approval bar**
-  first, and write to those rules. **Reformat, never reduce:** every distinct
-  finding the skill reported survives, with its severity marker, `file:line`,
-  1–2 sentence description and, for 🔴/🟡, its **Fix:** line. Cut only the
-  skill's own framing — its headings, scope preambles, checked-and-clean
-  inventories, restated diff. Return only that path plus `ran (findings=<N>)` /
-  `errored`. A subagent's own reply is a summary — the file is the only channel
-  that carries the findings;
+  `"$PR_DIR.out/<skill>.txt"` in the review's finding form — read
+  [finding-form.md](finding-form.md) first and write to it. **Reformat, never
+  reduce:** every distinct finding the skill reported survives in that form.
+  Cut only the skill's own framing — its headings, scope preambles,
+  checked-and-clean inventories, restated diff. Return only that path plus
+  `ran (findings=<N>)` / `errored`. A subagent's own reply is a summary — the
+  file is the only channel that carries the findings;
+- **no circling** — whatever fails or comes back empty (a file, document,
+  symbol, or reference it cannot find; a command, install, or build that
+  does not work) gets one retry, then the skill continues without it: the
+  output names what was skipped (`<what> not found — skipped`) when its
+  `SKILL.md` needs that input, or drops the check as not applicable when it
+  is optional; the same thing is not attempted again with variant queries,
+  other refs, history walks, or another install. A shimmed tool's positive
+  control is a diagnostic: a refused shim takes its one retry with the
+  unshimmed tool of the next bullet, and only a confirmed empty result is
+  reported as not found. A command whose result is already known is not
+  re-run;
 - **the tool constraints for the checkout** — a subagent inherits no memory, so
   the brief carries them: the reviewed repo's own version-manager config makes
   every shimmed tool (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero inside
