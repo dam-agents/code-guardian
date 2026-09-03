@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.17.0 — 2026-09-01
+
+**Upgrade:** Nothing — docs are re-read per run. Skills whose trigger lists
+overlap now all receive the shared files, so a `work/CONFIG.md`
+`## Review skills` table that relied on row order to keep a skill away from an
+extension needs that extension removed from its trigger list instead
+([docs/skills.md](docs/skills.md) → **Triggers & file routing**);
+**operator-only** to change, and the default table has no overlapping lists.
+
 ## 3.16.0 — 2026-09-01
 
 **Upgrade:** Nothing — docs are re-read per run.
