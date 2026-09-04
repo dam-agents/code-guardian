@@ -22,6 +22,13 @@
 # Cache the resolved paths: `mise bin-paths` costs ~210ms, an [ -x ] test ~0.6ms.
 TOOLPATH_CACHE="${WORK_DIR:-${HOME:-/home/agent}/work}/.cache/toolpaths"
 
+# Names found behind a shim, recorded by toolpath_init BEFORE it shadows them.
+# toolpath_shimmed reads this, never the live `command -v`: the shadow answers
+# that one, so a live check would call every shim it just neutralized clean.
+# Kept across a re-source (`${VAR-}`, never `""`): the shadows survive one too,
+# so a reset would re-arm the blind spot this record exists to close.
+TOOLPATH_SHIMS="${TOOLPATH_SHIMS-}"
+
 # Print "<tool> <abs-path>" per resolvable tool, consulting the cache first.
 _toolpath_resolve() { # <tool>...
   local t p line found=""
@@ -61,6 +68,14 @@ toolpath_init() { # [tool]... (default: jq gh)
       (*/shims/*) want="${want:+$want }$t";;
     esac
   done
+  # record every shimmed name (once — init may run again with other tools);
+  # the image defect outlives the workaround and the report must survive it
+  for t in $want; do
+    case " $TOOLPATH_SHIMS " in
+      (*" $t "*) ;;
+      (*) TOOLPATH_SHIMS="${TOOLPATH_SHIMS:+$TOOLPATH_SHIMS }$t";;
+    esac
+  done
   [ -z "$want" ] && return 0
 
   resolved="$(_toolpath_resolve $want 2>/dev/null)" || return 0
@@ -87,13 +102,20 @@ EOF
   return 0
 }
 
-# Report tools still reaching through a shim (audit's tool_shims check).
+# Report tools reaching through a shim (audit's tool_shims check). Shadowing
+# neutralizes the tax only inside processes that source this file; the shim is
+# still in the image and every process that does not source it still pays. So a
+# tool is named whether or not this run shadowed it, and it keeps being named
+# until the image is fixed — ONBOARDING Step 0.1 promises exactly that, and
+# absorbing a workaround silently is what self-modification.md §5a forbids.
 toolpath_shimmed() { # [tool]... -> space-separated names, empty when clean
   local t out=""
   [ "$#" -eq 0 ] && set -- jq gh
   for t in "$@"; do
-    # a shadowing function counts as resolved; only a bare shim path is a finding
-    case "$(type -t "$t" 2>/dev/null)" in (function) continue;; esac
+    case " $TOOLPATH_SHIMS " in (*" $t "*) out="${out:+$out }$t"; continue;; esac
+    # not on the record: either init found it clean or never looked at it. Both
+    # are safe to check live — neither carries a shadow this lib installed, and
+    # `command -v` on a function name returns the bare name, never a shim path.
     case "$(command -v "$t" 2>/dev/null)" in
       (*/shims/*) out="${out:+$out }$t";;
     esac

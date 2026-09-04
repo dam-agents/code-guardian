@@ -63,9 +63,11 @@ directly.
   `*/shims/*` (test stub, operator override, fixed image) is left untouched.
 - Unresolvable tools keep working through the shim; nothing here fails a run.
 - `toolpath_shimmed` backs the audit's `tool_shims` check — a shimmed tool
-  passes `cli_deps` but silently costs the tax, so the warning names it. **The
-  real fix belongs in the pod image** (real bin dirs ahead of the shim dir on
-  `PATH`); this is a workaround for an environment defect
+  passes `cli_deps` but silently costs the tax, so the warning names it. It
+  reports what `toolpath_init` saw **before** it shadowed anything, so the check
+  keeps warning while the workaround is active. **The real fix belongs in the
+  pod image** (real bin dirs ahead of the shim dir on `PATH`); this is a
+  workaround for an environment defect
   ([self-modification.md](self-modification.md) §5a).
 
 ## Who writes what
