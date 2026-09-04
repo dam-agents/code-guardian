@@ -162,14 +162,16 @@ assert_jq '.checks[] | select(.id == "memory_budget") | .status == "fail" and (.
 new_case audit_memory_long_line
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+# 120 chars is the bound itself and stays allowed; 121 is past it
 {
   printf '# Memory\n\n## Custom Rules\n'
   printf -- '- [2026-07-24 from user] Skip JSDoc findings → memory/style.md\n'
-  printf -- '- [2026-07-25 from user] %s\n' "$(printf 'x%.0s' $(seq 1 130))"
+  printf -- '- %s\n' "$(printf 'x%.0s' $(seq 1 118))"
+  printf -- '- %s\n' "$(printf 'y%.0s' $(seq 1 119))"
 } > "$WORK/MEMORY.md"
 run_preflight audit
 assert_jq '.checks[] | select(.id == "memory_budget") | .status == "warn" and (.detail | contains("1 past 120 chars"))' \
-  'an undistilled line puts the budget over on its own'
+  'an undistilled line puts the budget over on its own, the 120-char line does not'
 
 new_case audit_memory_within_bounds
 base_config
