@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.21.0 — 2026-09-04
+
+**Upgrade:** Nothing to run. `work/MEMORY.md` now holds one short line per
+rule, with the wording in `work/memory/<topic>.md` under `## Detail`
+([docs/preferences.md](docs/preferences.md) → **Entry form**); the next audit's
+consolidation distills the lines past 120 characters, which the
+`memory_budget` check now counts.
+
 ## 3.20.1 — 2026-09-04
 
 **Upgrade:** Nothing.

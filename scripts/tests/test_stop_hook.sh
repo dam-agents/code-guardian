@@ -48,6 +48,8 @@ run_hook r1
 assert_rc 2 'mid-pipeline stop refused'
 assert_file_contains "$SANDBOX/stderr" 'PR(s) 10' 'stderr names the owed PR'
 assert_file_contains "$EVENTS" 'review_incomplete' 'logged a review_incomplete warn'
+assert_file_contains "$EVENTS" "after .skill:doc-drift done." \
+  'the logged event names the step the run stopped after'
 
 # --- the step-d timing milestones are not terminal ---------------------------
 hook_case stop_step_d_milestones_not_terminal

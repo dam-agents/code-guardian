@@ -127,9 +127,10 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     inside its 20h cooldown (`last_nudge_at` vs SHEPHERD.log), and for
     `nudge_send` error signatures recurring across sweeps (a send that
     keeps failing keeps retrying). Either → **warn** with PR list.
-15. **Effectiveness**: of the PRs nudged this week, how many received a
-    human review within 48 h? Report the ratio — a persistently ignored
-    shepherd is a process problem the operator should see.
+15. **Effectiveness**: of the PRs nudged this week (`stats.nudges.prs` —
+    ledger rows whose `last_nudge_at` is inside the window), how many
+    received a human review within 48 h? Report the ratio — a persistently
+    ignored shepherd is a process problem the operator should see.
 16. **Escalation surface**: list PRs currently `held` at L4 and PRs waiting
     > 7 days despite nudges — these need a human decision, not another nudge.
 17. **Roster integrity**: `escalation_owner` resolves to a roster row with a
@@ -158,7 +159,9 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 22. **Time-to-first-review**: for this week's first reviews, median time
     from PR ready to review posted (PR `createdAt`/ready timestamp via one
     `gh pr view` per sampled PR). Report the median; > 1 h → investigate
-    (heartbeat gaps? decision bug?).
+    (heartbeat gaps? decision bug?). `stats.reviews.duration` is the review
+    itself (`locked` → `done`, median over `n` reviews) — the rest of the
+    median is queue wait, which is what a cadence change moves.
 23. **Verdict distribution**: ~100 % APPROVE across a busy week → possible
     rubber-stamping; ~100 % REQUEST_CHANGES → possible over-strictness.
     Either extreme → flag for the operator with examples.
@@ -173,6 +176,11 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
     `✅ Fixed` vs `🔁 Still present` bullets. Report `fixed/(fixed+still)`;
     a persistently low ratio means findings the team doesn't act on — flag
     it with examples (a process signal for the operator, not a defect).
+    `by_severity` splits the same counts by the severity `findings-json`
+    carries, over `json_reviews` reviews (a section without that line stays
+    outside the split). A severity whose ratio is far below the others is
+    the finding class to reconsider — record it per
+    [preferences.md](preferences.md).
 27. **Wasted reviews**: `stats.stalls` — reviews thrown away because the run
     died before posting, so a later heartbeat had to redo them. `stalled` of
     `total` locked runs, split by `by_cause` (`pod_restart` / `hard_kill` /
@@ -205,8 +213,8 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 29. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
-    (move area bullets out / merge / promote / compress-or-drop, bounds,
-    `[from user]` protection) — **mandatory when `checks[]` carries a
+    (move area bullets out / distill / merge / promote / compress-or-drop,
+    bounds, `[from user]` protection) — **mandatory when `checks[]` carries a
     `memory_budget` warn or fail**, and it ends within the bounds or the
     report's *Action needed* names what remains — and put its one-line delta
     into the report under *Week in numbers*.
@@ -230,14 +238,15 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 *Week in numbers* (since <stats.since>)
 • Reviews: <total> (<first> first / <re_review> re) — ✅<approve> ⚠️<comment> ❌<request_changes>
 • Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
-• Median time-to-first-review: <m> min · Open PRs: <open_prs> · awaiting_label: <n>
-• Nudges: <claimed> claimed · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
+• Findings acceptance by severity: <sev> <fixed>/<fixed+still>, … (omit when by_severity is empty)
+• Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
+• Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
-• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
-• Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
+• Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
 • <tag> <rule/insight in one line>   ← per task-29 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
