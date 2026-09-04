@@ -79,6 +79,19 @@ PENDING="$(printf '%s\n' "$STEPS" \
 
 [ -n "$PENDING" ] || exit 0
 
+# where each owed PR actually stopped — names the step the model mistook for
+# the end, so both the message to the model and the logged event are specific.
+# The log line carries it too: the audit diagnoses these events without the
+# transcript, and "PR #12 locked" alone never says which phase ended the turn.
+DETAIL=""; WHERE=""
+for pr in $PENDING; do
+  last="$(printf '%s\n' "$STEPS" | grep "^$pr$(printf '\t')" | tail -1 | cut -f2-)"
+  DETAIL="$DETAIL  PR #$pr — last logged step: ${last:-none}
+"
+  WHERE="$WHERE, #$pr after '${last:-none}'"
+done
+WHERE="${WHERE#, }"
+
 # how many times we already blocked this run — the escalation counter lives in
 # the log, so it survives being re-invoked with no extra state file
 BLOCKS="$(jq -r --arg run "$sid" \
@@ -89,21 +102,12 @@ ATTEMPT=$(( BLOCKS + 1 ))
 
 if [ "$BLOCKS" -ge "$MAX_BLOCKS" ]; then
   logev warn review_incomplete \
-    "enforcement exhausted after $BLOCKS block(s) — stop allowed with PR(s) $PENDING still locked"
+    "enforcement exhausted after $BLOCKS block(s) — stop allowed with PR(s) still locked: $WHERE"
   exit 0
 fi
 
 logev warn review_incomplete \
-  "stop blocked ($ATTEMPT/$MAX_BLOCKS) — PR(s) $PENDING locked without a terminal step"
-
-# where each owed PR actually stopped — names the step the model mistook for
-# the end, so the message is specific rather than a repeat
-DETAIL=""
-for pr in $PENDING; do
-  last="$(printf '%s\n' "$STEPS" | grep "^$pr$(printf '\t')" | tail -1 | cut -f2-)"
-  DETAIL="$DETAIL  PR #$pr — last logged step: ${last:-none}
-"
-done
+  "stop blocked ($ATTEMPT/$MAX_BLOCKS) — locked without a terminal step: $WHERE"
 
 # stderr is what the model is shown
 {

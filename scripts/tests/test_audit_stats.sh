@@ -32,8 +32,138 @@ cat > "$WORK/reviews/pr-2.md" <<EOF
 EOF
 run_preflight audit
 assert_jq '.mode == "audit" and .nothing_to_do == false' 'audit emits work'
-assert_jq '.stats.findings == {fixed: 2, still_present: 1}' 'only in-window bullets counted'
+assert_jq '.stats.findings.fixed == 2 and .stats.findings.still_present == 1' 'only in-window bullets counted'
 assert_jq '.stats.reviews.total == 2 and .stats.reviews.re_review == 1' 'review counts sane'
+
+# --- findings acceptance split by severity ------------------------------------
+# the same fixed/still counts, keyed by the severity the findings-json line
+# carries; a review section without that line stays outside the split
+new_case audit_findings_severity
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $(iso_ago 172800) — COMMENT
+
+### Changes since last review
+- ✅ **Fixed:** null check added (\`src/a.ts:10\`)
+- 🔁 **Still present:** unbounded retry (\`src/c.ts:30\`)
+
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/a.ts","line":10},{"status":"still","severity":"warning","file":"src/c.ts","line":30}] -->
+
+## Review at bbbbbbb — $(iso_ago 1814400) — COMMENT
+
+<!-- findings-json: [{"status":"still","severity":"critical","file":"src/z.ts","line":1}] -->
+EOF
+run_preflight audit
+assert_jq '.stats.findings.json_reviews == 1' 'only in-window findings-json sections counted'
+assert_jq '.stats.findings.by_severity == {critical: {fixed: 1, still: 0}, warning: {fixed: 0, still: 1}}' \
+  'fixed/still split per severity'
+assert_jq '.stats.findings.fixed == 1 and .stats.findings.still_present == 1' 'bullet counters unchanged'
+
+new_case audit_findings_no_json
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $(iso_ago 172800) — COMMENT
+
+### Changes since last review
+- ✅ **Fixed:** legacy history, no findings-json (\`src/a.ts:10\`)
+EOF
+run_preflight audit
+assert_jq '.stats.findings.json_reviews == 0 and .stats.findings.by_severity == {}' \
+  'history without findings-json reports an empty split, not an error'
+
+new_case audit_findings_json_malformed
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $(iso_ago 172800) — COMMENT
+
+<!-- findings-json: [{"status":"fixed","severity":"critical"} -->
+
+## Review at bbbbbbb — $(iso_ago 86400) — COMMENT
+
+<!-- findings-json: [{"status":"fixed","severity":"warning"}] -->
+EOF
+run_preflight audit
+assert_jq '.stats.findings.by_severity == {warning: {fixed: 1, still: 0}}' \
+  'a truncated findings-json line is skipped, the week is still measured'
+
+# --- review wall-clock (locked -> done) ---------------------------------------
+# time-to-first-review = queue wait + this; the median separates the two
+new_case audit_review_duration
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+evd() { # <run> <msg> <secs-ago>
+  jq -nc --arg r "$1" --arg m "$2" --arg t "$(iso_ago "$3")" \
+    '{ts:$t, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+evd r1 "PR #10 abc1234 locked" 7800     # 10 min to done
+evd r1 "PR #10 abc1234 done"   7200
+evd r2 "PR #11 def5678 locked" 7800     # 20 min to done
+evd r2 "PR #11 def5678 done"   6600
+evd r3 "PR #12 aaa1111 locked" 7800     # never terminal — no duration
+evd r4 "sweeping stale clones" 7800     # outside the documented msg shape
+run_preflight audit
+assert_jq '.stats.reviews.duration.n == 2' 'only locked-and-done pairs measured'
+assert_jq '.stats.reviews.duration.median_min == 15' 'median of 10 and 20 minutes'
+
+new_case audit_review_duration_empty
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight audit
+assert_jq '.stats.reviews.duration == {n: 0, median_min: null}' 'no reviews → unmeasured, not zero'
+
+# --- shepherd activity: PRs nudged, from the ledger ---------------------------
+# SHEPHERD.log's "N nudges due" lines re-count a PR every sweep it stays due;
+# the ledger's last_nudge_at is one row per PR actually nudged
+new_case audit_nudges_from_ledger
+base_config '- slack_notifications: enabled'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+  printf '|----|----|----|----|----|----|----|----|\n'
+  printf '| 22 | %s | bob | awaiting_review | 1 | %s | 2 | watching |\n' "$(iso_ago 500000)" "$(iso_ago 90000)"
+  printf '| 23 | %s | bob | awaiting_review | 3 | %s | 4 | held |\n'     "$(iso_ago 900000)" "$(iso_ago 1814400)"
+  printf '| 24 | %s | bob | awaiting_review | 0 | - | 1 | watching |\n'  "$(iso_ago 100000)"
+} > "$WORK/SHEPHERD.md"
+for i in 1 2 3; do
+  printf '%s shepherd sweep: 4 open PRs, 3 nudges due\n' "$(iso_ago $((i * 3600)))" >> "$WORK/SHEPHERD.log"
+done
+run_preflight audit
+assert_jq '.stats.nudges == {prs_nudged: 1, prs: ["22"]}' \
+  'one PR nudged in the window, not the 9 the sweep log claims'
+assert_jq '.stats | has("nudges_claimed") == false' 'the overcounting field is gone'
+
+# --- memory budget names the biggest sections ---------------------------------
+new_case audit_memory_sections
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '# Memory\n\n## Custom Rules\n'
+  for i in $(seq 1 200); do printf -- '- rule %s\n' "$i"; done
+  printf '\n## Observed Insights\n'
+  for i in $(seq 1 5); do printf -- '- insight %s\n' "$i"; done
+} > "$WORK/MEMORY.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "fail" and (.detail | test("biggest sections: Custom Rules 20[0-9]"))' \
+  'the over-budget check names where the lines are'
+
+new_case audit_memory_within_bounds
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '# Memory\n\n## Custom Rules\n- one rule\n' > "$WORK/MEMORY.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok" and (.detail | contains("biggest sections") | not)' \
+  'a file within bounds is not scanned per section'
 
 # --- definition-repo open-issue backlog check ----------------------------------
 new_case audit_issue_backlog

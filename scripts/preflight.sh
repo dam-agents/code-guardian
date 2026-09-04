@@ -1280,6 +1280,19 @@ if [ "$MODE" = "audit" ]; then
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
   mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"')"
+  # Insights and the Feedback Log have their own counters, so an over-budget
+  # MEMORY.md whose two counters sit inside bounds is carrying the lines
+  # somewhere else — name the biggest sections, the consolidation needs to know
+  # which ones (audit mode only: this reads the whole file).
+  if [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ]; then
+    mb_top="$(jq -Rrs 'split("\n")
+      | reduce .[] as $l ({cur: "(preamble)", acc: {}};
+          (if ($l | test("^## ")) then .cur = ($l | sub("^## *"; "")) else . end)
+          | .acc[.cur] = ((.acc[.cur] // 0) + 1))
+      | .acc | to_entries | sort_by(-.value) | .[:3]
+      | map("\(.key) \(.value)") | join(" · ")' < "$WORK/MEMORY.md" 2>/dev/null)"
+    [ -n "$mb_top" ] && mb_detail="$mb_detail · biggest sections: $mb_top"
+  fi
   if printf '%s' "$MEMORY_JSON" | jq -e '.memory_lines > 180 or .lessons_sections > 15' >/dev/null 2>&1; then
     check memory_budget fail "far over the documented bounds — $mb_detail; consolidate now (docs/preferences.md → Weekly memory consolidation)"
   elif [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ]; then
@@ -1643,16 +1656,23 @@ if [ "$MODE" = "audit" ]; then
       esac
     done < <(grep '^## Review at ' "$f")
   done
-  nudges_wk=0
-  while IFS= read -r l; do
-    ts="${l%% *}"; [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
-    m="$(printf '%s' "$l" | grep -oE '[0-9]+ nudges due' | cut -d' ' -f1)"
-    nudges_wk=$((nudges_wk + ${m:-0}))
-  done < <(cat "$WORK/SHEPHERD.log" 2>/dev/null)
+  # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
+  # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
+  # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
+  # due and count sends that failed, so they are not this number.
+  nudged_prs=""
+  while IFS= read -r row; do
+    ts="$(row_field "$row" 7)"
+    case "$ts" in ('-'|'') continue;; esac
+    [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
+    nudged_prs="$nudged_prs $(row_field "$row" 2)"
+  done < <(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true)
+  NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)]')"
 
   # findings effectiveness: Fixed vs Still-present bullets inside this week's
-  # re-review sections (the agent judges the ratio — docs/audit.md task 26)
-  fx_wk=0; sp_wk=0
+  # re-review sections, plus the same split per severity from the `findings-json`
+  # line those sections carry (the agent judges the ratios — docs/audit.md task 26)
+  fx_wk=0; sp_wk=0; FJ_LINES=""
   for f in "$WORK"/reviews/pr-*.md; do
     [ -f "$f" ] || continue
     in_win=0
@@ -1664,9 +1684,49 @@ if [ "$MODE" = "audit" ]; then
           [ -n "$ts" ] && [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] && in_win=1;;
         ('- ✅ **Fixed:**'*)         [ "$in_win" -eq 1 ] && fx_wk=$((fx_wk+1));;
         ('- 🔁 **Still present:**'*) [ "$in_win" -eq 1 ] && sp_wk=$((sp_wk+1));;
+        ('<!-- findings-json:'*)
+          [ "$in_win" -eq 1 ] || continue
+          FJ_LINES="$FJ_LINES$(printf '%s' "$line" \
+            | sed -e 's/^<!-- *findings-json: *//' -e 's/ *-->[[:space:]]*$//')
+";;
       esac
     done < "$f"
   done
+  # severity is the only finding attribute the review form carries, so it is the
+  # only breakdown available without a new field; reviews whose history predates
+  # `findings-json` are outside `json_reviews` and outside the split
+  FIND_SEV="$(printf '%s' "$FJ_LINES" | jq -Rsc '
+    [split("\n")[] | select(length > 0) | (fromjson? // null) | select(type == "array")] as $r
+    | { json_reviews: ($r | length),
+        by_severity: ([$r[] | .[] | select(type == "object")
+                       | select(.status == "fixed" or .status == "still")]
+                      | group_by(.severity // "unknown")
+                      | map({ key: (.[0].severity // "unknown"),
+                              value: { fixed: ([.[] | select(.status == "fixed")] | length),
+                                       still: ([.[] | select(.status == "still")] | length) } })
+                      | from_entries) }' 2>/dev/null)"
+  [ -n "$FIND_SEV" ] || FIND_SEV='{"json_reviews":0,"by_severity":{}}'
+
+  # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
+  # own review_step events. Time-to-first-review (docs/audit.md task 22) is
+  # queue wait + this; without it a slow median cannot be attributed to either.
+  REVIEW_DUR="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    [.[] | select(.ts >= $s and .event == "review_step")
+     | select(.msg | test("^PR #[0-9]+:? +."))
+     | (.msg | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
+     | { run: .run, pr: $c.pr, ts: .ts,
+         rest: ($c.rest | sub("^[0-9a-f]{7,40}( +|$)"; "")) }]
+    | group_by([.run, .pr])
+    | map({ locked: ([.[] | select(.rest | startswith("locked")) | .ts] | min),
+            done:   ([.[] | select(.rest | startswith("done"))   | .ts] | max) })
+    | map(select(.locked != null and .done != null)
+          | (((.done | fromdateiso8601) - (.locked | fromdateiso8601)) / 60 | floor))
+    | sort
+    | { n: length,
+        median_min: (if length == 0 then null
+                     elif (length % 2) == 1 then .[(length / 2) | floor]
+                     else ((.[length / 2 - 1] + .[length / 2]) / 2 | floor) end) }' 2>/dev/null)"
+  [ -n "$REVIEW_DUR" ] || REVIEW_DUR='{"n":0,"median_min":null}'
 
   # reaction feedback on the bot's comments — 👍/👎 sums over the latest 100
   # inline + 100 issue comments (the two surfaces whose REST list endpoints
@@ -1706,14 +1766,16 @@ if [ "$MODE" = "audit" ]; then
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
-    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson nd "$nudges_wk" \
-    --argjson fx "$fx_wk" --argjson sp "$sp_wk" \
+    --argjson dur "$REVIEW_DUR" \
+    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
+    --argjson fx "$fx_wk" --argjson sp "$sp_wk" --argjson fs "$FIND_SEV" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open,
-      reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq},
-      findings:{fixed:$fx, still_present:$sp},
-      heartbeats:{total:$hb, idle:$idle}, nudges_claimed:$nd,
+      reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq,
+               duration:$dur},
+      findings:({fixed:$fx, still_present:$sp} + $fs),
+      heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
