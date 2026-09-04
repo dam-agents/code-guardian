@@ -25,7 +25,9 @@ TOOLPATH_CACHE="${WORK_DIR:-${HOME:-/home/agent}/work}/.cache/toolpaths"
 # Names found behind a shim, recorded by toolpath_init BEFORE it shadows them.
 # toolpath_shimmed reads this, never the live `command -v`: the shadow answers
 # that one, so a live check would call every shim it just neutralized clean.
-TOOLPATH_SHIMS=""
+# Kept across a re-source (`${VAR-}`, never `""`): the shadows survive one too,
+# so a reset would re-arm the blind spot this record exists to close.
+TOOLPATH_SHIMS="${TOOLPATH_SHIMS-}"
 
 # Print "<tool> <abs-path>" per resolvable tool, consulting the cache first.
 _toolpath_resolve() { # <tool>...
@@ -111,9 +113,9 @@ toolpath_shimmed() { # [tool]... -> space-separated names, empty when clean
   [ "$#" -eq 0 ] && set -- jq gh
   for t in "$@"; do
     case " $TOOLPATH_SHIMS " in (*" $t "*) out="${out:+$out }$t"; continue;; esac
-    # a tool toolpath_init never inspected: check it live. Safe — a shadow it
-    # did not install cannot mask anything, and `command -v` on a function name
-    # returns the bare name, never a shim path.
+    # not on the record: either init found it clean or never looked at it. Both
+    # are safe to check live — neither carries a shadow this lib installed, and
+    # `command -v` on a function name returns the bare name, never a shim path.
     case "$(command -v "$t" 2>/dev/null)" in
       (*/shims/*) out="${out:+$out }$t";;
     esac

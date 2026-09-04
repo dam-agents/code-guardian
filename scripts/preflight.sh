@@ -1199,7 +1199,7 @@ if [ "$MODE" = "audit" ]; then
   # dominates jq-heavy runs (docs/logging.md → Tool path resolution). Not a
   # failure — the run works, slower — but it must not regress silently.
   shimmed="$(toolpath_shimmed gh jq 2>/dev/null)"
-  if [ -n "$shimmed" ]; then check tool_shims warn "behind a mise shim: $shimmed — the runtime shadows them per run, but every process that does not source scripts/lib/toolpath.sh pays ~250ms per call; fix belongs in the pod image (real bin dirs ahead of the shim dir on PATH)"
+  if [ -n "$shimmed" ]; then check tool_shims warn "behind a mise shim: $shimmed — the runtime shadows them per run, every other process still pays ~250ms per call; fix belongs in the pod image (real bin dirs ahead of the shim dir on PATH)"
   else check tool_shims ok "hot-path tools are not shimmed"; fi
 
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"

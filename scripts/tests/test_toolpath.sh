@@ -37,6 +37,10 @@ is 'it is shadowed by a function'        "$(inlib "$SANDBOX/w2" 'type -t widget'
 # still in the image, so the report must survive it (self-modification.md §5a)
 is 'the shadowed tool is still reported' "$(inlib "$SANDBOX/w3" 'toolpath_shimmed widget')" 'widget'
 is 'a tool that was never shimmed is not' "$(inlib "$SANDBOX/w3" 'toolpath_shimmed sed')" ''
+# the record must survive a re-source: it resets the globals but not the shadows
+# already installed, so a reset would read every neutralized shim back as clean
+is 'the report survives a re-source' \
+   "$(inlib "$SANDBOX/w3" ". '$LIB'; toolpath_init widget; toolpath_shimmed widget")" 'widget'
 
 CASE=caches_resolution
 inlib "$SANDBOX/w4" 'true'
@@ -82,6 +86,10 @@ CASE=never_shadows_a_path_override
 printf '#!/usr/bin/env bash\nprintf STUB_WIDGET\n' > "$SANDBOX/bin/widget"
 chmod +x "$SANDBOX/bin/widget"
 is 'an earlier PATH entry wins' "$(inlib "$SANDBOX/w6" 'widget')" 'STUB_WIDGET'
+# the counter-case that keeps the report from being always-true: init inspected
+# this tool and found it clean, so it must not be named
+is 'a tool init found unshimmed is not reported' \
+   "$(inlib "$SANDBOX/w6" 'toolpath_shimmed widget')" ''
 rm -f "$SANDBOX/bin/widget"
 
 CASE=degrades_without_mise

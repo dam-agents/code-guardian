@@ -13,10 +13,7 @@ they are released history and stay as written.
 
 ## 3.20.1 — 2026-09-04
 
-**Upgrade:** Nothing — scripts are re-read per run. On a pod whose `jq`/`gh`
-are mise shims the next weekly audit reports `tool_shims` as **warn** where it
-reported `ok` before; the finding is the pod image, not the instance
-([docs/logging.md](docs/logging.md) → **Tool path resolution**).
+**Upgrade:** Nothing.
 
 ## 3.20.0 — 2026-09-03
 
