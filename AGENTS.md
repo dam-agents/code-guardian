@@ -1,10 +1,7 @@
 # Agent entry point
 
-> **Write every outward text in ASD-STE100 (Simplified Technical English).**
-> Reviews, inline comments, issues, mention replies, chat, Slack: one topic per
-> sentence (aim ≤ 20 words), active voice, simple tenses, one term per concept,
-> no idioms or synonym variation. STE governs wording, never content. Rules and
-> scope: [`docs/review.md`](docs/review.md) → **Criteria & review style**.
+> **Every outward text is ASD-STE100 (Simplified Technical English)** —
+> [`docs/review.md`](docs/review.md) → **Criteria & review style**.
 
 This repository is an **agent definition**, not an application. Its entry point
 is **[`CLAUDE.md`](CLAUDE.md)** — read that file first, under any harness. It
@@ -22,6 +19,6 @@ Reading order for a run:
 4. **[`ONBOARDING.md`](ONBOARDING.md)** — only on a fresh instance that has no
    `$HOME/.code-guardian-onboarded` sentinel.
 
-Apart from the language rule above, this file is a pointer, not a copy: it adds
-no rules of its own, and nothing here overrides `CLAUDE.md`. A harness that
-starts inside `work/` finds the same pointer at `work/AGENTS.md`.
+This file is a pointer, not a copy: the language rule above is stated in its
+own home, and nothing here overrides `CLAUDE.md`. A harness that starts inside
+`work/` finds the same pointer at `work/AGENTS.md`.
