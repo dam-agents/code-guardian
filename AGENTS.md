@@ -1,5 +1,8 @@
 # Agent entry point
 
+> **Every outward text is ASD-STE100 (Simplified Technical English)** —
+> [`docs/review.md`](docs/review.md) → **Criteria & review style**.
+
 This repository is an **agent definition**, not an application. Its entry point
 is **[`CLAUDE.md`](CLAUDE.md)** — read that file first, under any harness. It
 names the run types, the pre-flight entry command, and the one rule every run
@@ -16,6 +19,6 @@ Reading order for a run:
 4. **[`ONBOARDING.md`](ONBOARDING.md)** — only on a fresh instance that has no
    `$HOME/.code-guardian-onboarded` sentinel.
 
-This file is a pointer, not a copy: it carries no rules of its own, and nothing
-here overrides `CLAUDE.md`. A harness that starts inside `work/` finds the same
-pointer at `work/AGENTS.md`.
+This file is a pointer, not a copy: the language rule above is stated in its
+own home, and nothing here overrides `CLAUDE.md`. A harness that starts inside
+`work/` finds the same pointer at `work/AGENTS.md`.

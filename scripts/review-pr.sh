@@ -10,8 +10,9 @@
 #                                          hunk index, clone + base ref + per-skill
 #                                          copies, skill briefs, the context pack
 #   step <n> <milestone…>                  lock heartbeat + review_step event
-#   context <n> <path> <line> [radius]     numbered lines around a candidate,
-#                                          with "in this PR's hunks" / pre-existing
+#   context <n> <path> <line> [radius]     numbered source text around a candidate
+#                                          (header + `<lineno>\t<src>` lines), with
+#                                          "in this PR's hunks" / pre-existing
 #   sweep <n> <ERE>                        occurrences over the changed files (+ a
 #                                          count in untouched code)
 #   collect <n>                            skill outputs → audit lines, form
@@ -28,7 +29,9 @@
 #   abort <n> <reason…>                    release the lock per kind, clean up
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
-# reads the outcome. Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
+# reads the outcome. `context` is the one exception: on success it prints the
+# numbered source text above, and its guard failures are JSON like every other.
+# Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, pack.json, briefs/). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
@@ -596,7 +599,11 @@ cmd_collect() {
 # current → `new`. PR-local overrides suppress by file:line (±2) or symbol.
 cmd_delta() {
   need_ctx
-  local cur="${1:-}"; [ -f "$cur" ] || fail "usage: delta <n> <findings.json>"
+  local cur="${1:-}"
+  [ -n "$cur" ] || fail "usage: delta <n> <findings.json>"
+  # The findings file is the agent's own output, not a prepare artifact: name the
+  # missing path so a wrong one is not read as malformed JSON.
+  [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
   local hist="$WORK/reviews/pr-$N.md" prior='[]' overrides='[]'
   if [ -f "$hist" ]; then

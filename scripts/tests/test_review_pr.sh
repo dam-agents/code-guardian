@@ -102,6 +102,10 @@ assert_out_contains "in this PR's hunks: yes" 'an added line is in the hunks'
 assert_out_contains '     6	NEW6' 'numbered lines printed'
 OUT="$(GITHUB_REPO="$TEST_REPO" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 1 1)"
 assert_out_contains "in this PR's hunks: no" 'an untouched line is pre-existing'
+# context prints text, never JSON — pin the contract its usage block states, so a
+# future rewrite fails here instead of inside a review that pipes it into jq.
+printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 && { printf 'FAIL %s: context returned JSON; docs and callers expect text\n' "$CASE"; FAILED=1; } || printf 'ok   %s: context output is text, not JSON\n' "$CASE"
+assert_out_contains '^# src/alpha.ts:1 — lines ' 'context leads with its text header'
 run_rp sweep 1 'query\(\)'
 assert_jq '.changed_files_hits | length == 2' 'sweep finds both changed-file occurrences'
 assert_jq '.untouched_code_hits == 0' 'no untouched occurrences'
@@ -225,6 +229,16 @@ assert_jq '.new | length == 0' 'nothing is new without the agent deciding the ne
 assert_jq '.ambiguous | length == 1 and .[0].current.summary == "name the constant" and .[0].prior.line == 5' 'a dissimilar finding near a prior one is left to the agent'
 assert_jq '.suppressed | length == 2 and (map(.file) | sort) == ["src/gamma.ts","src/uses-alpha.ts"]' 'overrides suppress by file:line and by the backticked symbol'
 assert_jq '.block | contains("✅ **Fixed:** dead export") and contains("🔁 **Still present:** unbounded query")' 'block skeleton rendered'
+# A wrong path is a missing file, not malformed JSON: the error must say so, or the
+# next run reads "not a JSON array" and looks for a parse bug that is not there.
+run_rp delta 1 "$SANDBOX/nope.json"
+assert_jq '.outcome == "error" and (.error | contains("does not exist"))' 'a missing findings file is named as missing'
+assert_jq '.error | contains("not a JSON array") | not' 'a missing file is not reported as malformed JSON'
+printf '{"findings":[]}' > "$SANDBOX/obj.json"
+run_rp delta 1 "$SANDBOX/obj.json"
+assert_jq '.outcome == "error" and (.error | contains("not a JSON array"))' 'a non-array findings file is still reported as malformed'
+run_rp delta 1
+assert_jq '.outcome == "error" and (.error | contains("usage: delta"))' 'a missing argument prints the usage'
 run_rp abort 1 "reset"
 
 # --- post: success path with an eligible and an ineligible inline comment --------
