@@ -819,9 +819,9 @@ if [ "$MODE" = "review" ]; then
   # --------------------------------------------------- mention detection ----
   # Human comments addressed to the bot: an @-mention anywhere in the repo's
   # PR/issue comments, or a reply inside an inline review thread rooted by a
-  # bot comment. Repo-wide scan, 7-day window (2 GET calls, day-rounded so the
-  # window is cache/test-stable, newest-first so the page cap drops the oldest);
-  # work/MENTIONS.md rows are the dedup — the agent appends a row before acting
+  # bot comment. Repo-wide scan, 7-day window (day-rounded so the window is
+  # cache/test-stable, paged newest-first under a budget); work/MENTIONS.md
+  # rows are the dedup — the agent appends a row before acting
   # (docs/mentions.md).
   MENTION_REPLIES="$(cfg mention_replies)"; MENTION_REPLIES="${MENTION_REPLIES:-enabled}"
   if [ "$MENTION_REPLIES" = "enabled" ] && [ -z "$BOT_LOGIN" ]; then
@@ -832,19 +832,42 @@ if [ "$MODE" = "review" ]; then
     MSINCE="$(date -u -d "@$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null \
               || date -u -r "$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null)T00:00:00Z"
     mention_seen() { grep -qE "^\| *$1 *\|" "$WORK/MENTIONS.md" 2>/dev/null; }
-    # newest-first: on a busy repo the window holds more than one page, and the
-    # cap must drop the oldest comments (already answered, or aged out) rather
-    # than the newest ones — ascending order starves fresh mentions forever.
-    IC="$(gh api "repos/$REPO/issues/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
-    RC="$(gh api "repos/$REPO/pulls/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
-    { printf '%s' "$IC" | jq -e 'type=="array"' >/dev/null 2>&1; } || IC='[]'
-    { printf '%s' "$RC" | jq -e 'type=="array"' >/dev/null 2>&1; } || RC='[]'
-    [ "$(printf '%s' "$IC" | jq length)" -eq 100 ] \
-      && log "mention scan: issue-comment page cap (100) hit — scanned the newest 100 in the window"
-    [ "$(printf '%s' "$RC" | jq length)" -eq 100 ] \
-      && log "mention scan: review-comment page cap (100) hit — scanned the newest 100 in the window"
+    # One page never covers the window on a busy repo: the bot's own inline
+    # comments (up to 25 per posted review) fill the review-comment page before
+    # the bot filter runs, and a human reply that slides past it gets no ledger
+    # row and is lost for good. So page newest-first under a budget — a short
+    # page ends the window, an exhausted budget keeps the newest comments and
+    # says how far back the run actually reached.
+    MENTION_PAGES=5
+    # sets SCAN_OUT (JSON array) and SCAN_TRUNC (1 = budget exhausted); a
+    # function assigning globals, not a `$(…)` helper — `log` appends to a
+    # shell array, which a command-substitution subshell would discard
+    scan_comments() { # <endpoint-path>
+      local page=1 body n
+      SCAN_OUT='[]'; SCAN_TRUNC=0
+      while :; do
+        body="$(gh api "repos/$REPO/$1?since=$MSINCE&per_page=100&sort=created&direction=desc&page=$page" 2>/dev/null)"
+        { printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; } || break
+        n="$(printf '%s' "$body" | jq length)"
+        SCAN_OUT="$(printf '%s\n%s\n' "$SCAN_OUT" "$body" | jq -c -s 'add')"
+        [ "$n" -lt 100 ] && break
+        page=$((page + 1))
+        [ "$page" -gt "$MENTION_PAGES" ] && { SCAN_TRUNC=1; break; }
+      done
+    }
+    oldest() { printf '%s' "$1" | jq -r '(map(.created_at) | min) // "unknown"'; }
+    scan_comments "issues/comments"; IC="$SCAN_OUT"
+    [ "$SCAN_TRUNC" = 1 ] \
+      && log "mention scan: issue comments past $MENTION_PAGES pages — covered back to $(oldest "$IC") only"
+    scan_comments "pulls/comments"; RC="$SCAN_OUT"
+    [ "$SCAN_TRUNC" = 1 ] \
+      && log "mention scan: review comments past $MENTION_PAGES pages — covered back to $(oldest "$RC") only"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
-    CAND="$(jq -n --argjson ic "$IC" --argjson rc "$RC" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+    # stdin, not --argjson: a full page of review comments is far past Linux's
+    # 128 KiB MAX_ARG_STRLEN, and execve then fails the whole scan silently —
+    # the same defect the audit's reaction scan documents below
+    CAND="$(printf '%s\n%s\n' "$IC" "$RC" | jq -s --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+      .[0] as $ic | .[1] as $rc |
       [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
               | select((.body // "") | test($re))
               | {comment_id: .id, thread: "conversation",
@@ -873,7 +896,7 @@ if [ "$MODE" = "review" ]; then
                body: ((.body // "") | .[0:1500]), url: .html_url,
                in_reply_to: null} ]' 2>/dev/null)"
     { printf '%s' "$BCAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || BCAND='[]'
-    CAND="$(jq -n --argjson a "$CAND" --argjson b "$BCAND" '$a + $b | sort_by(.created_at)')"
+    CAND="$(printf '%s\n%s\n' "$CAND" "$BCAND" | jq -s 'add | sort_by(.created_at)')"
     while IFS= read -r c; do
       [ -z "$c" ] && continue
       cid="$(printf '%s' "$c" | jq -r '.comment_id')"
