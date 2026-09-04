@@ -23,7 +23,7 @@ the whole feature is off; preflight evaluated the **assignee gate**
   primary surface). Available **only when that host is `github.com`**: the
   rendered link goes through an external renderer that cannot reach another
   host, and a review's artifact never crosses to a different host
-  (CLAUDE.md → **Hard invariants**). Elsewhere preflight drops `gist`, and
+  ([runbook.md](runbook.md) → **Hard invariants**). Elsewhere preflight drops `gist`, and
   with no surface left the feature is off for the run (weekly audit reports
   it as `artifact_targets`).
 - **`dam`** — the platform's **DAM Artifact Library**, published via the

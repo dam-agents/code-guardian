@@ -57,7 +57,7 @@ if ! command -v git >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
 fi
 
 # GITHUB_REPO_WORK is `[<host>/]<owner>/<repo>`: three segments name the host,
-# two use the ambient default (CLAUDE.md → Runtime configuration)
+# two use the ambient default (docs/config.md)
 case "$GITHUB_REPO_WORK" in
   (*/*/*) WORK_REF="$GITHUB_REPO_WORK";;
   (*)     WORK_REF="${GH_HOST:-github.com}/$GITHUB_REPO_WORK";;

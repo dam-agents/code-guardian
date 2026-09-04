@@ -272,8 +272,11 @@ other's usage, and contention would distort `seconds`). For each fixture:
    "$PSTATE" "<slug>-first"`. Inside the bracket: run the docs/skills.md
    fan-out from the session (outputs in `$PR_DIR.out`; routing list =
    `git -C "$PR_DIR" diff --name-only main..pr`, the benchmark's equivalent
-   of the production `gh pr diff` list), then spawn **one fresh reviewer
-   subagent** whose prompt carries: perform docs/review.md steps c–d
+   of the production `gh pr diff` list; the briefs rendered by you from
+   `scripts/templates/skill-brief.md` — there is no live PR, so none of the
+   `review-pr.sh` helpers apply here), then spawn **one fresh reviewer
+   subagent** whose prompt carries: perform docs/review.md steps c–d without
+   `review-pr.sh` (verify against `$PR_DIR` directly),
    reading `work/MEMORY.md` + `work/LESSONS.md`, with diff =
    `diff-v1.patch`, PR context = `pr.json` (title/body/author), working
    tree = `$PR_DIR` with base branch `main`, skill outputs = `$PR_DIR.out`,

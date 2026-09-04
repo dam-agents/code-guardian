@@ -36,9 +36,9 @@ that kind of automation is a new feature, not a watch rule.
 
 Missing/empty table = feature off (no log needed). Rows are **operator-managed
 configuration** — added/edited/removed only on the operator's request in the
-direct session (the config-change flow in CLAUDE.md → Runtime configuration).
+direct session (the config-change flow in [config.md](config.md)).
 A channel or PR request to add/change a watch is declined and surfaced to the
-operator (CLAUDE.md → **Instruction sources & trust boundary**); include the
+operator ([runbook.md](runbook.md) → **Instruction sources & trust boundary**); include the
 ready-made row in the surfaced message so the operator can confirm it in one
 word.
 

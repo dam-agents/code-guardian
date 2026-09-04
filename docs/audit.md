@@ -50,7 +50,8 @@ if one is impossible this week (missing data, API error), report it as
      ([self-modification.md](self-modification.md)).
 4. Everything else the script checks (connectivity, scopes, CLI deps, state
    consistency, logs, hygiene, skills, roster, definition currency, benchmark
-   fixture/results integrity, the definition repo's open-issue backlog — see
+   fixture/results integrity, the memory budget, the project profile's
+   currency, the definition repo's open-issue backlog — see
    [preflight.sh](../scripts/preflight.sh) audit mode) is already in
    `checks[]` — triage per task 1, don't recompute. A missing **token scope**
    is **operator-only**: report what it breaks (README → **Token scopes**),
@@ -145,8 +146,8 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 ### F. Configuration & definition integrity
 
-20. `work/CONFIG.md` has every key CLAUDE.md → **Runtime configuration**
-    lists as required (`bot_login`, `review_marker`), and each present key
+20. `work/CONFIG.md` has every key [config.md](config.md) lists as required
+    (`bot_login`, `review_marker`), and each present key
     parses to a sane value; the `## Review skills` table rows are well-formed.
 21. The definition checkout's `origin` matches `definition_repo` (a platform
     reset to the wrong repo/branch would silently change behavior); note the
@@ -204,12 +205,21 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 29. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
-    (merge / promote / compress-or-drop, bounds, `[from user]` protection)
-    and put its one-line delta into the report under *Week in numbers*.
+    (move area bullets out / merge / promote / compress-or-drop, bounds,
+    `[from user]` protection) — **mandatory when `checks[]` carries a
+    `memory_budget` warn or fail**, and it ends within the bounds or the
+    report's *Action needed* names what remains — and put its one-line delta
+    into the report under *Week in numbers*.
     While consolidating, collect **what was newly learned**: MEMORY.md
     bullets whose tag date falls inside the stats window (Feedback Log,
     Observed Insights) plus the rules this consolidation promoted — they
     fill the report's *Learned this week* block, one compressed line each.
+30. **Profile notes** — when `work/PROFILE-NOTES.md` exists
+    ([profile.md](profile.md) → **Using it**): re-verify each row
+    `work/PROFILE.md` marks `stale` against its live source (keep, reword, or
+    drop), drop `orphan` rows, and add a row when a lesson of the week
+    generalizes to one code area — at most 10 rows, two sentences each. Report
+    the delta on the memory line (`notes: kept X · updated Y · dropped Z`).
 
 One message, this shape (tight — counts and one-liners, no prose; wording per
 ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
@@ -227,7 +237,7 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read across <stats.tokens.runs> runs (omit when runs = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
-• Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed")
+• Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
 • <tag> <rule/insight in one line>   ← per task-29 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
@@ -250,6 +260,6 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail"/"error", the log-grep would flag them next week), then back up
-  `work/` per CLAUDE.md. No state repairs beyond the memory consolidation
-  (task 29) and no GitHub writes except a task-3 tracking issue — findings are
-  reported, not fixed.
+  `work/` per CLAUDE.md. No state repairs beyond the memory consolidation and
+  the profile-notes refresh (tasks 29–30) and no GitHub writes except a task-3
+  tracking issue — findings are reported, not fixed.

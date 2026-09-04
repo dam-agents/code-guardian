@@ -113,6 +113,40 @@ case "$tool" in
         [ -n "$pr" ] && emit "$pr" "cloned" "cloned"
         ;;
     esac
+    # locked / done / aborted — the REVIEWS.md row write itself. The row
+    # literal in the command (docs/review.md → Review tracking state) carries
+    # PR, SHA and status, so the milestone is recoverable from the payload:
+    # the first in_progress write is `locked`, every later one a lock refresh,
+    # `done` is terminal, and releasing a lock this run took (awaiting_label
+    # restore or row deletion) without a `done` is an abort.
+    case "$cmd" in
+      (*REVIEWS.md*)
+        d="/tmp/.cg-steps-$sid"
+        row="$(printf '%s' "$cmd" \
+          | grep -oE '\| *[0-9]{1,7} *\| *[0-9a-f]{7,40} *\| *[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z *\|[^|]*\| *(in_progress|done|awaiting_label) *\|' \
+          | tail -1)"
+        if [ -n "$row" ]; then
+          pr="$(printf '%s' "$row" | cut -d'|' -f2 | tr -d ' ')"
+          sha7="$(printf '%s' "$row" | cut -d'|' -f3 | tr -d ' ' | cut -c1-7)"
+          st="$(printf '%s' "$row" | cut -d'|' -f6 | tr -d ' ')"
+          case "$st" in
+            (in_progress)
+              if [ -d "$d/$pr-locked" ]; then LOG_JOB=review logev info review_step "PR #$pr $sha7 locked (refresh)"
+              else emit "$pr" "$sha7 locked" "locked"; fi;;
+            (done) emit "$pr" "$sha7 done" "done";;
+            (awaiting_label)
+              [ -d "$d/$pr-locked" ] && [ ! -d "$d/$pr-done" ] && emit "$pr" "$sha7 aborted (lock released)" "aborted";;
+          esac
+        else
+          case "$cmd" in
+            (*sed*/d\'*|*sed*/d\"*|*sed*/d\ *|*grep\ -v*|*grep\ -Ev*|*grep\ -vE*)   # a sed delete or an inverted grep
+              pr="$(printf '%s' "$cmd" | grep -oE '\| *[0-9]{1,7} *\|' | grep -oE '[0-9]{1,7}' | head -1)"
+              [ -n "$pr" ] && [ -d "$d/$pr-locked" ] && [ ! -d "$d/$pr-done" ] \
+                && emit "$pr" "aborted (lock released)" "aborted";;
+          esac
+        fi
+        ;;
+    esac
     ;;
 esac
 exit 0

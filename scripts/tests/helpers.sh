@@ -72,6 +72,8 @@ fx_body_edited() { # <number> <iso-ts|->
 fx_fail()      { printf '%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
 # same, but only the next call fails; later calls serve the body fixture
 fx_fail_once() { printf 'once:%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
+# the stderr body a failing call prints (pair with fx_fail / fx_fail_once)
+fx_err() { printf '%s' "$2" > "$GH_FIXTURES/$(fx_for "$1").err"; }
 
 # ISO-8601 UTC timestamp <n> seconds in the past (GNU + BSD date)
 iso_ago() {
@@ -82,9 +84,13 @@ iso_ago() {
 
 # run preflight in the sandbox; JSON lands in $OUT. GH_HOST is blanked so the
 # ambient default host is `github.com` whatever the developer's shell exports —
-# a case exercises another host through TEST_REF, never the environment.
+# a case exercises another host through TEST_REF, never the environment. The
+# project profile's git remote points at a path that does not exist unless a
+# case sets PROFILE_REMOTE (a fixture repository), so no test ever reaches the
+# network; its mirror lives inside the sandbox.
 run_preflight() { # <mode>
   OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+         CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
 

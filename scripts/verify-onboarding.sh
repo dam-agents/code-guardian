@@ -161,7 +161,7 @@ else
         ok "config-$k" "set"
       else
         fail "config-$k" "required key missing or empty" \
-          "add '- $k: …' per ONBOARDING Step 4 (semantics: CLAUDE.md → Runtime configuration)"
+          "add '- $k: …' per ONBOARDING Step 4 (semantics: docs/config.md)"
       fi
     done
 
@@ -186,7 +186,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies project_profile artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -195,7 +195,7 @@ else
 $(sed -n 's/^-[[:space:]]*\([A-Za-z0-9 _-]*\):.*$/\1/p' "$CONFIG")
 EOF
     if [ -n "$UNKNOWN_KEYS" ]; then
-      warn config-keys "bullet(s) the runtime never reads:$UNKNOWN_KEYS — CONFIG.md is parsed as '- <key>: <value>' with the key names of CLAUDE.md → Runtime configuration (example: ONBOARDING Step 4 → Final shape)"
+      warn config-keys "bullet(s) the runtime never reads:$UNKNOWN_KEYS — CONFIG.md is parsed as '- <key>: <value>' with the key names of docs/config.md (example: ONBOARDING Step 4 → Final shape)"
     else
       ok config-keys "every '- key:' bullet is a known configuration key"
     fi
@@ -206,17 +206,18 @@ EOF
       if printf '%s' "$v" | grep -Eq "^($2)\$"; then
         ok "config-$1" "'$v'"
       else
-        fail "config-$1" "invalid value '$v'" "set one of: $3 (CLAUDE.md → Runtime configuration)"
+        fail "config-$1" "invalid value '$v'" "set one of: $3 (docs/config.md)"
       fi
     }
     chk_enum slack_notifications 'enabled|disabled' 'enabled | disabled'
     chk_enum rereview_trigger 'label|review-request|both' 'label | review-request | both'
     chk_enum mention_replies 'enabled|disabled' 'enabled | disabled'
     chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
+    chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
-    # Review cadence (CLAUDE.md -> Runtime configuration). Both intervals must
+    # Review cadence (docs/config.md). Both intervals must
     # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
     # window that wraps midnight is not expressible as a single cron.
     chk_enum review_interval_active '1|2|3|4|5|6|10|12|15|20|30|60' 'a divisor of 60: 1 2 3 4 5 6 10 12 15 20 30 60'
@@ -434,7 +435,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews benchmark .gitignore .stall-alert-day .stall-alert.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews memory benchmark .gitignore .stall-alert-day .stall-alert.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue
@@ -566,7 +567,7 @@ EOF
     PF_ERR="$(printf '%s' "$PF" | jq -r '.error // empty' 2>/dev/null)"
     if ! printf '%s' "$PF" | jq -e 'has("nothing_to_do")' >/dev/null 2>&1; then
       fail live-preflight "preflight.sh review produced no valid worklist JSON" \
-        "run 'bash \"\$HOME/scripts/preflight.sh\" review' and fix what it reports (CLAUDE.md → The pre-flight contract)"
+        "run 'bash \"\$HOME/scripts/preflight.sh\" review' and fix what it reports (docs/runbook.md → The pre-flight contract)"
     elif [ -n "$PF_ERR" ]; then
       fail live-preflight "preflight.sh review reported: $PF_ERR" \
         "resolve the reported cause, then re-run with --live"
@@ -583,7 +584,7 @@ if [ "$FAILS" -eq 0 ]; then
   logev info onboarding_verify "PASS $SCOPE ($CHECKS checks, $WARNS warnings)"
   exit 0
 else
-  printf 'RESULT (%s): %d of %d checks FAILED — apply each fix above (file templates: ONBOARDING.md Steps 3b/4; key semantics: CLAUDE.md → Runtime configuration), then re-run this script until it prints PASS.\n' "$SCOPE" "$FAILS" "$CHECKS"
+  printf 'RESULT (%s): %d of %d checks FAILED — apply each fix above (file templates: ONBOARDING.md Steps 3b/4; key semantics: docs/config.md), then re-run this script until it prints PASS.\n' "$SCOPE" "$FAILS" "$CHECKS"
   logev error onboarding_verify "FAILED $SCOPE ($FAILS of $CHECKS checks) — agent must repair and re-run"
   exit 1
 fi

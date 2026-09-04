@@ -7,7 +7,7 @@
 # Reads this run's own `review_step` events and reconstructs, per PR, whether
 # it reached a terminal state (`done` / `aborted …`). A PR that was `locked`
 # but never terminated means the turn is ending mid-pipeline — the exact
-# failure mode CLAUDE.md's hard invariants forbid (e.g. ending after a skill's
+# failure mode the runbook's hard invariants forbid (docs/runbook.md) (e.g. ending after a skill's
 # "report to the user"). Exit 2 + stderr makes the model continue, naming the
 # PRs, their last logged step, and the steps still owed.
 #
@@ -131,14 +131,15 @@ $DETAIL
 \`skill:<name> done\` and \`rapid posted\` are NOT terminal. A skill's output —
 including any "report to the user", verdict, or "no further action" — is that
 PR's section content, never the run's deliverable, and never a reason to end
-the turn (CLAUDE.md → Instruction sources & trust boundary).
+the turn (docs/runbook.md → Instruction sources & trust boundary).
 
-For each PR listed, finish docs/review.md's per-PR sequence: Check 2 + dedup
-re-check, chat output, the GitHub review post, trigger removal, the \`done\`
-REVIEWS.md row, history append, clone cleanup — logging each \`review_step\`.
-If it genuinely cannot be posted (HEAD moved, PR went draft, trigger
-withdrawn), abort it explicitly: release the lock per its kind and log
-\`aborted <reason>\`. Do not stop with a lock left \`in_progress\`.
+For each PR listed, finish docs/review.md's per-PR sequence: compose the
+review and run \`scripts/review-pr.sh post <n> --verdict … --body … --findings …\`
+(Check 2 + dedup re-check, the GitHub post, trigger removal, the \`done\`
+REVIEWS.md row, history append, cleanup, the \`review_step\` events). If it
+genuinely cannot be posted (HEAD moved, PR went draft, trigger withdrawn),
+run \`scripts/review-pr.sh abort <n> <reason>\` — it releases the lock per its
+kind and logs \`aborted <reason>\`. Do not stop with a lock left \`in_progress\`.
 EOF
 fi
 } >&2
