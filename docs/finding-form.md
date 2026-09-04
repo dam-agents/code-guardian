@@ -24,6 +24,16 @@ line alone.
 carries the fix that resolves it, so the bar reads off the findings
 themselves.
 
+**Blocking findings are complete and uncapped.** Report every 🔴 and 🟡 that
+survives verification, however many that is; a first review is the complete
+list of what is wrong with the PR.
+
+**🟢 budget per review: 3 when the review carries no 🔴 and no 🟡, otherwise
+1.** The budget counts every 🟢 the review prints — `### Findings` and skill
+sections together — and keeps the strongest. *Review only:* what it dropped
+is counted in `### Summary`, `_N suggestion(s) dropped under the 🟢 budget._`,
+so a section that reported 🟢 never reads as clean.
+
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No

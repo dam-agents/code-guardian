@@ -104,7 +104,9 @@ if one is impossible this week (missing data, API error), report it as
 
 For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
-8. The posted review carries the trailing full-SHA **marker line**.
+8. **Posted form**: the trailing full-SHA **marker line** is present, and the
+   review's 🟢 count is within its budget
+   ([finding-form.md](finding-form.md)).
 9. **Skill audit completeness**: one section per configured skill that
    should have run per its trigger (or a legitimate skip); no silently
    missing skill sections.
