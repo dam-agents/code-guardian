@@ -476,7 +476,8 @@ its contract). Never request restructuring purely for human readers.
 review, verification runs after the skills, before composing output).** The diff
 nominates findings; the surrounding code confirms them. Re-check each candidate
 against the code around it in the clone: `review-pr.sh context <n> <path>
-<line> [radius]` prints the numbered lines around it (±40 by default) and
+<line> [radius]` prints the numbered lines around it (±40 by default) as
+**text, not JSON** — read it, never pipe it into `jq` — and
 whether the line lies inside this PR's hunks — `no` marks a pre-existing
 problem, at most one 🟢 line — and the whole file only when that range leaves
 the question open. Keep what survives;
