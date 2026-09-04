@@ -157,12 +157,28 @@ run_preflight audit
 assert_jq '.checks[] | select(.id == "memory_budget") | .status == "fail" and (.detail | test("biggest sections: Custom Rules 20[0-9]"))' \
   'the over-budget check names where the lines are'
 
+# a rule whose wording never moved to its topic file keeps the budget over,
+# whatever the line count (docs/preferences.md → Entry form)
+new_case audit_memory_long_line
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '# Memory\n\n## Custom Rules\n'
+  printf -- '- [2026-07-24 from user] Skip JSDoc findings → memory/style.md\n'
+  printf -- '- [2026-07-25 from user] %s\n' "$(printf 'x%.0s' $(seq 1 130))"
+} > "$WORK/MEMORY.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "warn" and (.detail | contains("1 past 120 chars"))' \
+  'an undistilled line puts the budget over on its own'
+
 new_case audit_memory_within_bounds
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 printf '# Memory\n\n## Custom Rules\n- one rule\n' > "$WORK/MEMORY.md"
 run_preflight audit
-assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok" and (.detail | contains("biggest sections") | not)' \
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok" and (.detail | contains("0 past 120 chars"))' \
+  'short lines keep the budget green'
+assert_jq '.checks[] | select(.id == "memory_budget") | .detail | contains("biggest sections") | not' \
   'a file within bounds is not scanned per section'
 
 # --- definition-repo open-issue backlog check ----------------------------------

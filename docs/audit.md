@@ -213,8 +213,8 @@ For each sampled review (from `reviews/pr-<n>.md`, cross-checked on GitHub):
 
 29. **Memory consolidation** — before composing the report, run
     [preferences.md → Weekly memory consolidation](preferences.md)
-    (move area bullets out / merge / promote / compress-or-drop, bounds,
-    `[from user]` protection) — **mandatory when `checks[]` carries a
+    (move area bullets out / distill / merge / promote / compress-or-drop,
+    bounds, `[from user]` protection) — **mandatory when `checks[]` carries a
     `memory_budget` warn or fail**, and it ends within the bounds or the
     report's *Action needed* names what remains — and put its one-line delta
     into the report under *Week in numbers*.
@@ -244,9 +244,9 @@ ASD-STE100 — [review.md](review.md) → **Criteria & review style**):
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
-• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0; cache-write carries the cost premium, so a cost statement names it)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0 (state the zero; the report always sends, so an absent line reads as "not measured")
-• Memory: merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
+• Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
 • <tag> <rule/insight in one line>   ← per task-29 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing

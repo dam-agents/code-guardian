@@ -354,15 +354,20 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
 # Review runs log an overrun; the audit turns it into a check and a mandatory
 # consolidation. Four local reads, no judgment.
 memory_budget_json() {
-  local ml=0 ins=0 fb=0 ls=0 over=false
+  local ml=0 ins=0 fb=0 ls=0 lng=0 over=false
   [ -f "$WORK/MEMORY.md" ] && ml="$(grep -c '' "$WORK/MEMORY.md" 2>/dev/null || true)"
   ins="$(sed -n '/^## Observed Insights/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   fb="$(sed -n '/^## Feedback Log/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   ls="$(grep -c '^## ' "$WORK/LESSONS.md" 2>/dev/null || true)"
-  { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] || [ "${ls:-0}" -gt 10 ]; } && over=true
-  jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" --argjson over "$over" \
+  # a rule whose wording never moved to its topic file (docs/preferences.md →
+  # Entry form): the line, not the file, is what the next consolidation distills
+  lng="$(grep -cE '^- .{118,}' "$WORK/MEMORY.md" 2>/dev/null || true)"
+  { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] \
+    || [ "${ls:-0}" -gt 10 ] || [ "${lng:-0}" -gt 0 ]; } && over=true
+  jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" \
+    --argjson lng "${lng:-0}" --argjson over "$over" \
     '{memory_lines:$ml, memory_limit:120, insights:$ins, insights_limit:15, feedback:$fb, feedback_limit:20,
-      lessons_sections:$ls, lessons_limit:10, over_budget:$over}'
+      lessons_sections:$ls, lessons_limit:10, long_lines:$lng, line_limit:120, over_budget:$over}'
 }
 MEMORY_JSON="$(memory_budget_json)"
 PROFILE_JSON_OUT='null'
@@ -771,7 +776,7 @@ if [ "$MODE" = "review" ]; then
       PROFILE_JSON_OUT='{"status":"disabled","mode":"none"}'
     fi
     [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ] \
-      && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"') — consolidation due at the next audit (docs/preferences.md)"
+      && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, \(.long_lines) past \(.line_limit) chars, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"') — consolidation due at the next audit (docs/preferences.md)"
     FILES_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-files.XXXXXX")"
     NEW_DUE='[]'
     while IFS= read -r entry; do
@@ -1279,7 +1284,7 @@ if [ "$MODE" = "audit" ]; then
 
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
-  mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"')"
+  mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines · \(.long_lines) past \(.line_limit) chars · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"')"
   # Insights and the Feedback Log have their own counters, so an over-budget
   # MEMORY.md whose two counters sit inside bounds is carrying the lines
   # somewhere else — name the biggest sections, the consolidation needs to know

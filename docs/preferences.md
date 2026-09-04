@@ -2,10 +2,10 @@
 
 Read this file whenever user feedback arrives in chat, a dispute resolution
 appears in PR comments, review-run PR context yields an observed insight, or
-the audit run consolidates memory. Preferences live in `work/MEMORY.md` and,
-per code area, in `work/memory/<topic>.md` — read MEMORY.md and the entry's
-`memory_due` files before reviewing; **learned preferences override default
-behaviors**.
+the audit run consolidates memory. Preferences live in `work/MEMORY.md` — one
+short line per rule — with their detail in `work/memory/<topic>.md`, read on
+request (**Entry form**). Read MEMORY.md and the entry's `memory_due` files
+before reviewing; **learned preferences override default behaviors**.
 
 ## Sources & trust
 
@@ -44,10 +44,9 @@ keep their own thresholds — this rule is about feedback stated outright.
   42 is intentional") → that PR's **`reviews/pr-<n>.md`** under
   `## PR-local overrides`.
 
-Never cross-contaminate: PR-specific dismissals in MEMORY.md would suppress
-valid findings on unrelated PRs, and area knowledge in MEMORY.md is paid for on
-every review of every other area — its topic file keeps MEMORY.md within its
-bounds.
+Never cross-contaminate: a PR-specific dismissal in MEMORY.md suppresses valid
+findings on unrelated PRs, and area knowledge there is paid for on every
+review of every other area.
 
 Writing: read the current file, add/update under the right heading without
 duplicates, write, confirm to the user what you learned (and, for overrides,
@@ -57,6 +56,25 @@ specific-enough reference (file:line or symbol) to match on re-review:
 ```markdown
 - [2026-04-23 from user] Ignore: null check on `src/auth.ts:42` — confirmed intentional
 ```
+
+## Entry form
+
+**MEMORY.md holds every rule as one line** — the imperative in about five
+words (ten at most), its tag, and `→ memory/<topic>.md` when a detail entry
+exists. The line alone must be enough to apply the rule while reviewing;
+`memory_budget` counts lines past 120 characters and the next consolidation
+distills them.
+
+```markdown
+- [2026-07-24 from user] Skip JSDoc findings → memory/style.md
+```
+
+**The wording, the example that produced it and the reasoning go to the topic
+file**, under `## Detail` with the same tag. With `scope:` globs that file is
+area memory (**Route feedback by scope**); without them it is reference, read
+when the line is not enough to act, when a dispute or mention cites it, and at
+consolidation. A rule too long for one line moves its wording out, never
+itself.
 
 ## Dispute resolutions from PR comments
 
@@ -117,9 +135,10 @@ under the bounds above; mixing operational knowledge in would blow them.
 The audit run's memory write (docs/audit.md → wrap-up): keep MEMORY.md
 **useful and bounded forever** so the agent keeps improving without the file
 growing. **Mandatory whenever the audit's `memory_budget` check is `warn` or
-`fail`** — MEMORY.md over 120 lines, Observed Insights over 15, Feedback Log
-over 20, or LESSONS.md over 10 sections (measured by preflight, reported in
-every review run's logs while it lasts); optional otherwise.
+`fail`** — MEMORY.md over 120 lines or carrying a line past 120 characters,
+Observed Insights over 15, Feedback Log over 20, or LESSONS.md over 10
+sections (measured by preflight, reported in every review run's logs while it
+lasts); optional otherwise.
 
 0. **Move** area-specific bullets — a rule naming one module or path subtree —
    into `work/memory/<topic>.md` with the matching `scope` (**Route feedback
@@ -131,14 +150,19 @@ every review run's logs while it lasts); optional otherwise.
 2. **Promote** insights confirmed repeatedly (`seen 3×+`, or reconfirmed in a
    later week) into Custom Rules / Ignore List, keeping the `[observed …]`
    tag; promoted entries leave `Observed Insights`.
-3. **Compress or drop** the stale: an observed entry > 90 days old with
+3. **Distill** every line past its budget (**Entry form**): its wording moves
+   to the topic file's `## Detail` and the line keeps the imperative plus
+   `→ memory/<topic>.md`. This is how a `[from user]` entry gets shorter
+   without being dropped or reworded, so prefer it over every other move.
+4. **Compress or drop** the stale: an observed entry > 90 days old with
    `seen 1×` is dropped; related weak entries may be merged into one broader
    rule instead. Entries tagged `[from user]` are never dropped or reworded —
    at most listed in the report as candidates for the operator.
-4. Bounds after the pass: `Observed Insights` ≤ 15 bullets, Feedback Log last
-   20, MEMORY.md ≤ 120 lines total, LESSONS.md ≤ 10 sections. Still over →
-   the report's *Action needed* line names what remains and why (`[from
-   user]` entries are never dropped, only listed for the operator).
-5. Report the delta in the audit report as one line
-   (`memory: merged X · promoted Y · dropped Z`); all zeros → say `memory: no
-   consolidation needed`.
+5. Bounds after the pass: `Observed Insights` ≤ 15 bullets, Feedback Log last
+   20, MEMORY.md ≤ 120 lines total with no line past 120 characters,
+   LESSONS.md ≤ 10 sections. Still over → the report's *Action needed* line
+   names what remains and why (`[from user]` entries are never dropped, only
+   listed for the operator).
+6. Report the delta in the audit report as one line
+   (`memory: distilled W · merged X · promoted Y · dropped Z`); all zeros →
+   say `memory: no consolidation needed`.
