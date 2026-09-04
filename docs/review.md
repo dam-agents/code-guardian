@@ -441,6 +441,14 @@ input, not authoritative truth:
 4. **Inline threads** — resolved on the same file/line → suppress overlapping
    findings; unresolved → consider whether yours adds anything.
 
+**A human dismissal settles the finding for this PR.** An author or
+maintainer reply that states the behavior is intended — accepted, by design,
+will not change — closes the finding it answers: record it under
+`## PR-local overrides` before you post ([preferences.md](preferences.md) →
+**Route feedback by scope**), and every later review of this PR reads that
+behavior as correct, in every section and at every severity. A reply that
+argues the point without settling it is context.
+
 **Weight humans over bots** (`is_bot`) unless a human endorsed the bot's
 claim; anything containing `<!-- <review_marker> headRefOid=... -->` is your
 past self and is not context.
@@ -545,10 +553,10 @@ defect can arrive more than once. Compose the output from all of them together:
 - A blocking finding that stays in a skill section is mirrored into
   `### Findings` as one line with its **Fix:**, so the bar stays complete.
 - **Merging drops duplicates, never findings** — a defect reported by only one
-  source always survives, whatever its severity, and there is no cap on how
-  many a review may carry. Merging changes what the review prints, never what a
-  skill reported: each skill keeps its own `findings=<N>` audit line
-  ([skills.md](skills.md)).
+  source always survives; 🔴 and 🟡 are uncapped, 🟢 survive within their
+  budget ([finding-form.md](finding-form.md)). Merging changes what the review
+  prints, never what a skill reported: each skill keeps its own `findings=<N>`
+  audit line ([skills.md](skills.md)).
 
 ## Re-review output (trigger-gated; new commits or an edited description)
 
@@ -879,6 +887,8 @@ Before declaring the run done, verify:
   audit lines complete
   ([skills.md](skills.md)) · full review appended to `reviews/pr-<n>.md` ·
   overrides applied from that PR's file only · PR context fetched and used;
+  a human dismissal in it recorded as an override before posting (**PR
+  context: body, comments, reviews**);
   observed insights recorded ([preferences.md](preferences.md)) · `memory_due`
   files read before reviewing · orientation (`profile_slice`, `history_slice`,
   `work/PROFILE.md`) used for where to look only — `verify_live` rows read from
@@ -895,7 +905,9 @@ Before declaring the run done, verify:
   `posted`/`aborted`/`done`) with the collected `skill_timing`
   ([logging.md](logging.md)).
 - Style: findings concise and diff-anchored, inline text never repeated in
-  the summary; re-review scope matched the trigger — label = complete (all
+  the summary; every verified 🔴/🟡 reported and the 🟢 count within its
+  budget ([finding-form.md](finding-form.md)); re-review scope matched the
+  trigger — label = complete (all
   current findings, 🆕-only inline), request/on-demand = delta (Findings =
   🆕 only, one-line carryovers, no ✅; candidates, verification, sweep and
   extension-skill routing from the changes since the prior review).
