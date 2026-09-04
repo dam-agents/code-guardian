@@ -361,7 +361,7 @@ memory_budget_json() {
   ls="$(grep -c '^## ' "$WORK/LESSONS.md" 2>/dev/null || true)"
   # a rule whose wording never moved to its topic file (docs/preferences.md →
   # Entry form): the line, not the file, is what the next consolidation distills
-  # "- " + 119 = 121 chars: the bound itself is allowed, only past it counts
+  # whole-line length: "- " plus 119 or more is 121+, so the bound itself passes
   lng="$(grep -cE '^- .{119,}' "$WORK/MEMORY.md" 2>/dev/null || true)"
   { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] \
     || [ "${ls:-0}" -gt 10 ] || [ "${lng:-0}" -gt 0 ]; } && over=true
