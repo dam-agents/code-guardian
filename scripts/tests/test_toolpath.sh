@@ -33,7 +33,10 @@ inlib() { # <work-dir> <snippet>
 CASE=resolves_shimmed_tool
 is 'a shimmed tool runs the real binary' "$(inlib "$SANDBOX/w1" 'widget')" 'REAL_WIDGET'
 is 'it is shadowed by a function'        "$(inlib "$SANDBOX/w2" 'type -t widget')" 'function'
-is 'nothing is reported as shimmed'      "$(inlib "$SANDBOX/w3" 'toolpath_shimmed widget')" ''
+# shadowing hides the tax only from processes that source the lib — the shim is
+# still in the image, so the report must survive it (self-modification.md §5a)
+is 'the shadowed tool is still reported' "$(inlib "$SANDBOX/w3" 'toolpath_shimmed widget')" 'widget'
+is 'a tool that was never shimmed is not' "$(inlib "$SANDBOX/w3" 'toolpath_shimmed sed')" ''
 
 CASE=caches_resolution
 inlib "$SANDBOX/w4" 'true'
