@@ -22,6 +22,16 @@ Do exactly this:
 3. Reply with only the output path and `ran (findings=<N>)`, or `errored` — the
    file is the only channel that carries findings.
 
+No circling: whatever fails or comes back empty (a file, document, symbol, or
+reference you cannot find; a command, install, or build that does not work) gets
+one retry, then you continue without it. The output names what was skipped
+(`<what> not found — skipped`) when the skill needs that input, or drops the
+check as not applicable when it is optional. The same thing is not attempted
+again with variant queries, other refs, history walks, or another install, and a
+command whose result is already known is not re-run. A shimmed tool's positive
+control (below) is that one retry: only a confirmed empty result is reported as
+not found.
+
 Tool constraints for this checkout: the reviewed repository's own version-manager
 config makes shimmed tools (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero
 inside the tree (`Config files in … are not trusted`), so work from outside it

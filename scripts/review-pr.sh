@@ -260,9 +260,11 @@ skills_json() { # → [{skill, source, trigger, section}]
 # ================================================================= prepare ====
 emit_ready() { # <resumed-bool> — the prepare summary from the state files
   local j
+  local dfile="$CTX/delta.json"; [ -f "$dfile" ] || printf 'null\n' > "$dfile"
   j="$(jq -n --slurpfile pr "$CTX/pr.json" --slurpfile sk "$CTX/skills.json" --slurpfile sl "$CTX/slice.json" --slurpfile f "$CTX/files.json" \
+    --slurpfile dl "$dfile" \
     --argjson resumed "$1" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
-    $pr[0] + {outcome:"ready", resumed:$resumed,
+    $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0],
       paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
              pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
       files:$f[0], skills:$sk[0]} + $sl[0]')"
@@ -373,6 +375,34 @@ cmd_prepare() {
   printf '%s' "$slice" | jq '{profile_slice, structure_changed, history_slice, memory_due, noise_count}' > "$CTX/slice.json"
   rm -f "$CTX/files.raw.json"
 
+  # --- delta range (delta-scope re-review only, docs/review.md → Re-review output) ---
+  # One compare call decides the range: `ahead` with a patch on every file →
+  # delta depth on those files; `identical` → the description-only case (empty
+  # range); anything else (diverged/behind after a force-push, 404, truncated)
+  # → the range is unreachable and the review runs at complete depth.
+  local dbase="" dj='null'
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$full" = "false" ]; then
+    dbase="$(grep -o "<!-- $REVIEW_MARKER headRefOid=[0-9a-f]\{40\} -->" "$WORK/reviews/pr-$N.md" 2>/dev/null \
+      | tail -1 | sed -e "s/^<!-- $REVIEW_MARKER headRefOid=//" -e 's/ -->$//')"
+    if printf '%s' "$dbase" | grep -qE '^[0-9a-f]{40}$' && [ "$dbase" != "$sha" ]; then
+      local cmp; cmp="$(gh_get "repos/$REPO/compare/$dbase...$sha")"
+      dj="$(printf '%s' "$cmp" | jq -c --arg b "$dbase" '
+        (.files // []) as $f
+        | (.status // "") as $st
+        | if $st == "ahead" and ($f | length) > 0 and ($f | length) < 300
+             and ([ $f[] | select(.patch == null) ] | length) == 0
+          then {base:$b, status:$st, reachable:true, files:[ $f[].filename ]}
+          elif $st == "identical" then {base:$b, status:$st, reachable:true, files:[]}
+          else {base:$b, status:(if $st == "" then "error" else $st end), reachable:false, files:[]} end' 2>/dev/null)"
+      [ -n "$dj" ] || dj="$(jq -nc --arg b "$dbase" '{base:$b, status:"error", reachable:false, files:[]}')"
+    elif [ "$dbase" = "$sha" ]; then
+      dj="$(jq -nc --arg b "$dbase" '{base:$b, status:"identical", reachable:true, files:[]}')"
+    fi
+    printf '%s' "$dj" | jq -e '.reachable == false' >/dev/null 2>&1 \
+      && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
+  fi
+  printf '%s\n' "$dj" > "$CTX/delta.json"
+
   # --- clone + base ref (skipped in closed mode: the branch may be gone) ---
   local clone=skipped url
   if [ "$mode" = "review" ]; then
@@ -399,6 +429,16 @@ cmd_prepare() {
   local vl vlblock=""
   vl="$(jq -r '[.profile_slice[]? | select(.verify_live) | .row] + (.structure_changed // []) | unique | .[]' "$CTX/slice.json" 2>/dev/null | sed 's/^/- /')"
   [ -n "$vl" ] && vlblock=$' Rows and paths this PR itself changes — read them live, never from the map:\n'"$vl"
+  # extension triggers route from the reviewed scope: the PR diff, or on a
+  # reachable delta range the files changed since the prior review
+  # (docs/skills.md → Triggers & file routing)
+  local routable="$CTX/files.json"
+  if printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1; then
+    jq -c --slurpfile d "$CTX/delta.json" '[ .[] | select(.path as $p | $d[0].files | index($p) != null) ]' \
+      "$CTX/files.json" > "$CTX/files.delta.json" 2>/dev/null \
+      && [ "$(jq length "$CTX/files.delta.json" 2>/dev/null || echo 0)" -gt 0 ] \
+      && routable="$CTX/files.delta.json"
+  fi
   local SK='{}' s trig files status brief copy fblock
   while IFS= read -r s; do
     [ -n "$s" ] || continue
@@ -408,7 +448,7 @@ cmd_prepare() {
       # reviewable classes only: noise files and deleted files route nowhere
       files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
         | [ .[] | select((.class | IN("code","test","docs","config")) and .status != "removed") | .path
-            | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$CTX/files.json")"
+            | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed

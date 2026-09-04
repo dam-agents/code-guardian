@@ -58,7 +58,7 @@ answers:
   read in the scoring phase only — after every raw review is written. Phase 1
   inputs are exactly: `pr.json`, the diff patches, the trees,
   `prior-review.md`, and the files a production review reads (docs/review.md,
-  docs/skills.md, `work/MEMORY.md`, `work/LESSONS.md`).
+  docs/finding-form.md, docs/skills.md, `work/MEMORY.md`, `work/LESSONS.md`).
 
 ## Creating the fixture set (`action: create_fixture`, or operator ask)
 
@@ -292,12 +292,16 @@ other's usage, and contention would distort `seconds`). For each fixture:
    (when the fan-out ran).
 3. **Re-review** — bracket it the same way (`"<slug>-rereview"`): advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out
-   per docs/review.md → **Re-review output** (routing from the same
-   `git diff --name-only main..pr`, now at v2), then spawn a **separate
+   per docs/review.md → **Re-review output** (routing from
+   `git -C "$PR_DIR" diff --name-only pr~1..pr` — the changes since the prior
+   review), then spawn a **separate
    fresh reviewer subagent** — never the one that wrote the first review,
    so it knows only the posted prior review, as in production: same prompt
-   shape with `prior-review.md` as the prior review, scope = delta
-   (request-equivalent trigger), changes since prior = `diff-v1-v2.patch`.
+   shape with `prior-review.md` as the prior review, diff =
+   `git -C "$PR_DIR" diff main..pr` (the PR diff at v2), scope = delta
+   (request-equivalent trigger), changes since prior = `diff-v1-v2.patch` —
+   it stands in for the compare call of docs/review.md → **Re-review
+   output** (prior HEAD = `pr~1`, range `ahead`), so no compare call is made.
    It composes the delta re-review (marker at `head_sha_v2`, findings-json
    with `new`/`still`/`fixed` statuses) →
    `results/raw/<ts>-<slug>-rereview.md`, archiving the skill outputs the

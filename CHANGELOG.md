@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 3.19.0 — 2026-09-03
+## 3.20.0 — 2026-09-03
 
 **Upgrade:** Nothing required — the next review heartbeat builds
 `work/PROFILE.md` (`project_profile`, default `enabled`; `disabled` in
@@ -19,6 +19,10 @@ they are released history and stay as written.
 takes effect from the next session. To build the profile now:
 `bash "$HOME/scripts/profile.sh" generate`. Area-scoped memory files
 (`work/memory/<topic>.md`) are created by the memory consolidation as needed.
+
+## 3.19.0 — 2026-09-03
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 3.18.0 — 2026-09-03
 

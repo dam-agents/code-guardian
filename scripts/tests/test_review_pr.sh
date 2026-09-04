@@ -165,6 +165,37 @@ foreign_step "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'another run mid-pipeline on this PR holds it'
 
+# --- delta range: extension skills route from the changes since the prior review ---
+setup delta_routing
+PRIOR="1111111111111111111111111111111111111111"
+mk_history() { # <marker-sha>
+  printf '# PR #1: alpha PR\n\n## Review at %s — %s — COMMENT\n\nx\n<!-- cg:review headRefOid=%s -->\n' \
+    "${1:0:7}" "$(iso_ago 7200)" "$1" > "$WORK/reviews/pr-1.md"
+}
+mk_history "$PRIOR"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+export const gamma = query();"}]}' \
+  | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.delta.reachable == true and .delta.status == "ahead" and (.delta.files == ["src/gamma.ts"])' 'prepare resolves the delta range from the last review marker'
+assert_jq '.skills["typescript-engineering"].files == ["src/gamma.ts"]' 'an extension skill routes from the range, not the whole PR diff'
+assert_jq '.skills["doc-drift"].status == "run"' 'an always skill is unaffected by the range'
+run_rp abort 1 "reset"
+
+# an unreachable range (force-pushed away) falls back to the whole PR diff
+setup delta_routing_unreachable
+PRIOR="1111111111111111111111111111111111111111"
+printf '# PR #1: alpha PR\n\n## Review at 1111111 — %s — COMMENT\n\nx\n<!-- cg:review headRefOid=%s -->\n' \
+  "$(iso_ago 7200)" "$PRIOR" > "$WORK/reviews/pr-1.md"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'
+jq -n '{status:"diverged", files:[]}' | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.delta.reachable == false and .delta.status == "diverged"' 'an unreachable range is reported as such'
+assert_jq '(.skills["typescript-engineering"].files | length) == 2' 'an unreachable range routes skills from the whole PR diff'
+run_rp abort 1 "reset"
+
 # --- delta against the prior findings-json + overrides ---------------------------
 setup delta_case
 cat > "$WORK/reviews/pr-1.md" <<EOF

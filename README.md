@@ -320,7 +320,8 @@ configured output surfaces (`docs/runbook.md` → **Hard invariants**).
   instance's `definition_repo`): [`issue-fit`](.agents/skills/issue-fit/SKILL.md)
   — does the diff deliver what the linked issue asked.
 - [`docs/`](docs/) — detailed procedures, read on demand:
-  [`review.md`](docs/review.md), [`skills.md`](docs/skills.md),
+  [`review.md`](docs/review.md), [`finding-form.md`](docs/finding-form.md),
+  [`skills.md`](docs/skills.md),
   [`profile.md`](docs/profile.md), [`config.md`](docs/config.md),
   [`artifact.md`](docs/artifact.md), [`shepherd.md`](docs/shepherd.md),
   [`preferences.md`](docs/preferences.md), [`persistence.md`](docs/persistence.md), [`audit.md`](docs/audit.md),
