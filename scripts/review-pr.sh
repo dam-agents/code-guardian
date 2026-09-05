@@ -615,16 +615,24 @@ cmd_delta() {
   j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
-    def near($a; $b; $tol): ($a.file == $b.file) and ($a.line != null) and ($b.line != null) and ((($a.line - $b.line) | fabs) <= $tol);
+    # a finding carries one anchor per location: its own file:line plus every
+    # `also` entry (docs/review.md → Summary body format)
+    def anchs($f): [ {file: $f.file, line: $f.line} ]
+      + [ ($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line} ];
+    def near($a; $b; $tol): any(anchs($a)[]; . as $x
+      | any(anchs($b)[]; . as $y
+        | ($x.file == $y.file) and ($x.line != null) and ($y.line != null)
+          and ((($x.line - $y.line) | fabs) <= $tol)));
     # an override matches by file:line (±2) or by a symbol: a backticked token
     # of the finding (its `symbol` field or any `code` span in its summary that
     # is not a path:line anchor) quoted the same way in an override that names
     # the file
     def symbols($f): ([ $f.symbol // empty ] + [ ($f.summary // "") | scan("`([^`]+)`") | .[0] ])
       | map(select(length > 0 and (test("^[^`]+:[0-9]+$") | not))) | unique;
-    def ovr_hits($f): ($f.file // "") as $file | ($f.line // -1000) as $l | symbols($f) as $syms
+    def ovr_hits($f): ($f.file // "") as $file | symbols($f) as $syms | anchs($f) as $ax
       | [ $o[] | select(. as $line
-          | ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $file + ":" + (($l + $d)|tostring) + "`")))
+          | ($ax | any(. as $a | ($a.file != null) and ($a.line != null)
+              and ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $a.file + ":" + (($a.line + $d)|tostring) + "`")))))
             or (($line | contains("`" + $file + "`")) and any($syms[]; . as $s | $line | contains("`" + $s + "`")))) ];
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
@@ -739,6 +747,36 @@ cmd_post() {
     fi
   fi
 
+  # --- anchor check: every findings-json line must exist in the file it names ---
+  # A finding whose anchor does not exist points the author at nothing and can
+  # 422 the POST, so the line is nulled (summary-only) and reported; the finding
+  # itself is never dropped (docs/review.md → Summary body format).
+  local anchor_bad='[]'
+  if [ -d "$PR_DIR" ]; then
+    local lens
+    lens="$(jq -r '[ .[] | .file, ((.also // [])[]? | .file) ] | map(select(. != null)) | unique | .[]' "$FINDINGS" 2>/dev/null \
+      | while IFS= read -r f; do
+          case "$f" in (''|/*|..|../*|*/..|*/../*) continue;; esac
+          [ -f "$PR_DIR/$f" ] || continue
+          printf '%s\t%s\n' "$f" "$(grep -c '' "$PR_DIR/$f")"
+        done | jq -R 'split("\t") | select(length == 2) | {(.[0]): (.[1] | tonumber)}' | jq -sc 'add // {}')"
+    [ -n "$lens" ] || lens='{}'
+    local FJQ='def ok($a): ($a.file == null) or ($a.line == null) or ($L[$a.file] == null)
+                 or (($a.line >= 1) and ($a.line <= $L[$a.file]));'
+    anchor_bad="$(jq -c --argjson L "$lens" "$FJQ"'
+      [ .[] | . as $f
+        | ({file: $f.file, line: $f.line, summary: $f.summary} | select(ok(.) | not)),
+          (($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line, summary: $f.summary} | select(ok(.) | not)) ]' "$FINDINGS")"
+    if [ "$(printf '%s' "$anchor_bad" | jq length)" -gt 0 ]; then
+      jq -c --argjson L "$lens" "$FJQ"'
+        map(. as $f
+            | (if ok({file: $f.file, line: $f.line}) then . else .line = null | .inline = false end)
+            | (if (.also // []) == [] then . else .also = [ (.also)[]? | select(type == "object") | select(ok({file: (.file // $f.file), line: .line})) ] end))' \
+        "$FINDINGS" > "$CTX/findings.checked.json" && FINDINGS="$CTX/findings.checked.json"
+      logev warn anchor_invalid "PR #$N: $(printf '%s' "$anchor_bad" | jq length) finding anchor(s) not a line of the file named — nulled: $(printf '%s' "$anchor_bad" | jq -r 'map("\(.file):\(.line)") | join(", ")')"
+    fi
+  fi
+
   # --- inline comments: eligibility against the hunk index, cap, priority ---
   local comments='[]' moved='[]'
   if [ -n "$COMMENTS" ]; then
@@ -832,9 +870,9 @@ cmd_post() {
   logstep "$sha7 done"
   cleanup
   out "$(jq -nc --arg v "$VERDICT" --arg id "$rid" --arg u "$url" --argjson m "$moved" --argjson lr "$label_removed" --argjson d "${dismissed:-null}" \
-    --argjson c "$c" --argjson w "$w" --argjson s "$s" --argjson took "$took" \
+    --argjson c "$c" --argjson w "$w" --argjson s "$s" --argjson took "$took" --argjson ab "${anchor_bad:-[]}" \
     '{outcome:"posted", verdict:$v, review_id:(if $id=="" then null else ($id|tonumber) end), url:(if $u=="" then null else $u end),
-      moved_to_summary:$m, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
+      moved_to_summary:$m, anchors_nulled:$ab, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
 }
 
 append_history() { # sha7 ts verdict body-file findings note — the body as posted

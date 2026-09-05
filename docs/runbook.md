@@ -231,7 +231,9 @@ cleanup already happened inside preflight ([logging.md](logging.md)).
   ([skills.md](skills.md) → **Triggers & file routing**), the only accepted
   skips are `no-matching-files` and technical failures, and their findings are
   reformatted to the finding form and deduplicated against the other sources —
-  never dropped or capped.
+  never dropped or capped, and a blocking one that fails verification is
+  regraded to 🟢, never deleted ([review.md](review.md) → **Full-file
+  verification**).
 - Stored project knowledge — `work/PROFILE.md`, its per-PR slice and history —
   orients and never testifies: every finding rests on the diff and the clone, a
   `verify_live` row is read from the live file, and a missing or stale profile

@@ -132,6 +132,9 @@ JQ_COMMON='
   def fixture_judge:
     (jnums(.first.judge) + jnums(.rereview.judge)) as $jn
     | if ($jn | length) == 0 then null else (($jn | add / length) | r3) end;
+  # finding_accuracy alone: a run whose true positives matched the manifest by
+  # position rather than by mechanism reads high on f1 and low here
+  def fixture_find_acc: (.first.judge.finding_accuracy // null);
   # delta vs the previous same-model run. The arrow duplicates the sign so the
   # direction never rests on color alone; $g flips which direction is "good"
   # (1 = higher is better, -1 = lower is better, as for seconds/tokens/cost).
@@ -180,6 +183,7 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
                    else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | ncell)
     + ($fx | total(.first.fp | if . == null then null else length end) | ncell)
     + ($fx | avg(fixture_judge) | ncell)
+    + ($fx | avg(fixture_find_acc) | ncell)
     + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs; -1))</td>"
     + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
     + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td></tr>"')"
@@ -188,7 +192,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_C
   . as $all
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
-  | "<h2>\($s | @html)</h2>\n<div class=scroll>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th>"
+  | "<h2>\($s | @html)</h2>\n<div class=scroll>\n<table>\n<tr><th>run</th><th>model</th><th>index</th><th>judge</th><th>find-acc</th>"
     + "<th>f1</th><th>prec</th><th>rec</th><th>hard</th><th>sev</th><th>fp</th><th>words</th>"
     + "<th>fixed</th><th>new</th><th>churn</th><th>false-fixed</th><th>late</th>"
     + "<th>sec</th><th>out-tok</th></tr>\n"
@@ -198,6 +202,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_C
         | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
           + "<td class=\"n idx\"><b>\($fi | fmt)</b>\($fi | bar)</td>"
           + ($f | fixture_judge | ncell)
+          + ($f | fixture_find_acc | ncell)
           + ($f.first.f1 | ncell)
           + ($f.first.precision | ncell)
           + ($f.first.recall | ncell)
@@ -314,7 +319,7 @@ filter, page long histories. Semantics: docs/benchmark.md.</p>
 <table>
 <tr><th>run</th><th>trigger</th><th>model</th><th>version</th><th>harness</th>
 <th>fixtures</th><th>index</th><th>avg f1</th><th>avg sev</th><th>avg fixed</th>
-<th>avg new</th><th>circles</th><th>FPs</th><th>judge</th><th>sec</th><th>out-tok</th><th>est $</th></tr>
+<th>avg new</th><th>circles</th><th>FPs</th><th>judge</th><th>find-acc</th><th>sec</th><th>out-tok</th><th>est $</th></tr>
 ${ROWS_ALL}
 </table>
 </div>

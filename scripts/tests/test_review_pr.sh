@@ -241,6 +241,28 @@ run_rp delta 1
 assert_jq '.outcome == "error" and (.error | contains("usage: delta"))' 'a missing argument prints the usage'
 run_rp abort 1 "reset"
 
+# --- delta: a merged finding matches on any of its `also` anchors ----------------
+setup delta_also
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: alpha PR
+
+## Review at aaaaaaa — $(iso_ago 7200) — COMMENT
+
+x
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/alpha.ts","line":5,"also":[{"file":"src/beta.ts","line":1}],"inline":true,"summary":"unbounded query","fix":"add a limit"}] -->
+
+---
+EOF
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+# the class survives at the second location only: the review now anchors it there
+printf '[{"status":"still","severity":"critical","file":"src/beta.ts","line":1,"inline":true,"summary":"unbounded query","fix":"add a limit"}]' > "$SANDBOX/cur-also.json"
+run_rp delta 1 "$SANDBOX/cur-also.json"
+assert_jq '.still | length == 1 and .[0].file == "src/beta.ts"' 'a prior `also` anchor matches the current primary anchor'
+assert_jq '.fixed == [] and .new == []' 'one class at a second location is neither fixed nor new'
+run_rp abort 1 "reset"
+
 # --- post: success path with an eligible and an ineligible inline comment --------
 setup post_success '- review_progress: enabled'
 pr_fx open '["cg-rereview"]'
@@ -264,6 +286,22 @@ assert_file_contains "$WORK/reviews/pr-1.md" "<!-- cg:review headRefOid=$B1_SHA 
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
+
+# --- post: anchors that are not a line of the file they name are nulled ----------
+setup post_anchor_check
+run_rp prepare 1
+printf '### Summary\nAdds query().\n\n### Findings\n- 🔴 **Critical:** unbounded query (`src/alpha.ts:6`)\n\n### Verdict\nREQUEST_CHANGES — fix it\n' > "$SANDBOX/body.md"
+# src/alpha.ts is 12 lines on b1: 999 and the `also` 400 cannot exist, src/ghost.ts is not in the clone
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"also":[{"file":"src/alpha.ts","line":400}],"inline":true,"summary":"unbounded query","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":999,"inline":true,"summary":"past the end","fix":"drop it"},{"status":"new","severity":"warning","file":"src/ghost.ts","line":5,"inline":false,"summary":"not in the clone","fix":"keep it"}]' > "$SANDBOX/findings.json"
+printf '{"id":78,"html_url":"https://example.test/r/78","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'a bad anchor never blocks the post'
+assert_jq '.anchors_nulled | length == 2' 'both impossible anchors are reported'
+assert_jq '[.anchors_nulled[].line] | sort == [400, 999]' 'the reported anchors are the out-of-range ones'
+assert_file_contains "$WORK/reviews/pr-1.md" '"summary":"past the end"' 'the finding itself is never dropped'
+assert_file_contains "$WORK/reviews/pr-1.md" '"file":"src/alpha.ts","line":null,"inline":false' 'an impossible line is nulled and made summary-only'
+assert_file_contains "$WORK/reviews/pr-1.md" '"line":6,"also":\[\]' 'the finding keeps its real anchor and drops the impossible also entry'
+assert_file_contains "$WORK/reviews/pr-1.md" '"file":"src/ghost.ts","line":5' 'a file absent from the clone is left alone'
 
 # --- post: HEAD moved → abort, re-review restores awaiting_label ------------------
 setup post_head_moved
