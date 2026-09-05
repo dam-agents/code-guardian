@@ -107,6 +107,11 @@ file's findings become that skill's `### <section>`, merged across sources per
 never posted unread, and no finding is lost on the way in. On re-reviews the
 section is condensed per [review.md](review.md) → **Re-review output**.
 
+**Severity is graded by the review, not by the skill.** Every blocking skill
+finding passes the same verification and the same severity bar as your own
+([review.md](review.md) → **Full-file verification**); one that does not clear
+it is regraded to 🟢 and kept.
+
 **Failures stay per skill.** A subagent that errors, or whose output file is
 missing or empty, is `skill-errored` for that skill alone: omit its section,
 log, continue with the rest. Never abort the PR, never re-run the fan-out.

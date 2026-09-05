@@ -295,7 +295,10 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
-5. Per fixture, the deterministic scores (field meanings in the script header):
+5. Per fixture, the deterministic scores (field meanings in the script header).
+   A prediction matches on any of its anchors — its own `file:line` plus every
+   `also` location ([review.md](review.md) → **Summary body format**) — so one
+   sibling-swept finding scores every defect it names:
 
    ```bash
    bash "$HOME/scripts/benchmark-score.sh" first    "<raw first>"    "$B/manifest.json"
@@ -318,7 +321,9 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    stay beside the deterministic metrics, never inside them** — the quality
    index comes from scorer output only
    ([benchmark-report.sh](../scripts/benchmark-report.sh)), so the
-   deterministic set is the comparison baseline whatever the judge does.
+   deterministic set is the comparison baseline whatever the judge does. The
+   report prints `finding_accuracy` in its own `find-acc` column: high f1 beside
+   a low `find-acc` marks true positives matched by position, not by mechanism.
 7. Assemble `results/<ts>.json` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `memory_sha`, `skill_sources`, `definition_ref`) come

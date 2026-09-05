@@ -82,9 +82,9 @@ c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
 d. **Run every configured review skill** per [skills.md](skills.md):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
    status `run`, then `review-pr.sh collect <n>` for the audit lines, form
-   warnings and `skill_timing`. Verify candidates (**Full-file
-   verification**), sweep siblings (**Sibling sweep**), then
-   `review-pr.sh step <n> verified`. On a re-review,
+   warnings and `skill_timing`. Verify every blocking finding, yours and the
+   skills' (**Full-file verification**), sweep siblings (**Sibling sweep**),
+   then `review-pr.sh step <n> verified`. On a re-review,
    `review-pr.sh delta <n> findings.json` classifies your findings against the
    prior `findings-json` — `fixed` / `still` / `new`, `suppressed` by
    overrides, `ambiguous` pairs left to you — and returns the
@@ -104,10 +104,10 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
    `reviews/pr-<n>.md`, writes the `done` row and terminal status, logs
    `posted <verdict>` and `done`, and deletes clone, copies, diff and state —
    exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
-   `label_removed`, `dismissed_approval`) · `aborted` (**Error handling**) ·
-   `duplicate` (the marker is already on GitHub; the row self-heals with its
-   timestamp) · `closed_*` (**PR closed mid-review**). Then evaluate the
-   configured watch rules ([watches.md](watches.md)).
+   `anchors_nulled`, `label_removed`, `dismissed_approval`) · `aborted`
+   (**Error handling**) · `duplicate` (the marker is already on GitHub; the row
+   self-heals with its timestamp) · `closed_*` (**PR closed mid-review**). Then
+   evaluate the configured watch rules ([watches.md](watches.md)).
 g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
@@ -394,21 +394,25 @@ defect risk — a misleading name that hides a bug, dead code that changes
 behavior, an abstraction that breaks its contract. Never request restructuring
 for human readers alone.
 
-**Full-file verification** — end of step d: candidates from step c, verified
-after the skills and before you compose. The diff nominates a finding; the
-surrounding code confirms it. Re-check each candidate with
+**Full-file verification** — end of step d: **every blocking finding, your
+candidates from step c and the skills'**, verified before you compose. The diff
+or the skill nominates it; the surrounding code confirms it. Re-check each with
 `review-pr.sh context <n> <path> <line> [radius]`, which prints **numbered
 source text** (±40 lines by default) and whether the line lies inside this PR's
 hunks — `no` marks a pre-existing problem, at most one 🟢 line. Read the whole
-file only when that range leaves the question open. Keep what survives, drop
-what you doubt: a false positive costs more credibility than a missed nit. No
-clone (`clone-failed`) → verify against the diff context you have.
+file only when that range leaves the question open. Anchor every survivor on
+the line its **Fix:** changes, read off that numbered output. What does not
+clear the severity bar ([finding-form.md](finding-form.md)) is dropped when it
+is your own candidate and **regraded to 🟢 when a skill reported it** — a skill
+finding is never deleted. A false positive costs more credibility than a missed
+nit. No clone (`clone-failed`) → verify against the diff context you have.
 
 **Sibling sweep** — same pass. For each surviving 🔴/🟡, check the files this PR
 changes for more occurrences of the same defect class:
 `review-pr.sh sweep <n> '<regex>'` returns the hits in changed files and a
 count in untouched code. Report them as **one** finding listing every location,
-so one fix round closes the class. An occurrence in untouched code is a
+so one fix round closes the class, and carry those locations in the finding's
+`also` (**Summary body format**). An occurrence in untouched code is a
 pre-existing problem ([finding-form.md](finding-form.md)). On a delta
 re-review both passes cover only the files changed since the prior review.
 
@@ -670,7 +674,7 @@ server-side stale guard: GitHub 422s if HEAD moved, and `post` aborts.
 ---
 _Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
 
-<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
+<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"also":[{"file":"src/session.ts","line":18}],"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
@@ -681,18 +685,23 @@ Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker lin
 right above the marker, in every posted full review. Per finding: `status`
 (`new`|`still`|`fixed`; first reviews all `new`), `severity`
 (`critical`|`warning`|`suggestion`), `file`, `line` (null when not anchorable),
-`inline`, `summary` (≤ ~10 words), `fix` (the **Fix:** line in ≤ ~15 words;
-`null` on `suggestion` and `fixed`). `critical` and `warning` are the blocking
-set, so this line is the machine-readable approval bar the next re-review
-checks against. Keep the JSON free of `--` sequences — HTML-comment safety, use
-`–`. No findings → `[]`. Rapid reviews carry no such line. A pre-3.1.0 review
-without `fix` parses as before.
+`also` (the sibling-sweep locations of the same finding, `[{file, line}]`;
+omitted when there is one), `inline`, `summary` (≤ ~10 words), `fix` (the
+**Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical`
+and `warning` are the blocking set, so this line is the machine-readable
+approval bar the next re-review checks against. Every anchor is a real line of
+the file it names — `post` nulls one that is not and reports it. Keep the JSON
+free of `--` sequences — HTML-comment safety, use `–`. No findings → `[]`.
+Rapid reviews carry no such line. A review without `fix` (pre-3.1.0) or without
+`also` (pre-3.22.0) parses as before.
 
 ### Mapping findings to inline comments
 
 1. Inline-eligible = `(file, line)` inside a diff hunk: `path` repo-relative,
    `line` in the new file (`side: "RIGHT"`; `"LEFT"` + old line for deleted
-   code); multi-line adds `start_line`, both ends in one hunk.
+   code); multi-line adds `start_line`, both ends in one hunk. A finding with
+   `also` locations takes one comment per location, so each site carries the
+   fix; the cap and priority of 4 count them all.
 2. Outside every hunk, or no precise line → summary-only. `post` checks each
    comment against the hunk index and moves the ineligible ones under
    `### Findings not anchorable inline`, because otherwise the whole POST 422s.
@@ -764,7 +773,8 @@ Before you declare the run done:
   recorded ([preferences.md](preferences.md)) · `memory_due` read before
   reviewing · orientation used for where to look only, `verify_live` rows read
   live, no finding citing the profile ([profile.md](profile.md)) · noise files
-  excluded with their Summary line · candidates verified and sibling-swept ·
+  excluded with their Summary line · every blocking finding verified, the
+  skills' included, and sibling-swept with its `also` locations ·
   every open 🔴/🟡 carrying a class-rule **Fix:**, mirrored into
   `findings-json` · skill sections reformatted and merged with no finding lost
   · stale approval dismissed when the verdict dropped below APPROVE · clone,

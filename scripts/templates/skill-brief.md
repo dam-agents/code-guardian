@@ -16,7 +16,8 @@ Do exactly this:
    `` (`path:line`) ``; every 🔴 and 🟡 is followed by its own line
    `  **Fix:** <the remedy, stated as a rule for the whole defect class>`.
    Reformat, never reduce: every distinct finding the skill reported survives with
-   its severity, `path:line`, 1–2 sentence description and Fix. Cut only the
+   its `path:line`, 1–2 sentence description and Fix. Grade its severity by the
+   finding form's rubric, not by the label the skill used. Cut only the
    skill's framing — headings, scope preambles, checked-and-clean inventories,
    restated diff. No findings → the file holds the single line `✅ No findings.`
 3. Reply with only the output path and `ran (findings=<N>)`, or `errored` — the

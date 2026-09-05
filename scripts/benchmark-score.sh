@@ -6,13 +6,17 @@
 #   benchmark-score.sh first    <raw-review.md> <manifest.json>
 #   benchmark-score.sh rereview <raw-review.md> <manifest.json>
 #
-# Matching: a predicted finding (from the review's findings-json line) matches
-# a manifest defect when the files are equal and the line sits within ±3 of
-# the defect's anchor (line_v1 and/or line_v2 — the fixture keeps same-file
-# defects ≥10 lines apart, so the windows never overlap). Each defect and each
-# prediction is used at most once (greedy, manifest order). A prediction with
-# line: null matches by file only in the fixed bucket (a fixed one-liner may
-# drop its line); everywhere else it stays unmatched.
+# Matching: a predicted finding (from the review's findings-json line) carries
+# one anchor per location — its own file:line plus every entry of its optional
+# `also` array, which is how the sibling sweep reports one defect class found in
+# several places (docs/review.md → Sibling sweep). An anchor matches a manifest
+# defect when the files are equal and the line sits within ±3 of the defect's
+# anchor (line_v1 and/or line_v2 — the fixture keeps same-file defects ≥10 lines
+# apart, so the windows never overlap). Each defect and each anchor is used at
+# most once (greedy, manifest order), so one merged prediction can match every
+# defect it names, and it is an FP only when none of its anchors match. A
+# prediction with line: null matches by file only in the fixed bucket (a fixed
+# one-liner may drop its line); everywhere else it stays unmatched.
 #
 # Output fields — first mode:
 #   gt                     defects present in v1 (ground-truth set size)
@@ -78,6 +82,12 @@ count_words() { grep -o '[^[:space:]][^[:space:]]*' | grep -c ''; }
 JQ_DEFS='
   def r3: if . == null then null else (. * 1000 | round) / 1000 end;
   def dist($a; $b): ($a - $b) | if . < 0 then -. else . end;
+  # one prediction, one anchor per location: its own file:line plus every
+  # `also` entry, each carrying the index of the prediction it belongs to
+  def anchors($preds):
+    [ range(0; $preds | length) as $i
+      | ({pi: $i, file: $preds[$i].file, line: $preds[$i].line},
+         (($preds[$i].also // [])[] | {pi: $i, file: .file, line: .line})) ];
 '
 
 # ------------------------------------------------ findings-json + format ----
@@ -88,7 +98,12 @@ FJ="$(sed -n 's/^<!-- findings-json: \(.*\) -->[[:space:]]*$/\1/p' "$RAW" | head
 FJ_OK=true
 FJ="$(printf '%s' "$FJ" | jq -c 'select(type == "array")
   | map(select(type == "object")
-        | .line = ((.line // null) | if type == "number" then . else (tonumber? // null) end))' \
+        | .line = ((.line // null) | if type == "number" then . else (tonumber? // null) end)
+        | . as $f
+        | .also = ([ ($f.also // [])[]? | select(type == "object")
+                     | {file: (.file // $f.file),
+                        line: ((.line // null) | if type == "number" then . else (tonumber? // null) end)}
+                     | select(.file != null and .line != null) ]))' \
   2>/dev/null)" || FJ=''
 [ -n "$FJ" ] || { FJ_OK=false; FJ='[]'; }
 
@@ -145,24 +160,26 @@ if [ "$MODE" = "first" ]; then
         else (($tpl | map(select(.gt_severity == $sev)) | length) / $n) end;
     $m_[0] as $m
     | ($m.defects | map(select(.line_v1 != null))) as $gt
+    | anchors($fj) as $anch
     | reduce range(0; $gt | length) as $i (
         {used: [], tp: [], fn: []};
         . as $st | $gt[$i] as $g
-        | ([ range(0; $fj | length)
-             | select(($fj[.].file == $g.file)
-                      and ($fj[.].line != null)
-                      and (dist($fj[.].line; $g.line_v1) <= 3)
+        | ([ range(0; $anch | length)
+             | select(($anch[.].file == $g.file)
+                      and ($anch[.].line != null)
+                      and (dist($anch[.].line; $g.line_v1) <= 3)
                       and (. as $ix | ($st.used | index($ix)) == null)) ]
            | first) as $mi
         | if $mi == null then $st | .fn += [$g.id]
           else $st | .used += [$mi]
                    | .tp += [{id: $g.id, file: $g.file, line: $g.line_v1,
                               gt_severity: $g.severity,
-                              pred_severity: $fj[$mi].severity}]
+                              pred_severity: $fj[$anch[$mi].pi].severity}]
           end)
     | . as $r
+    | ([ $r.used[] | $anch[.].pi ] | unique) as $hit
     | ($fj | to_entries
-           | map(select(.key as $k | ($r.used | index($k)) == null) | .value)) as $un
+           | map(select(.key as $k | ($hit | index($k)) == null) | .value)) as $un
     | ($un | map(select(.severity == "critical" or .severity == "warning"))
            | map({file, line, severity, summary})) as $fp
     | ($r.tp | length) as $tpn | ($gt | length) as $gtn | ($fp | length) as $fpn
@@ -190,16 +207,19 @@ else
       or ($g.line_v2 != null and $pl != null and dist($pl; $g.line_v2) <= 3);
     # greedy bucket match; $fileonly admits line:null predictions by file alone
     def bmatch($gtl; $preds; $fileonly):
-      reduce range(0; $gtl | length) as $i (
+      anchors($preds) as $anch
+      | reduce range(0; $gtl | length) as $i (
         {used: [], hit: 0};
         . as $st | $gtl[$i] as $g
-        | ([ range(0; $preds | length)
-             | select(($preds[.].file == $g.file)
+        | ([ range(0; $anch | length)
+             | select(($anch[.].file == $g.file)
                       and (. as $ix | ($st.used | index($ix)) == null)
-                      and (anchored($preds[.].line; $g)
-                           or ($fileonly and $preds[.].line == null))) ]
+                      and (anchored($anch[.].line; $g)
+                           or ($fileonly and $anch[.].line == null))) ]
            | first) as $mi
-        | if $mi == null then $st else $st | .used += [$mi] | .hit += 1 end);
+        | if $mi == null then $st else $st | .used += [$mi] | .hit += 1 end)
+      # leftovers are counted per prediction: a merged one is consumed whole
+      | . + {used_pi: ([ .used[] | $anch[.].pi ] | unique)};
     def frac($hit; $n): if $n == 0 then null else ($hit / $n) end;
     $m_[0] as $m | $m.defects as $d
     | ($d | map(select(.fixed_in_v2 == true  and .in_prior_review == true)))  as $fixedGT
@@ -218,14 +238,14 @@ else
     # bucket, and matches them by line — a correct line-null fixed claim is
     # never double-counted against a same-file still-present defect
     | ($pF | to_entries
-           | map(select(.key as $k | ($mf.used | index($k)) == null) | .value)) as $restF
+           | map(select(.key as $k | ($mf.used_pi | index($k)) == null) | .value)) as $restF
     | bmatch($stillGT; $pS; false) as $ms
     | bmatch($newGT;   $pN; false) as $mn
     | ($pN | to_entries
-           | map(select(.key as $k | ($mn.used | index($k)) == null) | .value)) as $restN
+           | map(select(.key as $k | ($mn.used_pi | index($k)) == null) | .value)) as $restN
     | bmatch($lateGT; $restN; false) as $ml
     | ($restN | to_entries
-              | map(select(.key as $k | ($ml.used | index($k)) == null) | .value)) as $restN2
+              | map(select(.key as $k | ($ml.used_pi | index($k)) == null) | .value)) as $restN2
     | bmatch($fixSites; ($restN2 | map(select(.severity == "critical" or .severity == "warning"))); false) as $mc
     | ($restN2 | map(select(.severity == "critical" or .severity == "warning")) | length) as $blockrest
     | {fixed_gt: ($fixedGT | length), still_gt: ($stillGT | length),
