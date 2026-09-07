@@ -119,7 +119,7 @@ changed-file list from the diff for that PR.
   most 10 rows, two sentences each: what the map cannot state, such as a unit
   convention or a trap in one module. Written by the operator in the direct
   session, or by the audit run when a lesson generalizes to a code area
-  ([audit.md](audit.md) task 30). The audit re-verifies `stale` rows against
+  ([audit.md](audit.md) task 31). The audit re-verifies `stale` rows against
   the live source and drops `orphan` ones.
 
 ## Configuration

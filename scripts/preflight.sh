@@ -1717,6 +1717,7 @@ if [ "$MODE" = "audit" ]; then
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
   # queue wait + this; without it a slow median cannot be attributed to either.
   REVIEW_DUR="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
     [.[] | select(.ts >= $s and .event == "review_step")
      | select(.msg | test("^PR #[0-9]+:? +."))
      | (.msg | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
@@ -1726,13 +1727,46 @@ if [ "$MODE" = "audit" ]; then
     | map({ locked: ([.[] | select(.rest | startswith("locked")) | .ts] | min),
             done:   ([.[] | select(.rest | startswith("done"))   | .ts] | max) })
     | map(select(.locked != null and .done != null)
-          | (((.done | fromdateiso8601) - (.locked | fromdateiso8601)) / 60 | floor))
+          | (((.done | epoch) - (.locked | epoch)) / 60 | floor))
     | sort
     | { n: length,
         median_min: (if length == 0 then null
                      elif (length % 2) == 1 then .[(length / 2) | floor]
                      else ((.[length / 2 - 1] + .[length / 2]) / 2 | floor) end) }' 2>/dev/null)"
   [ -n "$REVIEW_DUR" ] || REVIEW_DUR='{"n":0,"median_min":null}'
+
+  # the same events, split per phase of the per-PR sequence (docs/review.md →
+  # Progress logging): a median that grew is attributable to the phase that
+  # grew it, instead of hiding inside one `verified` -> `posted` interval. A
+  # phase whose bounding milestone is missing is not counted, never zero.
+  REVIEW_PHASES="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    def mid: sort | (if length == 0 then null
+                     elif (length % 2) == 1 then .[(length / 2) | floor]
+                     else ((.[length / 2 - 1] + .[length / 2]) / 2 | floor) end);
+    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    def at($g; $step): [ $g[] | select(.rest | startswith($step)) | .ts ] | min;
+    def span($g; $from; $to): at($g; $from) as $a | at($g; $to) as $b
+      | if $a == null or $b == null then null
+        else ((($b | epoch) - ($a | epoch)) / 60 | floor) end;
+    [.[] | select(.ts >= $s and .event == "review_step")
+     | select(.msg | test("^PR #[0-9]+:? +."))
+     | (.msg | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
+     | { run: .run, pr: $c.pr, ts: .ts,
+         rest: ($c.rest | sub("^[0-9a-f]{7,40}( +|$)"; "")) }]
+    | map(select(.rest | startswith("locked (refresh") | not))
+    | group_by([.run, .pr])
+    | map(. as $g
+          | { prepare:     span($g; "locked"; "cloned"),
+              diff_review: span($g; "cloned"; "fanned out"),
+              skills:      span($g; "fanned out"; "verified"),
+              delta:       span($g; "verified"; "delta settled"),
+              compose:     (span($g; "delta settled"; "composed") // span($g; "verified"; "composed")),
+              post:        span($g; "composed"; "posted") }) as $r
+    | [ "prepare", "diff_review", "skills", "delta", "compose", "post" ]
+    | map(. as $k | { key: $k, value: ([ $r[] | .[$k] | select(. != null) ]
+                                       | { n: length, median_min: mid }) })
+    | from_entries' 2>/dev/null)"
+  [ -n "$REVIEW_PHASES" ] || REVIEW_PHASES='{}'
 
   # reaction feedback on the bot's comments — 👍/👎 sums over the latest 100
   # inline + 100 issue comments (the two surfaces whose REST list endpoints
@@ -1772,14 +1806,14 @@ if [ "$MODE" = "audit" ]; then
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
-    --argjson dur "$REVIEW_DUR" \
+    --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson fx "$fx_wk" --argjson sp "$sp_wk" --argjson fs "$FIND_SEV" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq,
-               duration:$dur},
+               duration:$dur, phases:$ph},
       findings:({fixed:$fx, still_present:$sp} + $fs),
       heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
