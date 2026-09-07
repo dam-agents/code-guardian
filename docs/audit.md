@@ -7,7 +7,7 @@ compute the derived metrics, send the report.
 
 **The audit fixes nothing.** Its only GitHub write is a tracking issue for a
 definition bug found in task 3, and its one local write beyond `AUDIT.log` is
-the memory consolidation of task 29. Routine findings (pending prunes, stale
+the memory consolidation of task 30. Routine findings (pending prunes, stale
 locks) heal on the next heartbeat; everything else goes to the operator. A
 skipped task is an incomplete audit — a task that is impossible this week
 (missing data, API error) is reported as `warn` with the reason, never dropped.
@@ -154,23 +154,32 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     (heartbeat gaps? decision bug?). `stats.reviews.duration` is the review
     itself (`locked` → `done`); the rest of the median is queue wait, which is
     what a cadence change moves.
-23. **Verdict distribution** — ~100 % APPROVE across a busy week is possible
+23. **Review time by phase** — `stats.reviews.phases` splits `duration` per
+    phase of the per-PR sequence (`prepare`, `diff_review`, `skills`, `delta`,
+    `compose`, `post` — [review.md](review.md) → **Progress logging**), each
+    `{n, median_min}` over the runs whose two bounding milestones both landed.
+    Report the two largest. A phase whose median grew is where a slower week
+    comes from, so name it instead of the total; `delta` and `compose` past
+    the `skills` median mean the review spent its time on bookkeeping, not on
+    the code — record it per [preferences.md](preferences.md) and raise it with
+    the operator.
+24. **Verdict distribution** — ~100 % APPROVE across a busy week is possible
     rubber-stamping; ~100 % REQUEST_CHANGES is possible over-strictness. Either
     extreme → flag it with examples.
-24. **`awaiting_label` backlog** — count and age of rows waiting for a trigger.
+25. **`awaiting_label` backlog** — count and age of rows waiting for a trigger.
     A large or old backlog means the team is not requesting re-reviews; suggest
     it in the report as a process signal.
-25. **Cost pulse** — the idle-heartbeat ratio from `stats` (idle/total). A
+26. **Cost pulse** — the idle-heartbeat ratio from `stats` (idle/total). A
     falling ratio means rising spend; a ratio near zero with no reviews means
     something re-triggers work every run.
-26. **Findings acceptance** — `stats.findings` counts this week's re-review
+27. **Findings acceptance** — `stats.findings` counts this week's re-review
     `✅ Fixed` vs `🔁 Still present` bullets. Report `fixed/(fixed+still)`; a
     persistently low ratio means findings the team does not act on — flag it
     with examples. `by_severity` splits the same counts by the severity
     `findings-json` carries, over `json_reviews` reviews. A severity whose
     ratio is far below the others is the finding class to reconsider — record
     it per [preferences.md](preferences.md).
-27. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
+28. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
     `by_cause` (`pod_restart` / `hard_kill` / `terminated`),
     `wasted_output_tokens`, `redone_prs` and `per_day`. The split matters: the
@@ -183,7 +192,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     the per-run `tokens` events, which a `hard_kill` never got to write —
     report it as "≥", and never read a low figure as a cheap week when
     `by_cause.hard_kill` is non-zero.
-28. **Reaction feedback** — `stats.reactions` sums 👍/👎 on the bot's latest
+29. **Reaction feedback** — `stats.reactions` sums 👍/👎 on the bot's latest
     inline and issue comments. For each `down_urls` entry (≤ 10): read the
     thread; an explicit correction or dismissal → record it per
     [preferences.md](preferences.md) and give the report one line per recorded
@@ -194,7 +203,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 
 ### H. Report & wrap-up
 
-29. **Memory consolidation** — before composing the report, run
+30. **Memory consolidation** — before composing the report, run
     [preferences.md](preferences.md) → **Weekly memory consolidation**.
     **Mandatory when `checks[]` carries a `memory_budget` warn or fail.** It
     ends within the bounds, or the report's *Action needed* names what remains.
@@ -203,7 +212,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     inside the stats window (Feedback Log, Observed Insights) plus the rules
     this consolidation promoted. They fill *Learned this week*, one compressed
     line each.
-30. **Profile notes** — when `work/PROFILE-NOTES.md` exists
+31. **Profile notes** — when `work/PROFILE-NOTES.md` exists
     ([profile.md](profile.md) → **Using it**): re-verify each row
     `work/PROFILE.md` marks `stale` against its live source (keep, reword or
     drop), drop `orphan` rows, and add a row when a lesson of the week
@@ -221,6 +230,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Findings acceptance by severity: <sev> <fixed>/<fixed+still>, … (omit when by_severity is empty)
 • Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
+• Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
@@ -230,7 +240,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
-• <tag> <rule/insight in one line>   ← per task-29 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
+• <tag> <rule/insight in one line>   ← per task-30 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
 
 *Checks*
 🔴 <id> — <detail>          ← every fail (script + tasks above)
@@ -251,4 +261,4 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail" or "error", which next week's log grep would flag), then back up
   `work/` ([persistence.md](persistence.md)). No state repairs beyond tasks
-  29–30, and no GitHub writes except the task-3 tracking issue.
+  30–31, and no GitHub writes except the task-3 tracking issue.

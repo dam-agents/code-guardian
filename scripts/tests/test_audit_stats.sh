@@ -121,6 +121,60 @@ base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 run_preflight audit
 assert_jq '.stats.reviews.duration == {n: 0, median_min: null}' 'no reviews → unmeasured, not zero'
+assert_jq '.stats.reviews.phases | to_entries | all(.value == {n: 0, median_min: null})' 'no reviews → every phase unmeasured too'
+
+# --- millisecond timestamps still parse ----------------------------------------
+# log.sh writes `%3N` where date supports it (the pod), so a stat that hands
+# `.ts` to fromdateiso8601 raw throws and returns nothing at all.
+new_case audit_duration_millis
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+evm() { # <run> <msg> <secs-ago> — a millisecond-precision ts
+  jq -nc --arg r "$1" --arg m "$2" --arg t "$(iso_ago "$3" | sed 's/Z$/.123Z/')" \
+    '{ts:$t, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+evm r1 "PR #10 abc1234 locked" 7800
+evm r1 "PR #10 abc1234 done"   7200
+run_preflight audit
+assert_jq '.stats.reviews.duration == {n: 1, median_min: 10}' 'a millisecond timestamp is measured, not dropped'
+
+# --- review time per phase (stats.reviews.phases) ------------------------------
+new_case audit_review_phases
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+evp() { # <run> <msg> <secs-ago>
+  jq -nc --arg r "$1" --arg m "$2" --arg t "$(iso_ago "$3")" \
+    '{ts:$t, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+# a re-review: prepare 1, diff 3, skills 20, delta 15, compose 10, post 2
+evp r1 "PR #10 abc1234 locked"                          7800
+evp r1 "PR #10 abc1234 cloned"                          7740
+evp r1 "PR #10 abc1234 fanned out (n=2)"                7560
+evp r1 "PR #10 abc1234 locked (refresh, fanned out (n=2))" 7560
+evp r1 "PR #10 abc1234 verified"                        6360
+evp r1 "PR #10 abc1234 delta settled (still=2, new=1, fixed=0, ambiguous=1)" 5460
+evp r1 "PR #10 abc1234 composed"                        4860
+evp r1 "PR #10 abc1234 posted COMMENT"                  4740
+evp r1 "PR #10 abc1234 done"                            4740
+# a first review: no delta, compose measured from `verified`
+evp r2 "PR #11 def5678 locked"           3600
+evp r2 "PR #11 def5678 cloned"           3540
+evp r2 "PR #11 def5678 fanned out (n=2)" 3480
+evp r2 "PR #11 def5678 verified"         2880
+evp r2 "PR #11 def5678 composed"         2760
+evp r2 "PR #11 def5678 posted APPROVE"   2700
+evp r2 "PR #11 def5678 done"             2700
+run_preflight audit
+assert_jq '.stats.reviews.phases.skills == {n: 2, median_min: 15}' 'the skill phase is bounded by fanned out → verified'
+assert_jq '.stats.reviews.phases.delta == {n: 1, median_min: 15}' 'only the re-review has a delta round'
+assert_jq '.stats.reviews.phases.compose == {n: 2, median_min: 6}' 'compose falls back to verified where no delta ran'
+assert_jq '.stats.reviews.phases.post == {n: 2, median_min: 1}' 'the post is bounded by composed → posted'
+assert_jq '.stats.reviews.phases.prepare.n == 2 and .stats.reviews.phases.diff_review.n == 2' 'prepare and the diff review are measured per run'
+assert_jq '.stats.reviews.duration == {n: 2, median_min: 33}' 'the total is still locked → done, median of 51 and 15'
 
 # --- shepherd activity: PRs nudged, from the ledger ---------------------------
 # SHEPHERD.log's "N nudges due" lines re-count a PR every sweep it stays due;
