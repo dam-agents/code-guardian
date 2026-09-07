@@ -85,15 +85,21 @@ d. **Run every configured review skill** per [skills.md](skills.md):
    warnings and `skill_timing`. Verify every blocking finding, yours and the
    skills' (**Full-file verification**), sweep siblings (**Sibling sweep**),
    then `review-pr.sh step <n> verified`. On a re-review,
-   `review-pr.sh delta <n> findings.json` classifies your findings against the
-   prior `findings-json` — `fixed` / `still` / `new`, `suppressed` by
-   overrides, `ambiguous` pairs left to you — and returns the
-   `### Changes since last review` skeleton.
-e. **Compose** `body.md` (`### Summary` … `### Verdict` — **Output format**),
-   `findings.json` (the `findings-json` array) and, for inline-carried
-   findings, `comments.json` (`[{path, line, side, body[, start_line]}]`, each
-   `body` the full text — **Mapping findings to inline comments**). Output the
-   review to the chat UI.
+   `review-pr.sh delta <n> findings.json` classifies your findings against
+   `prior_findings` and returns the `### Changes since last review` block and
+   `annotated` — your array with every `status` filled in (**Re-review
+   output**).
+e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
+   the `body.md` skeleton with its header, its `### Changes since last review`
+   line and its skill sections in table order, the `findings.json` and
+   `comments.json` rules quoted from **Summary body format** and **Mapping
+   findings to inline comments**, and this PR's paths, overrides and memory
+   rules. Write `body.md` (`### Summary` … `### Verdict` — **Output format**),
+   `findings.json` (a re-review posts delta's `annotated` file) and, for
+   inline-carried findings, `comments.json`
+   (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
+   Then `review-pr.sh step <n> composed`, and output the review to the chat
+   UI.
 f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
    --findings findings.json [--comments comments.json]`. It runs Check 2 and
    the dedup re-check, maps each inline comment against the hunk index
@@ -119,14 +125,17 @@ Every entry ends `posted`, `duplicate`, `closed_filed`, `closed_discarded` or
 consecutive timestamps give per-step durations.
 
 - `review-pr.sh` writes them as it performs them: `locked`, `cloned`
-  (`prepare`) · `locked (refresh, …)`, `fanned out (n=<N>)`, `verified`
-  (`step`) · `rapid posted` (`rapid`) · `posted <verdict>`, `done` (`post`) ·
-  `aborted <reason>` (`post` / `abort`). The adapter hook derives
-  `skill:<name> done` ([logging.md](logging.md) → **Harness adapters**).
+  (`prepare`) · `locked (refresh, …)`, `fanned out (n=<N>)`, `verified`,
+  `composed` (`step`) · `delta settled (…)` (`delta`) · `rapid posted`
+  (`rapid`) · `posted <verdict>`, `done` (`post`) · `aborted <reason>`
+  (`post` / `abort`). The adapter hook derives `skill:<name> done`
+  ([logging.md](logging.md) → **Harness adapters**).
 - `fanned out (n=<N>)` goes immediately before the fan-out, `verified`
-  immediately after verification. They bound three durations: the skill phase,
-  the verification window, and compose-plus-Check-2. Per-skill durations come
-  from `skill_timing` ([skills.md](skills.md) → **Invocation & audit log**).
+  immediately after verification, `composed` once body and findings are
+  written. With `delta settled (…)` they bound one duration per phase: the
+  diff review, the skills with their verification, the delta round, the
+  compose, and the post. Per-skill durations come from `skill_timing`
+  ([skills.md](skills.md) → **Invocation & audit log**).
 - In the manual fallback the hook still derives `cloned`, `posted <verdict>`,
   `locked` / `done` / `aborted (lock released)` from the commands that perform
   them (**Review tracking state**). The rest is yours, chained onto the step's
@@ -144,9 +153,10 @@ consecutive timestamps give per-step durations.
 **Lock heartbeat.** Before each of steps c, d, e and f,
 `review-pr.sh step <n> "<what comes next>"` rewrites the PR's REVIEWS.md row
 with the **current** UTC time (same fields, status stays `in_progress`) and
-logs `locked (refresh, …)`; step d's two milestones are `step` calls too. The
-timestamp is the age preflight measures and the event is the liveness signal it
-reads (**Live holder**), so a review that refreshes never crosses the TTL.
+logs `locked (refresh, …)`; step d's two milestones are `step` calls too, and
+the refresh before step f is `composed`. The timestamp is the age preflight
+measures and the event is the liveness signal it reads (**Live holder**), so a
+review that refreshes never crosses the TTL.
 
 **Completion enforcement.** The `Stop` hook reads these events back at end of
 turn: a PR logged `locked` this run with no later `done` / `aborted <reason>`
@@ -493,12 +503,24 @@ suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
 — write `description edited, no new commits` on that line and let the buckets
 carry the rest. No change in substance → say so in one line.
 
-Both scopes: `review-pr.sh delta <n> findings.json` matches your findings
-against the prior `findings-json` line in `reviews/pr-<n>.md` (older reviews
-without one: parse the visible text yourself) and returns this block with its
-`fixed` / `still` / `new` buckets, the `suppressed` overrides and the
-`ambiguous` pairs you decide. Insert it between `### Summary` and
-`### Findings`:
+Both scopes: the prior `findings-json` array is `prior_findings` in the
+prepare output, or the line in `reviews/pr-<n>.md` where no `prepare` ran, so
+this round's findings are written against its anchors and its wording (history
+older than the line: parse the visible text yourself).
+`review-pr.sh delta <n> findings.json` matches them and returns this block,
+the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
+`ambiguous` pairs, and `annotated` — the path to your array with every
+`status` filled in, which is what `post` takes.
+
+- A matched pair is `still` when the summaries are similar, or when the
+  severity is equal at the same line. Any other matched pair is `ambiguous`
+  and carries `suggest` — `still` when the severity matches, else `new` — with
+  its `distance` and `severity_match`. The block and `annotated` apply every
+  `suggest` already.
+- **Settle every `ambiguous` pair** before posting: keep its suggestion, or
+  change that entry's `status` in `annotated` and the matching block line.
+
+Insert the block between `### Summary` and `### Findings`:
 
 ```
 ### Changes since last review
@@ -528,7 +550,7 @@ Delta-scope depth (steps c–d):
   range: candidates, verification, sweep and extension-skill routing all use
   the full PR diff, re-read against the edited body.
 - **Each prior finding is settled at its anchor.** Read every `file:line` of
-  the prior `findings-json` at HEAD — from the clone, or via
+  `prior_findings` at HEAD — from the clone, or via
   `gh api "repos/$REPO/contents/<path>?ref=<head-sha>" -H 'Accept: application/vnd.github.raw'`
   — and classify it `fixed` or `still` (moved code is `still`, at its new
   line). A `line: null` finding is settled by re-reading its file.
@@ -776,11 +798,12 @@ Before you declare the run done:
   excluded with their Summary line · every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations ·
   every open 🔴/🟡 carrying a class-rule **Fix:**, mirrored into
-  `findings-json` · skill sections reformatted and merged with no finding lost
-  · stale approval dismissed when the verdict dropped below APPROVE · clone,
+  `findings-json` · every delta `ambiguous` pair settled before the post ·
+  skill sections reformatted and merged with no finding lost · stale approval
+  dismissed when the verdict dropped below APPROVE · clone,
   copies, diff and state deleted · `review_step` events logged (`locked` →
-  `fanned out (n=<N>)` → `verified` → `posted`/`aborted`/`done`) with
-  `skill_timing`.
+  `fanned out (n=<N>)` → `verified` → `composed` → `posted`/`aborted`/`done`)
+  with `skill_timing`.
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget
   ([finding-form.md](finding-form.md)); re-review scope matched the trigger.

@@ -18,7 +18,11 @@
 #   collect <n>                            skill outputs → audit lines, form
 #                                          warnings, skill_timing event
 #   delta <n> <findings.json>              fixed / still / new against the prior
-#                                          findings-json, PR-local overrides applied
+#                                          findings-json, PR-local overrides applied,
+#                                          and the annotated array `post` takes
+#   compose-brief <n>                      this PR's compose contract: the body
+#                                          skeleton, the format rules from docs/,
+#                                          its overrides and memory rules
 #   rapid <n> --body <file>                urgent phase 1: the rapid preliminary post
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
 #                                [--closed-issue <id>]
@@ -29,11 +33,13 @@
 #   abort <n> <reason…>                    release the lock per kind, clean up
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
-# reads the outcome. `context` is the one exception: on success it prints the
-# numbered source text above, and its guard failures are JSON like every other.
+# reads the outcome. `context` and `compose-brief` are the exceptions: on
+# success they print the text above, and their guard failures are JSON like
+# every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
-# files.json, pack.json, briefs/). GitHub writes happen only in `rapid` and
+# files.json, pack.json, briefs/, prior.json, collect.json,
+# findings.annotated.json). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
 # docs/review.md mandates) and the progress status under review_progress.
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
@@ -43,8 +49,8 @@ set -u
 export LC_ALL=C
 
 CMD="${1:-}"; N="${2:-}"
-case "$CMD" in (prepare|step|context|sweep|collect|delta|rapid|post|abort) ;;
-  (*) printf 'usage: %s prepare|step|context|sweep|collect|delta|rapid|post|abort <pr-number> …\n' "$0" >&2; exit 2;; esac
+case "$CMD" in (prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort) ;;
+  (*) printf 'usage: %s prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -112,6 +118,36 @@ delete_row() { grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.tmp" 2>/dev/null &&
 # --------------------------------------------------------- state files ----
 ctx_get() { jq -r "$1" "$CTX/pr.json" 2>/dev/null; }
 need_ctx() { [ -f "$CTX/pr.json" ] || fail "no prepared state for PR #$N — run: review-pr.sh prepare $N"; }
+
+# ------------------------------------------------- prior review artefacts ----
+# `reviews/pr-<n>.md` holds the last posted review's findings-json line and the
+# PR-local overrides. Both read as `[]` when the file, the section or the JSON
+# is absent — a first review, or history older than the line.
+prior_findings() {
+  local hist="$WORK/reviews/pr-$N.md" p=""
+  [ -f "$hist" ] && p="$(grep -o '<!-- findings-json: .* -->' "$hist" 2>/dev/null | tail -1 \
+    | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//')"
+  [ -n "$p" ] || { printf '[]\n'; return 0; }
+  printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
+}
+prior_overrides() {
+  local hist="$WORK/reviews/pr-$N.md"
+  [ -f "$hist" ] || { printf '[]\n'; return 0; }
+  sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -sc .
+}
+
+# ------------------------------------------------------ definition section ----
+# One `docs/` section — its heading line to the next heading — printed from the
+# definition checkout beside the script. The compose brief quotes the rules from
+# their home instead of restating them; unreadable docs degrade to a pointer.
+doc_section() { # <docs-relative file> <exact heading line>
+  local f="$SCRIPT_DIR/../docs/$1" start end
+  [ -f "$f" ] || return 1
+  start="$(grep -n -m1 -F -x -- "$2" "$f" | cut -d: -f1)"
+  [ -n "$start" ] || return 1
+  end="$(sed -n "$((start+1)),\$p" "$f" | grep -n -m1 -E '^#{1,4} ' | cut -d: -f1)"
+  if [ -n "$end" ]; then sed -n "$start,$((start + end - 1))p" "$f"; else sed -n "$start,\$p" "$f"; fi
+}
 
 # ------------------------------------------------------ progress status ----
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
@@ -264,10 +300,11 @@ skills_json() { # → [{skill, source, trigger, section}]
 emit_ready() { # <resumed-bool> — the prepare summary from the state files
   local j
   local dfile="$CTX/delta.json"; [ -f "$dfile" ] || printf 'null\n' > "$dfile"
+  local pfile="$CTX/prior.json"; [ -f "$pfile" ] || printf '[]\n' > "$pfile"
   j="$(jq -n --slurpfile pr "$CTX/pr.json" --slurpfile sk "$CTX/skills.json" --slurpfile sl "$CTX/slice.json" --slurpfile f "$CTX/files.json" \
-    --slurpfile dl "$dfile" \
+    --slurpfile dl "$dfile" --slurpfile pf "$pfile" \
     --argjson resumed "$1" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
-    $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0],
+    $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0], prior_findings:$pf[0],
       paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
              pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
       files:$f[0], skills:$sk[0]} + $sl[0]')"
@@ -405,6 +442,11 @@ cmd_prepare() {
       && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
   fi
   printf '%s\n' "$dj" > "$CTX/delta.json"
+
+  # --- prior findings: the anchors and the wording `delta` matches against, so
+  # a re-review writes its findings against them instead of guessing them
+  # (docs/review.md → Re-review output) ---
+  if [ "$kind" = "re-review" ]; then prior_findings > "$CTX/prior.json"; else printf '[]\n' > "$CTX/prior.json"; fi
 
   # --- clone + base ref (skipped in closed mode: the branch may be gone) ---
   local clone=skipped url
@@ -589,14 +631,22 @@ cmd_collect() {
     esac
   done < <(jq -r 'keys[]' "$CTX/skills.json")
   [ -n "$timing" ] && logev info skill_timing "PR #$N $timing"
+  # the ran / skill-errored split decided here is what `compose-brief` renders
+  # the sections from (docs/skills.md → Inclusion rule)
+  printf '%s' "$results" > "$CTX/collect.json"
   out "$(jq -nc --argjson l "$lines" --argjson w "$warns" --argjson r "$results" '{outcome:"ok", audit_lines:$l, form_warnings:$w, skills:$r}')"
 }
 
 # =================================================================== delta ====
-# Prior findings-json vs the current findings: same file and a line within ±3
-# → matched; a matched pair with a similar summary is `still`, a dissimilar one
-# is `ambiguous` (the agent decides); unmatched prior → `fixed`; unmatched
-# current → `new`. PR-local overrides suppress by file:line (±2) or symbol.
+# Prior findings-json vs the current findings, matched on any anchor (`file`
+# plus every `also`) within ±3 lines. A matched pair is `still` when the
+# summaries are similar, or when the severity is equal at the same line;
+# any other matched pair is `ambiguous` and carries the `suggest` the block and
+# the annotated array already apply. An open prior that no `still` finding
+# matched is `fixed`; an unmatched current is `new`. PR-local overrides suppress
+# by file:line (±2) or symbol. Always writes the annotated array — the agent's
+# own findings with `status` filled in, plus the `fixed` carryovers — so `post`
+# takes a file the agent never has to rewrite.
 cmd_delta() {
   need_ctx
   local cur="${1:-}"
@@ -605,12 +655,8 @@ cmd_delta() {
   # missing path so a wrong one is not read as malformed JSON.
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
-  local hist="$WORK/reviews/pr-$N.md" prior='[]' overrides='[]'
-  if [ -f "$hist" ]; then
-    prior="$(grep -o '<!-- findings-json: .* -->' "$hist" | tail -1 | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//')"
-    { printf '%s' "$prior" | jq -e 'type=="array"' >/dev/null 2>&1; } || prior='[]'
-    overrides="$(sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -s .)"
-  fi
+  local prior overrides ann="$CTX/findings.annotated.json"
+  prior="$(prior_findings)"; overrides="$(prior_overrides)"
   local j
   j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
@@ -619,10 +665,10 @@ cmd_delta() {
     # `also` entry (docs/review.md → Summary body format)
     def anchs($f): [ {file: $f.file, line: $f.line} ]
       + [ ($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line} ];
-    def near($a; $b; $tol): any(anchs($a)[]; . as $x
-      | any(anchs($b)[]; . as $y
-        | ($x.file == $y.file) and ($x.line != null) and ($y.line != null)
-          and ((($x.line - $y.line) | fabs) <= $tol)));
+    def dist($a; $b): [ anchs($a)[] as $x | anchs($b)[] as $y
+      | select(($x.file == $y.file) and ($x.line != null) and ($y.line != null))
+      | (($x.line - $y.line) | fabs) ] | min;
+    def near($a; $b; $tol): (dist($a; $b) // 1e9) <= $tol;
     # an override matches by file:line (±2) or by a symbol: a backticked token
     # of the finding (its `symbol` field or any `code` span in its summary that
     # is not a path:line anchor) quoted the same way in an override that names
@@ -634,20 +680,146 @@ cmd_delta() {
           | ($ax | any(. as $a | ($a.file != null) and ($a.line != null)
               and ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $a.file + ":" + (($a.line + $d)|tostring) + "`")))))
             or (($line | contains("`" + $file + "`")) and any($syms[]; . as $s | $line | contains("`" + $s + "`")))) ];
+    def anchor($f): "`" + ($f.file // "-") + ":" + (($f.line // "-") | tostring) + "`";
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
-    | { still: [ $open[] as $x | $cur[] | select(near(.; $x; 3) and similar(.summary; $x.summary)) | . + {prior_line: $x.line} ],
-        ambiguous: [ $open[] as $x | $cur[] | select(near(.; $x; 3) and (similar(.summary; $x.summary) | not)) | {current: ., prior: $x} ],
-        fixed: [ $open[] | . as $x | select([ $cur[] | select(near(.; $x; 3)) ] | length == 0) ],
-        new: [ $cur[] | . as $y | select([ $open[] | select(near($y; .; 3)) ] | length == 0) ] }
-    | .suppressed = [ .new[], .still[] | select((ovr_hits(.) | length) > 0) | . + {override: (ovr_hits(.)[0])} ]
-    | .new = [ .new[] | select((ovr_hits(.) | length) == 0) ] | .still = [ .still[] | select((ovr_hits(.) | length) == 0) ]
+    # one classification per current finding, in the order the agent wrote them
+    | [ $cur[] | . as $y
+        | [ $open[] | select(near($y; .; 3)) ] as $m
+        | (if ($m | length) == 0 then {f: $y, cls: "new", prior: null}
+           else ($m | map(select(similar(.summary; $y.summary))) | first) as $sim
+             | if $sim != null then {f: $y, cls: "still", prior: $sim}
+               else ($m | first) as $x
+                 | if ($x.severity == $y.severity) and (dist($y; $x) == 0)
+                   then {f: $y, cls: "still", prior: $x}
+                   else {f: $y, cls: "ambiguous", prior: $x,
+                         suggest: (if $x.severity == $y.severity then "still" else "new" end)}
+                   end
+               end
+           end)
+        | . + {settled: (.suggest // .cls), hits: ovr_hits(.f)} ] as $cl
+    | [ $cl[] | select((.hits | length) == 0) ] as $rep
+    | [ $rep[] | select(.settled == "still") | .prior ] as $kept
+    | [ $open[] | . as $x | select([ $kept[] | select(. == $x) ] | length == 0) ] as $gone
+    | { still: [ $rep[] | select(.settled == "still")
+                 | .f + {prior_line: .prior.line} + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
+        new:   [ $rep[] | select(.settled == "new")
+                 | .f + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
+        fixed: $gone,
+        ambiguous: [ $rep[] | select(.cls == "ambiguous")
+                     | {current: .f, prior: .prior, suggest: .suggest,
+                        severity_match: (.f.severity == .prior.severity), distance: dist(.f; .prior)} ],
+        suppressed: [ $cl[] | select((.hits | length) > 0) | .f + {override: .hits[0]} ],
+        annotated: ([ $rep[] | .f + {status: .settled} ]
+                    + [ $gone[] | . + {status: "fixed", fix: null, inline: false} ]) }
     | .block = ( ["### Changes since last review"]
-        + [ .fixed[] | "- ✅ **Fixed:** \(.summary) (`\(.file):\(.line // "-")`)" ]
-        + [ .still[] | "- 🔁 **Still present:** \(.summary) (`\(.file):\(.line // "-")`)" ]
-        + [ .new[]   | "- 🆕 **New:** \(.summary) (`\(.file):\(.line // "-")`)" ] | join("\n") )
+        + [ .fixed[] | "- ✅ **Fixed:** \(.summary) (\(anchor(.)))" ]
+        + [ .still[] | "- 🔁 **Still present:** \(.summary) (\(anchor(.)))" ]
+        + [ .new[]   | "- 🆕 **New:** \(.summary) (\(anchor(.)))" ] | join("\n") )
     | . + {outcome:"ok", prior_count: ($p|length), overrides: $o}')"
+  { printf '%s' "$j" | jq -e 'type == "object"' >/dev/null 2>&1; } || fail "the delta classification did not produce JSON"
+  printf '%s' "$j" | jq '.annotated' > "$ann.tmp" 2>/dev/null && mv "$ann.tmp" "$ann" \
+    || { rm -f "$ann.tmp"; fail "the annotated findings could not be written to $ann"; }
+  j="$(printf '%s' "$j" | jq -c --arg a "$ann" '.annotated = $a')"
+  logstep "$(ctx_get '.head_sha' | cut -c1-7) delta settled ($(printf '%s' "$j" \
+    | jq -r '"still=\(.still|length), new=\(.new|length), fixed=\(.fixed|length), ambiguous=\(.ambiguous|length)"'))"
   out "$j"
+}
+
+# =========================================================== compose-brief ====
+# The compose contract for this PR (docs/review.md step e): the `body.md`
+# skeleton with its real header, its `### Changes since last review` line and
+# its skill sections in table order, the `findings.json` and `comments.json`
+# rules quoted from their home in `docs/`, and this PR's paths, overrides and
+# memory rules. Prints text, like `context`.
+cmd_compose_brief() {
+  need_ctx
+  local sha sha7 kind full mode scope title
+  sha="$(ctx_get '.head_sha')"; sha7="${sha:0:7}"
+  kind="$(ctx_get '.kind')"; full="$(ctx_get '.full')"; mode="$(ctx_get '.mode')"
+  title="$(ctx_get '.title')"
+  case "$kind/$full" in
+    (first/*)      scope="first review";;
+    (re-review/true) scope="complete re-review";;
+    (*)            scope="delta re-review — delta-scope conciseness applies";;
+  esac
+  [ "$mode" = "closed" ] && scope="$scope · PR closed: no review posts, 🔴 findings become one issue"
+
+  # skills: table order, sections only for the ones that ran (`collect`
+  # decides ran vs skill-errored; before it, the routed status stands)
+  local skills s st sec ran="" omitted=""
+  skills="$(skills_json)"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    st="$(jq -r --arg s "$s" '.[$s].status // "unknown"' "$CTX/skills.json" 2>/dev/null)"
+    [ -f "$CTX/collect.json" ] && st="$(jq -r --arg s "$s" --arg d "$st" '.[$s].status // $d' "$CTX/collect.json" 2>/dev/null)"
+    sec="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .section')"
+    case "$st" in
+      (run|ran) ran="$ran$sec"$'\n';;
+      (*) omitted="$omitted$s ($st), ";;
+    esac
+  done < <(printf '%s' "$skills" | jq -r '.[].skill')
+
+  printf '# Compose brief — PR #%s @ %s — %s\n' "$N" "$sha7" "$scope"
+  printf '# Rendered for this PR. The rules are quoted from docs/review.md and\n'
+  printf '# docs/finding-form.md below — their home, not a second copy.\n\n'
+
+  printf '## body.md — these sections, in this order\n\n'
+  printf '## PR #%s: %s\n' "$N" "$title"
+  printf '**Author:** %s | **Branch:** %s → %s | **Changes:** +%s −%s (%s files)\n\n' \
+    "$(ctx_get '.author')" "$(ctx_get '.head_ref')" "$(ctx_get '.base_ref')" \
+    "$(ctx_get '.changes.additions')" "$(ctx_get '.changes.deletions')" "$(ctx_get '.changes.changed_files')"
+  printf '### Summary\n<1–2 sentences on what the PR does>\n\n'
+  if [ "$kind" = "re-review" ]; then
+    local unreach=""
+    jq -e '.reachable == false' "$CTX/delta.json" >/dev/null 2>&1 \
+      && unreach=" — unreachable, reviewed the whole PR"
+    printf '### Changes since last review\nPrevious HEAD: %s (%s) — verdict %s%s\n<`block` from `review-pr.sh delta %s <findings>.json`>\n\n' \
+      "$(ctx_get '.prior.sha // "unknown"' | cut -c1-7)" "$(ctx_get '.prior.ts // "unknown"')" \
+      "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
+  fi
+  printf '### Findings\n'
+  if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
+    printf '<only 🆕 New findings; `_No new findings at this HEAD._` when there are none>\n\n'
+  else
+    printf '<every current finding, per docs/finding-form.md>\n\n'
+  fi
+  printf '%s' "$ran" | while IFS= read -r sec; do
+    [ -n "$sec" ] || continue
+    printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"
+  done
+  printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
+
+  printf '## findings.json — docs/review.md → Summary body format\n\n'
+  doc_section review.md '### Summary body format' \
+    || printf 'docs/review.md is not readable beside the script — read the section from the definition checkout.\n'
+  printf '\n## comments.json — docs/review.md → Mapping findings to inline comments\n\n'
+  doc_section review.md '### Mapping findings to inline comments' \
+    || printf 'docs/review.md is not readable beside the script.\n'
+  printf '\n## 🟢 budget — docs/finding-form.md\n\n'
+  sed -n '/^\*\*🟢 budget per review/,/^$/p' "$SCRIPT_DIR/../docs/finding-form.md" 2>/dev/null \
+    || printf 'docs/finding-form.md is not readable beside the script.\n'
+
+  printf '\n## This PR\n'
+  if [ "$kind" = "re-review" ]; then
+    printf -- '- prior findings: `%s` (%s still open) — write this round against their anchors and wording\n' \
+      "$CTX/prior.json" "$(jq '[.[] | select(.status != "fixed")] | length' "$CTX/prior.json" 2>/dev/null || printf 0)"
+    printf -- '- findings.json: `review-pr.sh delta %s <your-findings>.json` writes `%s` with every `status` filled in — settle each `ambiguous` pair there, then post that file\n' \
+      "$N" "$CTX/findings.annotated.json"
+  else
+    printf -- '- findings.json: every entry `"status": "new"`\n'
+  fi
+  printf -- '- sections that post: %s\n' "$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  [ -n "$omitted" ] && printf -- '- no section (audit line only): %s\n' "${omitted%, }"
+  local ovr mem mdue
+  ovr="$(prior_overrides | jq -r '.[]' 2>/dev/null | sed 's/^/  /')"
+  mem="$(sed -n '/^## Feedback Log/,$d; p' "$WORK/MEMORY.md" 2>/dev/null | grep -E '^- ' | sed 's/^/  /')"
+  mdue="$(jq -r '(.memory_due // []) | join(", ")' "$CTX/slice.json" 2>/dev/null)"
+  printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
+  printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
+  [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
+  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json]`\n' "$N"
+  exit 0
 }
 
 # =================================================================== rapid ====
@@ -897,5 +1069,6 @@ cmd_abort() {
 
 case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
-  (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (abort) cmd_abort "$@";;
+  (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
+  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (abort) cmd_abort "$@";;
 esac

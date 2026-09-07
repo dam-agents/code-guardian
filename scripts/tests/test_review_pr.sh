@@ -71,6 +71,7 @@ POST_SLUG() { printf 'api repos/acme/widgets/pulls/1/reviews -X POST --input %s/
 setup prepare_first
 run_rp prepare 1 --eta 600
 assert_jq '.outcome == "ready" and .kind == "first" and .full == true and .clone == "ok" and .head_sha == "'"$B1_SHA"'"' 'ready, first review, cloned'
+assert_jq '.prior_findings == []' 'a first review has no prior findings'
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | - | in_progress |" 'lock row written'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' locked' 'locked event'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' cloned' 'cloned event'
@@ -221,14 +222,29 @@ EOF
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '["cg-rereview"]'
 run_rp prepare 1
+assert_jq '(.prior_findings | length) == 2 and (.prior_findings | map(.file) == ["src/alpha.ts","src/beta.ts"]) and .prior_findings[0].line == 5 and .prior_findings[0].summary == "unbounded query"' 'prepare hands the prior findings-json to the review, anchors and wording included'
 printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query in loop","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":true,"summary":"retry loop without backoff","fix":"add backoff"},{"status":"new","severity":"suggestion","file":"src/alpha.ts","line":7,"inline":false,"summary":"name the constant","fix":null},{"status":"new","severity":"warning","file":"src/uses-alpha.ts","line":1,"inline":true,"summary":"`query` call without a limit","fix":"pass a limit"}]' > "$SANDBOX/cur.json"
 run_rp delta 1 "$SANDBOX/cur.json"
 assert_jq '.still | length == 1 and .[0].file == "src/alpha.ts" and .[0].prior_line == 5' 'same defect one line down is still present; a shared plain word with an override is no match'
 assert_jq '.fixed | length == 1 and .[0].file == "src/beta.ts"' 'a vanished prior finding is fixed'
-assert_jq '.new | length == 0' 'nothing is new without the agent deciding the near miss'
-assert_jq '.ambiguous | length == 1 and .[0].current.summary == "name the constant" and .[0].prior.line == 5' 'a dissimilar finding near a prior one is left to the agent'
+assert_jq '.new | length == 1 and .[0].summary == "name the constant" and .[0].ambiguous == true' 'a near miss takes its suggestion and is marked ambiguous'
+assert_jq '.ambiguous | length == 1 and .[0].current.summary == "name the constant" and .[0].prior.line == 5 and .[0].suggest == "new" and .[0].severity_match == false and .[0].distance == 2' 'the pair the agent settles carries the suggestion and its evidence'
 assert_jq '.suppressed | length == 2 and (map(.file) | sort) == ["src/gamma.ts","src/uses-alpha.ts"]' 'overrides suppress by file:line and by the backticked symbol'
-assert_jq '.block | contains("✅ **Fixed:** dead export") and contains("🔁 **Still present:** unbounded query")' 'block skeleton rendered'
+assert_jq '.block | contains("✅ **Fixed:** dead export") and contains("🔁 **Still present:** unbounded query") and contains("🆕 **New:** name the constant")' 'the block carries every bucket, the suggestion included'
+assert_jq '.annotated == "'"$(PR_DIR)"'.ctx/findings.annotated.json"' 'delta names the annotated findings file'
+assert_event 'delta settled (still=1, new=1, fixed=1, ambiguous=1)' 'the delta round is a measurable milestone'
+A="$(PR_DIR).ctx/findings.annotated.json"
+assert_file_contains "$A" '"status": "still"' 'the annotated array carries the still status'
+jq -e 'map(.status) == ["still","new","fixed"] and (map(.file) == ["src/alpha.ts","src/alpha.ts","src/beta.ts"])' "$A" >/dev/null \
+  && printf 'ok   %s: annotated keeps the agent order and appends the fixed carryover\n' "$CASE" \
+  || { printf 'FAIL %s: annotated wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+jq -e '[ .[] | select(.status == "fixed") ] | length == 1 and .[0].fix == null and .[0].inline == false' "$A" >/dev/null \
+  && printf 'ok   %s: a fixed carryover carries no fix and no inline comment\n' "$CASE" \
+  || { printf 'FAIL %s: fixed carryover wrong\n' "$CASE"; FAILED=1; }
+jq -e 'any(.[]; .file == "src/gamma.ts" or .file == "src/uses-alpha.ts")' "$A" >/dev/null \
+  && { printf 'FAIL %s: a suppressed finding reached the annotated array\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: overrides keep their findings out of the annotated array\n' "$CASE"
+assert_jq '.prior_count == 2' 'the prior count is reported'
 # A wrong path is a missing file, not malformed JSON: the error must say so, or the
 # next run reads "not a JSON array" and looks for a parse bug that is not there.
 run_rp delta 1 "$SANDBOX/nope.json"
@@ -449,5 +465,68 @@ printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | 
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted" and .dismissed_approval == 5' 'stale approval dismissed'
 assert_call 'reviews/5/dismissals -X PUT' 'dismissal call issued'
+
+# --- compose-brief: this PR's compose contract ------------------------------------
+setup compose_brief
+cat > "$WORK/MEMORY.md" <<'EOF'
+# Memory
+
+## Ignore List
+
+- [2026-09-01 from user] Skip JSDoc findings → memory/style.md
+
+## Feedback Log
+
+- [2026-09-02 from user] the retry finding was right
+EOF
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: alpha PR
+
+## PR-local overrides
+
+- [2026-09-01 from user] Ignore: retry loop on \`src/gamma.ts:1\` — confirmed intentional
+
+## Review at aaaaaaa — $(iso_ago 7200) — COMMENT
+
+x
+<!-- findings-json: [{"status":"new","severity":"warning","file":"src/beta.ts","line":1,"inline":false,"summary":"dead export","fix":"remove"}] -->
+
+---
+EOF
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_contains '## PR #1: alpha PR' 'the body header is rendered, not described'
+assert_out_contains '\*\*Author:\*\* alice | \*\*Branch:\*\* b1 → main | \*\*Changes:\*\* +3 −1 (3 files)' 'the header line carries this PR real values'
+assert_out_contains 'Previous HEAD: 0000000' 'the re-review line is pre-filled from the prior row'
+assert_out_contains '### Documentation Check' 'a skill that ran gets its section, by its configured name'
+assert_out_contains '### TypeScript Review' 'every skill that ran gets its section'
+assert_out_contains 'complete re-review' 'the label scope comes from the live trigger'
+assert_out_contains 'findings-json' 'the findings-json rules are quoted from their home'
+assert_out_contains 'Cap 25 inline comments' 'the inline mapping rules are quoted from their home'
+assert_out_contains '🟢 budget per review' 'the suggestion budget is quoted from finding-form.md'
+assert_out_contains 'Ignore: retry loop on' "this PR's overrides are in the brief"
+assert_out_contains 'Skip JSDoc findings' 'the memory rules in force are in the brief'
+assert_out_absent 'the retry finding was right' 'the Feedback Log is history, not a rule in force'
+assert_out_contains 'findings.annotated.json' 'the brief names the file post takes'
+# `collect` decides which sections exist: a skill with no output is skill-errored
+mkdir -p "$(PR_DIR).out"; printf -- '- 🟡 **Warning:** x (`src/alpha.ts:6`)\n  **Fix:** y\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+run_rp compose-brief 1
+assert_out_contains '### Documentation Check' 'the skill with output keeps its section'
+assert_out_absent '### TypeScript Review' 'a skill-errored skill gets no section'
+assert_out_contains 'no section (audit line only): typescript-engineering (skill-errored)' 'the omitted skill is named with its reason'
+run_rp abort 1 "reset"
+
+# a first review: no delta, no prior, and the same rules
+setup compose_brief_first
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_contains 'first review' 'a first review is labelled as one'
+assert_out_absent 'Previous HEAD' 'a first review has no changes-since block'
+assert_out_contains '"status": "new"' 'a first review posts every finding as new'
+assert_out_contains 'none' 'no overrides and no memory read as none'
+run_rp abort 1 "reset"
 
 finish
