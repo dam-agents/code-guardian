@@ -49,8 +49,12 @@ set -u
 export LC_ALL=C
 
 CMD="${1:-}"; N="${2:-}"
+usage() { # the subcommand table of this file's header, verbatim
+  sed -n '/^#   prepare /,/^#   abort /p' "$0" | sed -e 's/^# \{0,3\}//'
+}
+case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
 case "$CMD" in (prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort) ;;
-  (*) printf 'usage: %s prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; exit 2;; esac
+  (*) printf 'usage: %s prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -134,6 +138,22 @@ prior_overrides() {
   local hist="$WORK/reviews/pr-$N.md"
   [ -f "$hist" ] || { printf '[]\n'; return 0; }
   sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -sc .
+}
+
+# ------------------------------------------------------------- tool paths ----
+# The absolute paths `toolpath.sh` resolved for the shimmed tools, for the skill
+# brief. A subagent told to work "with absolute paths" otherwise guesses
+# `/usr/bin/jq`, which does not exist on the pod and exits 127.
+tool_paths() {
+  local cache="$WORK/.cache/toolpaths" out="" t p
+  if [ -r "$cache" ]; then
+    while read -r t p; do
+      [ -n "$t" ] && [ -n "$p" ] && [ -x "$p" ] || continue
+      out="${out:+$out, }\`$t\` is \`$p\`"
+    done < "$cache"
+  fi
+  if [ -n "$out" ]; then printf 'On this pod %s.' "$out"
+  else printf 'Resolve one with `command -v <tool>` before you write its path.'; fi
 }
 
 # ------------------------------------------------------ definition section ----
@@ -468,7 +488,8 @@ cmd_prepare() {
   jq --arg c "$clone" '.clone = $c' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
   # --- skills: inclusive routing, per-skill copies, briefs from the template ---
-  local skills nrun=0 tpl profile="$WORK/PROFILE.md"
+  local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths
+  tpaths="$(tool_paths)"
   skills="$(skills_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   local vl vlblock=""
@@ -507,6 +528,7 @@ cmd_prepare() {
       t="${t//\{\{SKILL\}\}/$s}"; t="${t//\{\{PR\}\}/$N}"; t="${t//\{\{REPO\}\}/$REPO_HOST/$REPO}"
       t="${t//\{\{HEAD_SHA\}\}/$sha}"; t="${t//\{\{BASE_REF\}\}/$base}"; t="${t//\{\{OUT_FILE\}\}/$OUT/$s.txt}"
       t="${t//\{\{PROFILE\}\}/$profile}"; t="${t//\{\{FILES_BLOCK\}\}/$fblock}"; t="${t//\{\{VERIFY_LIVE_BLOCK\}\}/$vlblock}"
+      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi
