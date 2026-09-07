@@ -257,6 +257,33 @@ run_rp delta 1
 assert_jq '.outcome == "error" and (.error | contains("usage: delta"))' 'a missing argument prints the usage'
 run_rp abort 1 "reset"
 
+# --- delta: an override hides a finding, it does not fix the defect --------------
+setup delta_suppressed_prior
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: alpha PR
+
+## PR-local overrides
+
+- [2026-09-01 from user] Ignore: retry loop on \`src/gamma.ts:1\` — confirmed intentional
+
+## Review at aaaaaaa — $(iso_ago 7200) — COMMENT
+
+x
+<!-- findings-json: [{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":true,"summary":"retry loop without backoff","fix":"add backoff"}] -->
+
+---
+EOF
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '[{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":true,"summary":"retry loop without backoff","fix":"add backoff"}]' > "$SANDBOX/cur-sup.json"
+run_rp delta 1 "$SANDBOX/cur-sup.json"
+assert_jq '.suppressed | length == 1' 'the override suppresses this round report of the finding'
+assert_jq '.fixed == []' 'the prior it matches is never announced as fixed'
+assert_jq '.still == [] and .new == []' 'a suppressed finding is in no reported bucket'
+assert_jq '.block == "### Changes since last review"' 'the block says nothing about it'
+run_rp abort 1 "reset"
+
 # --- delta: a merged finding matches on any of its `also` anchors ----------------
 setup delta_also
 cat > "$WORK/reviews/pr-1.md" <<EOF
@@ -500,6 +527,7 @@ run_rp compose-brief 1
 assert_out_contains '## PR #1: alpha PR' 'the body header is rendered, not described'
 assert_out_contains '\*\*Author:\*\* alice | \*\*Branch:\*\* b1 → main | \*\*Changes:\*\* +3 −1 (3 files)' 'the header line carries this PR real values'
 assert_out_contains 'Previous HEAD: 0000000' 'the re-review line is pre-filled from the prior row'
+assert_out_absent 'unknow[^n]' 'a seven-character cut never truncates the fallback'
 assert_out_contains '### Documentation Check' 'a skill that ran gets its section, by its configured name'
 assert_out_contains '### TypeScript Review' 'every skill that ran gets its section'
 assert_out_contains 'complete re-review' 'the label scope comes from the live trigger'
@@ -527,6 +555,7 @@ assert_out_contains 'first review' 'a first review is labelled as one'
 assert_out_absent 'Previous HEAD' 'a first review has no changes-since block'
 assert_out_contains '"status": "new"' 'a first review posts every finding as new'
 assert_out_contains 'none' 'no overrides and no memory read as none'
+assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
 run_rp abort 1 "reset"
 
 finish

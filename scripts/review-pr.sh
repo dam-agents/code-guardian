@@ -699,7 +699,10 @@ cmd_delta() {
            end)
         | . + {settled: (.suggest // .cls), hits: ovr_hits(.f)} ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
-    | [ $rep[] | select(.settled == "still") | .prior ] as $kept
+    # over every classification, suppressed included: an override hides a
+    # finding from the review, it does not fix the defect, so the prior it
+    # matches is neither `fixed` nor announced as such
+    | [ $cl[] | select(.settled == "still") | .prior ] as $kept
     | [ $open[] | . as $x | select([ $kept[] | select(. == $x) ] | length == 0) ] as $gone
     | { still: [ $rep[] | select(.settled == "still")
                  | .f + {prior_line: .prior.line} + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
@@ -775,7 +778,7 @@ cmd_compose_brief() {
     jq -e '.reachable == false' "$CTX/delta.json" >/dev/null 2>&1 \
       && unreach=" — unreachable, reviewed the whole PR"
     printf '### Changes since last review\nPrevious HEAD: %s (%s) — verdict %s%s\n<`block` from `review-pr.sh delta %s <findings>.json`>\n\n' \
-      "$(ctx_get '.prior.sha // "unknown"' | cut -c1-7)" "$(ctx_get '.prior.ts // "unknown"')" \
+      "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
   fi
   printf '### Findings\n'
@@ -809,7 +812,8 @@ cmd_compose_brief() {
   else
     printf -- '- findings.json: every entry `"status": "new"`\n'
   fi
-  printf -- '- sections that post: %s\n' "$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  local seclist; seclist="$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  printf -- '- sections that post: %s\n' "${seclist:-none}"
   [ -n "$omitted" ] && printf -- '- no section (audit line only): %s\n' "${omitted%, }"
   local ovr mem mdue
   ovr="$(prior_overrides | jq -r '.[]' 2>/dev/null | sed 's/^/  /')"
