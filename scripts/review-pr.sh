@@ -502,9 +502,11 @@ cmd_prepare() {
         ccmp="$(gh_get "repos/$REPO/compare/$csha...$sha")"
         cst="$(printf '%s' "$ccmp" | jq -r '.status // ""' 2>/dev/null)"
         if [ "$cst" = "ahead" ]; then
+          # an empty range is the `csha = sha` case reached the long way — the
+          # findings are current and there is nothing new to review
           cj="$(printf '%s' "$ccmp" | jq -c --argjson c "$cy" '
             (.files // []) as $f
-            | if ($f | length) > 0 and ($f | length) < 300 and ([ $f[] | select(.patch == null) ] | length) == 0
+            | if ($f | length) < 300 and ([ $f[] | select(.patch == null) ] | length) == 0
               then $c + {reachable:true, files:[ $f[].filename ]} else null end' 2>/dev/null)"
           [ -n "$cj" ] || cj='null'
           [ "$cj" = "null" ] && carry_drop "the range ${csha:0:7}...${sha:0:7} is too large or has no patches"
@@ -887,6 +889,10 @@ cmd_compose_brief() {
     printf -- '- findings.json: `review-pr.sh delta %s <your-findings>.json` writes `%s` with every `status` filled in — settle each `ambiguous` pair there, then post that file\n' \
       "$N" "$CTX/findings.annotated.json"
   else
+    if jq -e '.reachable' "$CTX/carry.json" >/dev/null 2>&1; then
+      printf -- '- carried findings: `%s` (%s to settle) — settle each at its anchor at this HEAD, fold the survivors in as `new`, and never name the carry\n' \
+        "$CTX/carry.json" "$(jq '.findings | length' "$CTX/carry.json" 2>/dev/null || printf 0)"
+    fi
     printf -- '- findings.json: every entry `"status": "new"`\n'
   fi
   local seclist; seclist="$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
@@ -948,6 +954,7 @@ cmd_post() {
 
   # closed at post time → no review; criticals become an issue (docs/review.md)
   if [ "$state" != "open" ] || [ "$(ctx_get '.mode')" = "closed" ]; then
+    rm -f "$CARRY"      # the PR is gone: nothing will start from this work
     local crit; crit="$(jq -c '[ .[] | select(.severity == "critical" and .status != "fixed") ]' "$FINDINGS")"
     if [ -n "$CLOSED_ISSUE" ]; then
       append_history "$sha7" "$now" "$VERDICT" "$BODY" "$FINDINGS" "_Delivered as issue #$CLOSED_ISSUE — PR closed before posting._"
@@ -958,7 +965,6 @@ cmd_post() {
       cleanup
       out "$(jq -nc --arg i "$CLOSED_ISSUE" '{outcome:"closed_filed", issue:($i|tonumber)}')"
     fi
-    rm -f "$CARRY"      # the PR is gone: nothing will start from this work
     if [ "$(printf '%s' "$crit" | jq length)" -eq 0 ]; then
       release_lock "closed mid-review — discarded (no critical findings)"; cleanup
       out "$(jq -nc '{outcome:"closed_discarded"}')"

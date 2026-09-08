@@ -525,7 +525,6 @@ jq -e --arg s "$B1_SHA" '.sha == $s and .hops == 1 and (.findings | length) == 2
 [ -f "$WORK/reviews/pr-1.md" ] \
   && { printf 'FAIL %s: unpublished work reached the published history\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the published history stays empty\n' "$CASE"
-assert_file_contains "$WORK/REVIEWS.md" '^$' 'no row survives the abort' 2>/dev/null || true
 grep -qE '^\| *1 *\|' "$WORK/REVIEWS.md" \
   && { printf 'FAIL %s: the lock row survived the abort\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the first-review lock row is released\n' "$CASE"
@@ -571,6 +570,37 @@ assert_jq '.carry == null' 'a carry past the hop limit is not used'
   && { printf 'FAIL %s: the over-hop carry file was kept\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the over-hop carry file is deleted\n' "$CASE"
 run_rp abort 1 "reset"
+
+# --- an ahead range that changed nothing keeps the carry -------------------------
+setup carry_empty_range
+cat > "$WORK/reviews/pr-1.carry.json" <<EOF
+{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,
+ "findings":[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]}
+EOF
+jq -n '{status:"ahead", files:[]}' \
+  | fx 'api repos/acme/widgets/compare/0000000000000000000000000000000000000000...'"$B1_SHA"
+run_rp prepare 1
+assert_jq '.carry.reachable == true and (.carry.files == []) and (.carry.findings | length) == 1' \
+  'a commit and its revert leave the carried findings current, with an empty range'
+assert_jq '.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"]' \
+  'an empty range routes the skills over the whole PR, not over nothing'
+run_rp abort 1 "reset"
+
+# --- the PR closing mid-review clears the carry ----------------------------------
+setup carry_cleared_on_close
+cat > "$WORK/reviews/pr-1.carry.json" <<EOF
+{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,"findings":[]}
+EOF
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+x"}]}' \
+  | fx 'api repos/acme/widgets/compare/0000000000000000000000000000000000000000...'"$B1_SHA"
+run_rp prepare 1
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+pr_fx closed '[]'
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "closed_discarded"' 'a closed PR posts no review'
+[ -f "$WORK/reviews/pr-1.carry.json" ] \
+  && { printf 'FAIL %s: the carry outlived the PR\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a closed PR clears the carry\n' "$CASE"
 
 # --- a published review supersedes the carry -------------------------------------
 setup carry_cleared_on_post

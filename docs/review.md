@@ -27,7 +27,6 @@ never fatal — preflight re-emits the entry.
 
 ## Pruning (`prunes_due`)
 
-
 Preflight verified every entry `{number, state, gist_id, dam_id}`
 CLOSED/MERGED. Execute exactly this list — never from list absence, never a
 bulk delete of `reviews/pr-*.md`. An entry without ids → read the
@@ -37,7 +36,8 @@ bulk delete of `reviews/pr-*.md`. An entry without ids → read the
 1. Artifacts, each failure logged and never blocking: `gist_id` →
    `gh gist delete <gist_id>`; `dam_id` → `delete_artifact {id: <dam_id>}`,
    skipped silently when the MCP tool is absent.
-2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-artifacts/pr-<n>.html`.
+2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
+   work/reviews/pr-artifacts/pr-<n>.html`.
 3. Delete the PR's REVIEWS.md row, and its `work/SHEPHERD.md` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 

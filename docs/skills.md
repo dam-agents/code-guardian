@@ -48,11 +48,13 @@ correct output.
 - **extension list** (for example `.ts,.js`) — runs iff ≥1 changed file routes
   to it, and receives the routed file list (paths relative to `$PR_DIR`) plus
   the base branch. The changed-file list is the reviewed scope's: the diff at
-  the fresh `headRefOid`, or on a reachable delta re-review the files changed
-  since the prior review (`prepare`'s `files[]` intersected with
-  `delta.files[]` — [review.md](review.md) → **Re-review output**). The `code`,
-  `test`, `docs` and `config` classes route; the noise classes and deleted
-  files do not ([profile.md](profile.md) → **In the worklist**).
+  the fresh `headRefOid`, or the files changed since a reachable range —
+  `prepare`'s `files[]` intersected with `delta.files[]` on a delta re-review
+  ([review.md](review.md) → **Re-review output**) or with `carry.files[]` on a
+  carried first review ([review.md](review.md) → **Carried review after a HEAD
+  move**). The `code`, `test`, `docs` and `config` classes route; the noise
+  classes and deleted files do not ([profile.md](profile.md) → **In the
+  worklist**).
 - **Routing is inclusive: every skill whose trigger list contains a file's
   extension receives that file.** Two skills whose lists overlap both get the
   file, because they report different things about it; the same defect reported
