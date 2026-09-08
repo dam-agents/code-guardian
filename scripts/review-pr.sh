@@ -68,6 +68,7 @@ PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$P
 PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
 INLINE_CAP=25
+CARRY_MAX_HOPS=3        # HEAD moves a carried first review survives (docs/review.md)
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -138,6 +139,24 @@ prior_overrides() {
   local hist="$WORK/reviews/pr-$N.md"
   [ -f "$hist" ] || { printf '[]\n'; return 0; }
   sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -sc .
+}
+
+# ----------------------------------------------------- carried first review ----
+# A first review whose HEAD moved before it could post is kept as the next
+# review's starting point (docs/review.md → Carried review after a HEAD move).
+# Its own file: `reviews/pr-<n>.md` is the published history, and every reader
+# of that file — dedup, the delta base, the audit's acceptance counts, the
+# profile — must never see work nobody published.
+CARRY="$WORK/reviews/pr-$N.carry.json"
+carry_read() { # → the carry object, or `null`
+  [ -f "$CARRY" ] || { printf 'null\n'; return 0; }
+  jq -ce 'select(type == "object" and (.sha | test("^[0-9a-f]{40}$")) and (.findings | type == "array"))' \
+    "$CARRY" 2>/dev/null || printf 'null\n'
+}
+carry_drop() { # <reason> — a carry that cannot be used is deleted, never kept stale
+  [ -f "$CARRY" ] || return 0
+  rm -f "$CARRY"
+  logev info review_pr "PR #$N: carried review dropped — $1"
 }
 
 # ------------------------------------------------------------- tool paths ----
@@ -321,10 +340,11 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
   local j
   local dfile="$CTX/delta.json"; [ -f "$dfile" ] || printf 'null\n' > "$dfile"
   local pfile="$CTX/prior.json"; [ -f "$pfile" ] || printf '[]\n' > "$pfile"
+  local cfile="$CTX/carry.json"; [ -f "$cfile" ] || printf 'null\n' > "$cfile"
   j="$(jq -n --slurpfile pr "$CTX/pr.json" --slurpfile sk "$CTX/skills.json" --slurpfile sl "$CTX/slice.json" --slurpfile f "$CTX/files.json" \
-    --slurpfile dl "$dfile" --slurpfile pf "$pfile" \
+    --slurpfile dl "$dfile" --slurpfile pf "$pfile" --slurpfile cf "$cfile" \
     --argjson resumed "$1" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
-    $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0], prior_findings:$pf[0],
+    $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0], prior_findings:$pf[0], carry:$cf[0],
       paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
              pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
       files:$f[0], skills:$sk[0]} + $sl[0]')"
@@ -463,6 +483,39 @@ cmd_prepare() {
   fi
   printf '%s\n' "$dj" > "$CTX/delta.json"
 
+  # --- carried first review: the work a HEAD move discarded, as this review's
+  # starting point. One compare call decides the range, exactly as the delta
+  # range above; anything but a reachable `ahead` drops the carry and the review
+  # runs at complete depth (docs/review.md → Carried review after a HEAD move).
+  local cj='null' cy csha chops
+  if [ "$kind" = "first" ] && [ "$mode" = "review" ]; then
+    cy="$(carry_read)"
+    if [ "$cy" != "null" ]; then
+      csha="$(printf '%s' "$cy" | jq -r .sha)"; chops="$(printf '%s' "$cy" | jq -r '.hops // 1')"
+      if [ "$chops" -gt "$CARRY_MAX_HOPS" ]; then
+        carry_drop "$chops HEAD moves is past the $CARRY_MAX_HOPS-hop limit"
+      elif [ "$csha" = "$sha" ]; then
+        # HEAD came back to the carried SHA: the findings are current, nothing new
+        cj="$(printf '%s' "$cy" | jq -c '. + {reachable:true, files:[]}')"
+      else
+        local ccmp cst
+        ccmp="$(gh_get "repos/$REPO/compare/$csha...$sha")"
+        cst="$(printf '%s' "$ccmp" | jq -r '.status // ""' 2>/dev/null)"
+        if [ "$cst" = "ahead" ]; then
+          cj="$(printf '%s' "$ccmp" | jq -c --argjson c "$cy" '
+            (.files // []) as $f
+            | if ($f | length) > 0 and ($f | length) < 300 and ([ $f[] | select(.patch == null) ] | length) == 0
+              then $c + {reachable:true, files:[ $f[].filename ]} else null end' 2>/dev/null)"
+          [ -n "$cj" ] || cj='null'
+          [ "$cj" = "null" ] && carry_drop "the range ${csha:0:7}...${sha:0:7} is too large or has no patches"
+        else
+          carry_drop "the range ${csha:0:7}...${sha:0:7} is ${cst:-unreadable}, not ahead"
+        fi
+      fi
+    fi
+  fi
+  printf '%s\n' "$cj" > "$CTX/carry.json"
+
   # --- prior findings: the anchors and the wording `delta` matches against, so
   # a re-review writes its findings against them instead of guessing them
   # (docs/review.md → Re-review output) ---
@@ -498,9 +551,11 @@ cmd_prepare() {
   # extension triggers route from the reviewed scope: the PR diff, or on a
   # reachable delta range the files changed since the prior review
   # (docs/skills.md → Triggers & file routing)
-  local routable="$CTX/files.json"
-  if printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1; then
-    jq -c --slurpfile d "$CTX/delta.json" '[ .[] | select(.path as $p | $d[0].files | index($p) != null) ]' \
+  local routable="$CTX/files.json" rangef=""
+  printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/delta.json"
+  printf '%s' "$cj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/carry.json"
+  if [ -n "$rangef" ]; then
+    jq -c --slurpfile d "$rangef" '[ .[] | select(.path as $p | $d[0].files | index($p) != null) ]' \
       "$CTX/files.json" > "$CTX/files.delta.json" 2>/dev/null \
       && [ "$(jq length "$CTX/files.delta.json" 2>/dev/null || echo 0)" -gt 0 ] \
       && routable="$CTX/files.delta.json"
@@ -903,6 +958,7 @@ cmd_post() {
       cleanup
       out "$(jq -nc --arg i "$CLOSED_ISSUE" '{outcome:"closed_filed", issue:($i|tonumber)}')"
     fi
+    rm -f "$CARRY"      # the PR is gone: nothing will start from this work
     if [ "$(printf '%s' "$crit" | jq length)" -eq 0 ]; then
       release_lock "closed mid-review — discarded (no critical findings)"; cleanup
       out "$(jq -nc '{outcome:"closed_discarded"}')"
@@ -916,7 +972,27 @@ cmd_post() {
       '{outcome:"closed_criticals", criticals:$c, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
         next:"file the issue per docs/review.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
   fi
-  if [ "$live_sha" != "$sha" ]; then release_lock "HEAD moved $sha7 → ${live_sha:0:7} mid-review — discarding"; cleanup; out "$(jq -nc --arg o "$sha7" --arg n "${live_sha:0:7}" '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n)}')"; fi
+  if [ "$live_sha" != "$sha" ]; then
+    # a first review's findings are the next review's starting point, never a
+    # posted review: the reader has seen nothing, so the work is carried and the
+    # narrative is not (docs/review.md → Carried review after a HEAD move)
+    local carried=false
+    if [ "$kind" = "first" ]; then
+      local hops; hops="$(( $(carry_read | jq -r '.hops // 0') + 1 ))"
+      if [ "$hops" -le "$CARRY_MAX_HOPS" ]; then
+        mkdir -p "$WORK/reviews" 2>/dev/null
+        if jq -c --arg sha "$sha" --arg ts "$now" --argjson hops "$hops" \
+             '{sha:$sha, ts:$ts, hops:$hops, findings:[ .[] | select(.status != "fixed") ]}' \
+             "$FINDINGS" > "$CARRY.tmp" 2>/dev/null && mv "$CARRY.tmp" "$CARRY"; then
+          carried=true
+          logev info review_pr "PR #$N: HEAD moved — carried $(jq '[.[] | select(.status != "fixed")] | length' "$FINDINGS") finding(s) at $sha7 forward (hop $hops)"
+        else rm -f "$CARRY.tmp"; logev warn review_pr "PR #$N: the carry could not be written — the next review starts from scratch"; fi
+      else carry_drop "hop $hops is past the $CARRY_MAX_HOPS-hop limit"; fi
+    fi
+    release_lock "HEAD moved $sha7 → ${live_sha:0:7} mid-review — discarding"; cleanup
+    out "$(jq -nc --arg o "$sha7" --arg n "${live_sha:0:7}" --argjson c "$carried" \
+      '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c}')"
+  fi
   if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
   if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested"; then
     release_lock "re-review trigger withdrawn mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"trigger withdrawn"}')"
@@ -1058,6 +1134,7 @@ cmd_post() {
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" ""
+  rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done
   local c w s took
   c="$(jq '[.[] | select(.severity=="critical" and .status!="fixed")] | length' "$FINDINGS")"

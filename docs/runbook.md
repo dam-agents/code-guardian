@@ -221,7 +221,10 @@ cleanup already happened inside preflight ([logging.md](logging.md)).
   ([finding-form.md](finding-form.md) → **The approval bar**).
 - Never post a review whose marker SHA is not the live HEAD at post time
   (Check 2 + the `commit_id` server-side guard). A PR closed at post time gets
-  no review; its 🔴 findings become one deduplicated linked issue.
+  no review; its 🔴 findings become one deduplicated linked issue. A first
+  review stopped this way carries its findings to the next one, which reports
+  them as its own and never names the carry (review.md → **Carried review
+  after a HEAD move**).
 - Re-reviews are trigger-gated: `$REREVIEW_LABEL`, or a pending review request
   for `bot_login` when `rereview_trigger` enables it. New commits or a
   description edit alone never trigger one, either trigger answers, the trigger
