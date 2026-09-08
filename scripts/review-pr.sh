@@ -268,15 +268,16 @@ remote_reviewed_at() { # <sha>
 
 # ------------------------------------------------------------ live holder ----
 # Another run owns this PR when a tree or diff of its exists AND shows life —
-# a recent mtime or a foreign run's event on this PR within HOLDER_QUIET_MIN.
-# A tree older than that with no such event is a dead run's leftover. Terminal
-# steps (`done`, `aborted …`, `posted <verdict>`) end a run's ownership and
-# are not life: a PR reviewed minutes ago is free for its next commit.
-# The skill fan-out is the exception: the holder is blocked on its subagents, so
-# it writes no event and touches no tree, and both signals go quiet for exactly
-# the longest phase of the review. A foreign run whose last step is
-# `fanned out (n=…)` therefore holds the PR for FANOUT_QUIET_MIN instead
-# (docs/review.md → Live holder).
+# a recent mtime, or a foreign run whose newest `review_step` on this PR is
+# non-terminal and inside its quiet window. Liveness is decided per run on that
+# newest step, so the milestones a run logged on the way never outlive its own
+# terminal one. The step is matched the way the `Stop` hook matches it — the
+# `PR #<n>` prefix and the optional sha token stripped, then
+# `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done` and
+# `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
+# newest step of `fanned out (n=…)`: the holder is then blocked on its
+# subagents, writes no event and touches no tree, so that phase gets
+# FANOUT_QUIET_MIN instead (docs/review.md → Live holder).
 holder_alive() {
   local recent=0 e cutoff fcut
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
@@ -291,11 +292,15 @@ holder_alive() {
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
     foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
       | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
-          '[ .[] | select((.msg|startswith($n)) and .run != $me and .event == "review_step"
-                          and ((.msg | test(" done$| aborted| posted (APPROVE|COMMENT|REQUEST_CHANGES)$")) | not)) ]
-           | ( [ .[] | select(.ts >= $cut) ] | length ) as $recent
-           | ( [ .[] | select(.ts >= $fcut) ] | last ) as $l
-           | $recent + (if $l and (($l.msg // "") | test("fanned out")) then 1 else 0 end)' 2>/dev/null)"
+          '([$cut, $fcut] | min) as $scan
+           | [ .[] | select(.ts >= $scan and (.msg|startswith($n)) and .run != $me
+                            and .event == "review_step") ]
+           | group_by(.run)
+           | map( (sort_by(.ts) | last) as $l
+                  | ($l.msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "")) as $step
+                  | select(($step | test("^(done|aborted|posted)( |$)")) | not)
+                  | select($l.ts >= (if ($step | test("fanned out")) then $fcut else $cut end)) )
+           | length' 2>/dev/null)"
     foreign="${foreign:-0}"
   fi
   [ "$recent" -eq 1 ] || [ "${foreign:-0}" -gt 0 ]
