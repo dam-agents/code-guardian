@@ -497,6 +497,10 @@ compare call and reports it as `carry`:
   depth. Extension-triggered skills route from that range, `always` skills run
   over the whole clone, exactly as on a delta re-review
   ([skills.md](skills.md) → **Triggers & file routing**).
+- **An empty `carry.files` means HEAD's tree is back at the carried SHA** (it
+  returned there, or a commit and its revert). The carried findings are
+  current, there is no range to review, and every skill routes over the whole
+  PR as on any first review.
 - **Settle every carried finding at its anchor** at the live HEAD, the way a
   re-review settles a prior (**Re-review output**): read its `file:line`, keep
   it when the defect is still there, drop it when the range fixed it. A
