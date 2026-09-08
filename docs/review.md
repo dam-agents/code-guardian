@@ -675,14 +675,16 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   death; `takeover: false` only means its snapshot saw no lock, and that
   snapshot can predate your arrival by minutes. `prepare` re-checks first: the
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
-  `HOLDER_QUIET_MIN`, when another run logged a `review_step` on it inside that
-  window, or when that run's last step is `fanned out (n=…)` inside the
-  fan-out's window. Then it stands down — `outcome: stand_down`, nothing touched,
-  `holder alive at Check 1 — stood down` logged — and you take the next PR. An
-  older tree with no such event is a dead run's leftover and is reclaimed; the
-  lock write comes after this check. Standing down protects a finished
-  fan-out, which the reclaim's `rm -rf` would destroy ([skills.md](skills.md) →
-  **Clone, credential helper, cleanup**).
+  `HOLDER_QUIET_MIN`, or when another run's **newest** `review_step` on it is
+  non-terminal (**Completion enforcement**) and inside its window —
+  `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
+  `fanned out (n=…)`. A run that ended releases the PR at once, however many
+  milestones it logged first. Then it stands down — `outcome: stand_down`,
+  nothing touched, `holder alive at Check 1 — stood down` logged — and you take
+  the next PR. An older tree with no such event is a dead run's leftover and is
+  reclaimed; the lock write comes after this check. Standing down protects a
+  finished fan-out, which the reclaim's `rm -rf` would destroy
+  ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 

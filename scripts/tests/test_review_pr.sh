@@ -183,6 +183,19 @@ run_rp abort 1 "reset"
 foreign_step "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'another run mid-pipeline on this PR holds it'
+# liveness is that run's NEWEST step, not the presence of a non-terminal one:
+# the milestones a review logged on the way must not outlive its own abort,
+# or a dead run keeps blocking its PR for the rest of the quiet window
+foreign_step "PR #1 abc1234 verified"; foreign_step "PR #1 abc1234 composed"
+foreign_step "PR #1 abc1234 aborted HEAD moved"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' "a run's own milestones do not outlive its terminal step"
+run_rp abort 1 "reset"
+# a live fan-out is never displaced: `skill:<name> done` is the adapter's step
+# for a finished skill, not a finished run — and it carries no sha token
+foreign_step "PR #1 fanned out (n=2)"; foreign_step "PR #1 skill:doc-drift done"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'skill:<name> done is not a terminal run step'
 # the fan-out is silent by construction: 40 minutes of it is a healthy review
 foreign_step_ago() { # <secs-ago> <msg>
   mkdir -p "$WORK/logs"
