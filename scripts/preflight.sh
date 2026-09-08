@@ -230,26 +230,34 @@ fi
 # event of any run touching this PR when the run id can't be pinned. Prints the
 # holder's run id (8 chars) + minutes since its last event, or nothing when no
 # evidence of life is found. docs/review.md → **Live holder**.
-holder_alive() { # <pr-number> <lock-ts>
-  local n="$1" lock_ts="$2" cutoff_epoch cutoff
+holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
+  local n="$1" lock_ts="$2" cutoff_epoch cutoff fcut_epoch fcut
   cutoff_epoch=$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))
+  fcut_epoch=$(( NOW_EPOCH - FANOUT_QUIET_MIN * 60 ))
   cutoff="$(date -u -d "@$cutoff_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
             || date -u -r "$cutoff_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 1
+  fcut="$(date -u -d "@$fcut_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+          || date -u -r "$fcut_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 1
   ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1 || return 1
   # The `.ts >= $lock` filter bounds the scan by the lock itself, so reading the
   # whole retained set costs one pass and needs no date arithmetic. `fromjson?`
   # drops the partial line a concurrently-writing session may leave.
   cat "$LOG_DIR"/events-*.jsonl 2>/dev/null \
     | jq -c -R 'fromjson? // empty' 2>/dev/null \
-    | jq -rs --arg n "PR #$n " --arg lock "$lock_ts" --arg cut "$cutoff" --argjson now "$NOW_EPOCH" '
+    | jq -rs --arg n "PR #$n " --arg lock "$lock_ts" --arg cut "$cutoff" --arg fcut "$fcut" --argjson now "$NOW_EPOCH" '
         [ .[] | select(.ts >= $lock) ] as $since
         | ( [ $since[] | select(.event == "review_step" and (.msg | startswith($n))
               and (.msg | test("locked"))) ] | last | .run ) as $holder
         | ( if $holder then [ $since[] | select(.run == $holder) ]
             else [ $since[] | select(.msg | contains($n)) ] end ) as $ev
         | ( $ev | last ) as $l
-        | if $l and $l.ts >= $cut
-          then "\($l.run[0:8]) \((($now - (($l.ts[0:19] + "Z") | fromdateiso8601)) / 60) | floor)"
+        # a holder waiting on its subagents logs nothing, so the fan-out gets its
+        # own window (docs/review.md → Live holder)
+        | ( ($l.msg // "") | test("fanned out") ) as $fan
+        | ( if $fan then $fcut else $cut end ) as $c
+        | ((($now - (($l.ts[0:19] + "Z") | fromdateiso8601)) / 60) | floor) as $mins
+        | if $l and $l.ts >= $c
+          then "\($l.run[0:8]) \(if $fan then "in the skill fan-out, last event" else "active" end) \($mins)m ago"
           else empty end' 2>/dev/null
 }
 
@@ -306,6 +314,11 @@ MENTION_PAGES=3                       # comment pages the mention scan follows (
 # says. Must exceed the longest gap a healthy review shows between events —
 # measured at 16.7 min over real runs (docs/review.md → Live holder)
 HOLDER_QUIET_MIN=20
+# the skill fan-out is the one phase that is structurally silent: the holder is
+# blocked on its subagents and logs nothing until `verified`. Its own window,
+# wide enough for the `skills` phase the audit measures
+# (stats.reviews.phases.skills, docs/audit.md task 23)
+FANOUT_QUIET_MIN=60
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
 # GitHub progress signal — commit status on the reviewed SHA (docs/review.md)
@@ -644,7 +657,7 @@ if [ "$MODE" = "review" ]; then
           # Past the TTL but demonstrably still working: the holder finishes and
           # posts (fastest delivery, no work thrown away). Taking over here is
           # what destroys a complete fan-out. docs/review.md → **Live holder**.
-          log "PR #$n: lock past TTL (${age}m) but holder ${alive%% *} active ${alive##* }m ago — left running"
+          log "PR #$n: lock past TTL (${age}m) but holder $alive — left running"
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
           full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true

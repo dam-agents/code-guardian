@@ -67,6 +67,7 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
+FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review.md → Live holder)
 INLINE_CAP=25
 CARRY_MAX_HOPS=3        # HEAD moves a carried first review survives (docs/review.md)
 NOW_EPOCH=$(date -u +%s)
@@ -271,20 +272,30 @@ remote_reviewed_at() { # <sha>
 # A tree older than that with no such event is a dead run's leftover. Terminal
 # steps (`done`, `aborted …`, `posted <verdict>`) end a run's ownership and
 # are not life: a PR reviewed minutes ago is free for its next commit.
+# The skill fan-out is the exception: the holder is blocked on its subagents, so
+# it writes no event and touches no tree, and both signals go quiet for exactly
+# the longest phase of the review. A foreign run whose last step is
+# `fanned out (n=…)` therefore holds the PR for FANOUT_QUIET_MIN instead
+# (docs/review.md → Live holder).
 holder_alive() {
-  local recent=0 e cutoff
+  local recent=0 e cutoff fcut
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
     [ -e "$e" ] || continue
     [ -n "$(find "$e" -maxdepth 0 -mmin "-$HOLDER_QUIET_MIN" 2>/dev/null)" ] && recent=1
   done
   cutoff="$(date -u -d "@$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
             || date -u -r "$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  fcut="$(date -u -d "@$((NOW_EPOCH - FANOUT_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+          || date -u -r "$((NOW_EPOCH - FANOUT_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
   local me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}" foreign=0
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
     foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
-      | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" \
-          '[ .[] | select(.ts >= $cut and (.msg|startswith($n)) and .run != $me and .event == "review_step"
-                          and ((.msg | test(" done$| aborted| posted (APPROVE|COMMENT|REQUEST_CHANGES)$")) | not)) ] | length' 2>/dev/null)"
+      | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
+          '[ .[] | select((.msg|startswith($n)) and .run != $me and .event == "review_step"
+                          and ((.msg | test(" done$| aborted| posted (APPROVE|COMMENT|REQUEST_CHANGES)$")) | not)) ]
+           | ( [ .[] | select(.ts >= $cut) ] | length ) as $recent
+           | ( [ .[] | select(.ts >= $fcut) ] | last ) as $l
+           | $recent + (if $l and (($l.msg // "") | test("fanned out")) then 1 else 0 end)' 2>/dev/null)"
     foreign="${foreign:-0}"
   fi
   [ "$recent" -eq 1 ] || [ "${foreign:-0}" -gt 0 ]

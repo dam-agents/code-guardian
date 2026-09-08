@@ -70,6 +70,31 @@ holder_event 1020 eeee5555
 run_preflight review
 assert_jq '.reviews_due | length == 0' 'a 17m verification gap is not death'
 
+# --- the skill fan-out is silent by construction, not dead -------------------
+# Between `fanned out` and `verified` the holder is blocked on its subagents:
+# no event, no tree touched. 40 min of that is a healthy review, not a crash.
+lock_case fanout_silence 3300
+holder_event 3300 dddd4444 review_step "PR #1 1111111 locked"
+holder_event 2400 dddd4444 review_step "PR #1 1111111 fanned out (n=4)"
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'a 40m fan-out silence is not death'
+assert_jq '.logs | any(contains("in the skill fan-out"))' 'the log says which phase holds the lock'
+
+# --- the fan-out window is not unbounded -------------------------------------
+lock_case fanout_expired 5400
+holder_event 5400 dddd4444 review_step "PR #1 1111111 locked"
+holder_event 4200 dddd4444 review_step "PR #1 1111111 fanned out (n=4)"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'past the fan-out window the lock is taken over'
+
+# --- once the fan-out ends, the ordinary window applies again ----------------
+lock_case fanout_over 3300
+holder_event 3300 dddd4444 review_step "PR #1 1111111 locked"
+holder_event 2400 dddd4444 review_step "PR #1 1111111 fanned out (n=4)"
+holder_event 1800 dddd4444 review_step "PR #1 1111111 verified"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'silence after verified is death again'
+
 # --- a refreshed lock row never reaches candidate age at all -----------------
 # The heartbeat (docs/review.md → Lock heartbeat) rewrites the row, so the age
 # preflight measures is the refresh, not the original lock.

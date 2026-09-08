@@ -654,9 +654,18 @@ only a candidate: preflight reads the holder's `run` id from its
 logged nothing for `HOLDER_QUIET_MIN` minutes** (20 — above the 16.7-min
 longest gap a healthy review shows; both values in
 [preflight.sh](../scripts/preflight.sh)). Otherwise the PR is omitted and
-logged `holder … active — left running`. The check is a local log read. Two
-signals must both go quiet: the row timestamp (**Lock heartbeat**) and the
-event stream.
+logged `holder … — left running`. The check is a local log read. Two signals
+must both go quiet: the row timestamp (**Lock heartbeat**) and the event
+stream.
+
+**The skill fan-out has its own window.** Between `fanned out (n=<N>)` and
+`verified` the holder is blocked on its subagents: it writes no event and
+touches no tree, so both signals go quiet for the longest phase of the review
+and a healthy run reads as a dead one. A holder whose last step is
+`fanned out (n=…)` therefore stays alive for `FANOUT_QUIET_MIN` (60) instead.
+The phase is the only one that is structurally silent, so no other step widens
+the window; calibrate the value against `stats.reviews.phases.skills`
+([audit.md](audit.md) task 23).
 
 - **As the holder you own the PR to a terminal state whatever your lock age.**
   Keep refreshing and finish. Step f is the safety: a second job that posted at
@@ -666,8 +675,9 @@ event stream.
   death; `takeover: false` only means its snapshot saw no lock, and that
   snapshot can predate your arrival by minutes. `prepare` re-checks first: the
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
-  `HOLDER_QUIET_MIN`, or when another run logged a `review_step` on it inside
-  that window. Then it stands down — `outcome: stand_down`, nothing touched,
+  `HOLDER_QUIET_MIN`, when another run logged a `review_step` on it inside that
+  window, or when that run's last step is `fanned out (n=…)` inside the
+  fan-out's window. Then it stands down — `outcome: stand_down`, nothing touched,
   `holder alive at Check 1 — stood down` logged — and you take the next PR. An
   older tree with no such event is a dead run's leftover and is reclaimed; the
   lock write comes after this check. Standing down protects a finished
