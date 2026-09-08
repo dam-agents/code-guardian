@@ -183,6 +183,27 @@ run_rp abort 1 "reset"
 foreign_step "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'another run mid-pipeline on this PR holds it'
+# the fan-out is silent by construction: 40 minutes of it is a healthy review
+foreign_step_ago() { # <secs-ago> <msg>
+  mkdir -p "$WORK/logs"
+  jq -nc --arg ts "$(iso_ago "$1")" --arg m "$2" \
+    '{ts:$ts, run:"other-run", job:"review", level:"info", event:"review_step", msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+setup prepare_holder_fanout
+foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'a 40m fan-out silence still holds the PR'
+setup prepare_holder_fanout_expired
+foreign_step_ago 4200 "PR #1 abc1234 fanned out (n=2)"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'past the fan-out window the PR is free'
+run_rp abort 1 "reset"
+setup prepare_holder_fanout_over
+foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
+foreign_step_ago 1800 "PR #1 abc1234 verified"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'silence after verified is death again'
+run_rp abort 1 "reset"
 
 # --- delta range: extension skills route from the changes since the prior review ---
 setup delta_routing
