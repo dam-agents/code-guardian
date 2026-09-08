@@ -36,7 +36,8 @@ bulk delete of `reviews/pr-*.md`. An entry without ids → read the
 1. Artifacts, each failure logged and never blocking: `gist_id` →
    `gh gist delete <gist_id>`; `dam_id` → `delete_artifact {id: <dam_id>}`,
    skipped silently when the MCP tool is absent.
-2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-artifacts/pr-<n>.html`.
+2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
+   work/reviews/pr-artifacts/pr-<n>.html`.
 3. Delete the PR's REVIEWS.md row, and its `work/SHEPHERD.md` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
@@ -71,7 +72,9 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
    `paths`. `urgent: true` → **phase 1** (**Urgent PRs**) before step b.
 b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    ([profile.md](profile.md)); a `verify_live` row means read the live file,
-   not the row. `paths.pack` lists per changed code file its dependents, its
+   not the row. A non-null `carry` is a first review a HEAD move discarded —
+   its findings are this review's starting point (**Carried review after a
+   HEAD move**). `paths.pack` lists per changed code file its dependents, its
    tests and its changed lines; `paths.context` holds the PR context
    (**PR context**).
 c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
@@ -480,6 +483,40 @@ defect can arrive twice. Compose from all of them together:
   ([finding-form.md](finding-form.md)). Each skill keeps its own
   `findings=<N>` audit line whatever the merge prints ([skills.md](skills.md)).
 
+## Carried review after a HEAD move
+
+A first review that reaches `post` after HEAD moved is never published — the
+marker SHA must be the live HEAD. Its findings are still work, so `post` writes
+them to `reviews/pr-<n>.carry.json` (`{sha, ts, hops, findings}`) and the next
+review of that PR starts from them. `prepare` resolves the carry with one
+compare call and reports it as `carry`:
+`{sha, ts, hops, reachable, files[], findings[]}`.
+
+- **The work is delta-scope, the output is a first review.** Review
+  `carry.files` — the range between the carried SHA and HEAD — at first-review
+  depth. Extension-triggered skills route from that range, `always` skills run
+  over the whole clone, exactly as on a delta re-review
+  ([skills.md](skills.md) → **Triggers & file routing**).
+- **An empty `carry.files` means HEAD's tree is back at the carried SHA** (it
+  returned there, or a commit and its revert). The carried findings are
+  current, there is no range to review, and every skill routes over the whole
+  PR as on any first review.
+- **Settle every carried finding at its anchor** at the live HEAD, the way a
+  re-review settles a prior (**Re-review output**): read its `file:line`, keep
+  it when the defect is still there, drop it when the range fixed it. A
+  `line: null` finding is settled by re-reading its file.
+- **Never name the carry.** The reader has seen nothing, so the output is the
+  plain **Output format**: no `### Changes since last review`, no `🔁`, no
+  `✅ Fixed`, and every entry of `findings-json` is `status: "new"`. A carried
+  finding is reported as what it is — a finding — not as a carryover.
+- **`carry: null` means review the whole PR.** `prepare` drops a carry whose
+  range is not `ahead`, is 300 files or larger, has a file without a patch, or
+  whose `hops` passed 3; each drop is logged with its reason. A missing or
+  unusable carry changes nothing else about the review.
+- `post` deletes the carry once the review is published, and when the PR closes
+  mid-review. Pruning deletes it with the rest of the PR's state
+  (**Pruning**).
+
 ## Re-review output (trigger-gated; new commits or an edited description)
 
 The trigger sets the scope:
@@ -799,8 +836,9 @@ Before you declare the run done:
   skills' included, and sibling-swept with its `also` locations ·
   every open 🔴/🟡 carrying a class-rule **Fix:**, mirrored into
   `findings-json` · every delta `ambiguous` pair settled before the post ·
-  skill sections reformatted and merged with no finding lost · stale approval
-  dismissed when the verdict dropped below APPROVE · clone,
+  every carried finding settled at its anchor and reported as `new`, the carry
+  never named · skill sections reformatted and merged with no finding lost ·
+  stale approval dismissed when the verdict dropped below APPROVE · clone,
   copies, diff and state deleted · `review_step` events logged (`locked` →
   `fanned out (n=<N>)` → `verified` → `composed` → `posted`/`aborted`/`done`)
   with `skill_timing`.
