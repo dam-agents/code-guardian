@@ -16,6 +16,10 @@ thread a bot comment started:
 Handle the entries **before the review loop** and in worklist order: feedback
 recorded here applies to the reviews of the same run.
 
+Preflight scans the repository's comments of the last 7 days, newest first, up
+to **three pages of 100** per surface. A week busier than that logs one line
+saying so, and the oldest comments of the window fall outside the scan.
+
 ## Dedup ledger — `work/MENTIONS.md`
 
 One row per handled comment; preflight emits only comments with no row.

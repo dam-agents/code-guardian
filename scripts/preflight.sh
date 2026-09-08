@@ -301,6 +301,7 @@ HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 # Calibrated above the review pipeline's p95 (docs/review.md → Review tracking
 # state) — a value under it hands live reviews to a second job.
 LOCK_TTL_MIN=50
+MENTION_PAGES=3                       # comment pages the mention scan follows (docs/mentions.md)
 # a holder that logged anything within this window is alive whatever its lock age
 # says. Must exceed the longest gap a healthy review shows between events —
 # measured at 16.7 min over real runs (docs/review.md → Live holder)
@@ -399,6 +400,26 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
 row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
+
+# stale-clone sweep: clones a dead session never removed (live-run cleanup is
+# the review pipeline's, docs/review.md). Reclaim only entries past the lock TTL
+# whose PR holds no in_progress lock; the number is compared exactly so PR #4's
+# sweep can never take PR #42's dirs (docs/skills.md). Runs on every heartbeat:
+# an aborted run leaves its clone behind, and a weekly sweep let a week of them
+# accumulate. Prints the count.
+sweep_stale_clones() {
+  local root="${TMPDIR:-/tmp}" d cn n=0
+  for d in "$root"/review-pr-*; do
+    [ -e "$d" ] || continue
+    cn="${d##*/review-pr-}"; cn="${cn%%.*}"
+    case "$cn" in (''|*[!0-9]*) continue;; esac
+    [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] && continue
+    [ -n "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ] || continue
+    rm -rf "$d" && n=$((n+1))
+  done
+  [ "$n" -gt 0 ] && logev info tmp_cleanup "stale-clone sweep: reclaimed $n review-pr-* leftover(s) from dead sessions"
+  printf '%s' "$n"
+}
 
 # the ONE local REVIEWS.md write the script performs: done -> awaiting_label
 # (keeps the last review's SHA/verdict/timestamp; only the status cell changes)
@@ -507,6 +528,10 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
 if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
   STATUS_RESETS_DUE='[]'
+
+  # an aborted or killed review leaves its clone behind, so reclaim before the
+  # run rather than at the weekly audit (docs/logging.md → Retention)
+  sweep_stale_clones >/dev/null
 
   # re-review trigger gate (docs/config.md -> rereview_trigger): label | review-request | both
   REREVIEW_TRIGGER="$(cfg rereview_trigger)"; REREVIEW_TRIGGER="${REREVIEW_TRIGGER:-label}"
@@ -835,14 +860,32 @@ if [ "$MODE" = "review" ]; then
     # newest-first: on a busy repo the window holds more than one page, and the
     # cap must drop the oldest comments (already answered, or aged out) rather
     # than the newest ones — ascending order starves fresh mentions forever.
-    IC="$(gh api "repos/$REPO/issues/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
-    RC="$(gh api "repos/$REPO/pulls/comments?since=$MSINCE&per_page=100&sort=created&direction=desc" 2>/dev/null)"
+    # One page holds 100 comments. A busy week overflows it, so follow the next
+    # page while the last one came back full, up to MENTION_PAGES. The bound is
+    # the cost guard: a quiet repo still pays 2 calls, a busy one at most
+    # 2 x MENTION_PAGES, and the newest-first order keeps the cap dropping the
+    # oldest comments rather than the fresh ones.
+    mention_pages() { # <endpoint> -> the merged array, newest first
+      local ep="$1" page=1 body all='[]' n
+      while [ "$page" -le "$MENTION_PAGES" ]; do
+        body="$(gh api "repos/$REPO/$ep?since=$MSINCE&per_page=100&sort=created&direction=desc&page=$page" 2>/dev/null)"
+        { printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; } || break
+        n="$(printf '%s' "$body" | jq length)"
+        all="$(jq -nc --argjson a "$all" --argjson b "$body" '$a + $b')"
+        [ "$n" -eq 100 ] || break
+        page=$((page + 1))
+      done
+      printf '%s' "$all"
+    }
+    IC="$(mention_pages "issues/comments")"; RC="$(mention_pages "pulls/comments")"
     { printf '%s' "$IC" | jq -e 'type=="array"' >/dev/null 2>&1; } || IC='[]'
     { printf '%s' "$RC" | jq -e 'type=="array"' >/dev/null 2>&1; } || RC='[]'
-    [ "$(printf '%s' "$IC" | jq length)" -eq 100 ] \
-      && log "mention scan: issue-comment page cap (100) hit — scanned the newest 100 in the window"
-    [ "$(printf '%s' "$RC" | jq length)" -eq 100 ] \
-      && log "mention scan: review-comment page cap (100) hit — scanned the newest 100 in the window"
+    # every page full to the bound means the window still holds more; `log` from
+    # inside the paging subshell would be lost with it, so say it out here
+    [ "$(printf '%s' "$IC" | jq length)" -ge "$((MENTION_PAGES * 100))" ] \
+      && log "mention scan: issue comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
+    [ "$(printf '%s' "$RC" | jq length)" -ge "$((MENTION_PAGES * 100))" ] \
+      && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
     CAND="$(jq -n --argjson ic "$IC" --argjson rc "$RC" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
       [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
@@ -1392,21 +1435,8 @@ if [ "$MODE" = "audit" ]; then
       || check orphan_gists ok "every artifact gist is tracked by a marker"
   fi
 
-  # stale-clone sweep: clones a dead session never removed (live-run cleanup is
-  # the review pipeline's, docs/review.md). Reclaim only entries past the lock
-  # TTL whose PR holds no in_progress lock; the number is compared exactly so
-  # PR #4's sweep can never take PR #42's dirs (docs/skills.md).
   TMP_ROOT="${TMPDIR:-/tmp}"
-  swept=0
-  for d in "$TMP_ROOT"/review-pr-*; do
-    [ -e "$d" ] || continue
-    cn="${d##*/review-pr-}"; cn="${cn%%.*}"
-    case "$cn" in (''|*[!0-9]*) continue;; esac
-    [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] && continue
-    [ -n "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ] || continue
-    rm -rf "$d" && swept=$((swept+1))
-  done
-  [ "$swept" -gt 0 ] && logev info tmp_cleanup "stale-clone sweep: reclaimed $swept review-pr-* leftover(s) from dead sessions"
+  swept="$(sweep_stale_clones)"
 
   # benchmark leftovers of dead runs — trees, per-nonce phase state, nonce
   # caches. Swept only past the benchmark run-lock TTL: a live run touches

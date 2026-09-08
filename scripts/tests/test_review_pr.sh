@@ -91,6 +91,20 @@ grep -q 'mine' "$(PR_DIR).ctx/context.json" && { printf 'FAIL %s: own marker com
 jq -e '."src/alpha.ts".right | index(6) != null and index(1) == null' "$(PR_DIR).ctx/hunks.json" >/dev/null && printf 'ok   %s: hunk index has the added line, not line 1\n' "$CASE" || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
 jq -e '."src/alpha.ts".dependents == ["src/uses-alpha.ts"] and ."src/alpha.ts".changed_lines == [3,4,5,6,7,8,9,10]' "$(PR_DIR).ctx/pack.json" >/dev/null && printf 'ok   %s: context pack lists the dependent and the hunk lines\n' "$CASE" || { printf 'FAIL %s: pack wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/pack.json")"; FAILED=1; }
 
+# --- --help prints the subcommand table, not a guard failure -------------------
+OUT="$(bash "$RP" delta 1 --help 2>&1)"
+assert_out_contains 'delta <n> <findings.json>' 'a --help anywhere prints the usage'
+assert_out_absent 'no prepared state' 'the guard never answers a help request'
+OUT="$(bash "$RP" -h 2>&1)"
+assert_out_contains 'compose-brief <n>' 'the table names every subcommand'
+
+# --- the brief names the tools' real paths, never a guessed /usr/bin ----------
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'jq. and .gh. do not' \
+  'the brief warns that jq and gh are not in /usr/bin'
+grep -q '{{TOOL_PATHS}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
+  && { printf 'FAIL %s: TOOL_PATHS left unrendered\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the tool-path line is rendered\n' "$CASE"
+
 # --- step: heartbeat + event ---------------------------------------------------
 run_rp step 1 "fanned out (n=2)"
 assert_jq '.outcome == "ok"' 'step ok'

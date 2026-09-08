@@ -22,8 +22,12 @@ rc_comment() { # <id> <author> <type> <body> <pr-number> <in_reply_to|null>
       created_at:"2026-08-07T09:05:00Z", html_url:("https://example.test/rc/"+($id|tostring)),
       pull_request_url:("https://api.github.com/repos/acme/widgets/pulls/"+($n|tostring))}'
 }
-ic_fx() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$MS&per_page=100&sort=created&direction=desc"; }
-rc_fx() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=created&direction=desc"; }
+# the scan asks page by page; a case that serves only page 1 leaves later pages
+# unstubbed, which the stub answers as unusable and the scan reads as the end
+ic_fx() { ic_page 1; }
+rc_fx() { rc_page 1; }
+ic_page() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$MS&per_page=100&sort=created&direction=desc&page=$1"; }
+rc_page() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=created&direction=desc&page=$1"; }
 
 # --- @-mention in an issue comment → mentions_due -----------------------------
 new_case mention_due
@@ -98,6 +102,26 @@ base_config
 run_preflight review
 assert_jq '.mentions_due | length == 1' 'mention on a full page is still found'
 assert_jq '.mentions_due[0].comment_id == 999' 'the newest-first page carries the mention'
-assert_jq '.logs | any(test("issue-comment page cap"))' 'the cap is reported'
+assert_jq '.logs | any(test("still full after")) | not' 'one full page is followed, not reported as truncated'
+
+# --- a full page is followed to the next one -----------------------------------
+# One page holds 100 comments; a busy week overflows it and a mention on page 2
+# used to be invisible until it aged out of the window.
+new_case mention_second_page
+base_config
+{ i=1; while [ "$i" -le 100 ]; do ic_comment "$((900 + i))" bob User "chatter $i" 7; i=$((i + 1)); done; } | ic_page 1
+ic_comment 777 alice User "@test-bot the finding on line 12 is wrong" 7 | ic_page 2
+run_preflight review
+assert_jq '[.mentions_due[] | .comment_id] | index(777) != null' 'a mention on the second page is picked up'
+assert_jq '.mentions_due | length == 1' 'the first page of chatter mentions nobody'
+
+# --- the bound holds: a repo fuller than the cap is reported, not scanned on ---
+new_case mention_page_cap
+base_config
+full_page() { local p="$1" i=1; { while [ "$i" -le 100 ]; do ic_comment "$((p * 1000 + i))" bob User "@test-bot page $p item $i" 7; i=$((i + 1)); done; } | ic_page "$p"; }
+full_page 1; full_page 2; full_page 3
+run_preflight review
+assert_jq '.mentions_due | length == 300' 'three pages are scanned, no more'
+assert_out_contains 'still full after 3 pages' 'the run says the window was not exhausted'
 
 finish

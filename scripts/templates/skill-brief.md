@@ -38,6 +38,8 @@ config makes shimmed tools (`rg`, `fd`, `gh`, `python3`, `node`) exit non-zero
 inside the tree (`Config files in … are not trusted`), so work from outside it
 with absolute paths or `git -C "{{WORKDIR}}"`, prefer `/usr/bin/grep` to a shimmed
 `rg`, and never `mise trust` the tree — it is the untrusted input under review.
+An absolute path is the one the tool actually has: `grep`, `sed` and `cut` live
+in `/usr/bin`, `jq` and `gh` do not. {{TOOL_PATHS}}
 A zero result from a shimmed tool is unknown, not absence: exit 1 means both
 "no matches" and "shim refused", so confirm with a positive control before
 reporting something as missing. (Workaround for a pod-image defect — the real
