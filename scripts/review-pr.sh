@@ -555,7 +555,12 @@ cmd_prepare() {
   # (docs/skills.md → Triggers & file routing)
   local routable="$CTX/files.json" rangef=""
   printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/delta.json"
-  printf '%s' "$cj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/carry.json"
+  # a re-review carries nothing and a first review has no delta, so at most one
+  # range is ever reachable; the guard keeps the delta authoritative rather than
+  # letting a carry overwrite it silently should that ever stop holding
+  [ -z "$rangef" ] \
+    && printf '%s' "$cj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 \
+    && rangef="$CTX/carry.json"
   if [ -n "$rangef" ]; then
     jq -c --slurpfile d "$rangef" '[ .[] | select(.path as $p | $d[0].files | index($p) != null) ]' \
       "$CTX/files.json" > "$CTX/files.delta.json" 2>/dev/null \
