@@ -122,6 +122,11 @@ below is for the manual fallback and the direct session.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,
   otherwise to the chat UI.
+- **`audit_trend`** — publish surfaces for the weekly trend artifact, updated
+  in place so its URL stays stable: `dam` (default) | `gist` | `gist,dam` |
+  `off`. Same host and best-effort semantics as `artifact_targets`; `off` keeps
+  the history and the local report and publishes nothing
+  ([trends.md](trends.md)).
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
   monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
   pipeline, scores each output against its known defects, and records time and
@@ -136,9 +141,9 @@ below is for the manual fallback and the direct session.
   | `gist,dam` | `off`. Same host and best-effort semantics as
   `artifact_targets`.
 - **`## Benchmark model prices` table** — optional per-MTok USD prices keyed by
-  model-id substring; powers the report's `est $` column
-  ([benchmark.md](benchmark.md) → **Model prices**). Missing = costs render
-  "—".
+  model-id substring; powers the `est $` column of both the benchmark report
+  and the weekly trend artifact ([benchmark.md](benchmark.md) → **Model
+  prices**). Missing = costs render "—".
 
 ### Cadence & diagnostics
 

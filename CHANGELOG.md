@@ -11,6 +11,25 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.27.0 — 2026-09-09
+
+**Upgrade:**
+1. The weekly audit now keeps its numbers: it appends one row per week to
+   `work/audit/` and republishes an accumulated trend artifact
+   ([docs/trends.md](docs/trends.md)). No schedule change — the existing audit
+   job performs it as task 32.
+2. Offer the operator the `audit_trend` key in `work/CONFIG.md` (surfaces for
+   that artifact: `dam` default, `gist`, `gist,dam`, `off`). Missing key = `dam`,
+   so nothing must be written to adopt the version.
+3. Reconstruct the weeks the review history still covers, once, before the
+   first audit of the new version — skip when `work/audit/weeks/` already has
+   files:
+   `bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit" "$HOME/work/reviews"`
+4. The `est $` columns of both the trend artifact and the benchmark report read
+   the `## Benchmark model prices` table in `work/CONFIG.md`. Absent table =
+   costs render "—"; offer it to the operator
+   ([docs/benchmark.md](docs/benchmark.md) → **Model prices**).
+
 ## 3.26.1 — 2026-09-09
 
 **Upgrade:** Nothing — the check runs on GitHub only.

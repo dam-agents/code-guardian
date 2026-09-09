@@ -371,8 +371,8 @@ config, `review_marker` least of all.
     scores; default `off` = deterministic scoring only) and
     **`benchmark_report`** (`gist` default / `dam` / `gist,dam` / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
-    **Model prices**, which enables the report's cost column), and register the
-    schedule in Step 6d. The first scheduled run creates the fixture set, and
+    **Model prices**, which enables the cost column of this report **and** of
+    the weekly trend artifact), and register the schedule in Step 6d. The first scheduled run creates the fixture set, and
     the first scores land on the next monthly tick, or sooner on an on-demand
     ask.
 11. **Review cadence** — `active_hours`, `active_days`,
@@ -411,6 +411,7 @@ Final shape:
 - artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
+- audit_trend: dam                     # weekly trend artifact surfaces: dam (default) | gist | gist,dam | off
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: gist               # accumulated-report surfaces: gist (default) | dam | gist,dam | off

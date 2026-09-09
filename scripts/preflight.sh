@@ -8,7 +8,8 @@
 #
 #   - makes NO GitHub writes at all (only GET calls),
 #   - runs NO git commit/push (the agent persists at end of run),
-#   - writes locally only: the REVIEWS.md `done`->`awaiting_label` status flip
+#   - writes locally only: the REVIEWS.md `done`->`awaiting_label` status flip,
+#     and in audit mode its own worklist at work/audit/last-worklist.json
 #     (pure bookkeeping mandated by the re-review trigger gate — keeps
 #     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
 #     nudge due,
@@ -347,7 +348,8 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
   --arg prog "$PROGRESS" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
-  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$(cfg audit_trend)" \
+  --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
@@ -359,6 +361,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_progress:$prog, mention_replies:(if $mr=="" then "enabled" else $mr end),
    artifact_skill:(if $art=="" then "none" else $art end), artifact_targets:(if $at=="" then null else $at end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
+   audit_trend:(if $atr=="" then "dam" else $atr end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
@@ -1596,12 +1599,17 @@ if [ "$MODE" = "audit" ]; then
   else check failures ok "no error events this week"; fi
 
   # weekly token totals from `tokens` events (best-effort; msg format written
-  # by harness/claude-code/log-session-tokens.sh — keep the capture in sync)
+  # by harness/claude-code/log-session-tokens.sh — keep the capture in sync).
+  # `by_model` splits the same counters per recorded model id, which is what
+  # prices a week (docs/trends.md → Cost); events written before the hook
+  # recorded a model land under "unknown" and price as "—", never as a guess.
   TOKENS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    def sums: {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
+               cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)};
     [.[] | select(.ts >= $s and .event=="tokens") | .msg
-     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)")]
-    | {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
-       cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)}' 2>/dev/null)"
+     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?")]
+    | sums + {by_model: (group_by(.m // "unknown")
+                         | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
   # Wasted-review accounting: a run that locked a PR and never reached a
@@ -1755,18 +1763,26 @@ if [ "$MODE" = "audit" ]; then
   done
   # severity is the only finding attribute the review form carries, so it is the
   # only breakdown available without a new field; reviews whose history predates
-  # `findings-json` are outside `json_reviews` and outside the split
+  # `findings-json` are outside `json_reviews` and outside the split.
+  # `new`/`new_by_severity` count the findings the week *raised* (status `new`,
+  # which every first review's entries carry) — the volume metric the trend
+  # artifact tracks beside the acceptance ratio (docs/trends.md).
   FIND_SEV="$(printf '%s' "$FJ_LINES" | jq -Rsc '
     [split("\n")[] | select(length > 0) | (fromjson? // null) | select(type == "array")] as $r
+    | ([$r[] | .[] | select(type == "object")]) as $e
     | { json_reviews: ($r | length),
-        by_severity: ([$r[] | .[] | select(type == "object")
-                       | select(.status == "fixed" or .status == "still")]
+        new: ([$e[] | select(.status == "new")] | length),
+        new_by_severity: ([$e[] | select(.status == "new")]
+                          | group_by(.severity // "unknown")
+                          | map({ key: (.[0].severity // "unknown"), value: length })
+                          | from_entries),
+        by_severity: ([$e[] | select(.status == "fixed" or .status == "still")]
                       | group_by(.severity // "unknown")
                       | map({ key: (.[0].severity // "unknown"),
                               value: { fixed: ([.[] | select(.status == "fixed")] | length),
                                        still: ([.[] | select(.status == "still")] | length) } })
                       | from_entries) }' 2>/dev/null)"
-  [ -n "$FIND_SEV" ] || FIND_SEV='{"json_reviews":0,"by_severity":{}}'
+  [ -n "$FIND_SEV" ] || FIND_SEV='{"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}}'
 
   # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
@@ -1858,7 +1874,38 @@ if [ "$MODE" = "audit" ]; then
     fi
   fi
 
+  # trend artifact currency: the weekly append is the only writer of
+  # work/audit/weeks/, so a history that stopped growing means the audit's
+  # task 32 stopped running (docs/trends.md). A never-appended history is
+  # info — the first audit after the upgrade creates it.
+  TREND_DIR="$WORK/audit/weeks"
+  trend_n=0
+  [ -d "$TREND_DIR" ] && trend_n="$(ls "$TREND_DIR"/*.json 2>/dev/null | grep -c . || true)"
+  if [ "${trend_n:-0}" -eq 0 ]; then
+    check audit_trend ok "no trend history yet — this audit's append creates work/audit/weeks/ (docs/trends.md)"
+  elif [ -z "$(find "$TREND_DIR" -name '*.json' -mtime -10 -print 2>/dev/null | head -1)" ]; then
+    check audit_trend warn "$trend_n week(s) on record but none appended in 10 days — the audit's trend step stopped (docs/trends.md)"
+  else
+    check audit_trend ok "$trend_n week(s) on record, appended within 10 days"
+  fi
+
+  # awaiting_label backlog: rows parked on the one-time flip, waiting for a
+  # human re-review trigger (docs/audit.md task 25) — count plus the age of the
+  # oldest row, both read from the rows the flip already maintains.
+  al_n=0; al_oldest_epoch=0
+  while IFS= read -r row; do
+    [ "$(row_field "$row" 6)" = "awaiting_label" ] || continue
+    al_n=$((al_n+1))
+    e="$(iso2epoch "$(row_field "$row" 4)")"
+    { [ "$e" -gt 0 ] && { [ "$al_oldest_epoch" -eq 0 ] || [ "$e" -lt "$al_oldest_epoch" ]; }; } && al_oldest_epoch="$e"
+  done < <(grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true)
+  if [ "$al_oldest_epoch" -gt 0 ]; then
+    AWAITING_JSON="$(jq -n --argjson n "$al_n" --argjson d "$(( (NOW_EPOCH - al_oldest_epoch) / 86400 ))" \
+      '{n:$n, oldest_days:$d}')"
+  else AWAITING_JSON="$(jq -n --argjson n "$al_n" '{n:$n, oldest_days:null}')"; fi
+
   STATS="$(jq -n --arg since "$SINCE_ISO" \
+    --argjson al "$AWAITING_JSON" \
     --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
     --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
     --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
@@ -1866,7 +1913,7 @@ if [ "$MODE" = "audit" ]; then
     --argjson fx "$fx_wk" --argjson sp "$sp_wk" --argjson fs "$FIND_SEV" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
-    '{since:$since, open_prs:$open,
+    '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq,
                duration:$dur, phases:$ph},
       findings:({fixed:$fx, still_present:$sp} + $fs),
@@ -1876,11 +1923,17 @@ if [ "$MODE" = "audit" ]; then
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
+  AUDIT_JSON="$(jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
     --argjson failures "${FAILURES:-[]}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
-      failures:$failures, logs:$logs}'
+      failures:$failures, logs:$logs}')"
+  # bookkeeping: the same worklist on disk is the trend artifact's input, so a
+  # week's numbers reach work/audit/ without passing through the agent
+  # (docs/trends.md). Overwritten every audit; the week files are the record.
+  mkdir -p "$WORK/audit" 2>/dev/null \
+    && printf '%s\n' "$AUDIT_JSON" > "$WORK/audit/last-worklist.json" 2>/dev/null
+  printf '%s\n' "$AUDIT_JSON"
   exit 0
 fi
 

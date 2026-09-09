@@ -31,7 +31,8 @@ flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines
 (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per
 [logging.md](logging.md)), the skill cache, the project profile
 (`work/PROFILE.{json,md}` and its `/tmp` mirror), and the audit-mode cleanups
-(14-day log retention, stale-clone sweep).
+(14-day log retention, stale-clone sweep) plus that mode's own worklist at
+`work/audit/last-worklist.json` ([trends.md](trends.md)).
 
 It prints one JSON object.
 
@@ -188,12 +189,15 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
    deduplicated `[audit]` tracking issue on `$DEFINITION_REPO` — compose the
    report from `stats` + `checks`, and send it (Slack when enabled, chat UI
    always).
-3. Append the `work/AUDIT.log` line; back up `work/` last.
+3. Append this week to the trend artifact and republish it
+   ([trends.md](trends.md)).
+4. Append the `work/AUDIT.log` line; back up `work/` last.
 
-The audit repairs nothing. Its only GitHub write is that tracking issue, and
-its one local write beyond the log is the weekly memory consolidation
-([preferences.md](preferences.md)). Log triage and the 14-day retention
-cleanup already happened inside preflight ([logging.md](logging.md)).
+The audit repairs nothing. Its GitHub writes are that tracking issue and the
+trend artifact's publish; its local writes beyond the log are the weekly memory
+consolidation ([preferences.md](preferences.md)) and the trend append. Log
+triage and the 14-day retention cleanup already happened inside preflight
+([logging.md](logging.md)).
 
 ## Benchmark run (mode `benchmark`, worklist has `benchmark_due`)
 
@@ -293,6 +297,10 @@ cleanup already happened inside preflight ([logging.md](logging.md)).
   feature a crossed version adds is enabled only on explicit operator
   confirmation, asked once per migration (persistence.md → **Definition
   version & upgrade**).
+- The trend history is append-only: a `work/audit/weeks/` file is written once
+  and never edited or deleted, `TRENDS.md` and `report.html` are regenerated
+  from those files, and a metric the week did not measure is never written as a
+  zero ([trends.md](trends.md)).
 - Timestamps written to state files are the actual UTC write time, second
   precision — never fabricated or reused. `awaiting_label` rows are the one
   exception: they keep the last review's timestamp.
@@ -333,6 +341,7 @@ cleanup already happened inside preflight ([logging.md](logging.md)).
 | [artifact.md](artifact.md) | `artifacts_due` non-empty — gist/DAM publishing, retry-unassign |
 | [shepherd.md](shepherd.md) | `nudges_due` non-empty — send-then-record, templates, target selection |
 | [audit.md](audit.md) | An audit run — agent-side checks, report format, send rules |
+| [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |
 | [persistence.md](persistence.md) | End-of-run persist; an update or version-check request; any request to change the definition |

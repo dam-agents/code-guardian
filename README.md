@@ -59,6 +59,14 @@ schedules, memory-rule compliance, nudge integrity, lessons from 👎-flagged
 findings — and sends a traffic-light report to Slack when enabled, and to the
 chat UI always ([`docs/audit.md`](docs/audit.md)).
 
+**Weekly trends** — every audit also appends its measured week to
+`work/audit/` and republishes one accumulated artifact: volume, findings and
+their acceptance, latency, spend per week and per review, stalls and error
+counts, as a summary against the previous week and the 4-week average, inline
+charts and one row per week. The history is append-only, the report is
+regenerated from it, and the whole step is two deterministic script calls — no
+model calls ([`docs/trends.md`](docs/trends.md)).
+
 **Model benchmark** — the 1st of the month by default; exists only when the
 `benchmark` key was enabled. The agent replays ≥5 synthetic review fixtures
 with known seeded defects through its full pipeline, measures time and tokens
@@ -190,6 +198,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
 | `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures with known defects, time and tokens measured per review (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
+| `audit_trend` | defaulted to `dam` | Surfaces for the weekly trend artifact, updated in place at a stable URL: `dam`, `gist`, `gist,dam`, or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `gist`) | Surfaces for the accumulated report artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. The active interval defaults to 5 minutes to stay under the harness prompt-cache TTL, so back-to-back idle ticks re-read the cached prefix instead of rewriting it; quiet hours drop to hourly, where most idle spend sits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
