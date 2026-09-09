@@ -703,8 +703,13 @@ run_slice() { # <files.json>
         ( [ ($p.modules // [])[] | select(touches(.path)) | row("modules"; "\(.path) — \(.name) [\(.kind)\(if .workspace then ", workspace" else "" end)]\(if .role then ": " + .role else "" end)"; .src) ]
         + [ ($p.docs // [])[] | select(any(.paths[]?; . as $g | any($paths[]; gmatch($g))) or live(.src))
             | row("docs"; "\(if (.paths|length)==0 then "-" else (.paths|join(", ")) end) → \(.page) — \(.title) (stamp \(.stamp), via \(.via // "-"))"; .src) ]
+        # Keep the scope binding parenthesized. jq 1.8.0 changed the precedence
+        # of `as` against binary operators: without these parentheses jq >= 1.8
+        # reads `(live(.src) or <scope>) as $sc`, binds $sc to a boolean, and
+        # aborts the whole slice at `contains`. jq 1.7 reads the intended form,
+        # which is what makes the parentheses look removable there. They are not.
         + [ ($p.decisions // [])[] | . as $d
-            | select(live(.src) or (($d.scope // "") | ascii_downcase) as $sc | $sc != "" and any(($p.modules // [])[] | select(touches(.path)) | (.name|ascii_downcase), (.path|split("/")|last|ascii_downcase); . as $n | $n != "" and ($sc | contains($n))))
+            | select(live(.src) or ((($d.scope // "") | ascii_downcase) as $sc | $sc != "" and any(($p.modules // [])[] | select(touches(.path)) | (.name|ascii_downcase), (.path|split("/")|last|ascii_downcase); . as $n | $n != "" and ($sc | contains($n)))))
             | row("decisions"; "ADR \(.id) — \(.title) [\(.status)]\(if .scope then " scope: " + .scope else "" end) (\(.src))"; .src) ]
         + [ ($p.conventions // [])[] | select(live(.src)) | row("conventions"; "\(.path) changed in this PR (\(.bytes) bytes)"; .src) ]
         + [ ($p.ownership // [])[] | .pattern as $g | select(any($paths[]; gmatch($g))) | row("ownership"; "\(.pattern) → \(.owners)"; .src) ]
