@@ -15,6 +15,10 @@ they are released history and stay as written.
 
 **Upgrade:** Nothing — docs are re-read per run.
 
+## 3.24.3 — 2026-09-09
+
+**Upgrade:** Nothing — the fix is in `scripts/preflight.sh`, re-read per run.
+
 ## 3.24.2 — 2026-09-08
 
 **Upgrade:** Nothing — docs are re-read per run.

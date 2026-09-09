@@ -124,4 +124,20 @@ run_preflight review
 assert_jq '.mentions_due | length == 300' 'three pages are scanned, no more'
 assert_out_contains 'still full after 3 pages' 'the run says the window was not exhausted'
 
+# --- a page larger than one argv entry is still scanned -------------------------
+# Real comment bodies are long: one page of 100 review comments clears 400 KiB,
+# while a single argv entry is capped at 128 KiB (MAX_ARG_STRLEN, well under
+# ARG_MAX). Passing the merged page array via `--argjson` therefore died with
+# "Argument list too long" and the scan degraded to zero mentions on exactly the
+# busy repos that need it. The body size is what makes this case bite — a
+# fixture of short comments stays under the cap and passes either way.
+new_case mention_page_over_argv_limit
+base_config
+BIG="$(head -c 3000 /dev/zero | tr '\0' 'x')"
+{ i=1; while [ "$i" -le 99 ]; do rc_comment "$((7000 + i))" bob User "chatter $i $BIG" 9 null; i=$((i + 1)); done
+  rc_comment 7999 alice User "@test-bot buried in a fat page $BIG" 9 null; } | rc_fx
+run_preflight review
+assert_jq '.mentions_due | length == 1' 'the mention on an oversized page is found'
+assert_jq '.mentions_due[0].comment_id == 7999' 'the right comment survived the merge'
+
 finish

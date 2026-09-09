@@ -878,29 +878,38 @@ if [ "$MODE" = "review" ]; then
     # the cost guard: a quiet repo still pays 2 calls, a busy one at most
     # 2 x MENTION_PAGES, and the newest-first order keeps the cap dropping the
     # oldest comments rather than the fresh ones.
-    mention_pages() { # <endpoint> -> the merged array, newest first
-      local ep="$1" page=1 body all='[]' n
+    # The pages accumulate in a file as JSONL, never in a shell variable: a
+    # single argv entry is capped at 128 KiB (MAX_ARG_STRLEN, independent of
+    # ARG_MAX), and one page of comment bodies clears that on its own, so
+    # `--argjson` on the merged array dies with "Argument list too long" and
+    # the scan silently degrades to zero mentions.
+    mention_pages() { # <endpoint> <outfile> -> comment count, newest first
+      local ep="$1" out="$2" page=1 body n total=0
+      : > "$out"
       while [ "$page" -le "$MENTION_PAGES" ]; do
         body="$(gh api "repos/$REPO/$ep?since=$MSINCE&per_page=100&sort=created&direction=desc&page=$page" 2>/dev/null)"
         { printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; } || break
         n="$(printf '%s' "$body" | jq length)"
-        all="$(jq -nc --argjson a "$all" --argjson b "$body" '$a + $b')"
+        printf '%s' "$body" | jq -c '.[]' >> "$out" || break
+        total=$((total + n))
         [ "$n" -eq 100 ] || break
         page=$((page + 1))
       done
-      printf '%s' "$all"
+      printf '%s' "$total"
     }
-    IC="$(mention_pages "issues/comments")"; RC="$(mention_pages "pulls/comments")"
-    { printf '%s' "$IC" | jq -e 'type=="array"' >/dev/null 2>&1; } || IC='[]'
-    { printf '%s' "$RC" | jq -e 'type=="array"' >/dev/null 2>&1; } || RC='[]'
+    IC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-ic.XXXXXX")"
+    RC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-rc.XXXXXX")"
+    IC_N="$(mention_pages "issues/comments" "$IC_TMP")"
+    RC_N="$(mention_pages "pulls/comments" "$RC_TMP")"
     # every page full to the bound means the window still holds more; `log` from
     # inside the paging subshell would be lost with it, so say it out here
-    [ "$(printf '%s' "$IC" | jq length)" -ge "$((MENTION_PAGES * 100))" ] \
+    [ "${IC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
       && log "mention scan: issue comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
-    [ "$(printf '%s' "$RC" | jq length)" -ge "$((MENTION_PAGES * 100))" ] \
+    [ "${RC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
       && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
-    CAND="$(jq -n --argjson ic "$IC" --argjson rc "$RC" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+    CAND_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-cand.XXXXXX")"
+    jq -nc --slurpfile ic "$IC_TMP" --slurpfile rc "$RC_TMP" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
       [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
               | select((.body // "") | test($re))
               | {comment_id: .id, thread: "conversation",
@@ -916,20 +925,21 @@ if [ "$MODE" = "review" ]; then
                    body: ((.body // "") | .[0:1500]), url: .html_url,
                    in_reply_to: .in_reply_to_id,
                    mentioned: ((.body // "") | test($re))} ]
-      | sort_by(.created_at)' 2>/dev/null)"
-    [ -z "$CAND" ] && CAND='[]'
+      | .[]' 2>/dev/null > "$CAND_TMP"
     # PR descriptions: an @-mention in the body of any open PR (drafts
     # included; zero extra API calls — the open-PR list already carries the
     # bodies). One handling per PR: ledger key "body-<n>".
-    BCAND="$(printf '%s' "$OPEN_JSON" | jq --arg re "$MRE" --arg bot "$BOT_LOGIN" '
-      [ .[] | select(((.user.login // "") != $bot) and ((.user.type // "User") != "Bot"))
-            | select((.body // "") | test($re))
-            | {comment_id: ("body-" + (.number|tostring)), thread: "body",
-               number, author: (.user.login // "ghost"), created_at,
-               body: ((.body // "") | .[0:1500]), url: .html_url,
-               in_reply_to: null} ]' 2>/dev/null)"
-    { printf '%s' "$BCAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || BCAND='[]'
-    CAND="$(jq -n --argjson a "$CAND" --argjson b "$BCAND" '$a + $b | sort_by(.created_at)')"
+    # Appended as JSONL to the same file, for the same argv reason as the pages:
+    # a busy window's candidate set is itself well past 128 KiB.
+    printf '%s' "$OPEN_JSON" | jq -c --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+      .[] | select(((.user.login // "") != $bot) and ((.user.type // "User") != "Bot"))
+          | select((.body // "") | test($re))
+          | {comment_id: ("body-" + (.number|tostring)), thread: "body",
+             number, author: (.user.login // "ghost"), created_at,
+             body: ((.body // "") | .[0:1500]), url: .html_url,
+             in_reply_to: null}' 2>/dev/null >> "$CAND_TMP"
+    CAND="$(jq -sc 'sort_by(.created_at)' "$CAND_TMP" 2>/dev/null)"
+    { printf '%s' "$CAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || CAND='[]'
     while IFS= read -r c; do
       [ -z "$c" ] && continue
       cid="$(printf '%s' "$c" | jq -r '.comment_id')"
@@ -938,13 +948,15 @@ if [ "$MODE" = "review" ]; then
       # the bot's inline comment (root in the same batch, else one GET)
       if [ "$(printf '%s' "$c" | jq -r '.thread + " " + (.mentioned|tostring)')" = "inline false" ]; then
         root="$(printf '%s' "$c" | jq -r '.in_reply_to')"
-        root_author="$(printf '%s' "$RC" | jq -r --argjson r "$root" '[.[] | select(.id == $r) | .user.login] | first // empty')"
+        root_author="$(jq -r --argjson r "$root" 'select(.id == $r) | .user.login' "$RC_TMP" 2>/dev/null | head -1)"
         [ -z "$root_author" ] && root_author="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null | jq -r '.user.login // empty')"
         [ "$root_author" = "$BOT_LOGIN" ] || continue
       fi
       MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned)')" '. + [$e]')"
       log "#$(printf '%s' "$c" | jq -r '.number'): mention $cid by $(printf '%s' "$c" | jq -r '.author') — handling due"
     done < <(printf '%s' "$CAND" | jq -c '.[]')
+    # after the loop: the inline root-author lookup reads the review-comment batch
+    rm -f "$IC_TMP" "$RC_TMP" "$CAND_TMP"
   fi
 
   # ------------------------------------------- stalled-review rate alert ----
