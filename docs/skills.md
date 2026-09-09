@@ -100,7 +100,9 @@ whole poll is spent and repeated. **Collect** with `review-pr.sh collect <n>`: i
 reads every output file, emits one audit line per configured skill (below —
 echo them to the chat UI), warns about findings missing their `**Fix:**` line
 or `path:line` anchor, and logs the `skill_timing` event from the files'
-mtimes. A missing or empty output file is `skill-errored`.
+mtimes. A missing or empty output file is `skill-errored`. It guards the live
+HEAD first, so a commit that landed during the fan-out ends the run there
+([review.md](review.md) → **Guarding a running review**).
 
 The hook-derived `skill:<name> done` events are written when the subagent
 results are **collected**, so they all carry nearly the same timestamp and no

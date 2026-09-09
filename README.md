@@ -284,9 +284,11 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   throughout.
 - [`scripts/review-pr.sh`](scripts/review-pr.sh) — the mechanical half of one
   PR review: `prepare` (Check 1, lock, context, diff with hunk index, clone,
-  skill briefs, the prior findings), `step`, `context`, `sweep`, `collect`,
-  `delta` (fixed/still/new plus the annotated findings), `compose-brief` (this
-  PR's compose contract), `rapid`, `post` (Check 2, dedup, inline eligibility,
+  skill briefs, the prior findings), `step`, `guard` (the live HEAD re-read at a
+  phase boundary, so a commit landing mid-review stops the run before it pays
+  for the phases below it), `context`, `sweep`, `collect`, `delta` (fixed/still/new plus the
+  annotated findings), `compose-brief` (this PR's compose contract, with the
+  conversation refreshed), `rapid`, `post` (Check 2, dedup, inline eligibility,
   payload, 422 handling, label, history, cleanup) and `abort`. The agent
   decides what the review says.
 - [`scripts/profile.sh`](scripts/profile.sh) — the project profile: builds and
