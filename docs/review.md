@@ -82,6 +82,7 @@ c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
    `snapshot`, `build`, `vendored`, `minified`, `sourcemap`, `generated`) are
    not reviewed as code and get one `### Summary` line:
    `_<N> generated/lockfile file(s) not reviewed: <paths, or the classes when more than five>._`
+   Then `review-pr.sh guard <n>` (**Guarding a running review**).
 d. **Run every configured review skill** per [skills.md](skills.md):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
    status `run`, then `review-pr.sh collect <n>` for the audit lines, form
@@ -96,8 +97,9 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    the `body.md` skeleton with its header, its `### Changes since last review`
    line and its skill sections in table order, the `findings.json` and
    `comments.json` rules quoted from **Summary body format** and **Mapping
-   findings to inline comments**, and this PR's paths, overrides and memory
-   rules. Write `body.md` (`### Summary` … `### Verdict` — **Output format**),
+   findings to inline comments**, this PR's paths, overrides and memory rules,
+   and anything the conversation added since the lock (**Guarding a running
+   review**). Write `body.md` (`### Summary` … `### Verdict` — **Output format**),
    `findings.json` (a re-review posts delta's `annotated` file) and, for
    inline-carried findings, `comments.json`
    (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
@@ -494,20 +496,48 @@ defect can arrive twice. Compose from all of them together:
   ([finding-form.md](finding-form.md)). Each skill keeps its own
   `findings=<N>` audit line whatever the merge prints ([skills.md](skills.md)).
 
+## Guarding a running review
+
+The live HEAD is re-read at each phase boundary, and a review whose HEAD moved
+stops at the first boundary past the move.
+
+- **Where.** `collect`, `delta` and `compose-brief` guard themselves; the end
+  of the diff review has no command of its own, so call `review-pr.sh guard
+  <n>` there. Check 1 and Check 2 bracket the sequence.
+- **`outcome: "head_moved"`** — the lock is released per kind, clone and state
+  are deleted, and the work is carried (**Carried review after a HEAD move**).
+  `carried` says whether there were findings to carry; a move before the first
+  finding carries the hop and run counters alone.
+- **`restart: true` → `prepare` the PR again in this run** and review the new
+  HEAD from the top. **`restart: false`** — this run already restarted this PR
+  — move to the next worklist entry and leave the PR to the heartbeat.
+- **Only a complete finding set is carried:** `delta` and `post` carry theirs
+  unasked, the earlier guards carry the counters.
+- An unreadable API leaves the review running; Check 2 still gates the post.
+
+**A comment or an edited description never discards the work.**
+`compose-brief` re-reads the body, comments and reviews, rewrites
+`paths.context` and names what moved; fold it into the review you are about to
+write. Inline threads are not re-read — they hang off the diff at the guarded
+SHA.
+
 ## Carried review after a HEAD move
 
-A first review that reaches `post` after HEAD moved is never published — the
-marker SHA must be the live HEAD. Its findings are still work, so `post` writes
-them to `reviews/pr-<n>.carry.json` (`{sha, ts, hops, findings}`) and the next
-review of that PR starts from them. `prepare` resolves the carry with one
+A review whose HEAD moved is never published — the marker SHA must be the live
+HEAD. Its findings are still work, so the abort writes them to
+`reviews/pr-<n>.carry.json` (`{sha, ts, hops, kind, run, findings}`) and the
+next review of that PR starts from them. `prepare` resolves the carry with one
 compare call and reports it as `carry`:
-`{sha, ts, hops, reachable, files[], findings[]}`.
+`{sha, ts, hops, kind, run, reachable, files[], findings[]}`.
 
-- **The work is delta-scope, the output is a first review.** Review
+- **The work is delta-scope, the output is the kind's own.** Review
   `carry.files` — the range between the carried SHA and HEAD — at first-review
   depth. Extension-triggered skills route from that range, `always` skills run
   over the whole clone, exactly as on a delta re-review
-  ([skills.md](skills.md) → **Triggers & file routing**).
+  ([skills.md](skills.md) → **Triggers & file routing**). A carried re-review
+  posts as a re-review: the carry range wins over the delta range — it is the
+  narrower one and the carried findings cover everything before it — and
+  `delta` classifies them with the rest against the same unchanged prior.
 - **An empty `carry.files` means HEAD's tree is back at the carried SHA** (it
   returned there, or a commit and its revert). The carried findings are
   current, there is no range to review, and every skill routes over the whole
@@ -516,14 +546,16 @@ compare call and reports it as `carry`:
   re-review settles a prior (**Re-review output**): read its `file:line`, keep
   it when the defect is still there, drop it when the range fixed it. A
   `line: null` finding is settled by re-reading its file.
-- **Never name the carry.** The reader has seen nothing, so the output is the
-  plain **Output format**: no `### Changes since last review`, no `🔁`, no
-  `✅ Fixed`, and every entry of `findings-json` is `status: "new"`. A carried
-  finding is reported as what it is — a finding — not as a carryover.
+- **Never name the carry.** Nothing was published, so a first review is the
+  plain **Output format** — no `### Changes since last review`, no `🔁`, no
+  `✅ Fixed`, every `findings-json` entry `status: "new"` — and a re-review is
+  the format its trigger sets. A carried finding is reported as what it is — a
+  finding — not as a carryover.
 - **`carry: null` means review the whole PR.** `prepare` drops a carry whose
-  range is not `ahead`, is 300 files or larger, has a file without a patch, or
-  whose `hops` passed 3; each drop is logged with its reason. A missing or
-  unusable carry changes nothing else about the review.
+  range is not `ahead`, is 300 files or larger, has a file without a patch,
+  whose `hops` passed 3, or whose `kind` is not this run's; each drop is logged
+  with its reason. A carry with no findings holds the hop and run counters
+  only: it is kept, and the review runs at full scope.
 - `post` deletes the carry once the review is published, and when the PR closes
   mid-review. Pruning deletes it with the rest of the PR's state
   (**Pruning**).
@@ -826,7 +858,8 @@ place. A failed dismissal is logged, not fatal.
   and continue with the next PR. Never leave an `in_progress` lock behind, and
   never retry a call twice: the next heartbeat picks the PR up fresh.
 - **Abort also on** a HEAD that moved, a PR gone draft, a withdrawn re-review
-  trigger, or a dedup check unreadable after its retry.
+  trigger, or a dedup check unreadable after its retry. A phase guard reports
+  the HEAD move as `head_moved`, not `aborted` (**Guarding a running review**).
 - **422 line-not-in-diff** → `post` moves every inline comment to the summary
   and retries the POST once (`moved_to_summary`, reason
   `422 line not in diff`); note the moved comments once in the chat UI.
@@ -859,6 +892,8 @@ Before you declare the run done:
   skills' included, and sibling-swept with its `also` locations ·
   every open 🔴/🟡 carrying a class-rule **Fix:**, mirrored into
   `findings-json` · every delta `ambiguous` pair settled before the post ·
+  every phase guard run and every `head_moved` honoured — restarted once, else
+  left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
   never named · skill sections reformatted and merged with no finding lost ·
   stale approval dismissed when the verdict dropped below APPROVE · clone,
