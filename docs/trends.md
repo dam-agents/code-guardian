@@ -90,7 +90,9 @@ recorded arrive as `unknown` and are priced with the extras' session model.
 
 `bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit" "$HOME/work/reviews"`
 reconstructs the weeks the posted-review history covers: review and verdict
-counts, raised findings by severity, and the acceptance bullets. Everything
+counts, raised findings by severity, and the acceptance bullets. It reads each
+`findings-json` as the one line [review.md](review.md) → **Summary body
+format** writes, so that shape and this parser change together. Everything
 measured from the event log (time, tokens, cost, heartbeats, stalls) has a
 14-day retention and stays absent. A week already on record is never
 overwritten, so the command is safe to repeat.

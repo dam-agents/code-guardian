@@ -39,7 +39,9 @@ CONFIG_MD="${TREND_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ISO week label (2026-W37) of an epoch — the row key, so a week has one row
-# whatever hour the audit fires. GNU and BSD date both accept %G/%V.
+# whatever hour the audit fires. GNU and BSD date both accept %G/%V; a date(1)
+# that supports neither invocation returns empty, which makes the caller skip
+# the row instead of filing it under a wrong week.
 iso_week() { # <epoch>
   date -u -d "@$1" +%G-W%V 2>/dev/null || date -u -r "$1" +%G-W%V 2>/dev/null
 }
@@ -79,8 +81,11 @@ if [ "$MODE" = "append" ]; then
        extras:$x}' 2>/dev/null)"
   [ -n "$ROW" ] || { printf 'audit-trend: could not build the week row from %s\n' "$WORKLIST" >&2; exit 3; }
 
-  # append-only: a second audit in the same week writes its own file, and the
-  # newest audit row of a week is the one the report shows
+  # append-only, so a second audit in the same ISO week writes its own file
+  # rather than replacing one. Every reader goes through the `$ALL` load below,
+  # which keeps the newest `audit` row per week — that is what makes the extra
+  # file harmless, and what makes the printed `weeks=N` a week count, not a
+  # file count. Never change one without the other.
   OUT="$DIR/weeks/$(printf '%s' "$TS" | tr -d ':-').json"
   printf '%s\n' "$ROW" > "$OUT" || exit 3
   printf '%s\n' "$ROW" | jq -e '.stats | type == "object"' >/dev/null 2>&1 \
@@ -122,6 +127,8 @@ if [ "$MODE" = "backfill" ]; then
           [ -n "$week" ] && printf '{"week":"%s","kind":"fixed"}\n' "$week" >> "$TMP.jsonl";;
         ('- 🔁 **Still present:**'*)
           [ -n "$week" ] && printf '{"week":"%s","kind":"still"}\n' "$week" >> "$TMP.jsonl";;
+        # one line per review section, as docs/review.md writes it. A future
+        # multiline findings-json needs this parser to change with it.
         ('<!-- findings-json:'*)
           [ -n "$week" ] || continue
           fj="$(printf '%s' "$line" | sed -e 's/^<!-- *findings-json: *//' -e 's/ *-->[[:space:]]*$//')"
