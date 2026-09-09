@@ -456,6 +456,9 @@ never content.
 
 ### Verdict
 <APPROVE / REQUEST_CHANGES / COMMENT> — <one sentence justification>
+
+### For the human reviewer
+<3-4 plain sentences; only when a design decision drives a blocking finding>
 ```
 
 `### Findings` is the canonical, complete list on first reviews, and it **never
@@ -464,6 +467,14 @@ severity + short label + `file:line` — while its description, rationale and
 suggestion block live only in the inline comment. Summary-only findings keep
 their full text here. One format for every channel (chat UI, GitHub body,
 history file); the one-liners carry the next re-review's delta matching.
+
+**`### For the human reviewer`** — the last section, written when a blocking
+finding comes from a design decision of the PR itself. Three or four sentences
+of plain English, no jargon, for a person who reads nothing else: what the PR
+decided, what that decision puts at risk, and what to settle before the single
+fixes matter. Name concepts, never files, lines, symbols or severities. It
+judges nothing new — every claim in it is a finding the review already made,
+and it is the one text addressed to a person.
 
 ## Merging findings across sources
 
@@ -856,7 +867,9 @@ Before you declare the run done:
   with `skill_timing`.
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget
-  ([finding-form.md](finding-form.md)); re-review scope matched the trigger.
+  ([finding-form.md](finding-form.md)); re-review scope matched the trigger;
+  `### For the human reviewer` written when a design decision drives a blocking
+  finding, and free of files, lines and symbols.
 - **Urgent entries** — rapid review posted or dedup-skipped **before** the full
   one; `RAPID` row and `rapid posted` step recorded; terminal only on the full
   review, the closed-PR issue, or an abort. **Closed entries** — no review
