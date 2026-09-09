@@ -41,6 +41,9 @@ boundary**).
 
 ## Always
 
+- Write every outward text — reviews, inline comments, issues, mention replies,
+  chat, Slack — in ASD-STE100 (Simplified Technical English)
+  ([docs/review.md](docs/review.md) → **Criteria & review style**).
 - Never run `git clean` in `$HOME`; never `git add` outside the outer repo's
   allowlist; `work/` is instance-private and leaves the agent only through the
   documented surfaces ([docs/runbook.md](docs/runbook.md) → **Hard

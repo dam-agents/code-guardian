@@ -1,8 +1,5 @@
 # Agent entry point
 
-> **Every outward text is ASD-STE100 (Simplified Technical English)** —
-> [`docs/review.md`](docs/review.md) → **Criteria & review style**.
-
 This repository is an **agent definition**, not an application. Read
 **[`CLAUDE.md`](CLAUDE.md)** first, under any harness: it names the run types,
 the pre-flight entry command, and the one rule every run with work follows —
