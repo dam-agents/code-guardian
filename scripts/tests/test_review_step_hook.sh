@@ -54,7 +54,10 @@ step_case() { # <case-name>
   SID="s-$1-$$"
   rm -rf "/tmp/.cg-steps-$SID"
 }
-cleanup_markers() { rm -rf /tmp/.cg-steps-s-* 2>/dev/null || true; }
+# The hook hard-codes /tmp/.cg-steps-<session> (log-review-step.sh), so these
+# markers are real paths in a shared /tmp. SID carries $$, and so does the
+# sweep: a second suite running concurrently keeps its own markers.
+cleanup_markers() { rm -rf /tmp/.cg-steps-s-*-$$ 2>/dev/null || true; }
 trap cleanup_markers EXIT
 
 # --- a skill subagent produces its skill:<name> done step --------------------
