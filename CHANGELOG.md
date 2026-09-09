@@ -15,6 +15,10 @@ they are released history and stay as written.
 
 **Upgrade:** Nothing — docs are re-read per run.
 
+## 3.25.1 — 2026-09-09
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 3.25.0 — 2026-09-09
 
 **Upgrade:** Nothing — docs are re-read per run.
