@@ -158,8 +158,12 @@ image, the harness, an external service — instead of fixing it at its source:
 ## 9. Validate before opening the PR
 
 - `bash -n` every changed script; run the deterministic stub tests
-  (`bash scripts/tests/run.sh` — offline, gh/curl faked; CI re-runs them);
-  then a **read-only sanity run** of `scripts/preflight.sh` in both modes
+  (`bash scripts/tests/run.sh` — offline, gh/curl faked; CI re-runs them). The
+  suite runs its files in parallel to fit a single shell's budget; it still
+  takes minutes, so give it the whole timeout and **read its last line** —
+  `ALL TESTS PASSED` is the only pass. A truncated run is not a pass.
+  `CG_TEST_JOBS=1` forces serial execution when a failure needs isolating.
+  Then a **read-only sanity run** of `scripts/preflight.sh` in both modes
   against the live target repo. Output must be valid JSON and its decisions
   must match observable reality. A behavior change in `preflight.sh` updates or
   adds its test case in the same PR.
