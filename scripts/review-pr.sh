@@ -10,6 +10,11 @@
 #                                          hunk index, clone + base ref + per-skill
 #                                          copies, skill briefs, the context pack
 #   step <n> <milestone…>                  lock heartbeat + review_step event
+#   guard <n>                              re-read the live HEAD: a commit that
+#                                          landed mid-review stops the run here
+#                                          and says whether to restart it.
+#                                          `collect`, `delta` and `compose-brief`
+#                                          guard on their own
 #   context <n> <path> <line> [radius]     numbered source text around a candidate
 #                                          (header + `<lineno>\t<src>` lines), with
 #                                          "in this PR's hunks" / pre-existing
@@ -22,7 +27,8 @@
 #                                          and the annotated array `post` takes
 #   compose-brief <n>                      this PR's compose contract: the body
 #                                          skeleton, the format rules from docs/,
-#                                          its overrides and memory rules
+#                                          its overrides and memory rules, and the
+#                                          context refreshed at compose time
 #   rapid <n> --body <file>                urgent phase 1: the rapid preliminary post
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
 #                                [--closed-issue <id>]
@@ -53,8 +59,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#   abort /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort) ;;
-  (*) printf 'usage: %s prepare|step|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|abort) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -142,12 +148,12 @@ prior_overrides() {
   sed -n '/^## PR-local overrides/,/^## /p' "$hist" | grep -E '^- ' | jq -R . | jq -sc .
 }
 
-# ----------------------------------------------------- carried first review ----
-# A first review whose HEAD moved before it could post is kept as the next
-# review's starting point (docs/review.md → Carried review after a HEAD move).
-# Its own file: `reviews/pr-<n>.md` is the published history, and every reader
-# of that file — dedup, the delta base, the audit's acceptance counts, the
-# profile — must never see work nobody published.
+# ----------------------------------------------------------- carried review ----
+# A review whose HEAD moved before it could post is kept as the next review's
+# starting point (docs/review.md → Carried review after a HEAD move). Its own
+# file: `reviews/pr-<n>.md` is the published history, and every reader of that
+# file — dedup, the delta base, the audit's acceptance counts, the profile —
+# must never see work nobody published.
 CARRY="$WORK/reviews/pr-$N.carry.json"
 carry_read() { # → the carry object, or `null`
   [ -f "$CARRY" ] || { printf 'null\n'; return 0; }
@@ -158,6 +164,39 @@ carry_drop() { # <reason> — a carry that cannot be used is deleted, never kept
   [ -f "$CARRY" ] || return 0
   rm -f "$CARRY"
   logev info review_pr "PR #$N: carried review dropped — $1"
+}
+# Written on every HEAD-move abort, whatever the kind and whatever the phase:
+# `hops` caps the chain of moves one PR's work survives, `run` caps in-run
+# restarts at one per PR, and `findings` is empty when the move landed before
+# any finding was written — bookkeeping only, never a review scope.
+carry_write() { # <sha> <ts> <run> <kind> [<findings-file>] → "<carried> <restart>"
+  local sha="$1" ts="$2" run="$3" kind="$4" f="${5:-}" prev hops restart=true fj='[]' n
+  prev="$(carry_read)"
+  [ -n "$run" ] && [ "$(printf '%s' "$prev" | jq -r '.run // ""')" = "$run" ] && restart=false
+  hops="$(( $(printf '%s' "$prev" | jq -r '.hops // 0') + 1 ))"
+  if [ "$hops" -gt "$CARRY_MAX_HOPS" ]; then
+    carry_drop "hop $hops is past the $CARRY_MAX_HOPS-hop limit"
+    printf 'false false\n'; return 0
+  fi
+  [ -n "$f" ] && [ -f "$f" ] \
+    && fj="$(jq -c '[ .[] | select(.status != "fixed") ]' "$f" 2>/dev/null || printf '[]')"
+  n="$(printf '%s' "$fj" | jq length 2>/dev/null || printf 0)"
+  mkdir -p "$WORK/reviews" 2>/dev/null
+  if jq -n --arg sha "$sha" --arg ts "$ts" --argjson hops "$hops" --arg kind "$kind" --arg run "$run" \
+       --argjson fs "$fj" '{sha:$sha, ts:$ts, hops:$hops, kind:$kind, run:$run, findings:$fs}' \
+       > "$CARRY.tmp" 2>/dev/null && mv "$CARRY.tmp" "$CARRY"; then
+    if [ "$n" -gt 0 ]; then
+      logev info review_pr "PR #$N: HEAD moved — carried $n finding(s) at ${sha:0:7} forward (hop $hops)"
+      printf 'true %s\n' "$restart"
+    else
+      logev info review_pr "PR #$N: HEAD moved at ${sha:0:7} before a finding was written (hop $hops)"
+      printf 'false %s\n' "$restart"
+    fi
+    return 0
+  fi
+  rm -f "$CARRY.tmp"
+  logev warn review_pr "PR #$N: the carry could not be written — the next review starts from scratch"
+  printf 'false %s\n' "$restart"
 }
 
 # ------------------------------------------------------------- tool paths ----
@@ -264,6 +303,90 @@ remote_reviewed_at() { # <sha>
   else err=1; fi
   [ "$err" -eq 1 ] && printf '__api_error__'
   return 0
+}
+
+# ------------------------------------------------------------- PR context ----
+# body, comments, reviews and inline threads, own artefacts dropped and bots
+# flagged. Built at `prepare` and rebuilt at `compose-brief` from the live
+# conversation (docs/review.md → PR context: body, comments, reviews).
+build_context() { # <pr-view-json> <inline-json> <body>
+  jq -n --argjson c "$1" --argjson i "$2" --arg m "<!-- $REVIEW_MARKER" --arg bot "$BOT_LOGIN" --arg body "$3" '
+    def own: ((.body // "") | contains($m));
+    def isbot: ((.author.login // .user.login // "") == $bot) or ((.author.is_bot // false) == true) or ((.user.type // "") == "Bot");
+    { body: $body, author: ($c.author.login // ""),
+      comments: [ ($c.comments // [])[] | select(own | not) | {author: (.author.login // ""), is_bot: isbot, created_at: (.createdAt // ""), body: (.body // "")} ],
+      reviews:  [ ($c.reviews // [])[]  | select(own | not) | {author: (.author.login // ""), is_bot: isbot, state, submitted_at: (.submittedAt // ""), body: (.body // "")} ],
+      inline:   [ $i[] | select(own | not) | {author: (.user.login // ""), is_bot: isbot, path, line: (.line // .original_line), side: (.side // "RIGHT"), in_reply_to: .in_reply_to_id, created_at, body: (.body // "")} ] }' \
+    > "$CTX/context.json" 2>/dev/null || printf '{}\n' > "$CTX/context.json"
+}
+
+# The conversation as it stands at compose time. An edited description or a new
+# comment mid-review is review input, not a reason to discard the work
+# (docs/review.md → Guarding a running review). The body comes free with the
+# guard's own read; inline threads are not re-fetched — they hang off the diff
+# at the SHA the guard just confirmed.
+CTX_BODY_CHANGED=false; CTX_NEW_TALK=0
+refresh_context() {
+  [ -n "$GUARD_PJ" ] || return 0
+  local fresh prev ctxj inline locked
+  fresh="$(printf '%s' "$GUARD_PJ" | jq -r '.body // ""')"
+  prev="$(jq -r '.body // ""' "$CTX/context.json" 2>/dev/null)"
+  ctxj="$(gh pr view "$N" --repo "$REPO" --json body,author,comments,reviews 2>/dev/null)"
+  if ! printf '%s' "$ctxj" | jq -e 'type=="object"' >/dev/null 2>&1; then
+    logev warn gh_api "PR #$N: the compose-time context refresh did not respond — composing from the locked context"
+    return 0
+  fi
+  inline="$(jq -c '.inline // []' "$CTX/context.json" 2>/dev/null)"; [ -n "$inline" ] || inline='[]'
+  build_context "$ctxj" '[]' "$fresh"
+  jq -c --argjson i "$inline" '.inline = $i' "$CTX/context.json" > "$CTX/context.tmp" 2>/dev/null \
+    && mv "$CTX/context.tmp" "$CTX/context.json"
+  [ "$fresh" = "$prev" ] || CTX_BODY_CHANGED=true
+  locked="$(ctx_get '.locked_at')"
+  CTX_NEW_TALK="$(jq --arg t "$locked" '[ (.comments[]? | .created_at), (.reviews[]? | .submitted_at) ]
+    | map(select(. != null and . != "" and . > $t)) | length' "$CTX/context.json" 2>/dev/null)"
+  case "$CTX_NEW_TALK" in (''|*[!0-9]*) CTX_NEW_TALK=0;; esac
+  { [ "$CTX_BODY_CHANGED" = true ] || [ "$CTX_NEW_TALK" -gt 0 ]; } \
+    && logev info review_pr "PR #$N: context refreshed at compose (description edited: $CTX_BODY_CHANGED, new comments/reviews: $CTX_NEW_TALK)"
+  return 0
+}
+
+# ------------------------------------------------------- mid-review guard ----
+# The live HEAD, re-read at a phase boundary. A commit that lands mid-review
+# invalidates every finding written below it, so the run stops at the next
+# boundary instead of paying for the rest of it, and what it already has is
+# carried (docs/review.md → Guarding a running review). Best-effort: an
+# unreadable API leaves the review running — Check 2 still gates the post.
+GUARD_PJ=""
+head_guard() { # <phase> [<findings-file>] — returns 0 to continue, else emits and exits
+  local phase="$1" f="${2:-}" live sha kind cr carried restart
+  sha="$(ctx_get '.head_sha')"
+  GUARD_PJ="$(pr_state)"
+  if [ -z "$GUARD_PJ" ]; then
+    logev warn gh_api "PR #$N: the $phase HEAD guard did not respond — continuing, Check 2 still gates the post"
+    return 0
+  fi
+  live="$(printf '%s' "$GUARD_PJ" | jq -r '.head_sha // ""')"
+  { [ -z "$live" ] || [ "$live" = "$sha" ]; } && return 0
+  kind="$(ctx_get '.kind')"
+  cr="$(carry_write "$sha" "$(now_iso)" "$(ctx_get '.run // ""')" "$kind" "$f")"
+  carried="${cr%% *}"; restart="${cr##* }"
+  release_lock "HEAD moved ${sha:0:7} → ${live:0:7} at $phase — discarding"
+  cleanup
+  local nxt="review-pr.sh prepare $N — restart this PR on ${live:0:7}"
+  [ "$restart" = true ] || nxt="the in-run restart is spent — leave PR #$N to the next heartbeat"
+  out "$(jq -nc --arg p "$phase" --arg o "${sha:0:7}" --arg n "${live:0:7}" --arg x "$nxt" \
+    --argjson c "$carried" --argjson r "$restart" '
+    {outcome:"head_moved", phase:$p, reason:("HEAD moved " + $o + " → " + $n + " at " + $p),
+     carried:$c, restart:$r, next:$x}')"
+}
+
+# GitHub computes a PR's diff counts asynchronously, so the `prepare` read can
+# land before they are complete and lock a partial `+adds −dels (N files)` into
+# the compose header. The guard's read at this phase is the later one.
+live_change() { # <additions|deletions|changed_files>
+  local v; v="$(printf '%s' "$GUARD_PJ" | jq -r --arg f "$1" '.[$f] // empty' 2>/dev/null)"
+  [ -n "$v" ] || v="$(ctx_get ".changes.$1")"
+  printf '%s' "$v"
 }
 
 # ------------------------------------------------------------ live holder ----
@@ -434,20 +557,13 @@ cmd_prepare() {
   local eta_txt=""; [ -n "$ETA" ] && eta_txt=" · usually ~$(( (ETA + 59) / 60 < 1 ? 1 : (ETA + 59) / 60 )) min"
   progress pending "queued $(now_hm)Z · fetching diff and clone$eta_txt"
 
-  # --- context: body, comments, reviews, inline threads (own artefacts dropped, bots flagged) ---
-  local ctxj inline marker="<!-- $REVIEW_MARKER"
+  # --- context: body, comments, reviews, inline threads ---
+  local ctxj inline
   ctxj="$(gh pr view "$N" --repo "$REPO" --json body,author,comments,reviews 2>/dev/null)"
   { printf '%s' "$ctxj" | jq -e 'type=="object"' >/dev/null 2>&1; } || { ctxj='{}'; logev warn gh_api "PR #$N: context fetch (pr view) did not respond — reviewing without it"; }
   inline="$(gh api "repos/$REPO/pulls/$N/comments?per_page=100" --paginate 2>/dev/null | jq -s 'map(select(type=="array")) | add // []' 2>/dev/null)"
   [ -n "$inline" ] || { inline='[]'; logev warn gh_api "PR #$N: inline threads did not respond — reviewing without them"; }
-  jq -n --argjson c "$ctxj" --argjson i "$inline" --arg m "$marker" --arg bot "$BOT_LOGIN" --arg body "$(printf '%s' "$PJ" | jq -r .body)" '
-    def own: ((.body // "") | contains($m));
-    def isbot: ((.author.login // .user.login // "") == $bot) or ((.author.is_bot // false) == true) or ((.user.type // "") == "Bot");
-    { body: $body, author: ($c.author.login // ""),
-      comments: [ ($c.comments // [])[] | select(own | not) | {author: (.author.login // ""), is_bot: isbot, created_at: (.createdAt // ""), body: (.body // "")} ],
-      reviews:  [ ($c.reviews // [])[]  | select(own | not) | {author: (.author.login // ""), is_bot: isbot, state, submitted_at: (.submittedAt // ""), body: (.body // "")} ],
-      inline:   [ $i[] | select(own | not) | {author: (.user.login // ""), is_bot: isbot, path, line: (.line // .original_line), side: (.side // "RIGHT"), in_reply_to: .in_reply_to_id, created_at, body: (.body // "")} ] }' \
-    > "$CTX/context.json" 2>/dev/null || printf '{}\n' > "$CTX/context.json"
+  build_context "$ctxj" "$inline" "$(printf '%s' "$PJ" | jq -r .body)"
 
   # --- diff + hunk index + files ---
   gh pr diff "$N" --repo "$REPO" > "$DIFF" 2>/dev/null || { : > "$DIFF"; logev warn gh_api "PR #$N: diff fetch did not respond"; }
@@ -499,17 +615,23 @@ cmd_prepare() {
   fi
   printf '%s\n' "$dj" > "$CTX/delta.json"
 
-  # --- carried first review: the work a HEAD move discarded, as this review's
+  # --- carried review: the work a HEAD move discarded, as this review's
   # starting point. One compare call decides the range, exactly as the delta
   # range above; anything but a reachable `ahead` drops the carry and the review
   # runs at complete depth (docs/review.md → Carried review after a HEAD move).
-  local cj='null' cy csha chops
-  if [ "$kind" = "first" ] && [ "$mode" = "review" ]; then
+  local cj='null' cy csha chops ckind
+  if [ "$mode" = "review" ]; then
     cy="$(carry_read)"
     if [ "$cy" != "null" ]; then
       csha="$(printf '%s' "$cy" | jq -r .sha)"; chops="$(printf '%s' "$cy" | jq -r '.hops // 1')"
+      ckind="$(printf '%s' "$cy" | jq -r '.kind // "first"')"
       if [ "$chops" -gt "$CARRY_MAX_HOPS" ]; then
         carry_drop "$chops HEAD moves is past the $CARRY_MAX_HOPS-hop limit"
+      elif [ "$ckind" != "$kind" ]; then
+        carry_drop "it holds a $ckind review's work, this run is a $kind"
+      elif [ "$(printf '%s' "$cy" | jq '.findings | length')" -eq 0 ]; then
+        : # a guard stopped that run before a finding was written: the hop and
+          # run counters are all it holds, and this review runs at full scope
       elif [ "$csha" = "$sha" ]; then
         # HEAD came back to the carried SHA: the findings are current, nothing new
         cj="$(printf '%s' "$cy" | jq -c '. + {reachable:true, files:[]}')"
@@ -570,13 +692,13 @@ cmd_prepare() {
   # reachable delta range the files changed since the prior review
   # (docs/skills.md → Triggers & file routing)
   local routable="$CTX/files.json" rangef=""
-  printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/delta.json"
-  # a re-review carries nothing and a first review has no delta, so at most one
-  # range is ever reachable; the guard keeps the delta authoritative rather than
-  # letting a carry overwrite it silently should that ever stop holding
+  # a carried re-review has both ranges. The carry's is the narrower one and its
+  # findings already cover everything before it, so it wins; only `delta` and
+  # `post` write findings into a carry, and both hold a complete set.
+  printf '%s' "$cj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 && rangef="$CTX/carry.json"
   [ -z "$rangef" ] \
-    && printf '%s' "$cj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 \
-    && rangef="$CTX/carry.json"
+    && printf '%s' "$dj" | jq -e '.reachable and (.files | length) > 0' >/dev/null 2>&1 \
+    && rangef="$CTX/delta.json"
   if [ -n "$rangef" ]; then
     jq -c --slurpfile d "$rangef" '[ .[] | select(.path as $p | $d[0].files | index($p) != null) ]' \
       "$CTX/files.json" > "$CTX/files.delta.json" 2>/dev/null \
@@ -696,9 +818,22 @@ cmd_sweep() {
   out "$(jq -nc --argjson h "$hits" --argjson u "$untouched" '{outcome:"ok", changed_files_hits:$h, untouched_code_hits:$u}')"
 }
 
+# =================================================================== guard ====
+# The phase boundary the agent reaches without another command of its own — the
+# end of the diff review. `collect`, `delta` and `compose-brief` guard on their
+# own (docs/review.md → Guarding a running review).
+cmd_guard() {
+  need_ctx
+  local phase="guard"
+  while [ $# -gt 0 ]; do case "$1" in (--phase) phase="${2:-guard}"; shift 2;; (*) shift;; esac; done
+  head_guard "$phase"
+  out "$(jq -nc --arg s "$(ctx_get '.head_sha' | cut -c1-7)" --arg p "$phase" '{outcome:"ok", phase:$p, head:$s}')"
+}
+
 # ================================================================= collect ====
 cmd_collect() {
   need_ctx
+  head_guard collect
   local lines='[]' warns='[]' results='{}' s st f n files timing=""
   while IFS= read -r s; do
     [ -n "$s" ] || continue
@@ -755,6 +890,7 @@ cmd_delta() {
   # missing path so a wrong one is not read as malformed JSON.
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
+  head_guard delta "$cur"
   local prior overrides ann="$CTX/findings.annotated.json"
   prior="$(prior_findings)"; overrides="$(prior_overrides)"
   local j
@@ -837,6 +973,8 @@ cmd_delta() {
 # memory rules. Prints text, like `context`.
 cmd_compose_brief() {
   need_ctx
+  head_guard compose
+  refresh_context
   local sha sha7 kind full mode scope title
   sha="$(ctx_get '.head_sha')"; sha7="${sha:0:7}"
   kind="$(ctx_get '.kind')"; full="$(ctx_get '.full')"; mode="$(ctx_get '.mode')"
@@ -867,11 +1005,20 @@ cmd_compose_brief() {
   printf '# Rendered for this PR. The rules are quoted from docs/review.md and\n'
   printf '# docs/finding-form.md below — their home, not a second copy.\n\n'
 
+  if [ "$CTX_BODY_CHANGED" = true ] || [ "${CTX_NEW_TALK:-0}" -gt 0 ]; then
+    printf '## The conversation moved since the lock — `%s` is refreshed\n\n' "$CTX/context.json"
+    [ "$CTX_BODY_CHANGED" = true ] \
+      && printf -- '- the description was edited: re-read `.body` and redo the review against it — a removed justification no longer suppresses its finding, an added one now does\n'
+    [ "${CTX_NEW_TALK:-0}" -gt 0 ] \
+      && printf -- '- %s new comment(s)/review(s) since the lock: answer what they raise, and drop a finding they already settle\n' "$CTX_NEW_TALK"
+    printf '\n'
+  fi
+
   printf '## body.md — these sections, in this order\n\n'
   printf '## PR #%s: %s\n' "$N" "$title"
   printf '**Author:** %s | **Branch:** %s → %s | **Changes:** +%s −%s (%s files)\n\n' \
     "$(ctx_get '.author')" "$(ctx_get '.head_ref')" "$(ctx_get '.base_ref')" \
-    "$(ctx_get '.changes.additions')" "$(ctx_get '.changes.deletions')" "$(ctx_get '.changes.changed_files')"
+    "$(live_change additions)" "$(live_change deletions)" "$(live_change changed_files)"
   printf '### Summary\n<1–2 sentences on what the PR does>\n\n'
   if [ "$kind" = "re-review" ]; then
     local unreach=""
@@ -1000,25 +1147,17 @@ cmd_post() {
         next:"file the issue per docs/review.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
   fi
   if [ "$live_sha" != "$sha" ]; then
-    # a first review's findings are the next review's starting point, never a
-    # posted review: the reader has seen nothing, so the work is carried and the
-    # narrative is not (docs/review.md → Carried review after a HEAD move)
-    local carried=false
-    if [ "$kind" = "first" ]; then
-      local hops; hops="$(( $(carry_read | jq -r '.hops // 0') + 1 ))"
-      if [ "$hops" -le "$CARRY_MAX_HOPS" ]; then
-        mkdir -p "$WORK/reviews" 2>/dev/null
-        if jq -c --arg sha "$sha" --arg ts "$now" --argjson hops "$hops" \
-             '{sha:$sha, ts:$ts, hops:$hops, findings:[ .[] | select(.status != "fixed") ]}' \
-             "$FINDINGS" > "$CARRY.tmp" 2>/dev/null && mv "$CARRY.tmp" "$CARRY"; then
-          carried=true
-          logev info review_pr "PR #$N: HEAD moved — carried $(jq '[.[] | select(.status != "fixed")] | length' "$FINDINGS") finding(s) at $sha7 forward (hop $hops)"
-        else rm -f "$CARRY.tmp"; logev warn review_pr "PR #$N: the carry could not be written — the next review starts from scratch"; fi
-      else carry_drop "hop $hops is past the $CARRY_MAX_HOPS-hop limit"; fi
-    fi
+    # the findings are the next review's starting point, never a posted review:
+    # the reader has seen nothing, so the work is carried and the narrative is
+    # not (docs/review.md → Carried review after a HEAD move)
+    local cr carried restart nxt
+    cr="$(carry_write "$sha" "$now" "$(ctx_get '.run // ""')" "$kind" "$FINDINGS")"
+    carried="${cr%% *}"; restart="${cr##* }"
+    nxt="review-pr.sh prepare $N — restart this PR on ${live_sha:0:7}"
+    [ "$restart" = true ] || nxt="the in-run restart is spent — leave PR #$N to the next heartbeat"
     release_lock "HEAD moved $sha7 → ${live_sha:0:7} mid-review — discarding"; cleanup
-    out "$(jq -nc --arg o "$sha7" --arg n "${live_sha:0:7}" --argjson c "$carried" \
-      '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c}')"
+    out "$(jq -nc --arg o "$sha7" --arg n "${live_sha:0:7}" --arg x "$nxt" --argjson c "$carried" --argjson r "$restart" \
+      '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c, restart:$r, next:$x}')"
   fi
   if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
   if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested"; then
@@ -1198,7 +1337,8 @@ cmd_abort() {
 }
 
 case "$CMD" in
-  (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
+  (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
+  (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (abort) cmd_abort "$@";;
 esac

@@ -583,7 +583,8 @@ run_rp abort 1 "reset"
 # --- an unusable carry is dropped, never silently trusted ------------------------
 setup carry_diverged
 cat > "$WORK/reviews/pr-1.carry.json" <<EOF
-{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,"findings":[]}
+{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,"kind":"first",
+ "findings":[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]}
 EOF
 jq -n '{status:"diverged", files:[]}' \
   | fx 'api repos/acme/widgets/compare/0000000000000000000000000000000000000000...'"$B1_SHA"
@@ -652,6 +653,116 @@ assert_jq '.outcome == "posted"' 'the review posts'
   && { printf 'FAIL %s: the carry outlived the review it fed\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: publishing clears the carry\n' "$CASE"
 
+
+# --- the mid-review phase guards -------------------------------------------------
+# docs/review.md → Guarding a running review
+setup guard_clean
+run_rp prepare 1
+run_rp guard 1
+assert_jq '.outcome == "ok" and .phase == "guard"' 'an unmoved HEAD lets the review run on'
+[ -d "$(PR_DIR)" ] || { printf 'FAIL %s: the clone was cleaned up by a passing guard\n' "$CASE"; FAILED=1; }
+run_rp collect 1
+assert_jq '.outcome == "ok"' 'collect guards without stopping an unmoved review'
+run_rp abort 1 "reset"
+
+setup guard_moved
+run_rp prepare 1
+pr_fx open '[]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp guard 1
+assert_jq '.outcome == "head_moved" and .phase == "guard" and .restart == true and .carried == false' \
+  'a commit mid-review stops the run and offers the restart'
+assert_jq '.reason | contains("HEAD moved")' 'the reason names the move'
+grep -qE '^\| *1 *\|' "$WORK/REVIEWS.md" \
+  && { printf 'FAIL %s: the lock row survived the guard\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the guard releases the lock\n' "$CASE"
+[ -d "$(PR_DIR)" ] \
+  && { printf 'FAIL %s: the clone survived the guard\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the guard deletes the clone\n' "$CASE"
+jq -e '.hops == 1 and .kind == "first" and (.findings | length) == 0' "$WORK/reviews/pr-1.carry.json" >/dev/null \
+  && printf 'ok   %s: a move before the first finding carries the counters alone\n' "$CASE" \
+  || { printf 'FAIL %s: bookkeeping carry wrong: %s\n' "$CASE" "$(cat "$WORK/reviews/pr-1.carry.json" 2>/dev/null)"; FAILED=1; }
+
+# the same run gets one restart, not an endless chase
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+x"}]}' \
+  | fx "api repos/acme/widgets/compare/$B1_SHA...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp prepare 1
+pr_fx open '[]' "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+run_rp guard 1
+assert_jq '.outcome == "head_moved" and .restart == false' 'the second move in one run spends no restart'
+assert_jq '.next | contains("next heartbeat")' 'it hands the PR to the heartbeat'
+
+# `delta` holds a complete set, so its guard carries the findings
+setup guard_delta_carries
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]' > "$SANDBOX/findings.json"
+pr_fx open '["cg-rereview"]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp delta 1 "$SANDBOX/findings.json"
+assert_jq '.outcome == "head_moved" and .phase == "delta" and .carried == true' 'the delta guard carries the round it was handed'
+jq -e '(.findings | length) == 1 and .findings[0].summary == "unbounded query" and .kind == "re-review"' "$WORK/reviews/pr-1.carry.json" >/dev/null \
+  && printf 'ok   %s: the carry holds them\n' "$CASE" \
+  || { printf 'FAIL %s: carry wrong: %s\n' "$CASE" "$(cat "$WORK/reviews/pr-1.carry.json" 2>/dev/null)"; FAILED=1; }
+
+# collect and compose-brief guard on their own
+setup guard_collect
+run_rp prepare 1
+pr_fx open '[]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp collect 1
+assert_jq '.outcome == "head_moved" and .phase == "collect"' 'collect stops a review whose HEAD moved'
+
+setup guard_compose
+run_rp prepare 1
+pr_fx open '[]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp compose-brief 1
+assert_jq '.outcome == "head_moved" and .phase == "compose"' 'compose-brief stops a review whose HEAD moved'
+
+# --- a bookkeeping-only carry is kept, and is never a review scope ---------------
+setup carry_bookkeeping
+cat > "$WORK/reviews/pr-1.carry.json" <<EOF
+{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,"kind":"first","run":"other","findings":[]}
+EOF
+run_rp prepare 1
+assert_jq '.carry == null' 'a carry with no findings is no starting point'
+assert_jq '.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"]' \
+  'the review runs at full scope, not over a phantom range'
+[ -f "$WORK/reviews/pr-1.carry.json" ] \
+  || { printf 'FAIL %s: the hop counter was thrown away\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
+# --- a carry never crosses kinds --------------------------------------------------
+setup carry_kind_mismatch
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+cat > "$WORK/reviews/pr-1.carry.json" <<EOF
+{"sha":"0000000000000000000000000000000000000000","ts":"$(iso_ago 3600)","hops":1,"kind":"first",
+ "findings":[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"x","fix":"y"}]}
+EOF
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+assert_jq '.kind == "re-review" and .carry == null' "a first review's carry is not a re-review's starting point"
+[ -f "$WORK/reviews/pr-1.carry.json" ] \
+  && { printf 'FAIL %s: the cross-kind carry was kept\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the cross-kind carry is dropped\n' "$CASE"
+run_rp abort 1 "reset"
+
+# --- a re-review carries its work too ---------------------------------------------
+setup carry_rereview
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '### Summary\nx\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"inline":false,"summary":"dead export","fix":"remove"}]' > "$SANDBOX/findings.json"
+pr_fx open '["cg-rereview"]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "aborted" and .carried == true' "a re-review's work is carried, not thrown away"
+jq -e --arg s "$B1_SHA" '.sha == $s and .kind == "re-review" and (.findings | length) == 1' "$WORK/reviews/pr-1.carry.json" >/dev/null \
+  && printf 'ok   %s: the carry records the kind that wrote it\n' "$CASE" \
+  || { printf 'FAIL %s: re-review carry wrong: %s\n' "$CASE" "$(cat "$WORK/reviews/pr-1.carry.json" 2>/dev/null)"; FAILED=1; }
+assert_file_contains "$WORK/REVIEWS.md" '| 1 | 0000000000000000000000000000000000000000 | .* | COMMENT | awaiting_label |' 'the prior row is restored'
+
 # --- compose-brief: this PR's compose contract ------------------------------------
 setup compose_brief
 cat > "$WORK/MEMORY.md" <<'EOF'
@@ -715,6 +826,55 @@ assert_out_absent 'Previous HEAD' 'a first review has no changes-since block'
 assert_out_contains '"status": "new"' 'a first review posts every finding as new'
 assert_out_contains 'none' 'no overrides and no memory read as none'
 assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
+run_rp abort 1 "reset"
+
+# --- compose-brief: the conversation that moved since the lock --------------------
+# docs/review.md → Guarding a running review
+setup compose_refresh
+run_rp prepare 1
+# same HEAD, edited description, one comment that landed after the lock
+jq -n --arg sha "$B1_SHA" '{state:"open", merged:false, draft:false, title:"alpha PR", user:{login:"alice"},
+  body:"Adds query() — bounded on purpose, see below",
+  head:{sha:$sha, ref:"b1", repo:{full_name:"acme/widgets"}}, base:{ref:"main"}, labels:[],
+  requested_reviewers:[], additions:3, deletions:1, changed_files:3}' | fx 'api repos/acme/widgets/pulls/1'
+printf '%s' '{"body":"Adds query() — bounded on purpose, see below","author":{"login":"alice"},"comments":[{"author":{"login":"bob"},"body":"looks ok","createdAt":"2026-09-01T00:00:00Z"},{"author":{"login":"carol"},"body":"the limit is enforced upstream","createdAt":"'"$(iso_ago -3600)"'"}],"reviews":[]}' \
+  | fx 'pr view 1 --repo acme/widgets --json body,author,comments,reviews'
+run_rp compose-brief 1
+assert_out_contains 'the description was edited' 'compose-brief names the edited description'
+assert_out_contains '1 new comment(s)/review(s)' 'compose-brief counts what landed after the lock'
+CTXF="$(PR_DIR).ctx/context.json"
+jq -e '.body | contains("bounded on purpose")' "$CTXF" >/dev/null \
+  && printf 'ok   %s: the refreshed body reached the context pack\n' "$CASE" \
+  || { printf 'FAIL %s: context.json still holds the locked body\n' "$CASE"; FAILED=1; }
+jq -e '[.comments[] | select(.author == "carol")] | length == 1' "$CTXF" >/dev/null \
+  && printf 'ok   %s: the new comment reached the context pack\n' "$CASE" \
+  || { printf 'FAIL %s: the new comment is missing from context.json\n' "$CASE"; FAILED=1; }
+jq -e '(.inline | type) == "array"' "$CTXF" >/dev/null \
+  && printf 'ok   %s: the inline threads survive the refresh\n' "$CASE" \
+  || { printf 'FAIL %s: the refresh dropped the inline threads\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
+# a quiet conversation says nothing at all
+setup compose_refresh_quiet
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_absent 'the description was edited' 'an unchanged description is not mentioned'
+assert_out_absent 'new comment\(s\)' 'no new comments, no section'
+run_rp abort 1 "reset"
+
+# --- compose-brief: the header counts come from the later read --------------------
+# GitHub computes a PR's diff counts asynchronously, so `prepare` can lock a
+# partial set into the header (docs/review.md → Guarding a running review)
+setup compose_counts_race
+jq -n --arg sha "$B1_SHA" '{state:"open", merged:false, draft:false, title:"alpha PR", user:{login:"alice"},
+  body:"Adds query()", head:{sha:$sha, ref:"b1", repo:{full_name:"acme/widgets"}}, base:{ref:"main"},
+  labels:[], requested_reviewers:[], additions:0, deletions:0, changed_files:0}' \
+  | fx 'api repos/acme/widgets/pulls/1'
+run_rp prepare 1
+assert_jq '.changes.additions == 0' 'prepare locks the counts GitHub had at the time'
+pr_fx open '[]'   # GitHub finished counting: +3 −1 over 3 files, same HEAD
+run_rp compose-brief 1
+assert_out_contains '\*\*Changes:\*\* +3 −1 (3 files)' 'the header reports the counts at compose time'
 run_rp abort 1 "reset"
 
 finish
