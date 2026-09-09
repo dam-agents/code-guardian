@@ -704,7 +704,7 @@ run_slice() { # <files.json>
         + [ ($p.docs // [])[] | select(any(.paths[]?; . as $g | any($paths[]; gmatch($g))) or live(.src))
             | row("docs"; "\(if (.paths|length)==0 then "-" else (.paths|join(", ")) end) → \(.page) — \(.title) (stamp \(.stamp), via \(.via // "-"))"; .src) ]
         + [ ($p.decisions // [])[] | . as $d
-            | select(live(.src) or (($d.scope // "") | ascii_downcase) as $sc | $sc != "" and any(($p.modules // [])[] | select(touches(.path)) | (.name|ascii_downcase), (.path|split("/")|last|ascii_downcase); . as $n | $n != "" and ($sc | contains($n))))
+            | select(live(.src) or ((($d.scope // "") | ascii_downcase) as $sc | $sc != "" and any(($p.modules // [])[] | select(touches(.path)) | (.name|ascii_downcase), (.path|split("/")|last|ascii_downcase); . as $n | $n != "" and ($sc | contains($n)))))
             | row("decisions"; "ADR \(.id) — \(.title) [\(.status)]\(if .scope then " scope: " + .scope else "" end) (\(.src))"; .src) ]
         + [ ($p.conventions // [])[] | select(live(.src)) | row("conventions"; "\(.path) changed in this PR (\(.bytes) bytes)"; .src) ]
         + [ ($p.ownership // [])[] | .pattern as $g | select(any($paths[]; gmatch($g))) | row("ownership"; "\(.pattern) → \(.owners)"; .src) ]
