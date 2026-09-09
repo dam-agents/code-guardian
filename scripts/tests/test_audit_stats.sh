@@ -417,6 +417,58 @@ run_preflight audit
 assert_jq '.checks[] | select(.id == "heartbeats") | .status == "warn" and (.detail | contains("100 min"))' \
   'a gap past 1.5x the quiet interval still warns'
 
+# --- raised findings, the awaiting_label backlog and the worklist dump --------
+# The trend artifact reads these three (docs/trends.md): findings the week
+# raised, the trigger backlog, and preflight's own worklist on disk.
+new_case audit_trend_inputs
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+add_row 7 abc1234 "$(iso_ago 900000)" COMMENT awaiting_label
+add_row 8 abc5678 "$(iso_ago 200000)" COMMENT awaiting_label
+add_row 9 abc9012 "$(iso_ago 100000)" COMMENT done
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $(iso_ago 200000) — COMMENT
+<!-- findings-json: [{"status":"new","severity":"critical","file":"a.ts","line":1,"summary":"x","fix":"y"},{"status":"new","severity":"suggestion","file":"a.ts","line":9,"summary":"x","fix":null}] -->
+
+## Review at bbbbbbb — $(iso_ago 100000) — COMMENT
+
+### Changes since last review
+- ✅ **Fixed:** null check added (\`a.ts:1\`)
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"a.ts","line":1,"summary":"x","fix":null},{"status":"new","severity":"warning","file":"b.ts","line":4,"summary":"x","fix":"y"}] -->
+EOF
+run_preflight audit
+assert_jq '.stats.findings.new == 3' 'every status:new finding of the window counted'
+assert_jq '.stats.findings.new_by_severity.critical == 1 and .stats.findings.new_by_severity.warning == 1
+           and .stats.findings.new_by_severity.suggestion == 1' 'raised findings split by severity'
+assert_jq '.stats.findings.fixed == 1' 'the acceptance counters stay as they were'
+assert_jq '.stats.awaiting_label.n == 2 and .stats.awaiting_label.oldest_days == 10'   'the awaiting_label backlog carries its count and the oldest row age'
+assert_file_contains "$WORK/audit/last-worklist.json" '"nothing_to_do": false'   'audit mode leaves its worklist on disk for the trend step'
+if [ "$(jq -r '.stats.findings.new' "$WORK/audit/last-worklist.json" 2>/dev/null)" = "3" ]; then
+  printf 'ok   %s: the dumped worklist is the printed one\n' "$CASE"
+else printf 'FAIL %s: dumped worklist does not match the output\n' "$CASE"; FAILED=1; fi
+
+# the trend-currency check: a history that stopped growing is a warn
+new_case audit_trend_stalled
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/audit/weeks"
+printf '{"week":"2026-W01","source":"audit","stats":{}}\n' > "$WORK/audit/weeks/old.json"
+touch -t 202601010000 "$WORK/audit/weeks/old.json" 2>/dev/null || true
+run_preflight audit
+assert_jq '.checks[] | select(.id == "audit_trend") | .status == "warn"' \
+  'a trend history with no recent append warns'
+
+new_case audit_trend_inputs_empty
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight audit
+assert_jq '.stats.findings.new == 0 and (.stats.findings.new_by_severity | length) == 0'   'a week with no findings-json reports zero raised findings'
+assert_jq '.stats.awaiting_label == {n:0, oldest_days:null}' 'an empty backlog has no age'
+assert_jq '.checks[] | select(.id == "audit_trend") | .status == "ok"' \
+  'a never-appended trend history is not a fault'
+
 # --- shepherd without Slack → nothing_to_do -----------------------------------
 new_case shepherd_gated
 base_config

@@ -25,6 +25,6 @@ tp="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)"
 # summation = the shared usage-sum.jq (also feeds the benchmark's snapshots);
 # msg format is parsed by preflight.sh audit (TOKENS_WEEK capture) — keep in sync
 msg="$(jq -nR -f "$(cd "$(dirname "$0")" && pwd)/usage-sum.jq" "$tp" 2>/dev/null \
-  | jq -r '"input=\(.input) output=\(.output) cache_read=\(.cache_read) cache_creation=\(.cache_creation) msgs=\(.msgs)"' 2>/dev/null)"
+  | jq -r '"input=\(.input) output=\(.output) cache_read=\(.cache_read) cache_creation=\(.cache_creation) msgs=\(.msgs) model=\(.model // "unknown")"' 2>/dev/null)"
 [ -n "$msg" ] && logev info tokens "$msg"
 exit 0

@@ -5,9 +5,10 @@ Read this file on every **audit run** (`preflight.sh audit` returned
 `stats` + `checks`); you walk the task list — verify, add the judgment checks,
 compute the derived metrics, send the report.
 
-**The audit fixes nothing.** Its only GitHub write is a tracking issue for a
-definition bug found in task 3, and its one local write beyond `AUDIT.log` is
-the memory consolidation of task 30. Routine findings (pending prunes, stale
+**The audit fixes nothing.** Its only GitHub writes are a tracking issue for a
+definition bug found in task 3 and the trend artifact's publish; its local
+writes beyond `AUDIT.log` are the memory consolidation of task 30 and the trend
+append of task 32. Routine findings (pending prunes, stale
 locks) heal on the next heartbeat; everything else goes to the operator. A
 skipped task is an incomplete audit — a task that is impossible this week
 (missing data, API error) is reported as `warn` with the reason, never dropped.
@@ -166,9 +167,10 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 24. **Verdict distribution** — ~100 % APPROVE across a busy week is possible
     rubber-stamping; ~100 % REQUEST_CHANGES is possible over-strictness. Either
     extreme → flag it with examples.
-25. **`awaiting_label` backlog** — count and age of rows waiting for a trigger.
-    A large or old backlog means the team is not requesting re-reviews; suggest
-    it in the report as a process signal.
+25. **`awaiting_label` backlog** — `stats.awaiting_label`: how many rows wait
+    for a trigger and how old the oldest is. A large or old backlog means the
+    team is not requesting re-reviews; suggest it in the report as a process
+    signal.
 26. **Cost pulse** — the idle-heartbeat ratio from `stats` (idle/total). A
     falling ratio means rising spend; a ratio near zero with no reviews means
     something re-triggers work every run.
@@ -178,7 +180,8 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     with examples. `by_severity` splits the same counts by the severity
     `findings-json` carries, over `json_reviews` reviews. A severity whose
     ratio is far below the others is the finding class to reconsider — record
-    it per [preferences.md](preferences.md).
+    it per [preferences.md](preferences.md). `new` and `new_by_severity` count
+    what the week **raised**, the volume that ratio is judged against.
 28. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
     `by_cause` (`pod_restart` / `hard_kill` / `terminated`),
@@ -218,6 +221,10 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     drop), drop `orphan` rows, and add a row when a lesson of the week
     generalizes to one code area — at most 10 rows, two sentences each. Report
     the delta on the memory line (`notes: kept X · updated Y · dropped Z`).
+32. **Trend artifact** — append this week to `work/audit/` and republish the
+    accumulated report ([trends.md](trends.md)). Its delta line and the
+    artifact URL fill the report's *Trend* line. A failed append or publish is
+    reported as `warn` with the reason; the audit is complete regardless.
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
@@ -237,6 +244,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
+• Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
@@ -261,4 +269,5 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail" or "error", which next week's log grep would flag), then back up
   `work/` ([persistence.md](persistence.md)). No state repairs beyond tasks
-  30–31, and no GitHub writes except the task-3 tracking issue.
+  30–32, and no GitHub writes except the task-3 tracking issue and the trend
+  artifact's own publish.

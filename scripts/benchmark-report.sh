@@ -60,18 +60,14 @@ DIR="${1:-}"
 # under 0,1,2… — history is append-only, so the reader tolerates what is
 # already stored (benchmark-validate.sh keeps new writes to the object shape).
 # operator-maintained price table (work/CONFIG.md → ## Benchmark model
-# prices): markdown rows | model substring | input | output | cache_read |
-# cache_write |, USD per MTok. Header/separator rows drop out because their
-# price cells do not parse as numbers. Missing file/section → [].
+# prices), parsed by the shared reader in lib/prices.sh — one home, one parse,
+# so the weekly trend report prices identically. Missing file/section → [].
 CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
-PRICES="$(sed -n '/^## Benchmark model prices/,/^## [^B]/p' "$CONFIG_MD" 2>/dev/null \
-  | grep '^|' \
-  | jq -Rn '[inputs | split("|") | map(gsub("^\\s+|\\s+$"; ""))
-             | select(length >= 6)
-             | {m: .[1], i: (.[2] | tonumber?), o: (.[3] | tonumber?),
-                cr: (.[4] | tonumber?), cw: (.[5] | tonumber?)}
-             | select(.m != "" and .i != null and .o != null
-                      and .cr != null and .cw != null)]' 2>/dev/null)"
+PRICES='[]'
+if [ -f "$SCRIPT_DIR/lib/prices.sh" ]; then
+  . "$SCRIPT_DIR/lib/prices.sh" 2>/dev/null
+  PRICES="$(prices_json "$CONFIG_MD")"
+fi
 PRICES="${PRICES:-[]}"
 
 ALL="$(for f in "$DIR"/results/*.json; do
