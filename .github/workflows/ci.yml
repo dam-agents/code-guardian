@@ -44,6 +44,10 @@ jobs:
           top="$(ver < CHANGELOG.md)"
           basetop="$(git show FETCH_HEAD:CHANGELOG.md | ver)"
           echo "this branch: $top, newest on $base: $basetop"
+          # an unreadable CHANGELOG makes both tests below vacuously true, so it
+          # is an error, never a pass
+          [ -n "$top" ]     || { echo "no version entry in this branch's CHANGELOG.md"; exit 1; }
+          [ -n "$basetop" ] || { echo "could not read a version entry in $base's CHANGELOG.md"; exit 1; }
           # literal compare — a version's dots are regex metacharacters
           esc="$(printf '%s' "$top" | sed 's/\./\\./g')"
           if git show "FETCH_HEAD:CHANGELOG.md" | grep -qE "^## $esc "; then
