@@ -837,7 +837,7 @@ jq -n --arg sha "$B1_SHA" '{state:"open", merged:false, draft:false, title:"alph
   body:"Adds query() — bounded on purpose, see below",
   head:{sha:$sha, ref:"b1", repo:{full_name:"acme/widgets"}}, base:{ref:"main"}, labels:[],
   requested_reviewers:[], additions:3, deletions:1, changed_files:3}' | fx 'api repos/acme/widgets/pulls/1'
-printf '%s' '{"body":"Adds query() — bounded on purpose, see below","author":{"login":"alice"},"comments":[{"author":{"login":"bob"},"body":"looks ok","createdAt":"2026-09-01T00:00:00Z"},{"author":{"login":"carol"},"body":"the limit is enforced upstream","createdAt":"2099-01-01T00:00:00Z"}],"reviews":[]}' \
+printf '%s' '{"body":"Adds query() — bounded on purpose, see below","author":{"login":"alice"},"comments":[{"author":{"login":"bob"},"body":"looks ok","createdAt":"2026-09-01T00:00:00Z"},{"author":{"login":"carol"},"body":"the limit is enforced upstream","createdAt":"'"$(iso_ago -3600)"'"}],"reviews":[]}' \
   | fx 'pr view 1 --repo acme/widgets --json body,author,comments,reviews'
 run_rp compose-brief 1
 assert_out_contains 'the description was edited' 'compose-brief names the edited description'
@@ -860,6 +860,21 @@ run_rp prepare 1
 run_rp compose-brief 1
 assert_out_absent 'the description was edited' 'an unchanged description is not mentioned'
 assert_out_absent 'new comment\(s\)' 'no new comments, no section'
+run_rp abort 1 "reset"
+
+# --- compose-brief: the header counts come from the later read --------------------
+# GitHub computes a PR's diff counts asynchronously, so `prepare` can lock a
+# partial set into the header (docs/review.md → Guarding a running review)
+setup compose_counts_race
+jq -n --arg sha "$B1_SHA" '{state:"open", merged:false, draft:false, title:"alpha PR", user:{login:"alice"},
+  body:"Adds query()", head:{sha:$sha, ref:"b1", repo:{full_name:"acme/widgets"}}, base:{ref:"main"},
+  labels:[], requested_reviewers:[], additions:0, deletions:0, changed_files:0}' \
+  | fx 'api repos/acme/widgets/pulls/1'
+run_rp prepare 1
+assert_jq '.changes.additions == 0' 'prepare locks the counts GitHub had at the time'
+pr_fx open '[]'   # GitHub finished counting: +3 −1 over 3 files, same HEAD
+run_rp compose-brief 1
+assert_out_contains '\*\*Changes:\*\* +3 −1 (3 files)' 'the header reports the counts at compose time'
 run_rp abort 1 "reset"
 
 finish

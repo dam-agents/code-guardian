@@ -380,6 +380,15 @@ head_guard() { # <phase> [<findings-file>] — returns 0 to continue, else emits
      carried:$c, restart:$r, next:$x}')"
 }
 
+# GitHub computes a PR's diff counts asynchronously, so the `prepare` read can
+# land before they are complete and lock a partial `+adds −dels (N files)` into
+# the compose header. The guard's read at this phase is the later one.
+live_change() { # <additions|deletions|changed_files>
+  local v; v="$(printf '%s' "$GUARD_PJ" | jq -r --arg f "$1" '.[$f] // empty' 2>/dev/null)"
+  [ -n "$v" ] || v="$(ctx_get ".changes.$1")"
+  printf '%s' "$v"
+}
+
 # ------------------------------------------------------------ live holder ----
 # Another run owns this PR when a tree or diff of its exists AND shows life —
 # a recent mtime, or a foreign run whose newest `review_step` on this PR is
@@ -1009,7 +1018,7 @@ cmd_compose_brief() {
   printf '## PR #%s: %s\n' "$N" "$title"
   printf '**Author:** %s | **Branch:** %s → %s | **Changes:** +%s −%s (%s files)\n\n' \
     "$(ctx_get '.author')" "$(ctx_get '.head_ref')" "$(ctx_get '.base_ref')" \
-    "$(ctx_get '.changes.additions')" "$(ctx_get '.changes.deletions')" "$(ctx_get '.changes.changed_files')"
+    "$(live_change additions)" "$(live_change deletions)" "$(live_change changed_files)"
   printf '### Summary\n<1–2 sentences on what the PR does>\n\n'
   if [ "$kind" = "re-review" ]; then
     local unreach=""
