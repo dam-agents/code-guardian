@@ -57,12 +57,15 @@ GOOD
 OUT="$(argv_payloads "$SANDBOX/good.sh")"
 assert_out_absent '.' 'a body read on stdin, and a scalar taken from one, are not reported'
 
-# --- and the scripts that call gh api are clean -----------------------------
+# --- and every script that ships is clean -----------------------------------
+# The whole tree, not a list: a script added later calls gh api on the day its
+# author needs it, and a list is checked only by the people who remember it.
+# A script with no `gh api` call costs one pass that finds nothing.
 new_case argv_payload_free
-for s in preflight.sh review-pr.sh profile.sh work-backup.sh benchmark-phase.sh; do
-  [ -f "$REPO_ROOT/scripts/$s" ] || continue
-  OUT="$(argv_payloads "$REPO_ROOT/scripts/$s")"
-  assert_out_absent '.' "scripts/$s passes no gh api payload through argv"
+for s in "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/scripts/lib/*.sh; do
+  [ -f "$s" ] || continue
+  OUT="$(argv_payloads "$s")"
+  assert_out_absent '.' "${s#$REPO_ROOT/} passes no gh api payload through argv"
 done
 
 finish
