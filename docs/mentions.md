@@ -40,6 +40,19 @@ write time; `action` is `feedback + reply` / `answer` / `review` /
 `no-action` / `send-failed`, combined when several routes ran. The weekly audit
 trims rows older than 14 days ([logging.md](logging.md) → **Retention**).
 
+**The ledger is the mutual exclusion, so read it per entry at the moment you
+act** — `mentions_due` is a snapshot of the scan, and a concurrent run serving
+the same list writes its row between that scan and your POST. Immediately
+before each reply:
+
+```sh
+grep -qE "^\| *<comment_id> *\|" "$WORK/MENTIONS.md" && echo handled
+```
+
+A row found here ends the entry: write no row, post nothing, log
+`mention_handled` with `skipped (handled at <handled_at>)`, and go to the next
+entry.
+
 ## Per-mention sequence
 
 1. **Fetch context** — the full thread: for `inline`, the review-comment thread
@@ -61,8 +74,9 @@ trims rows older than 14 days ([logging.md](logging.md) → **Retention**).
      a link to the posted review.
    - **None of these** (FYI mention, thanks, courtesy ping) → ledger row
      `no-action` and one log line, no reply.
-3. **Act, then record**: the memory write first (idempotent), then the reply or
-   review, then the ledger row as the immediately next write.
+3. **Act, then record**: the memory write first (idempotent), then the ledger
+   re-read of **Dedup ledger**, then the reply or review, then the ledger row
+   as the immediately next write.
 4. **Reply mechanics** — every reply is **ASD-STE100** ([review.md](review.md)
    → **Language**) and stays short: a few sentences of plain comment text, no
    headings, no lists unless the answer needs them. No signature (the account
