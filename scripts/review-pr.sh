@@ -68,6 +68,7 @@ HOME_DIR="${HOME:-/home/agent}"
 WORK="${WORK_DIR:-$HOME_DIR/work}"
 CONFIG="$WORK/CONFIG.md"
 REVIEWS="$WORK/REVIEWS.md"
+LEDGER="$WORK/REVIEW-LEDGER.jsonl"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
@@ -1125,7 +1126,7 @@ cmd_post() {
     rm -f "$CARRY"      # the PR is gone: nothing will start from this work
     local crit; crit="$(jq -c '[ .[] | select(.severity == "critical" and .status != "fixed") ]' "$FINDINGS")"
     if [ -n "$CLOSED_ISSUE" ]; then
-      append_history "$sha7" "$now" "$VERDICT" "$BODY" "$FINDINGS" "_Delivered as issue #$CLOSED_ISSUE — PR closed before posting._"
+      append_history "$sha7" "$now" "$VERDICT" "$BODY" "$FINDINGS" "_Delivered as issue #$CLOSED_ISSUE — PR closed before posting._" "$kind"
       write_row "$sha" "$now" "$VERDICT" done
       progress success "PR closed · $(printf '%s' "$crit" | jq length) critical finding(s) in issue #$CLOSED_ISSUE"
       logstep "$sha7 done"
@@ -1299,7 +1300,7 @@ cmd_post() {
   fi
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
-  append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" ""
+  append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"
   rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done
   local c w s took
@@ -1316,7 +1317,7 @@ cmd_post() {
       moved_to_summary:$m, anchors_nulled:$ab, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
 }
 
-append_history() { # sha7 ts verdict body-file findings note — the body as posted
+append_history() { # sha7 ts verdict body-file findings note kind — the body as posted
   local f="$WORK/reviews/pr-$N.md"
   mkdir -p "$WORK/reviews"
   [ -f "$f" ] || printf '# PR #%s: %s\n\n## PR-local overrides\n\n' "$N" "$(ctx_get '.title')" > "$f"
@@ -1326,6 +1327,28 @@ append_history() { # sha7 ts verdict body-file findings note — the body as pos
     grep -q '<!-- findings-json: ' "$4" || printf '\n\n<!-- findings-json: %s -->\n' "$(jq -c . "$5" | sed 's/--/–/g')"
     printf '\n---\n'
   } >> "$f"
+  append_ledger "$1" "$2" "$3" "$4" "$5" "${7:-}"
+}
+
+# The same review as one JSONL row in work/REVIEW-LEDGER.jsonl — the file the
+# week's volume, verdict and findings numbers are counted from, because pruning
+# deletes the history file above (docs/review.md → **Review ledger**).
+# Best-effort by design: a row that cannot be built or written is logged and
+# never fails the post.
+append_ledger() { # sha7 ts verdict body-file findings kind
+  local fx sp row
+  fx="$(grep -cE '^- ✅ \*\*Fixed:\*\*' "$4" 2>/dev/null || true)"
+  sp="$(grep -cE '^- 🔁 \*\*Still present:\*\*' "$4" 2>/dev/null || true)"
+  row="$(jq -nc --argjson pr "$N" --arg sha "$1" --arg ts "$2" --arg v "$3" --arg k "${6:-}" \
+    --argjson fx "${fx:-0}" --argjson sp "${sp:-0}" --slurpfile f "$5" '
+    { src: "ledger", pr: $pr, ts: $ts, sha: $sha,
+      kind: (if $k == "" then "first" else $k end), verdict: $v,
+      bullets: { fixed: $fx, still: $sp },
+      findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
+                  | select(type == "object")
+                  | { status: (.status // "unknown"), severity: (.severity // "unknown") } ] }' 2>/dev/null)"
+  [ -n "$row" ] && printf '%s\n' "$row" >> "$LEDGER" 2>/dev/null \
+    || logev warn review_ledger "PR #$N: the ledger row for the review at $1 was not written"
 }
 
 # =================================================================== abort ====

@@ -169,6 +169,9 @@ script-side), keeping at least 14 days:
 - `work/MENTIONS.md` ([mentions.md](mentions.md)) is trimmed to rows younger
   than 14 days — older rows are outside the 7-day scan window and can never be
   re-emitted.
+- `work/REVIEW-LEDGER.jsonl` ([review.md](review.md) → **Review ledger**) is
+  trimmed to rows younger than **180 days** — it outlives the reviewed PR, and
+  the trend backfill reads back over past weeks.
 - `work/AUDIT.log` is exempt (one line per week).
 - The cleanup logs itself (`log_cleanup`, info). With `work/` git-backed, older
   logs stay recoverable from the work repo's history.

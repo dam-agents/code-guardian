@@ -3,7 +3,7 @@
 # facts, then render the accumulated report (docs/trends.md).
 #
 #   audit-trend.sh append   <dir> [<extras.json>] [<worklist.json>]
-#   audit-trend.sh backfill <dir> <reviews dir>
+#   audit-trend.sh backfill <dir> <reviews dir> [<ledger>]
 #   audit-trend.sh index    <dir>
 #   audit-trend.sh report   <dir>            # HTML on stdout (default mode)
 #
@@ -93,55 +93,30 @@ if [ "$MODE" = "append" ]; then
 fi
 
 # -------------------------------------------------------------- backfill -----
-# One-time reconstruction from the posted-review history: review counts,
-# verdicts, raised findings and the acceptance bullets are all recorded per
-# review section, so they rebuild exactly. Everything measured from the event
-# log (time, tokens, cost, heartbeats, stalls) has a 14-day retention and is
-# left absent — the report renders it "—" rather than inventing it.
+# One-time reconstruction of the weeks the review record still covers: counts,
+# verdicts, raised findings and the acceptance bullets are all kept per review,
+# so they rebuild exactly. Everything measured from the event log (time,
+# tokens, cost, heartbeats, stalls) has a 14-day retention and is left absent —
+# the report renders it "—" rather than inventing it.
 if [ "$MODE" = "backfill" ]; then
-  RDIR="${1:-}"
-  [ -n "$RDIR" ] && [ -d "$RDIR" ] || { printf 'usage: audit-trend.sh backfill <dir> <reviews dir>\n' >&2; exit 2; }
+  RDIR="${1:-}"; LEDGER="${2:-}"
+  [ -n "$RDIR" ] && [ -d "$RDIR" ] || { printf 'usage: audit-trend.sh backfill <dir> <reviews dir> [<ledger>]\n' >&2; exit 2; }
+  [ -n "$LEDGER" ] || LEDGER="$(dirname "$RDIR")/REVIEW-LEDGER.jsonl"
+  . "$SCRIPT_DIR/lib/review-records.sh" 2>/dev/null \
+    || { printf 'audit-trend: lib/review-records.sh is missing — nothing backfilled\n' >&2; exit 3; }
   mkdir -p "$DIR/weeks" || exit 3
   TMP="$(mktemp "${TMPDIR:-/tmp}/audit-trend-bf.XXXXXX")" || exit 3
-  trap 'rm -f "$TMP" "$TMP.jsonl"' EXIT
-  : > "$TMP.jsonl"
-  for f in "$RDIR"/pr-*.md; do
-    [ -f "$f" ] || continue
-    idx=0; week=""
-    while IFS= read -r line; do
-      case "$line" in
-        ('## Review at '*)
-          ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)"
-          [ -n "$ts" ] || { week=""; continue; }
-          e="$(iso2epoch "$ts")"; [ "$e" -gt 0 ] || { week=""; continue; }
-          week="$(iso_week "$e")"; idx=$((idx+1))
-          verdict=UNKNOWN
-          case "$line" in
-            (*REQUEST_CHANGES*) verdict=request_changes;;
-            (*APPROVE*)         verdict=approve;;
-            (*COMMENT*)         verdict=comment;;
-          esac
-          printf '{"week":"%s","kind":"review","first":%s,"verdict":"%s"}\n' \
-            "$week" "$([ "$idx" -eq 1 ] && printf 'true' || printf 'false')" "$verdict" >> "$TMP.jsonl";;
-        ('- ✅ **Fixed:**'*)
-          [ -n "$week" ] && printf '{"week":"%s","kind":"fixed"}\n' "$week" >> "$TMP.jsonl";;
-        ('- 🔁 **Still present:**'*)
-          [ -n "$week" ] && printf '{"week":"%s","kind":"still"}\n' "$week" >> "$TMP.jsonl";;
-        # one line per review section, as docs/review.md writes it. A future
-        # multiline findings-json needs this parser to change with it.
-        ('<!-- findings-json:'*)
-          [ -n "$week" ] || continue
-          fj="$(printf '%s' "$line" | sed -e 's/^<!-- *findings-json: *//' -e 's/ *-->[[:space:]]*$//')"
-          printf '%s' "$fj" | jq -c --arg w "$week" \
-            'select(type=="array") | {week:$w, kind:"findings",
-              new:([.[]|select(type=="object" and .status=="new")]|length),
-              by_sev:([.[]|select(type=="object" and .status=="new")]
-                      | group_by(.severity // "unknown")
-                      | map({key:(.[0].severity // "unknown"), value:length}) | from_entries)}' \
-            2>/dev/null >> "$TMP.jsonl";;
-      esac
-    done < "$f"
-  done
+  trap 'rm -f "$TMP" "$TMP.jsonl" "$TMP.weeks"' EXIT
+  review_records "$RDIR" "$LEDGER" "" > "$TMP.jsonl"
+  # ISO week per distinct day: date(1) is the only dependable %G-%V source, so
+  # it runs once per day on record, not once per review
+  : > "$TMP.weeks"
+  while IFS= read -r day; do
+    [ -n "$day" ] || continue
+    e="$(iso2epoch "${day}T00:00:00Z")"; [ "$e" -gt 0 ] || continue
+    w="$(iso_week "$e")"; [ -n "$w" ] || continue
+    printf '{"day":"%s","week":"%s"}\n' "$day" "$w" >> "$TMP.weeks"
+  done < <(jq -r 'select(.ts != null) | .ts[0:10]' "$TMP.jsonl" 2>/dev/null | sort -u)
 
   written=0; skipped=0
   while IFS= read -r wk; do
@@ -151,27 +126,15 @@ if [ "$MODE" = "backfill" ]; then
        && jq -sre --arg w "$wk" 'any(.[]; .week == $w)' "$DIR"/weeks/*.json >/dev/null 2>&1; then
       skipped=$((skipped+1)); continue
     fi
-    row="$(jq -sc --arg w "$wk" --arg ts "$NOW_ISO" '
-      [.[] | select(.week == $w)] as $e
-      | ([$e[] | select(.kind=="review")]) as $rv
-      | {ts:$ts, week:$w, since:null, source:"backfill", definition_version:null,
-         stats:{reviews:{total:($rv|length),
-                         first:([$rv[]|select(.first)]|length),
-                         re_review:([$rv[]|select(.first|not)]|length),
-                         approve:([$rv[]|select(.verdict=="approve")]|length),
-                         comment:([$rv[]|select(.verdict=="comment")]|length),
-                         request_changes:([$rv[]|select(.verdict=="request_changes")]|length)},
-                findings:{fixed:([$e[]|select(.kind=="fixed")]|length),
-                          still_present:([$e[]|select(.kind=="still")]|length),
-                          json_reviews:([$e[]|select(.kind=="findings")]|length),
-                          new:([$e[]|select(.kind=="findings")|.new]|add // 0),
-                          new_by_severity:([$e[]|select(.kind=="findings")|.by_sev|to_entries[]]
-                                           | group_by(.key)
-                                           | map({key:.[0].key, value:([.[].value]|add)}) | from_entries)}},
-         checks:null, extras:{}}' "$TMP.jsonl" 2>/dev/null)"
+    row="$(jq -sc --slurpfile wm "$TMP.weeks" --arg w "$wk" --arg ts "$NOW_ISO" "
+      (\$wm | map({key: .day, value: .week}) | from_entries) as \$M
+      | [ .[] | select((\$M[.ts[0:10]] // \"\") == \$w) ]
+      | ($RR_AGG_JQ) as \$agg
+      | {ts: \$ts, week: \$w, since: null, source: \"backfill\", definition_version: null,
+         stats: \$agg, checks: null, extras: {}}" "$TMP.jsonl" 2>/dev/null)"
     [ -n "$row" ] || continue
     printf '%s\n' "$row" > "$DIR/weeks/${wk}-backfill.json" && written=$((written+1))
-  done < <(jq -sr '[.[].week] | unique | .[]' "$TMP.jsonl" 2>/dev/null)
+  done < <(jq -r '.week' "$TMP.weeks" 2>/dev/null | sort -u)
   printf 'backfill: %s week(s) written, %s already on record\n' "$written" "$skipped"
 fi
 

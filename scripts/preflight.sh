@@ -60,6 +60,7 @@ HOME_DIR="${HOME:-/home/agent}"
 WORK="${WORK_DIR:-$HOME_DIR/work}"
 CONFIG="$WORK/CONFIG.md"
 REVIEWS="$WORK/REVIEWS.md"
+LEDGER="$WORK/REVIEW-LEDGER.jsonl"
 SHEPHERD="$WORK/SHEPHERD.md"
 DEVELOPERS="$WORK/DEVELOPERS.md"
 SKILL_CACHE="$HOME_DIR/.claude/skills/.cache"
@@ -1726,27 +1727,35 @@ if [ "$MODE" = "audit" ]; then
     done < "$WORK/MENTIONS.md"
     mv "$WORK/MENTIONS.md.tmp" "$WORK/MENTIONS.md"
   fi
-  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d"
+  # review ledger: 180 days, not 14 — it is the only record of a merged PR's
+  # reviews once pruning removed the history file, and the trend backfill reads
+  # back over past weeks. Rewritten in one jq pass (the file outgrows a
+  # line-by-line loop) with the same append-during-rewrite caveat as above.
+  if [ -f "$LEDGER" ]; then
+    lk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+          || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    if [ -n "$lk" ] && jq -c --arg k "$lk" 'select(type == "object" and (.ts // "") >= $k)' \
+         "$LEDGER" > "$LEDGER.tmp" 2>/dev/null; then
+      mv "$LEDGER.tmp" "$LEDGER"
+    else
+      rm -f "$LEDGER.tmp"
+    fi
+  fi
+  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d, the review ledger to 180d"
 
   # --- 7-day stats -----------------------------------------------------------
-  rv_total=0; rv_first=0; rv_re=0; v_app=0; v_com=0; v_req=0
-  for f in "$WORK"/reviews/pr-*.md; do
-    [ -f "$f" ] || continue
-    idx=0
-    while IFS= read -r line; do
-      idx=$((idx+1))
-      ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)"
-      [ -z "$ts" ] && continue
-      [ "$(iso2epoch "$ts")" -lt "$SINCE_EPOCH" ] && continue
-      rv_total=$((rv_total+1))
-      [ "$idx" -eq 1 ] && rv_first=$((rv_first+1)) || rv_re=$((rv_re+1))
-      case "$line" in
-        (*REQUEST_CHANGES*) v_req=$((v_req+1));;
-        (*APPROVE*)         v_app=$((v_app+1));;
-        (*COMMENT*)         v_com=$((v_com+1));;
-      esac
-    done < <(grep '^## Review at ' "$f")
-  done
+  # Volume, verdicts and findings all come from the same week of review records
+  # (lib/review-records.sh): the append-only ledger, unioned with the history
+  # files still on disk. Counting the files alone measured "reviews on the PRs
+  # that are still open" — pruning deletes a merged PR's file, and with it the
+  # week it was reviewed in (docs/review.md → **Review ledger**).
+  if [ -f "$SCRIPT_DIR/lib/review-records.sh" ] && . "$SCRIPT_DIR/lib/review-records.sh" 2>/dev/null; then
+    REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
+    [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
+  else
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}}}'
+    logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
+  fi
   # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
   # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
   # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
@@ -1759,52 +1768,6 @@ if [ "$MODE" = "audit" ]; then
     nudged_prs="$nudged_prs $(row_field "$row" 2)"
   done < <(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true)
   NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)]')"
-
-  # findings effectiveness: Fixed vs Still-present bullets inside this week's
-  # re-review sections, plus the same split per severity from the `findings-json`
-  # line those sections carry (the agent judges the ratios — docs/audit.md task 26)
-  fx_wk=0; sp_wk=0; FJ_LINES=""
-  for f in "$WORK"/reviews/pr-*.md; do
-    [ -f "$f" ] || continue
-    in_win=0
-    while IFS= read -r line; do
-      case "$line" in
-        ('## Review at '*)
-          ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)"
-          in_win=0
-          [ -n "$ts" ] && [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] && in_win=1;;
-        ('- ✅ **Fixed:**'*)         [ "$in_win" -eq 1 ] && fx_wk=$((fx_wk+1));;
-        ('- 🔁 **Still present:**'*) [ "$in_win" -eq 1 ] && sp_wk=$((sp_wk+1));;
-        ('<!-- findings-json:'*)
-          [ "$in_win" -eq 1 ] || continue
-          FJ_LINES="$FJ_LINES$(printf '%s' "$line" \
-            | sed -e 's/^<!-- *findings-json: *//' -e 's/ *-->[[:space:]]*$//')
-";;
-      esac
-    done < "$f"
-  done
-  # severity is the only finding attribute the review form carries, so it is the
-  # only breakdown available without a new field; reviews whose history predates
-  # `findings-json` are outside `json_reviews` and outside the split.
-  # `new`/`new_by_severity` count the findings the week *raised* (status `new`,
-  # which every first review's entries carry) — the volume metric the trend
-  # artifact tracks beside the acceptance ratio (docs/trends.md).
-  FIND_SEV="$(printf '%s' "$FJ_LINES" | jq -Rsc '
-    [split("\n")[] | select(length > 0) | (fromjson? // null) | select(type == "array")] as $r
-    | ([$r[] | .[] | select(type == "object")]) as $e
-    | { json_reviews: ($r | length),
-        new: ([$e[] | select(.status == "new")] | length),
-        new_by_severity: ([$e[] | select(.status == "new")]
-                          | group_by(.severity // "unknown")
-                          | map({ key: (.[0].severity // "unknown"), value: length })
-                          | from_entries),
-        by_severity: ([$e[] | select(.status == "fixed" or .status == "still")]
-                      | group_by(.severity // "unknown")
-                      | map({ key: (.[0].severity // "unknown"),
-                              value: { fixed: ([.[] | select(.status == "fixed")] | length),
-                                       still: ([.[] | select(.status == "still")] | length) } })
-                      | from_entries) }' 2>/dev/null)"
-  [ -n "$FIND_SEV" ] || FIND_SEV='{"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}}'
 
   # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
@@ -1827,6 +1790,18 @@ if [ "$MODE" = "audit" ]; then
                      elif (length % 2) == 1 then .[(length / 2) | floor]
                      else ((.[length / 2 - 1] + .[length / 2]) / 2 | floor) end) }' 2>/dev/null)"
   [ -n "$REVIEW_DUR" ] || REVIEW_DUR='{"n":0,"median_min":null}'
+
+  # the week is counted twice, from two independent sources: reviews from the
+  # ledger, durations from `review_step` events. They must stay comparable — a
+  # ledger that stopped being appended to, or lost rows, shows up here instead
+  # of as a metric that quietly shrinks (docs/review.md → **Review ledger**).
+  rv_n="$(printf '%s' "$REVIEWS_AGG" | jq -r '.reviews.total // 0')"
+  dur_n="$(printf '%s' "$REVIEW_DUR" | jq -r '.n // 0')"
+  if [ "${dur_n:-0}" -ge 10 ] && [ $(( ${rv_n:-0} * 2 )) -lt "$dur_n" ]; then
+    check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review.md → Review ledger)"
+  else
+    check review_ledger ok "$rv_n review(s) on record, $dur_n completed review run(s) in the log"
+  fi
 
   # the same events, split per phase of the per-PR sequence (docs/review.md →
   # Progress logging): a median that grew is attributable to the phase that
@@ -1928,17 +1903,14 @@ if [ "$MODE" = "audit" ]; then
 
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson al "$AWAITING_JSON" \
-    --argjson open "$OPEN_COUNT" --argjson rv "$rv_total" --argjson rf "$rv_first" --argjson rr "$rv_re" \
-    --argjson va "$v_app" --argjson vc "$v_com" --argjson vq "$v_req" \
+    --argjson open "$OPEN_COUNT" --argjson ra "$REVIEWS_AGG" \
     --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
-    --argjson fx "$fx_wk" --argjson sp "$sp_wk" --argjson fs "$FIND_SEV" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
-      reviews:{total:$rv, first:$rf, re_review:$rr, approve:$va, comment:$vc, request_changes:$vq,
-               duration:$dur, phases:$ph},
-      findings:({fixed:$fx, still_present:$sp} + $fs),
+      reviews:($ra.reviews + {duration:$dur, phases:$ph}),
+      findings:$ra.findings,
       heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 

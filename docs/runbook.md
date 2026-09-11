@@ -286,7 +286,8 @@ triage and the 14-day retention cleanup already happened inside preflight
   trust boundary**).
 - Prune state only after per-PR verification: preflight verifies, you execute
   exactly its list. Never from list absence, never a bulk delete of
-  `reviews/pr-*.md`.
+  `reviews/pr-*.md`. `work/REVIEW-LEDGER.jsonl` is append-only — a prune never
+  touches it ([review.md](review.md) → **Review ledger**).
 - **Never run `git clean` in `/home/agent`**; never `git add` outside the outer
   repo's allowlist. Definition changes go through branch + PR
   ([persistence.md](persistence.md)), never from a heartbeat — and **before

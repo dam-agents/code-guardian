@@ -37,7 +37,8 @@ bulk delete of `reviews/pr-*.md`. An entry without ids → read the
    `gh gist delete <gist_id>`; `dam_id` → `delete_artifact {id: <dam_id>}`,
    skipped silently when the MCP tool is absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
-   work/reviews/pr-artifacts/pr-<n>.html`.
+   work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
+   (**Review ledger**).
 3. Delete the PR's REVIEWS.md row, and its `work/SHEPHERD.md` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
@@ -754,6 +755,23 @@ step ([artifact.md](artifact.md)); omit a marker whose surface was not
 published. Watch-rule markers (`<!-- watch-sent: <id> -->`,
 [watches.md](watches.md)) follow on their own lines.
 
+**Review ledger** — `work/REVIEW-LEDGER.jsonl`, the append-only record of the
+reviews that were posted, one line per review, written by `review-pr.sh`
+together with the history section above:
+
+```json
+{"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
+ "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","bullets":{"fixed":0,"still":0},
+ "findings":[{"status":"new","severity":"critical"}]}
+```
+
+Pruning deletes the history file, the ledger row stays — so the weekly numbers
+count the reviews of the week, not only the reviews of the PRs that are still
+open ([audit.md](audit.md), [trends.md](trends.md)). Every reader goes through
+`scripts/lib/review-records.sh`, which unions the ledger with the history files
+still on disk and keeps one record per `(pr, ts)`. Retention: 180 days
+([logging.md](logging.md) → **Retention**). Only the audit trims this file.
+
 ### Applying PR-local overrides
 
 **Strictly scoped to their own PR.** Reload the list per PR, discard it before
@@ -882,7 +900,7 @@ Before you declare the run done:
   restored `awaiting_label`, no `in_progress` left) · row refreshed at each
   milestone · live holder re-checked before the lock write · label removed
   after a posted review on a labeled PR · skill audit lines complete
-  ([skills.md](skills.md)) · review appended to `reviews/pr-<n>.md` · overrides
+  ([skills.md](skills.md)) · review appended to `reviews/pr-<n>.md` and to the ledger · overrides
   applied from that PR's file only · context fetched and used, a human
   dismissal in it recorded as an override before posting · observed insights
   recorded ([preferences.md](preferences.md)) · `memory_due` read before

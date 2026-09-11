@@ -149,6 +149,10 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 
 ### G. Trends & anomalies (compute, then judge)
 
+`stats.reviews` and `stats.findings` count the week from the review ledger
+([review.md](review.md) → **Review ledger**), `reviews.prs` the PRs behind
+them; a `review_ledger` warn makes them a floor, not a measurement.
+
 22. **Time-to-first-review** — for this week's first reviews, the median time
     from PR ready to review posted (PR `createdAt`/ready timestamp via one
     `gh pr view` per sampled PR). Report the median; > 1 h → investigate
