@@ -11,6 +11,10 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.28.1 — 2026-09-11
+
+**Upgrade:** Nothing — the change is a CI test.
+
 ## 3.28.0 — 2026-09-11
 
 **Upgrade:** Nothing — `scripts/review-pr.sh` creates
