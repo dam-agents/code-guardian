@@ -18,6 +18,14 @@ they are released history and stay as written.
 ([docs/review.md](docs/review.md) → **Review ledger**), and the weekly audit
 counts the ledger together with the review history files still on disk.
 
+## 3.27.4 — 2026-09-11
+
+**Upgrade:** Nothing — `scripts/preflight.sh` is re-read per run.
+
+## 3.27.3 — 2026-09-11
+
+**Upgrade:** Nothing — `docs/mentions.md` is re-read per run with mentions due.
+
 ## 3.27.2 — 2026-09-09
 
 **Upgrade:** Nothing — `scripts/profile.sh` is re-read per run. The next review

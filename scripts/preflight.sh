@@ -836,8 +836,12 @@ if [ "$MODE" = "review" ]; then
         trunc=false; [ "$(printf '%s' "$raw" | jq length)" -gt 1000 ] && trunc=true
         printf '%s' "$raw" | jq -c '.[:1000] | map({path:.filename, status:.status})' > "$FILES_TMP"
         slice="$(LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" slice "$FILES_TMP" 2>/dev/null)"
-        { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
-          || slice="$(jq -c '{files:(map(. + {class:"code"})), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$FILES_TMP")"
+        # the default below has the shape of a real slice, so a run that falls
+        # back to it looks exactly like a repository with nothing to say: log it
+        if ! printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; then
+          log_warn "PR #$n: the profile slice did not build — this review gets the file list alone (docs/profile.md)"
+          slice="$(jq -c '{files:(map(. + {class:"code"})), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$FILES_TMP")"
+        fi
         # extension routing per docs/skills.md — inclusive: every skill whose
         # trigger list holds the file's extension receives it; `always` skills
         # route nothing (they run on the whole clone); noise classes and
@@ -887,12 +891,17 @@ if [ "$MODE" = "review" ]; then
     # ARG_MAX), and one page of comment bodies clears that on its own, so
     # `--argjson` on the merged array dies with "Argument list too long" and
     # the scan silently degrades to zero mentions.
-    mention_pages() { # <endpoint> <outfile> -> comment count, newest first
+    # A first page that does not answer leaves the surface empty, which reads as
+    # a quiet week; it comes back as -1 and the caller logs it.
+    mention_pages() { # <endpoint> <outfile> -> comment count, newest first; -1 = no answer
       local ep="$1" out="$2" page=1 body n total=0
       : > "$out"
       while [ "$page" -le "$MENTION_PAGES" ]; do
         body="$(gh api "repos/$REPO/$ep?since=$MSINCE&per_page=100&sort=created&direction=desc&page=$page" 2>/dev/null)"
-        { printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; } || break
+        if ! printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; then
+          [ "$page" -eq 1 ] && total=-1
+          break
+        fi
         n="$(printf '%s' "$body" | jq length)"
         printf '%s' "$body" | jq -c '.[]' >> "$out" || break
         total=$((total + n))
@@ -905,6 +914,14 @@ if [ "$MODE" = "review" ]; then
     RC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-rc.XXXXXX")"
     IC_N="$(mention_pages "issues/comments" "$IC_TMP")"
     RC_N="$(mention_pages "pulls/comments" "$RC_TMP")"
+    if [ "${IC_N:-0}" -lt 0 ]; then
+      log_warn "mention scan: the issue-comment surface did not answer — conversation mentions are not scanned this run"
+      IC_N=0
+    fi
+    if [ "${RC_N:-0}" -lt 0 ]; then
+      log_warn "mention scan: the review-comment surface did not answer — inline mentions are not scanned this run"
+      RC_N=0
+    fi
     # every page full to the bound means the window still holds more; `log` from
     # inside the paging subshell would be lost with it, so say it out here
     [ "${IC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
@@ -943,7 +960,12 @@ if [ "$MODE" = "review" ]; then
              body: ((.body // "") | .[0:1500]), url: .html_url,
              in_reply_to: null}' 2>/dev/null >> "$CAND_TMP"
     CAND="$(jq -sc 'sort_by(.created_at)' "$CAND_TMP" 2>/dev/null)"
-    { printf '%s' "$CAND" | jq -e 'type=="array"' >/dev/null 2>&1; } || CAND='[]'
+    # an empty candidate set is also what a quiet week produces, so the failure
+    # that makes one must be said out loud
+    if ! printf '%s' "$CAND" | jq -e 'type=="array"' >/dev/null 2>&1; then
+      log_warn "mention scan: the candidate set did not parse — no mention is handled this run"
+      CAND='[]'
+    fi
     while IFS= read -r c; do
       [ -z "$c" ] && continue
       cid="$(printf '%s' "$c" | jq -r '.comment_id')"

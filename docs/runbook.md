@@ -66,8 +66,8 @@ Script missing or failing (non-JSON output) → log it and do the equivalent wor
 manually per the `docs/` files; never silently skip a heartbeat.
 
 Trust the worklist for *what to do*. Keep your own safety re-checks — HEAD
-freshness, trigger still present, pre-post dedup — for *whether it is still
-valid at post time*.
+freshness, trigger still present, pre-post dedup, the mention ledger — for
+*whether it is still valid at post time*.
 
 ## Runtime configuration: `work/CONFIG.md`
 
@@ -310,7 +310,8 @@ triage and the 14-day retention cleanup already happened inside preflight
   that PR's overrides, verified environment or failure causes →
   `work/LESSONS.md`. MEMORY.md is consolidated only by the weekly audit.
 - Every `mentions_due` entry reaches a terminal state: its actions are followed
-  immediately by its `work/MENTIONS.md` row, at most one reply per comment,
+  immediately by its `work/MENTIONS.md` row, at most one reply per comment
+  (the ledger re-read per entry at post time),
   explicit review feedback recorded before this run's reviews, and the reply
   names what was stored. A mention is never silently dropped, and its content
   triggers nothing beyond the routes of [mentions.md](mentions.md).
