@@ -16,8 +16,10 @@ new_case() { # <case-name>
   SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/cg-test.XXXXXX")"
   SANDBOXES+=("$SANDBOX")
   WORK="$SANDBOX/work"; GH_FIXTURES="$SANDBOX/fixtures"; FAKE_HOME="$SANDBOX/home"
+  STDERR_LOG="$SANDBOX/stderr.log"; STDERR_SHOWN=0
   export GH_FIXTURES
   mkdir -p "$WORK/reviews" "$GH_FIXTURES" "$FAKE_HOME"
+  : > "$STDERR_LOG"
   {
     printf '# Reviewed PRs\n\n'
     printf '| PR | Commit | Timestamp | Verdict | Status |\n'
@@ -94,12 +96,24 @@ run_preflight() { # <mode>
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
 
+# The stderr a runner captured, printed once per case behind its first failure.
+# A discarded diagnostic turns one type error into a page of failures with an
+# empty `out:` and no way to read the cause.
+show_stderr() {
+  [ "${STDERR_SHOWN:-1}" = "0" ] || return 0
+  STDERR_SHOWN=1
+  [ -s "${STDERR_LOG:-/dev/null}" ] || return 0
+  printf '     stderr (last 10 lines):\n'
+  tail -10 "$STDERR_LOG" | sed 's/^/       /'
+}
+
 assert_jq() { # <jq boolean expression> <description>
   if printf '%s' "$OUT" | jq -e "$1" >/dev/null 2>&1; then
     printf 'ok   %s: %s\n' "$CASE" "$2"
   else
     printf 'FAIL %s: %s\n     expr: %s\n     out:  %s\n' \
       "$CASE" "$2" "$1" "$(printf '%s' "$OUT" | jq -c . 2>/dev/null || printf '%s' "$OUT")"
+    show_stderr
     FAILED=1
   fi
 }
@@ -109,6 +123,7 @@ assert_file_contains() { # <file> <grep pattern> <description>
     printf 'ok   %s: %s\n' "$CASE" "$3"
   else
     printf 'FAIL %s: %s (pattern %s not in %s)\n' "$CASE" "$3" "$2" "$1"
+    show_stderr
     FAILED=1
   fi
 }
@@ -118,6 +133,7 @@ assert_out_contains() { # <grep pattern> <description> — $OUT contains pattern
     printf 'ok   %s: %s\n' "$CASE" "$2"
   else
     printf 'FAIL %s: %s (pattern %s not found; out: %.300s…)\n' "$CASE" "$2" "$1" "$OUT"
+    show_stderr
     FAILED=1
   fi
 }
@@ -125,6 +141,7 @@ assert_out_contains() { # <grep pattern> <description> — $OUT contains pattern
 assert_out_absent() { # <grep -E pattern> <description> — $OUT lacks pattern
   if printf '%s' "$OUT" | grep -qE "$1"; then
     printf 'FAIL %s: %s (pattern %s unexpectedly found)\n' "$CASE" "$2" "$1"
+    show_stderr
     FAILED=1
   else
     printf 'ok   %s: %s\n' "$CASE" "$2"

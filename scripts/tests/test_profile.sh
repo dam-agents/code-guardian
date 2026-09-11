@@ -35,11 +35,11 @@ fx_commit() { git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm "$1"
 run_profile() { # <cmd> [args…] → $OUT (the JSON status / slice)
   OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$FX}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
-         PATH="$T_DIR/bin:$PATH" bash "$PROFILE" "$@" 2>/dev/null)"
+         PATH="$T_DIR/bin:$PATH" bash "$PROFILE" "$@" 2>>"$STDERR_LOG")"
 }
 assert_profile() { # <jq expr over PROFILE.json> <description>
   if jq -e "$1" "$WORK/PROFILE.json" >/dev/null 2>&1; then printf 'ok   %s: %s\n' "$CASE" "$2"
-  else printf 'FAIL %s: %s\n     expr: %s\n' "$CASE" "$2" "$1"; FAILED=1; fi
+  else printf 'FAIL %s: %s\n     expr: %s\n' "$CASE" "$2" "$1"; show_stderr; FAILED=1; fi
 }
 
 # --- first check builds the profile from the mirror -------------------------
