@@ -140,4 +140,15 @@ run_preflight review
 assert_jq '.mentions_due | length == 1' 'the mention on an oversized page is found'
 assert_jq '.mentions_due[0].comment_id == 7999' 'the right comment survived the merge'
 
+# --- a surface that does not answer is not a quiet surface ---------------------
+# An empty surface and a surface whose first page faulted produce the same
+# worklist, and the empty one is the normal week — so the fault says so.
+new_case mention_surface_unreadable
+base_config
+ic_comment 101 alice User "@test-bot ping" 7 | ic_fx
+fx_fail "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=created&direction=desc&page=1"
+run_preflight review
+assert_jq '.mentions_due | length == 1' 'the surface that answered still yields its mention'
+assert_out_contains 'review-comment surface did not answer' 'the silent surface is logged, never read as quiet'
+
 finish

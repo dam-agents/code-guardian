@@ -167,6 +167,10 @@ image, the harness, an external service — instead of fixing it at its source:
   against the live target repo. Output must be valid JSON and its decisions
   must match observable reality. A behavior change in `preflight.sh` updates or
   adds its test case in the same PR.
+- **A GitHub list payload never travels in argv.** `--arg` / `--argjson` carry
+  scalars; a `gh api` body reaches jq on stdin, in a file, or through
+  `--slurpfile`, and a fallback that replaces a failed payload logs a warning
+  (`scripts/tests/test_argv_limits.sh`).
 - Cross-reference sweep: no links to headings that no longer exist, the
   ONBOARDING config example matches the config.md key list, README's tables
   match both. CI resolves every `<file>.md → **Label**` reference; same-file
