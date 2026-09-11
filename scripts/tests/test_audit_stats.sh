@@ -95,6 +95,72 @@ run_preflight audit
 assert_jq '.stats.findings.by_severity == {warning: {fixed: 1, still: 0}}' \
   'a truncated findings-json line is skipped, the week is still measured'
 
+# --- the ledger carries the week past a prune ---------------------------------
+# The bug this replaced: the week was counted from work/reviews/pr-*.md, and
+# pruning deletes that file when the PR merges — so a busy week reported only
+# the reviews of the PRs that were still open on audit day.
+new_case audit_ledger_after_prune
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+ldg() { # <pr> <ts> <kind> <verdict> <findings-json> [<fixed> <still>]
+  jq -nc --argjson pr "$1" --arg ts "$2" --arg k "$3" --arg v "$4" --argjson f "$5" \
+    --argjson fx "${6:-0}" --argjson sp "${7:-0}" \
+    '{src:"ledger", pr:$pr, ts:$ts, sha:"abc1234", kind:$k, verdict:$v,
+      bullets:{fixed:$fx, still:$sp}, findings:$f}' >> "$WORK/REVIEW-LEDGER.jsonl"
+}
+# PR 7 merged and was pruned: no history file left, only its ledger rows
+ldg 7 "$(iso_ago 172800)" first    REQUEST_CHANGES '[{"status":"new","severity":"critical"}]'
+ldg 7 "$(iso_ago 86400)"  re-review APPROVE '[{"status":"fixed","severity":"critical"}]' 1 0
+# PR 8 merged the same week, one review
+ldg 8 "$(iso_ago 90000)"  first    COMMENT '[{"status":"new","severity":"warning"}]'
+# outside the 7-day window
+ldg 9 "$(iso_ago 1814400)" first   APPROVE '[]'
+run_preflight audit
+assert_jq '.stats.reviews.total == 3 and .stats.reviews.prs == 2' 'pruned PRs keep their reviews in the count'
+assert_jq '.stats.reviews.first == 2 and .stats.reviews.re_review == 1' 'the ledger carries the reviewed kind'
+assert_jq '.stats.reviews | .approve == 1 and .comment == 1 and .request_changes == 1' 'verdict split from the ledger'
+assert_jq '.stats.findings.new == 2 and .stats.findings.new_by_severity == {critical: 1, warning: 1}' 'raised findings from the ledger'
+assert_jq '.stats.findings.fixed == 1 and .stats.findings.by_severity == {critical: {fixed: 1, still: 0}}' 'acceptance from the ledger'
+
+# --- a review in both places is counted once ----------------------------------
+new_case audit_ledger_dedup
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+TS_DUP="$(iso_ago 86400)"
+cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $TS_DUP — COMMENT
+
+<!-- findings-json: [{"status":"new","severity":"warning"}] -->
+EOF
+jq -nc --arg ts "$TS_DUP" '{src:"ledger", pr:1, ts:$ts, sha:"aaaaaaa", kind:"re-review",
+  verdict:"COMMENT", bullets:{fixed:0, still:0},
+  findings:[{status:"new", severity:"warning"}]}' > "$WORK/REVIEW-LEDGER.jsonl"
+run_preflight audit
+assert_jq '.stats.reviews.total == 1 and .stats.findings.new == 1' 'the same review in both sources counts once'
+assert_jq '.stats.reviews.re_review == 1' 'the ledger row wins over the file position'
+
+# --- the two sources of the same week must stay comparable --------------------
+new_case audit_ledger_gap
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+evg() { # <run> <pr> <msg> <secs-ago>
+  jq -nc --arg r "$1" --arg m "PR #$2 abc1234 $3" --arg t "$(iso_ago "$4")" \
+    '{ts:$t, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+i=1
+while [ "$i" -le 12 ]; do
+  evg "r$i" "$((100+i))" locked 7800
+  evg "r$i" "$((100+i))" done   7200
+  i=$((i+1))
+done
+run_preflight audit
+assert_jq '.stats.reviews.total == 0 and .stats.reviews.duration.n == 12' 'the log measured 12 runs the ledger has no row for'
+assert_jq '[.checks[] | select(.id == "review_ledger")] | length == 1 and .[0].status == "warn"' 'the gap between the two sources warns'
+
 # --- review wall-clock (locked -> done) ---------------------------------------
 # time-to-first-review = queue wait + this; the median separates the two
 new_case audit_review_duration

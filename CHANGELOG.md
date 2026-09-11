@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 3.28.0 — 2026-09-11
+
+**Upgrade:** Nothing — `scripts/review-pr.sh` creates
+`work/REVIEW-LEDGER.jsonl` on the next posted review
+([docs/review.md](docs/review.md) → **Review ledger**), and the weekly audit
+counts the ledger together with the review history files still on disk.
+
 ## 3.27.2 — 2026-09-09
 
 **Upgrade:** Nothing — `scripts/profile.sh` is re-read per run. The next review

@@ -69,7 +69,8 @@ write, and it never touches state outside `work/audit/`.
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts | `stats.stalls`, `stats.log_events`, `checks[]` |
 
 A metric the week did not measure renders `—`. Zero is written only where zero
-was measured.
+was measured. Volume and quality are counted from the review ledger
+([review.md](review.md) → **Review ledger**).
 
 ## Cost
 
@@ -89,9 +90,10 @@ recorded arrive as `unknown` and are priced with the extras' session model.
 ## Backfill (one-time, operator ask)
 
 `bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit" "$HOME/work/reviews"`
-reconstructs the weeks the posted-review history covers: review and verdict
-counts, raised findings by severity, and the acceptance bullets. It reads each
-`findings-json` as the one line [review.md](review.md) → **Summary body
+reconstructs the weeks the review record covers: review and verdict counts,
+raised findings by severity, and the acceptance bullets. It reads the ledger
+and the history files through `scripts/lib/review-records.sh`, which parses
+each `findings-json` as the one line [review.md](review.md) → **Summary body
 format** writes, so that shape and this parser change together. Everything
 measured from the event log (time, tokens, cost, heartbeats, stalls) has a
 14-day retention and stays absent. A week already on record is never
