@@ -24,6 +24,10 @@ model call at all. A started run receives the gate's stdout: the
   check reads them.
 - The gate broke — a crash, or the platform's two-minute limit — and the session
   starts anyway; its prompt names the reason. Run the entry command yourself.
+- **An agent runtime older than the platform's precheck support ignores the
+  field**: the session starts with nothing from the gate in its prompt, so the
+  same fallback applies and the run is correct — only the saving is missing. The
+  fix is a runtime upgrade (operator-only), never a change to the run.
 - **The audit is never gated** (its worklist always carries work) and neither is
   the direct session: both run the entry command
   ([CLAUDE.md](../CLAUDE.md) → run-type table).

@@ -28,6 +28,13 @@ changed in place, so each one is re-registered:
 3. The audit stays ungated. An audit schedule that carries a `precheck` is
    re-registered without one (task text: ONBOARDING Step 6c).
 4. Nothing in `work/` changes, and `docs/` is re-read per run.
+5. The gate only takes effect on an agent runtime that supports `precheck`
+   (platform-side, from 2026-09-15). An older runtime stores the field and
+   ignores it: every tick still starts a session, which the task text's fallback
+   keeps correct, so adopting the version is safe either way. Confirm it works —
+   a gated fire logs a `precheck` event whose `run` is a timestamp, not a session
+   id — and where it does not, report the runtime upgrade to the operator
+   (**operator-only**: the pod is recreated, a new session is not enough).
 
 ## 3.28.1 — 2026-09-11
 
