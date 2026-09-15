@@ -14,9 +14,10 @@ they are released history and stay as written.
 ## 3.29.0 — 2026-09-15
 
 **Upgrade:** Nothing — docs are re-read per run. To install the bundled
-`review-remediation` skill in the agent that answers reviews, point that agent
-at `.agents/skills/review-remediation/SKILL.md` in `definition_repo`
-(operator-only; it is not a review skill and needs no `## Review skills` row).
+`review-remediation` skill in the agent that answers reviews, mirror
+`.agents/skills/review-remediation/` (`SKILL.md` and its `scripts/`) from
+`definition_repo` into that agent's skills directory (operator-only; it is not
+a review skill and needs no `## Review skills` row).
 
 ## 3.28.1 — 2026-09-11
 

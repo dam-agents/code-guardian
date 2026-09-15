@@ -827,7 +827,7 @@ server-side stale guard: GitHub 422s if HEAD moved, and `post` aborts.
 _Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
 
 <!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"also":[{"file":"src/session.ts","line":18}],"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
-<!-- review-meta: {"diff_digest":"<12 hex>","checks":[{"for":"token compared with ==","run":"<read–only command>","clean":"<what a clean run prints>"}],"deferred":[{"file":"src/session.ts","line":18,"note":"<≤ ~12 words>"}]} -->
+<!-- review-meta: {"diff_digest":"<12 hex>","checks":[{"for":"token compared with ==","run":"git grep -nE -e 'token ==|== token'","clean":"no hits"}],"deferred":[{"file":"src/session.ts","line":18,"note":"<≤ ~12 words>"}],"rereview":{"trigger":"label","label":"<rereview_label>","login":null}} -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
@@ -852,14 +852,19 @@ Rapid reviews carry no such line. A review without `fix` (pre-3.1.0) or without
 round, one line above `findings-json`, in every posted full review. It is
 never rendered for a reader: nothing in it appears in the review body, and the
 visible dropped-suggestion count stays as it is. `post` writes `diff_digest`
-itself (**Re-review output**); you compose the rest in `meta.json`
-(`post --meta`). `checks` — per blocking finding whose **Fix:** is a class
-rule, the read-only sweep command that verified the class and what a clean run
-prints; commands that only read, never a command that changes a file.
-`deferred` — every 🟢 the budget dropped ([finding-form.md](finding-form.md)),
-so the next round settles them instead of deriving them again. Absent
-(pre-3.29.0), unparsable or missing a key → every consumer keeps the behavior
-it had without the line.
+(**Re-review output**) and `rereview` itself — how the next round is
+requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
+`label` to add or the `login` to request a review from, `null` where the
+trigger does not use it; you compose the rest in `meta.json` (`post --meta`).
+`checks` — per blocking finding whose **Fix:** is a class rule: `for` is that
+finding's `summary` verbatim, `run` the sweep that verified the class in its
+portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
+the branch, `-e` in place of `--` — and `clean` what a clean run prints
+(`no hits`, or the locations a hit is correct at); commands that only read,
+never a command that changes a file. `deferred` — every 🟢 the budget dropped
+([finding-form.md](finding-form.md)), so the next round settles them instead
+of deriving them again. Absent (pre-3.29.0), unparsable or missing a key →
+every consumer keeps the behavior it had without the line.
 
 ### Mapping findings to inline comments
 

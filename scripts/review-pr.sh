@@ -1122,7 +1122,8 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json]`\n' "$N"
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
+  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json] [--meta meta.json]`\n' "$N"
   exit 0
 }
 
@@ -1291,10 +1292,17 @@ cmd_post() {
   # review-meta: the agent's own `checks` and `deferred` (docs/review.md →
   # Summary body format) plus the digest of the diff this review read, which is
   # what the next `prepare` compares its own range against. Never rendered.
-  local mj=""
-  mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" \
+  # `rereview` tells the author's fix round how the next round is requested
+  # (docs/config.md → rereview_trigger): the label under `label`/`both`, the
+  # login to request a review from under `review-request`/`both`.
+  local mj="" rr_lbl=null rr_login=null
+  case "$TRIG" in (label|both) rr_lbl="$(jq -nc --arg v "$REREVIEW_LABEL" '$v')";; esac
+  case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && rr_login="$(jq -nc --arg v "$BOT_LOGIN" '$v')";; esac
+  mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" --arg t "$TRIG" \
+    --argjson l "$rr_lbl" --argjson u "$rr_login" \
     '(($m[0] // {}) | if type == "object" then . else {} end)
-     | {diff_digest: $d, checks: (.checks // []), deferred: (.deferred // [])}' 2>/dev/null | sed 's/--/–/g')"
+     | {diff_digest: $d, checks: (.checks // []), deferred: (.deferred // []),
+        rereview: {trigger: $t, label: $l, login: $u}}' 2>/dev/null | sed 's/--/–/g')"
 
   build_payload() { # <comments-json> <moved-json> → $PAYLOAD; findings-json gets inline:false for moved anchors
     fj="$(jq -c --argjson m "$2" 'map(. as $f | if any($m[]; .path == $f.file and .line == $f.line) then .inline = false else . end)' "$FINDINGS" | sed 's/--/–/g')"

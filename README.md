@@ -318,8 +318,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   the linked issue asked.
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md) is the
   author-side one: install it in whichever agent answers the reviews, to fix
-  every blocking finding at every location and run the checks the review
-  carries.
+  every blocking finding at every location, run the checks the review
+  carries and request the next round (its `scripts/review-worklist.sh` reads
+  all of that from the review over REST).
 - [`docs/`](docs/) — the procedures, read on demand:
   [`review.md`](docs/review.md), [`finding-form.md`](docs/finding-form.md),
   [`skills.md`](docs/skills.md), [`profile.md`](docs/profile.md),

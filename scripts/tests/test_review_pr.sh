@@ -430,6 +430,7 @@ assert_file_contains "$WORK/reviews/pr-1.md" "<!-- cg:review headRefOid=$B1_SHA 
 assert_file_contains "$WORK/reviews/pr-1.md" '<!-- review-meta: {"diff_digest":"[0-9a-f]' 'review-meta carries the digest post computes'
 assert_file_contains "$WORK/reviews/pr-1.md" '"checks":\[{"for":"unbounded query"' 'review-meta carries the checks the agent composed'
 assert_file_contains "$WORK/reviews/pr-1.md" '"deferred":\[{"file":"src/beta.ts"' 'review-meta carries the dropped suggestions'
+assert_file_contains "$WORK/reviews/pr-1.md" '"rereview":{"trigger":"label","label":"cg-rereview","login":null}' 'review-meta carries the re-review trigger for the fix round'
 grep -q 'review-meta' "$SANDBOX/body.md" && { printf 'FAIL %s: review-meta reached the composed body\n' "$CASE"; FAILED=1; } || printf 'ok   %s: review-meta is never part of the rendered review\n' "$CASE"
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
