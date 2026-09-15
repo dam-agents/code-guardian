@@ -114,4 +114,63 @@ assert_jq '.outcome == "error" and (.error | contains("pr-number"))' 'a non-nume
 run_wl acme/widgets
 assert_jq '.outcome == "error" and (.error | contains("usage"))' 'a missing argument is an error'
 
+# --- the PR's own comment thread, the reviewer's own posts dropped -------------
+new_case worklist_comments
+reviews_fx; pr_head_fx "$SHA_B"; inline_fx
+jq -n '[{user:{login:"alice"}, created_at:"2026-09-01T12:00:00Z", body:"the 30 minute number is intentional for now"},
+        {user:{login:"test-bot"}, created_at:"2026-09-02T09:00:00Z", body:"a review-shaped post by the reviewer itself"}]' \
+  | fx 'api repos/acme/widgets/issues/7/comments?per_page=100'
+run_wl acme/widgets 7
+assert_jq '(.comments | length) == 1 and .comments[0].author == "alice"' "the thread is carried, the reviewer's own posts dropped"
+assert_jq '.comments[0].body | startswith("the 30 minute")' 'the comment body is carried'
+
+# --- verify: the work against the list, in a checkout -------------------------
+setup_verify_repo() { # a checkout whose base commit is the reviewed SHA
+  REPO_DIR="$SANDBOX/co"; mkdir -p "$REPO_DIR/src" "$REPO_DIR/docs"
+  ( cd "$REPO_DIR"
+    git init -q -b main >/dev/null 2>&1
+    printf 'const a = 1;\n' > src/auth.js; printf 'const s = 1;\n' > src/session.js
+    printf '# doc\n' > docs/arch.md; printf '# readme\n' > README.md
+    git add -A >/dev/null 2>&1
+    git -c user.name=t -c user.email=t@e -c commit.gpgsign=false commit -q -m base >/dev/null 2>&1 )
+  BASE_SHA="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  jq -n --arg b "$BASE_SHA" '{outcome:"ok", repo:"acme/widgets", pr:7,
+    review:{id:902, author:"test-bot", commit_id:$b},
+    blocking:[{severity:"critical", summary:"token compared with ==", file:"src/auth.js",
+               also:[{file:"src/session.js", line:8}]},
+              {severity:"warning", summary:"docs state 30 minutes", file:"docs/arch.md", also:[]}]}' \
+    > "$SANDBOX/wl.json"
+}
+run_wl_in() { # run the script inside the checkout
+  OUT="$(cd "$REPO_DIR" && GH_HOST="" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
+         PATH="$T_DIR/bin:$PATH" bash "$WL" "$@" 2>"$STDERR_LOG")"
+}
+new_case worklist_verify
+mkdir -p "$SANDBOX/tmp"; setup_verify_repo
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl.json"
+assert_jq '.mode == "verify" and .ok == false and (.changed_files | length) == 0' 'nothing done yet is not ok'
+assert_jq '[.unfixed[] | .missing] | flatten | sort == ["docs/arch.md","src/auth.js","src/session.js"]' 'every file of every class is reported missing'
+# one class fixed, one file touched that no finding names
+printf 'const a = 2;\n' > "$REPO_DIR/src/auth.js"; printf 'const s = 2;\n' > "$REPO_DIR/src/session.js"
+printf 'extra\n' > "$REPO_DIR/notes.txt"
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl.json"
+assert_jq '(.covered | length) == 1 and .covered[0].summary == "token compared with =="' 'a class whose every file changed is covered'
+assert_jq '(.unfixed | length) == 1 and .unfixed[0].missing == ["docs/arch.md"]' 'the class still missing a file is unfixed'
+assert_jq '.outside == ["notes.txt"] and .ok == false' 'an untracked file no finding names is reported outside'
+# the working tree counts, so the answer does not change when it is committed
+printf 'changed\n' > "$REPO_DIR/docs/arch.md"; rm -f "$REPO_DIR/notes.txt"
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl.json"
+assert_jq '.ok == true and .unfixed == [] and .outside == []' 'every class carried and nothing else changed is ok'
+( cd "$REPO_DIR" && git add -A >/dev/null 2>&1 && git -c user.name=t -c user.email=t@e -c commit.gpgsign=false commit -q -m fix >/dev/null 2>&1 )
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl.json"
+assert_jq '.ok == true and (.changed_files | length) == 3' 'the same answer once the work is committed'
+
+new_case worklist_verify_errors
+mkdir -p "$SANDBOX/tmp"; setup_verify_repo
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/missing.json"
+assert_jq '.outcome == "error" and (.error | contains("does not exist"))' 'a missing worklist file is an error'
+jq -n '{outcome:"ok", review:{id:1, author:"x", commit_id:"0000000000000000000000000000000000000000"}, blocking:[]}' > "$SANDBOX/wl-unknown.json"
+run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl-unknown.json"
+assert_jq '.outcome == "error" and (.error | contains("not in this checkout"))' 'a reviewed SHA the checkout does not have is an error'
+
 finish

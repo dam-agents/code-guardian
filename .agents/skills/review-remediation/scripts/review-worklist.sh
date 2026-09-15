@@ -3,6 +3,7 @@
 # request, as one JSON object (SKILL.md → "1. Read the review").
 #
 #   review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>]
+#   review-worklist.sh <owner/repo> <pr-number> --verify [--worklist <file>]
 #
 # REST only (`gh api`), bash 3.2+, jq. Reads the PR's reviews, keeps the ones
 # that carry a `<!-- findings-json: … -->` line — `--reviewer` keeps one
@@ -27,20 +28,38 @@
 #                     a review request to the review's author (`fallback`)
 #   inline            the review's inline comments {path, line, body} — the
 #                     full text and suggestion blocks behind each summary
+#   comments          the PR's own comment thread, the reviewer's own posts
+#                     dropped: {author, created_at, body} — where a human
+#                     settles a finding as intended
 #   authors           logins that posted findings-json reviews; author_check
 #                     is "multiple" when there is more than one and no
 #                     --reviewer narrowed them
 # A ` – ` (en dash between spaces) inside a check's `run` is a ` -- ` the
 # review's transport rewrote for HTML-comment safety; it is restored here.
+#
+# `--verify` compares the work against the list, in the checkout, before the
+# push: it diffs the reviewed SHA against HEAD and prints
+#   covered / unfixed  per blocking finding, the files of its class (its own
+#                      and every `also`) the work carries, and the ones it
+#                      does not — the working tree counts, so it reads the
+#                      same before the commit and after it
+#   outside            changed files no blocking finding names — each one a
+#                      fresh hunk for the next round to read
+#   ok                 true when nothing is unfixed and nothing is outside
+# It runs no check command and reaches no network; `--worklist <file>` reuses
+# a worklist already fetched instead of calling the API again.
+#
 # Exit 0 with outcome "ok" | "no_review"; exit 1 with outcome "error". API
 # payloads reach jq through files, never through argv.
 set -u
 
-REPO=""; N=""; REVIEWER=""
+REPO=""; N=""; REVIEWER=""; VERIFY=false; WL_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     (--reviewer) REVIEWER="${2:-}"; shift 2;;
-    (-h|--help) sed -n '2,34p' "$0"; exit 0;;
+    (--verify) VERIFY=true; shift;;
+    (--worklist) WL_FILE="${2:-}"; shift 2;;
+    (-h|--help) sed -n '2,48p' "$0"; exit 0;;
     (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; fi; shift;;
   esac
 done
@@ -53,6 +72,57 @@ case "$N" in (''|*[!0-9]*) err "pr-number must be a number, got '$N'";; esac
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/review-worklist.XXXXXX")" || err "cannot create a temp dir"
 trap 'rm -rf "$T"' EXIT
+
+
+# ==================================================================== verify ==
+# The work against the list, in this checkout, before the push. Local only: it
+# diffs the reviewed SHA against the working tree and never runs a check
+# command.
+cmd_verify() { # <worklist-json-file>
+  local wl="$1" base
+  git rev-parse --git-dir >/dev/null 2>&1 || err "--verify runs inside the PR's checkout; this is not a git working tree"
+  base="$(jq -r '.review.commit_id // ""' "$wl")"
+  [ -n "$base" ] || err "the worklist carries no reviewed SHA to diff against"
+  git cat-file -e "$base^{commit}" 2>/dev/null || err "the reviewed SHA $base is not in this checkout — fetch the branch first"
+  # the working tree, not HEAD: verify runs before the commit as readily as after
+  { git diff --name-only "$base" 2>"$T/err" \
+      || err "git diff $base failed: $(tr '\n' ' ' < "$T/err" | cut -c1-200)"
+    git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$T/changed.txt"
+
+  jq -Rn --slurpfile w "$wl" --rawfile changed "$T/changed.txt" --arg base "$base" '
+    ($w[0]) as $wl
+    | ($changed | split("\n") | map(select(length > 0))) as $files
+    # every location of one finding: its own file plus every `also`
+    | [ $wl.blocking[]? | . as $f
+        | {summary, severity,
+           files: ([$f.file] + [($f.also // [])[]?.file] | map(select(. != null)) | unique)} ] as $cls
+    | [ $cls[] | . as $c
+        | (.files - $files) as $missing
+        | {summary, severity, files, missing: $missing, covered: ((.files - $missing))} ] as $checked
+    | [ $checked[] | select((.missing | length) > 0) ] as $unfixed
+    | ([ $cls[].files[] ] | unique) as $named
+    | ($files - $named) as $outside
+    | {outcome: "ok", mode: "verify", base: $base,
+       changed_files: $files,
+       covered: [ $checked[] | select((.missing | length) == 0) | {summary, files} ],
+       unfixed: $unfixed,
+       outside: $outside,
+       ok: (($unfixed | length) == 0 and ($outside | length) == 0),
+       note: (if ($unfixed | length) > 0
+              then "a class with a file the diff does not carry is one the next round reports as still"
+              elif ($outside | length) > 0
+              then "a changed file no finding names is a fresh hunk the next round reads as undeclared scope"
+              else "every class of the blocking set is carried, and nothing else changed" end)}' \
+    || err "the verification could not be assembled"
+  exit 0
+}
+
+# --verify with a saved worklist needs no API call at all
+if [ "$VERIFY" = "true" ] && [ -n "$WL_FILE" ]; then
+  [ -f "$WL_FILE" ] || err "--worklist $WL_FILE does not exist"
+  jq -e 'type == "object"' "$WL_FILE" >/dev/null 2>&1 || err "--worklist $WL_FILE is not a JSON object"
+  cmd_verify "$WL_FILE"
+fi
 
 # every page of reviews; a page under 100 entries is the last one
 page=1
@@ -79,9 +149,13 @@ fi
 rid="$(jq -r '.[-1].id' "$T/rounds.json")"
 gh api "repos/$REPO/pulls/$N/reviews/$rid/comments?per_page=100" > "$T/inline.json" 2>/dev/null || printf '[]' > "$T/inline.json"
 jq -e 'type == "array"' "$T/inline.json" >/dev/null 2>&1 || printf '[]' > "$T/inline.json"
+# the PR's own comment thread: where a human settles a finding as intended
+gh api "repos/$REPO/issues/$N/comments?per_page=100" > "$T/comments.json" 2>/dev/null || printf '[]' > "$T/comments.json"
+jq -e 'type == "array"' "$T/comments.json" >/dev/null 2>&1 || printf '[]' > "$T/comments.json"
 
 jq -n --arg repo "$REPO" --argjson n "$N" \
-  --slurpfile rounds "$T/rounds.json" --slurpfile pr "$T/pr.json" --slurpfile inl "$T/inline.json" '
+  --slurpfile rounds "$T/rounds.json" --slurpfile pr "$T/pr.json" --slurpfile inl "$T/inline.json" \
+  --slurpfile cmt "$T/comments.json" '
   # the JSON never holds a `--`, so the first ` -->` after the key closes it
   def hidden($b; $k): [ ($b // "") | capture("<!-- " + $k + ": (?<j>.*?) -->") | .j ] | first;
   def parse_findings($b): (hidden($b; "findings-json") as $j
@@ -93,7 +167,7 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
   def open_status: ((.status // "new") | IN("new", "still"));
   def unhide: if type == "string" then gsub(" – "; " -- ") else . end;
 
-  ($rounds[0]) as $rs | ($pr[0]) as $p | ($inl[0]) as $inline
+  ($rounds[0]) as $rs | ($pr[0]) as $p | ($inl[0]) as $inline | ($cmt[0]) as $cmts
   | ($rs[-1]) as $rev
   | parse_findings($rev.body) as $f
   | parse_meta($rev.body) as $m
@@ -122,5 +196,9 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
      pr_body: ($p.body // ""),
      blocking: $blocking, optional: $optional, deferred: ($m.deferred // []),
      checks_unmatched: $unmatched, rules: $rules, rereview: $rr,
-     inline: [ $inline[] | select(type == "object") | {path, line: (.line // .original_line), body} ]}' \
-  || err "the worklist could not be assembled"
+     inline: [ $inline[] | select(type == "object") | {path, line: (.line // .original_line), body} ],
+     comments: [ $cmts[] | select(type == "object") | select(.user.login != $rev.user.login)
+                 | {author: .user.login, created_at, body: ((.body // "")[0:1200])} ] | .[-15:]}' \
+  > "$T/wl.json" || err "the worklist could not be assembled"
+[ "$VERIFY" = "true" ] || { cat "$T/wl.json"; exit 0; }
+cmd_verify "$T/wl.json"
