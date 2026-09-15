@@ -21,6 +21,7 @@
 # the bundled skills below are definition content; re-include each by name.
 /.agents/skills/*
 !/.agents/skills/issue-fit
+!/.agents/skills/review-remediation
 !/CLAUDE.md
 !/AGENTS.md
 !/README.md

@@ -311,11 +311,15 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — deterministic stub
   tests for `preflight.sh` (gh/curl faked, offline) and the CI that runs them
   plus the `docs/self-modification.md` §9 sweeps on every PR.
-- [`.agents/skills/`](.agents/skills/) — review skills bundled with the
-  definition, installed via a `## Review skills` row whose `source` is the
+- [`.agents/skills/`](.agents/skills/) — skills bundled with the definition.
+  Review skills install via a `## Review skills` row whose `source` is the
   instance's `definition_repo`:
   [`issue-fit`](.agents/skills/issue-fit/SKILL.md) — does the diff deliver what
   the linked issue asked.
+  [`review-remediation`](.agents/skills/review-remediation/SKILL.md) is the
+  author-side one: install it in whichever agent answers the reviews, to fix
+  every blocking finding at every location and run the checks the review
+  carries.
 - [`docs/`](docs/) — the procedures, read on demand:
   [`review.md`](docs/review.md), [`finding-form.md`](docs/finding-form.md),
   [`skills.md`](docs/skills.md), [`profile.md`](docs/profile.md),

@@ -124,6 +124,15 @@ assert_out_contains '^# src/alpha.ts:1 — lines ' 'context leads with its text 
 run_rp sweep 1 'query\(\)'
 assert_jq '.changed_files_hits | length == 2' 'sweep finds both changed-file occurrences'
 assert_jq '.untouched_code_hits == 0' 'no untouched occurrences'
+# --tree is the claim sweep (docs/review.md → Sibling sweep): a stale statement
+# sits outside the diff, so the changed-file scope reports it as a bare count and
+# only --tree can name it.
+run_rp sweep 1 'export const'
+assert_jq '(.changed_files_hits | length) == 1 and .untouched_code_hits == 1' 'the changed-file sweep only counts the untouched hit'
+run_rp sweep 1 'export const' --tree
+assert_jq '.tree_hits | length == 2' 'the claim sweep locates the hit outside the diff too'
+assert_jq '.tree_hits | any(contains("src/beta.ts"))' 'the untouched file is named, not counted'
+assert_jq '.truncated == false' 'a small sweep is not truncated'
 
 # --- collect: audit lines, form warnings, skill_timing ---------------------------
 printf -- '- 🔴 **Critical:** unbounded query (`src/alpha.ts:6`)\n  **Fix:** add a limit\n- 🟡 **Warning:** no fix here (`src/gamma.ts:1`)\n' > "$(PR_DIR).out/doc-drift.txt"
@@ -249,6 +258,46 @@ assert_jq '.delta.reachable == false and .delta.status == "diverged"' 'an unreac
 assert_jq '(.skills["typescript-engineering"].files | length) == 2' 'an unreachable range routes skills from the whole PR diff'
 run_rp abort 1 "reset"
 
+# a range that leaves the PR's own diff untouched holds base-branch merges only
+# (docs/review.md → Re-review output)
+diff_dg() { { if command -v sha256sum >/dev/null 2>&1; then sha256sum
+    elif command -v shasum >/dev/null 2>&1; then shasum -a 256
+    else cksum; fi; } < "$SANDBOX/diff.txt" 2>/dev/null | tr -dc '0-9a-f' | cut -c1-12; }
+mk_meta_history() { # <marker-sha> <digest>
+  printf '# PR #1: alpha PR\n\n## Review at %s — %s — COMMENT\n\nx\n<!-- review-meta: {"diff_digest":"%s","checks":[],"deferred":[]} -->\n<!-- cg:review headRefOid=%s -->\n' \
+    "${1:0:7}" "$(iso_ago 7200)" "$2" "$1" > "$WORK/reviews/pr-1.md"
+}
+ahead_fx() { jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+export const gamma = query();"}]}' \
+  | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"; }
+
+setup delta_own_change
+PRIOR="1111111111111111111111111111111111111111"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as base merges only'
+run_rp abort 1 "reset"
+
+setup delta_own_change_moved
+PRIOR="1111111111111111111111111111111111111111"
+mk_meta_history "$PRIOR" "0123456789ab"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.delta.own_change == true' 'a changed PR diff keeps the normal delta round'
+run_rp abort 1 "reset"
+
+setup delta_own_change_absent
+PRIOR="1111111111111111111111111111111111111111"
+printf '# PR #1: alpha PR\n\n## Review at 1111111 — %s — COMMENT\n\nx\n<!-- cg:review headRefOid=%s -->\n' \
+  "$(iso_ago 7200)" "$PRIOR" > "$WORK/reviews/pr-1.md"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.delta.own_change == true' 'a review older than review-meta keeps the normal delta round'
+run_rp abort 1 "reset"
+
 # --- delta against the prior findings-json + overrides ---------------------------
 setup delta_case
 cat > "$WORK/reviews/pr-1.md" <<EOF
@@ -363,7 +412,8 @@ printf '### Summary\nAdds query().\n\n### Findings\n- 🔴 **Critical:** unbound
 printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"stale header","fix":"drop it"}]' > "$SANDBOX/findings.json"
 jq -nc '[{path:"src/alpha.ts",line:6,side:"RIGHT",body:"🔴 **Critical:** unbounded query\n**Fix:** add a limit"},{path:"src/alpha.ts",line:1,side:"RIGHT",body:"🟡 **Warning:** stale header\n**Fix:** drop it"}]' > "$SANDBOX/comments.json"
 printf '{"id":77,"html_url":"https://example.test/r/77","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
-run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
+printf '{"checks":[{"for":"unbounded query","run":"grep -rn query src/","clean":"no hits"}],"deferred":[{"file":"src/beta.ts","line":1,"note":"pre–existing"}]}' > "$SANDBOX/meta.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json" --meta "$SANDBOX/meta.json"
 assert_jq '.outcome == "posted" and .review_id == 77 and .verdict == "REQUEST_CHANGES"' 'review posted'
 assert_jq '.moved_to_summary | length == 1 and .[0].line == 1 and .[0].reason == "line not in a diff hunk"' 'the comment outside the hunks moved to the summary'
 assert_jq '.label_removed == true and .counts == {critical:1, warning:1, suggestion:0}' 'label removed, counts reported'
@@ -377,6 +427,10 @@ assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"findings":\[{"status":"new","
 assert_file_contains "$WORK/reviews/pr-1.md" '### Findings not anchorable inline' 'moved comment carried in the posted body'
 assert_file_contains "$WORK/reviews/pr-1.md" '"file":"src/alpha.ts","line":1,"inline":false' 'findings-json patched for the moved anchor'
 assert_file_contains "$WORK/reviews/pr-1.md" "<!-- cg:review headRefOid=$B1_SHA -->" 'marker line in the posted body'
+assert_file_contains "$WORK/reviews/pr-1.md" '<!-- review-meta: {"diff_digest":"[0-9a-f]' 'review-meta carries the digest post computes'
+assert_file_contains "$WORK/reviews/pr-1.md" '"checks":\[{"for":"unbounded query"' 'review-meta carries the checks the agent composed'
+assert_file_contains "$WORK/reviews/pr-1.md" '"deferred":\[{"file":"src/beta.ts"' 'review-meta carries the dropped suggestions'
+grep -q 'review-meta' "$SANDBOX/body.md" && { printf 'FAIL %s: review-meta reached the composed body\n' "$CASE"; FAILED=1; } || printf 'ok   %s: review-meta is never part of the rendered review\n' "$CASE"
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
