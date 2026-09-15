@@ -83,6 +83,11 @@ skipped task is an incomplete audit — a task that is impossible this week
    - A registered cron that contradicts the cadence keys → **warn** naming both
      values. Config is the source of truth; the fix is to re-register the
      schedule (ONBOARDING Step 6a).
+   - **Gates:** every Step 6 schedule except this audit carries
+     `spec.precheck` = `bash "$HOME/scripts/precheck.sh" <its mode>`. A missing
+     or wrong one → **warn**: that job wakes the model on idle ticks
+     (runbook.md → **The schedule gate**). A `precheck` on the audit → **warn**
+     too; the audit is ungated by design.
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
      temporary monitor is theirs to watch — report an unrecognised schedule as
      **info**, never a failure.

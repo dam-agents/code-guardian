@@ -1,11 +1,38 @@
 # Runbook — every run with work
 
-Read this file **before any other action** when preflight reports work
-(`nothing_to_do: false`), when the script failed (no JSON), and before acting
-on any request in the direct session ([CLAUDE.md](../CLAUDE.md)). It holds the
-worklist contract, the run procedures a schedule names as
+Read this file **before any other action** when a run starts with work, when
+the script failed (no JSON), and before acting on any request in the direct
+session ([CLAUDE.md](../CLAUDE.md)). It holds the schedule gate, the worklist
+contract, the run procedures a schedule names as
 `CLAUDE.md → "<Review|Shepherd|Audit|Benchmark> run"`, the trust boundary, the
 hard invariants and the map of `docs/`.
+
+## The schedule gate
+
+Every gated schedule — all of them except the audit — carries a `precheck`:
+`scripts/precheck.sh <mode>` runs preflight *before* the platform starts a
+session and turns the answer into an exit code, so a tick with no work costs no
+model call at all. A started run receives the gate's stdout: the
+`worklist: <path>` line, the due keys, and preflight's `logs` to echo.
+
+- **Read that file and never run `preflight.sh` again this run.** One fire is
+  one preflight pass: the `done → awaiting_label` flip and the once-per-UTC-day
+  stall-alert claim are already spent, so a second pass answers with less than
+  the first.
+- A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
+  log are its record ([logging.md](logging.md)), and the audit's heartbeat-gap
+  check reads them. The gate logs outside a session, so its `precheck` event and
+  the preflight pass it drives carry their own run id and the session carries
+  another — read one fire as that pair (logging.md → **run**).
+- The gate broke — a crash, or the platform's two-minute limit — and the session
+  starts anyway; its prompt names the reason. Run the entry command yourself.
+- **An agent runtime older than the platform's precheck support ignores the
+  field**: the session starts with nothing from the gate in its prompt, so the
+  same fallback applies and the run is correct — only the saving is missing. The
+  fix is a runtime upgrade (operator-only), never a change to the run.
+- **The audit is never gated** (its worklist always carries work) and neither is
+  the direct session: both run the entry command
+  ([CLAUDE.md](../CLAUDE.md) → run-type table).
 
 ## The pre-flight contract
 
@@ -34,11 +61,13 @@ flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines
 (14-day log retention, stale-clone sweep) plus that mode's own worklist at
 `work/audit/last-worklist.json` ([trends.md](trends.md)).
 
-It prints one JSON object.
+It prints one JSON object — through the gate above, or on stdout in an ungated
+run.
 
-**`nothing_to_do: true`** → echo its `logs` to the chat UI as a one-line
-summary ("no new changes") and **end the run** — no state writes, no API calls,
-no self-check narration.
+**`nothing_to_do: true`** — what an ungated run reads on stdout, and what a
+gated run reads when it falls back to the entry command (the gate broke, or the
+worklist file is gone) → echo its `logs` to the chat UI as a one-line summary ("no new changes") and **end the run** — no state
+writes, no API calls, no self-check narration.
 
 **Otherwise you perform every action in the worklist**, per the referenced
 `docs/` file:
@@ -129,7 +158,7 @@ Fires when any of `reviews_due` / `label_cleanups_due` / `selfheals_due` /
 `mentions_due` is non-empty, or `stall_alert` is present. Output channels: the
 chat UI **and** a GitHub PR review — every reviewed PR produces both.
 
-1. Echo preflight's `logs` to the chat UI, the `project profile:` line
+1. Echo the worklist's `logs` to the chat UI, the `project profile:` line
    included; note the per-skill install statuses (an `install-failed` skill is
    skipped for every PR this run, with its audit line).
 2. Read exactly this set: [review.md](review.md),
@@ -324,7 +353,10 @@ triage and the 14-day retention cleanup already happened inside preflight
   path releases it.
 - No leftover `/tmp/review-pr-*` entries (clone, `.out`, `.s-*`, `.diff`,
   `.ctx`, `.post.json`), `/tmp/benchmark-pr*` directories, `.bench-usage-*`
-  nonce caches, or temp payload files at run end.
+  nonce caches, or temp payload files at run end. `/tmp/cg-worklist-*.json`
+  belongs to the gate, which sweeps its own past 3 h — a run never deletes one.
+- One fire, one preflight pass: a gated run consumes the worklist the gate
+  computed and never re-runs `preflight.sh` (**The schedule gate**).
 - All errors — posting, skills, clone, context fetch, sends, pushes — are
   logged in the chat UI **and** as events in the structured log
   ([logging.md](logging.md)).
@@ -350,3 +382,4 @@ triage and the 14-day retention cleanup already happened inside preflight
 | [logging.md](logging.md) | Writing or reading structured log events, debugging a past run, harness adapters, retention |
 | [self-modification.md](self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |
 | [preflight.sh](../scripts/preflight.sh) | Reference for what the pre-flight computes — never re-compute its decisions |
+| [precheck.sh](../scripts/precheck.sh) | Reference for the schedule gate — how a fire is skipped and how a started run receives its worklist |

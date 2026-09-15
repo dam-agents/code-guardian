@@ -96,6 +96,30 @@ run_preflight() { # <mode>
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
 
+# run the schedule gate in the sandbox — the same environment, plus a sandboxed
+# TMPDIR so the worklist file it writes stays inside the case. Its stdout (text,
+# not JSON) lands in $OUT, the exit code in $RC, and the path it named in
+# $WORKLIST (empty when it named none).
+run_precheck() { # <mode> [script-dir]
+  local dir="${2:-$REPO_ROOT/scripts}"
+  RC=0
+  mkdir -p "$SANDBOX/tmp"
+  OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+         TMPDIR="$SANDBOX/tmp" \
+         CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
+         PATH="$T_DIR/bin:$PATH" bash "$dir/precheck.sh" "$1" 2>>"$STDERR_LOG")" || RC=$?
+  WORKLIST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p' | head -1)"
+}
+
+assert_rc() { # <expected-code> <description>
+  if [ "${RC:-0}" = "$1" ]; then printf 'ok   %s: %s\n' "$CASE" "$2"
+  else
+    printf 'FAIL %s: %s (exit %s, expected %s; out: %.200s)\n' "$CASE" "$2" "${RC:-0}" "$1" "$OUT"
+    show_stderr
+    FAILED=1
+  fi
+}
+
 # The stderr a runner captured, printed once per case behind its first failure.
 # A discarded diagnostic turns one type error into a page of failures with an
 # empty `out:` and no way to read the cause.
