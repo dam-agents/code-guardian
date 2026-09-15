@@ -23,7 +23,8 @@ model call at all. A started run receives the gate's stdout: the
   log are its record ([logging.md](logging.md)), and the audit's heartbeat-gap
   check reads them. The gate logs outside a session, so its `precheck` event and
   the preflight pass it drives carry their own run id and the session carries
-  another — read one fire as that pair (logging.md → **run**).
+  another — read one fire as that pair ([logging.md](logging.md) → **The events
+  log**).
 - The gate broke — a crash, or the platform's two-minute limit — and the session
   starts anyway; its prompt names the reason. Run the entry command yourself.
 - **An agent runtime older than the platform's precheck support ignores the

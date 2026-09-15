@@ -11,6 +11,10 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 4.0.1 — 2026-09-16
+
+**Upgrade:** Nothing — the change is a documentation pointer.
+
 ## 4.0.0 — 2026-09-15
 
 **Upgrade:** give every schedule except the weekly audit the new gate
