@@ -16,6 +16,12 @@ file per UTC day), one JSON object per line:
   supports it.
 - **run** — the run identifier: `LOG_RUN_ID` env → harness session id
   (`CLAUDE_CODE_SESSION_ID`) → start time + pid. Groups all lines of one run.
+  **A gated fire carries two of them** ([runbook.md](runbook.md) → **The
+  schedule gate**): the gate runs outside a session, so its `precheck` line and
+  the whole `preflight.sh` pass it drives share one `<timestamp>-<pid>` id, and
+  the session that starts from the worklist writes its own lines under the
+  harness session id. Read one fire as that pair, matched on `job` and on the
+  minute the gate's `precheck` event names.
 - **job** — `review` | `shepherd` | `audit` | `benchmark` | `session` (from
   `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
@@ -198,6 +204,9 @@ placeholder, or a bare `null`, makes the signature undiagnosable.
 cat work/logs/events-*.jsonl | jq -c -R 'fromjson? // empty' \
   | jq -s '[.[] | select(.level=="error")] | group_by(.event) | map({event: .[0].event, n: length})'
 jq -c -R 'fromjson? // empty' "work/logs/events-$(date -u +%Y-%m-%d).jsonl" | jq -c 'select(.run=="<run-id>")'
+# one gated fire — the gate's pass and the session it started, in time order
+jq -c -R 'fromjson? // empty' "work/logs/events-$(date -u +%Y-%m-%d).jsonl" \
+  | jq -sc '[.[] | select(.job=="review" and .ts >= "<gate-precheck-ts>")] | sort_by(.ts)'
 ```
 
 ### Reading skill timings

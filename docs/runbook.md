@@ -21,7 +21,9 @@ model call at all. A started run receives the gate's stdout: the
   the first.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), and the audit's heartbeat-gap
-  check reads them.
+  check reads them. The gate logs outside a session, so its `precheck` event and
+  the preflight pass it drives carry their own run id and the session carries
+  another — read one fire as that pair (logging.md → **run**).
 - The gate broke — a crash, or the platform's two-minute limit — and the session
   starts anyway; its prompt names the reason. Run the entry command yourself.
 - **An agent runtime older than the platform's precheck support ignores the
@@ -62,8 +64,9 @@ flip, shepherd-ledger bookkeeping for rows with no nudge due, log lines
 It prints one JSON object — through the gate above, or on stdout in an ungated
 run.
 
-**`nothing_to_do: true`** (only reachable ungated) → echo its `logs` to the chat
-UI as a one-line summary ("no new changes") and **end the run** — no state
+**`nothing_to_do: true`** — what an ungated run reads on stdout, and what a
+gated run reads when it falls back to the entry command (the gate broke, or the
+worklist file is gone) → echo its `logs` to the chat UI as a one-line summary ("no new changes") and **end the run** — no state
 writes, no API calls, no self-check narration.
 
 **Otherwise you perform every action in the worklist**, per the referenced
