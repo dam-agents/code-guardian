@@ -11,9 +11,15 @@ Shepherd** role).
 
 Four independent schedules exist, and **all start with the deterministic
 pre-flight script** [`scripts/preflight.sh`](scripts/preflight.sh). The script
-only *detects*: it makes no GitHub writes and computes the run's worklist. An
-empty worklist ends the run immediately, so idle heartbeats are nearly free;
-with work, the agent performs all of it per the [`docs/`](docs/) procedures.
+only *detects*: it makes no GitHub writes and computes the run's worklist. With
+work, the agent performs all of it per the [`docs/`](docs/) procedures.
+
+An empty worklist starts no session at all. Every schedule except the weekly
+audit runs the pre-flight as its platform **`precheck`**
+([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
+whether the model is woken, so idle heartbeats — about three quarters of all
+ticks — cost nothing, and a started run receives the worklist the gate already
+computed instead of recomputing it.
 
 **Review heartbeat** — every 5 minutes inside the active window (default
 Mon–Fri 08–21 platform time), hourly in the quiet hours outside it.
@@ -285,6 +291,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   map of `docs/`.
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   every run type; detects work, never acts on GitHub.
+- [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one
+  pre-flight pass before the session starts, an exit code that skips an idle
+  fire, and the worklist path a started run reads.
 - [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
   post-onboarding check (ONBOARDING Step 7): definition checkout and `work/`
   state files against the templates, and with `--live` the environment a run

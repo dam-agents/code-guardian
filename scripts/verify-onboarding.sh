@@ -109,6 +109,22 @@ else
   fail def-git "no git repository at \$HOME" "run ONBOARDING Step 1 (init + fetch + hard reset — never git clone into \$HOME)"
 fi
 
+# The schedule gate — every scheduled run but the audit starts with it, so a
+# missing or unparsable file sends the whole cadence through its "gate broke"
+# path (docs/runbook.md → **The schedule gate**). Structure only: the gate is
+# never executed here, because one fire is one preflight pass and the live
+# section below already spends it.
+GATE="$SCRIPT_DIR/precheck.sh"
+if [ ! -f "$GATE" ]; then
+  fail precheck "scripts/precheck.sh missing" \
+    "git -C \"\$HOME\" checkout -- scripts/precheck.sh (definition file, ONBOARDING Step 1)"
+elif ! bash -n "$GATE" 2>/dev/null; then
+  fail precheck "scripts/precheck.sh does not parse" \
+    "bash -n \"\$HOME/scripts/precheck.sh\" and fix what it reports"
+else
+  ok precheck "schedule gate present and parses"
+fi
+
 SENTINEL="$HOME_DIR/.code-guardian-onboarded"
 if [ ! -f "$SENTINEL" ]; then
   fail sentinel "\$HOME/.code-guardian-onboarded missing" \

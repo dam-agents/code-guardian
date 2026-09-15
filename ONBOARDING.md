@@ -504,6 +504,12 @@ review schedules of 6a share a prefix, so compare full names, not prefixes).
 Never use an in-process cron tool — only platform schedules survive restarts
 and are visible to the operator.
 
+Every schedule here except the audit carries a **`precheck`**, the gate that
+decides whether a fire starts a session at all (`docs/runbook.md` → **The
+schedule gate**); the audit is ungated because its worklist always carries work.
+`create_schedule` never updates an existing schedule — a changed gate or task
+text means create, then delete the old id.
+
 **6a — Review heartbeat.** Registers the cadence of Step 4 item 11 as **one to
 three** schedules: one for the active window, plus a quiet-hour schedule for
 each part of the week that window leaves uncovered. All are
@@ -522,32 +528,35 @@ cron day numbers (`Mon-Fri` → `1-5`):
 `Hq` is the hour complement of `H1-H2` and `Dq` the day complement of `D`, both
 written as ascending cron ranges, because cron has no wrap-around: `08-21`
 becomes `22-23,0-7`. Keys left at their 24/7 defaults (`00-23` + `Mon-Sun`)
-produce the active schedule alone. `task` for each:
+produce the active schedule alone. Each carries
+`precheck: bash "$HOME/scripts/precheck.sh" review` and this `task`:
 
-> Review heartbeat. Run `bash "$HOME/scripts/preflight.sh" review` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+> Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6b — Shepherd sweep** (only when Slack is enabled; create it later if Slack
 is enabled in chat). Ask: *During which hours and days should I nudge reviewers
 on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).* Create
 `name: code-guardian-shepherd-<cadence-shorthand>` (for example
-`…-1h-workdays`), cron default `0 7-18 * * 1-5`, `sessionMode: fresh`, `task`:
+`…-1h-workdays`), cron default `0 7-18 * * 1-5`, `sessionMode: fresh`,
+`precheck: bash "$HOME/scripts/precheck.sh" shepherd`, `task`:
 
-> Shepherd sweep. Run `bash "$HOME/scripts/preflight.sh" shepherd` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), apply each sent nudge's row_update to the ledger immediately after its send (send-then-record), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+> Shepherd sweep. The precheck already ran preflight and found nudges due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" shepherd` yourself. Then follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), apply each sent nudge's row_update to the ledger immediately after its send (send-then-record), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6c — Weekly audit.** Ask: *When should I send the weekly health report?
 Default is Friday 07:00 (platform timezone).* Create
 `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`,
-`sessionMode: fresh`, `task`:
+`sessionMode: fresh`, no `precheck`, `task`:
 
-> Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+> Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first — this run is ungated. Follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 **6d — Model benchmark** (only when `benchmark: enabled`; create it later if
 the benchmark is enabled in chat). Ask: *When should the monthly benchmark run?
 Default is the 1st of the month, 06:00 (platform timezone).* Create
 `name: code-guardian-benchmark-monthly`, cron default `0 6 1 * *`,
-`sessionMode: fresh`, `task`:
+`sessionMode: fresh`, `precheck: bash "$HOME/scripts/precheck.sh" benchmark`,
+`task`:
 
-> Model benchmark. Run `bash "$HOME/scripts/preflight.sh" benchmark` first. If its JSON says nothing_to_do, report its logs in one line and end the run. Otherwise follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+> Model benchmark. The precheck already ran preflight and found the benchmark due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
 `toggle_schedule` and `delete_schedule` exist for management. Cadence note: the
 nudge rules are hour-granular (24 h age gate, 20 h cooldown, 2-day escalation),

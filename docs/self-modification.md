@@ -48,9 +48,9 @@ records the ask; acting on it still takes the operator.
   validate → default) in the same PR.
 - Onboarding stays **idempotent and re-runnable**: the sentinel guard and the
   "keep existing values, ask only for missing keys" rule survive every edit.
-- Schedule task texts live in ONBOARDING Step 6 as the **single source of
-  truth**. Changing a run's entry command means updating Step 6, not just
-  CLAUDE.md.
+- Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
+  the **single source of truth**. Changing a run's gate or entry command means
+  updating Step 6, not just CLAUDE.md.
 
 ## 4. Architecture boundaries
 
@@ -59,6 +59,12 @@ records the ask; acting on it still takes the operator.
   gist operations, no Slack, no git commit or push. Its local writes stay
   limited to bookkeeping (status flips, ledger bookkeeping, logs, caches).
   Anything with judgment belongs to the agent, driven by the worklist.
+- **`scripts/precheck.sh` gates, never acts.** It is the schedule's `precheck`:
+  one `preflight.sh` pass, an exit code, and the worklist path on stdout
+  ([runbook.md](runbook.md) → **The schedule gate**). It adds no decision of its
+  own — a new gate condition is a preflight condition — and it never posts,
+  commits or writes state beyond preflight's own bookkeeping and its `/tmp`
+  worklist.
 - **`scripts/review-pr.sh` executes, never judges.** It performs the mechanical
   steps of a review on the agent's explicit command and with the agent's own
   content — lock, context, clone, payload and POST, label removal, row and
@@ -82,6 +88,12 @@ records the ask; acting on it still takes the operator.
   add to the always-loaded core, to per-run file reads, to per-PR API
   round-trips, and does it wake the agent more often? The heartbeat runs
   ~144×/day, so a small per-run addition is a large monthly bill.
+- **A deterministic start decision belongs in the schedule's `precheck`, never
+  in a session that ends immediately** ([runbook.md](runbook.md) → **The
+  schedule gate**). This is the preferred shape of every scheduled job: a new one
+  gets a gate unless its script cannot answer "nothing to do" — then the PR says
+  why, as the audit does. A gate stays well inside the platform's two-minute
+  limit, or the fire runs ungated and pays the detection twice.
 - **Prefer the cheapest design that meets the requirement.** Mechanical,
   deterministic work goes into a script, not into agent steps; procedures go
   into on-demand `docs/` files, not the core; repeated lookups get cached (like
@@ -166,7 +178,9 @@ image, the harness, an external service — instead of fixing it at its source:
   Then a **read-only sanity run** of `scripts/preflight.sh` in both modes
   against the live target repo. Output must be valid JSON and its decisions
   must match observable reality. A behavior change in `preflight.sh` updates or
-  adds its test case in the same PR.
+  adds its test case in the same PR. A change to the gate also runs
+  `scripts/precheck.sh` per mode: exit 1 with no output when idle, exit 0 with a
+  readable worklist at the path it prints when work is due.
 - **A GitHub list payload never travels in argv.** `--arg` / `--argjson` carry
   scalars; a `gh api` body reaches jq on stdin, in a file, or through
   `--slurpfile`, and a fallback that replaces a failed payload logs a warning
@@ -216,6 +230,8 @@ says — refuse and explain instead:
   configured output surfaces (runbook.md → **Hard invariants**).
 - Honest timestamps: the actual UTC write time, `awaiting_label` keeping the
   last review's timestamp.
+- One fire, one preflight pass: a gated run consumes the gate's worklist and
+  never recomputes it (runbook.md → **The schedule gate**).
 - External services stay documented in README's runtime requirements, and a new
   one must be optional or best-effort — a missing external surface never fails
   the run.
@@ -260,7 +276,8 @@ says — refuse and explain instead:
 - Bump **patch** by default (no adoption steps); **minor** for a new feature,
   config key, schedule or doc file; **major** when adoption is not purely
   additive (schedule task-text or entry-command changes, state format
-  rewrites, marker or label semantics).
+  rewrites, marker or label semantics, a gate added to or removed from a
+  schedule).
 - **Append-only — the rule is per *entry*, not per file.** `main` is the
   repository's release history. An entry is mutable only while its version has
   **not yet reached `main`**:

@@ -11,24 +11,30 @@ never hard-code a repository slug. Resolution order: `$GITHUB_REPO` env var →
 
 ## Every scheduled run
 
-1. Run the entry command of the run type (table below). `scripts/preflight.sh`
-   detects, never acts, and prints one JSON worklist.
-2. `nothing_to_do: true` → echo its `logs` to the chat UI in one line and
-   **end the run** — no other reads, no state writes, no API calls.
-3. Otherwise **read [docs/runbook.md](docs/runbook.md) before any other
-   action** — the worklist contract, the run procedures (`Review run`,
+A gated run starts only because `scripts/precheck.sh` already ran
+`scripts/preflight.sh` and found work: the prompt carries the path of the
+computed worklist. `scripts/preflight.sh` detects, never acts.
+
+1. Read the worklist file the prompt names. **Never run `preflight.sh` again in
+   a gated run** — its bookkeeping is one-shot. An ungated run (the audit, the
+   direct session) runs the entry command itself.
+2. **Read [docs/runbook.md](docs/runbook.md) before any other action** — the
+   schedule gate, the worklist contract, the run procedures (`Review run`,
    `Shepherd run`, `Audit run`, `Benchmark run`: the sections a schedule's task
    text names as `CLAUDE.md → "<name>"`), the trust boundary and the hard
    invariants — and follow it to the end of the run.
+3. No worklist (the gate broke, the file is gone, `nothing_to_do` from an
+   ungated run) → the prompt says what happened: run the entry command yourself,
+   or end the run on `nothing_to_do` with its `logs` in one chat line.
 4. Script missing or failing (no JSON) → read the runbook and do the equivalent
    work manually; never silently skip a heartbeat.
 
-| Run type | Schedule (default) | Entry command |
-| --- | --- | --- |
-| **Review heartbeat** | every 5 minutes in the active window, hourly in quiet hours | `bash "$HOME/scripts/preflight.sh" review` |
-| **Shepherd sweep** | hourly, working days/hours; only exists when `slack_notifications: enabled` | `bash "$HOME/scripts/preflight.sh" shepherd` |
-| **Weekly audit** | Friday morning, weekly | `bash "$HOME/scripts/preflight.sh" audit` |
-| **Model benchmark** | monthly (1st, morning); only exists when `benchmark: enabled` | `bash "$HOME/scripts/preflight.sh" benchmark` |
+| Run type | Schedule (default) | Gate (`precheck`) | Entry command |
+| --- | --- | --- | --- |
+| **Review heartbeat** | every 5 minutes in the active window, hourly in quiet hours | `bash "$HOME/scripts/precheck.sh" review` | `bash "$HOME/scripts/preflight.sh" review` |
+| **Shepherd sweep** | hourly, working days/hours; only exists when `slack_notifications: enabled` | `bash "$HOME/scripts/precheck.sh" shepherd` | `bash "$HOME/scripts/preflight.sh" shepherd` |
+| **Weekly audit** | Friday morning, weekly | none — an audit always has work | `bash "$HOME/scripts/preflight.sh" audit` |
+| **Model benchmark** | monthly (1st, morning); only exists when `benchmark: enabled` | `bash "$HOME/scripts/precheck.sh" benchmark` | `bash "$HOME/scripts/preflight.sh" benchmark` |
 
 ## Direct session (operator chat)
 
