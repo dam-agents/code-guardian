@@ -7,7 +7,7 @@
 # timeout — means the gate itself broke, so the session starts anyway. Whatever
 # the gate prints on stdout is appended to the task prompt.
 #
-#   precheck.sh <review|shepherd|benchmark>
+#   precheck.sh <review|shepherd|benchmark>      # the mode is required
 #
 # It runs `preflight.sh <mode>` ONCE, keeps the worklist on disk, and prints the
 # path plus the summary the run starts from:
@@ -15,8 +15,9 @@
 #   nothing_to_do -> exit 1. HEARTBEAT.log and the structured log already carry
 #                    the tick, so an idle heartbeat costs zero tokens.
 #   work          -> exit 0, `worklist: <path>` + the non-empty keys and logs.
-#   no JSON       -> exit 2 with the reason: the session starts and does the
-#                    equivalent work manually (docs/runbook.md).
+#   no JSON       -> exit 2 with the reason, preflight's exit code and the tail
+#                    of its stderr: the session starts and does the equivalent
+#                    work manually (docs/runbook.md).
 #
 # preflight is never run twice for one fire. Its bookkeeping is one-shot — the
 # `done -> awaiting_label` flip and the once-per-UTC-day stall-alert claim are
@@ -30,34 +31,55 @@
 set -u
 export LC_ALL=C
 
-MODE="${1:-review}"
-HOME_DIR="${HOME:-/home/agent}"
-WORK="${WORK_DIR:-$HOME_DIR/work}"
+MODE="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="${TMPDIR:-/tmp}"
 
 LOG_JOB="$MODE"
-if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
+if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then
+  logev() { :; }; log_redact() { printf '%s' "$1"; }
+fi
 
 case "$MODE" in
   review|shepherd|benchmark) ;;
   audit)
     printf 'precheck: audit is not gated — its worklist always carries work. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
+  '')
+    printf 'precheck: no mode given (use review|shepherd|benchmark). The schedule gate names its mode — docs/runbook.md → **The schedule gate**.\n'
+    exit 2;;
   *)
     printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark).\n' "$MODE"
     exit 2;;
 esac
 
-# The gate's own scratch, bounded here rather than by the session: a skipped
-# fire has no session to clean up after it.
-find "$TMP" -maxdepth 1 -name 'cg-worklist-*.json' -mmin +180 -delete 2>/dev/null || true
+# The scratch of a gated fire, bounded here rather than by the session: a
+# skipped fire has no session to clean up after it, and a gate that the
+# platform stops at its two-minute limit never reaches preflight's own `rm -f`.
+# Both patterns are short-lived, so the 3-hour window takes only dead files.
+find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
+  -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' \) \
+  -mmin +180 -delete 2>/dev/null || true
 
-JSON="$(bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)" || true
+# A gate runs outside a session, so no transcript holds why it broke: keep
+# preflight's stderr and log it with the exit code. The text reaches the task
+# prompt, so it passes the same credential masking as a log line (log.sh ->
+# log_redact), and a scratch file that cannot be created costs the cause, never
+# the pass.
+ERR="$TMP/cg-precheck-err-$$.log"
+WHY=""
+if ( umask 077; : > "$ERR" ) 2>/dev/null; then
+  JSON="$(bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
+  WHY="$(log_redact "$(tail -c 400 "$ERR" 2>/dev/null | tr '\n' ' ')")"
+  rm -f "$ERR" 2>/dev/null || true
+else
+  JSON="$(bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
+fi
 
 if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/dev/null 2>&1; then
-  logev error precheck "$MODE gate: preflight printed no worklist — the run starts and does the work manually"
-  printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' "$MODE"
+  logev error precheck "$MODE gate: preflight printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
+  printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist (exit %s)%s. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+    "$MODE" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
   exit 2
 fi
 
@@ -66,7 +88,10 @@ if [ "$(printf '%s' "$JSON" | jq -r '.nothing_to_do')" = "true" ]; then
   exit 1
 fi
 
+# The worklist carries the resolved config (roster ids, hosts, markers) and the
+# per-PR inventories, and /tmp is shared: the file is this instance's to read.
 OUT="$TMP/cg-worklist-$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+( umask 077; : > "$OUT" ) 2>/dev/null || true
 if ! printf '%s\n' "$JSON" > "$OUT" 2>/dev/null; then
   logev error precheck "$MODE gate: the worklist file could not be written — the run recomputes it"
   printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/preflight.sh" %s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim) is already spent, so a stall alert may be missing from the second worklist.\n' "$MODE" "$MODE"

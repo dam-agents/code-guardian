@@ -37,9 +37,10 @@ else
   FAILED=1
 fi
 # the payload itself never travels in the prompt — only the summary does
-if [ "$(printf '%s' "$OUT" | grep -c 'head_sha') " = "0 " ]; then
-  printf 'ok   %s: the worklist JSON stays out of the prompt\n' "$CASE"
-else printf 'FAIL %s: the gate printed the worklist itself\n' "$CASE"; FAILED=1; fi
+assert_out_absent 'head_sha' 'the worklist JSON stays out of the prompt'
+if [ -n "$WORKLIST" ] && [ "$(ls -l "$WORKLIST" 2>/dev/null | cut -c5-10)" = "------" ]; then
+  printf 'ok   %s: the worklist file is readable by this instance alone\n' "$CASE"
+else printf 'FAIL %s: the worklist file is group- or world-readable\n' "$CASE"; FAILED=1; fi
 
 # --- ungated and unknown modes ----------------------------------------------
 new_case precheck_audit_ungated
@@ -54,6 +55,12 @@ base_config
 run_precheck nonsense
 assert_rc 2 'an unknown mode never skips a fire'
 
+new_case precheck_no_mode
+base_config
+run_precheck ""
+assert_rc 2 'a gate registered without a mode never skips a fire'
+assert_out_contains 'no mode given' 'and says which modes exist'
+
 # --- a gate that cannot decide starts the session ----------------------------
 # preflight printing no JSON (a crash, a truncated write) must never read as
 # "nothing to do" — that would silently stop the heartbeat.
@@ -62,10 +69,33 @@ base_config
 mkdir -p "$SANDBOX/scripts/lib"
 cp "$REPO_ROOT/scripts/precheck.sh" "$REPO_ROOT/scripts/log.sh" "$SANDBOX/scripts/"
 cp "$REPO_ROOT/scripts/lib/toolpath.sh" "$SANDBOX/scripts/lib/"
-printf '#!/usr/bin/env bash\nprintf "gh: command not found\\n"\nexit 127\n' > "$SANDBOX/scripts/preflight.sh"
+printf '#!/usr/bin/env bash\nprintf "gh: command not found\\n" >&2\nexit 127\n' > "$SANDBOX/scripts/preflight.sh"
 run_precheck review "$SANDBOX/scripts"
 assert_rc 2 'no JSON means the gate broke, not that the run is idle'
 assert_out_contains 'manually' 'the prompt tells the run to do the work itself'
+assert_out_contains 'exit 127' 'and names the exit code preflight left'
+assert_out_contains 'command not found' 'and the stderr that explains it'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'command not found' \
+  'the cause also reaches the structured log'
+
+# --- work is due but the worklist cannot be written --------------------------
+# the bookkeeping of this pass is already spent, so the gate must start the
+# session (exit 0) and name no path, never skip the fire
+new_case precheck_unwritable
+base_config
+mkdir -p "$SANDBOX/scripts/lib"
+cp "$REPO_ROOT/scripts/precheck.sh" "$REPO_ROOT/scripts/log.sh" "$SANDBOX/scripts/"
+cp "$REPO_ROOT/scripts/lib/toolpath.sh" "$SANDBOX/scripts/lib/"
+printf '#!/usr/bin/env bash\nprintf %%s "{\\"nothing_to_do\\":false,\\"reviews_due\\":[{\\"number\\":7}],\\"logs\\":[\\"1 PR due\\"]}"\n' \
+  > "$SANDBOX/scripts/preflight.sh"
+mkdir -p "$SANDBOX/tmp"
+chmod 500 "$SANDBOX/tmp"
+run_precheck review "$SANDBOX/scripts"
+chmod 700 "$SANDBOX/tmp"
+assert_rc 0 'an unwritable worklist starts the session anyway'
+assert_out_absent '^worklist: ' 'and names no path'
+assert_out_contains 'could not be written' 'and says why the run recomputes it'
+assert_out_contains 'stall alert may be missing' 'and what the spent bookkeeping costs'
 
 # --- the gate cleans up after itself ----------------------------------------
 # a skipped fire has no session to sweep its scratch, so the gate does it
@@ -75,11 +105,16 @@ pr_json 7 "plain PR" '[]' "$SHA1" | open_prs_fx
 mkdir -p "$SANDBOX/tmp"
 touch -t 202001010000 "$SANDBOX/tmp/cg-worklist-review-old.json"
 : > "$SANDBOX/tmp/cg-worklist-review-fresh.json"
+touch -t 202001010000 "$SANDBOX/tmp/cg-files.deadbeef"
+touch -t 202001010000 "$SANDBOX/tmp/cg-mentions-ic.deadbeef"
 : > "$SANDBOX/tmp/review-pr-9.diff"
 run_precheck review
 if [ ! -e "$SANDBOX/tmp/cg-worklist-review-old.json" ]; then
   printf 'ok   %s: a worklist past the 3h window is reclaimed\n' "$CASE"
 else printf 'FAIL %s: the stale worklist was kept\n' "$CASE"; FAILED=1; fi
+if [ ! -e "$SANDBOX/tmp/cg-files.deadbeef" ] && [ ! -e "$SANDBOX/tmp/cg-mentions-ic.deadbeef" ]; then
+  printf 'ok   %s: scratch a killed gate left behind is reclaimed too\n' "$CASE"
+else printf 'FAIL %s: the preflight scratch of a killed gate was kept\n' "$CASE"; FAILED=1; fi
 if [ -e "$SANDBOX/tmp/cg-worklist-review-fresh.json" ]; then
   printf 'ok   %s: a fresh worklist is kept (a live run may still read it)\n' "$CASE"
 else printf 'FAIL %s: a fresh worklist was deleted\n' "$CASE"; FAILED=1; fi
