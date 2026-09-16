@@ -328,7 +328,8 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md) is the
   author-side one: install it in whichever agent answers the reviews, to fix
   every blocking finding at every location and run the checks the review
-  carries. Its `scripts/review-worklist.sh` reads all of that from the review
+  carries. It asks the caller about the findings a recorded decision of the
+  pull request makes disputable, and disputes those in writing. Its `scripts/review-worklist.sh` reads all of that from the review
   over REST, and `--verify` checks the work against it before the push; the
   next review round stays the caller's to start.
 - [`docs/`](docs/) — the procedures, read on demand:

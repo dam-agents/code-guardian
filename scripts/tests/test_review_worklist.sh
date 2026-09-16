@@ -31,6 +31,19 @@ B
 body2() { cat <<'B'
 🛡️ round two
 
+### Findings
+- 🔴 **Critical:** token compared with == (`src/auth.js:12`)
+  **Fix:** compare every token with the constant–time helper
+
+### Dependency hygiene
+- 🟡 **Warning:** README states a 30 minute session (`README.md:40`)
+  **Fix:** state the 60 minute lifetime in every text that names it
+- 🟡 **Warning:** a second one from the same skill (`src/report.js:9`)
+  **Fix:** do the thing
+- 🟢 **Suggestion:** unused import (`src/report.js:2`)
+
+### Summary
+
 <!-- findings-json: [{"status":"fixed","severity":"warning","file":"docs/arch/sessions.md","line":3,"inline":false,"summary":"edited page keeps its old stamp","fix":null},{"status":"still","severity":"critical","file":"src/auth.js","line":12,"also":[{"file":"src/session.js","line":8}],"inline":true,"summary":"token compared with ==","fix":"compare every token with the constant–time helper"},{"status":"new","severity":"warning","file":"README.md","line":40,"inline":false,"summary":"README states a 30 minute session","fix":"state the 60 minute lifetime in every text that names it"},{"status":"new","severity":"suggestion","file":"src/report.js","line":2,"inline":false,"summary":"unused import","fix":null}] -->
 <!-- review-meta: {"diff_digest":"0123456789ab","checks":[{"for":"token compared with ==","run":"git grep -nE – 'token ==|== token' src","clean":"no hits"},{"for":"a check for nothing","run":"git grep -n zzz","clean":"no hits"}],"deferred":[{"file":"src/session.js","line":20,"note":"magic number 3600"}],"rereview":{"trigger":"label","label":"cg-rereview","login":null}} -->
 <!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->
@@ -123,6 +136,14 @@ jq -n '[{user:{login:"alice"}, created_at:"2026-09-01T12:00:00Z", body:"the 30 m
 run_wl acme/widgets 7
 assert_jq '(.comments | length) == 1 and .comments[0].author == "alice"' "the thread is carried, the reviewer's own posts dropped"
 assert_jq '.comments[0].body | startswith("the 30 minute")' 'the comment body is carried'
+
+# --- sections: which source reported how much ---------------------------------
+new_case worklist_sections
+reviews_fx; pr_head_fx "$SHA_B"; inline_fx
+run_wl acme/widgets 7
+assert_jq '(.sections | length) == 2' 'a section with no finding is not carried'
+assert_jq '.sections[0].heading == "Dependency hygiene" and .sections[0].findings == 3 and .sections[0].blocking == 2' 'the section with the most findings comes first, with its counts'
+assert_jq '.sections[1].heading == "Findings" and .sections[1].findings == 1' "the reviewer's own section is counted like any other"
 
 # --- verify: the work against the list, in a checkout -------------------------
 setup_verify_repo() { # a checkout whose base commit is the reviewed SHA
