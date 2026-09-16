@@ -28,6 +28,10 @@
 #                     a review request to the review's author (`fallback`)
 #   inline            the review's inline comments {path, line, body} — the
 #                     full text and suggestion blocks behind each summary
+#   sections          the review's rendered sections that carry findings,
+#                     most findings first: {heading, findings, blocking} —
+#                     which source (the reviewer's own `### Findings`, or a
+#                     review skill's own section) reported how much
 #   comments          the PR's own comment thread, the reviewer's own posts
 #                     dropped: {author, created_at, body} — where a human
 #                     settles a finding as intended
@@ -59,7 +63,7 @@ while [ $# -gt 0 ]; do
     (--reviewer) REVIEWER="${2:-}"; shift 2;;
     (--verify) VERIFY=true; shift;;
     (--worklist) WL_FILE="${2:-}"; shift 2;;
-    (-h|--help) sed -n '2,48p' "$0"; exit 0;;
+    (-h|--help) sed -n '2,52p' "$0"; exit 0;;
     (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; fi; shift;;
   esac
 done
@@ -166,6 +170,16 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
     | if type == "object" then . else null end;
   def open_status: ((.status // "new") | IN("new", "still"));
   def unhide: if type == "string" then gsub(" – "; " -- ") else . end;
+  # the rendered sections a finding line falls under, most findings first
+  def sections($b): [ ($b // "") | split("\n")[] ]
+    | reduce .[] as $l ([];
+        if ($l | test("^#{2,3} "))
+        then . + [{heading: ($l | sub("^#+ +"; "")), findings: 0, blocking: 0}]
+        elif (length > 0) and ($l | test("^- (🔴|🟡|🟢) "))
+        then (.[-1].findings += 1)
+             | (if ($l | test("^- (🔴|🟡) ")) then .[-1].blocking += 1 else . end)
+        else . end)
+    | map(select(.findings > 0)) | sort_by(- .findings);
 
   ($rounds[0]) as $rs | ($pr[0]) as $p | ($inl[0]) as $inline | ($cmt[0]) as $cmts
   | ($rs[-1]) as $rev
@@ -197,6 +211,7 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
      blocking: $blocking, optional: $optional, deferred: ($m.deferred // []),
      checks_unmatched: $unmatched, rules: $rules, rereview: $rr,
      inline: [ $inline[] | select(type == "object") | {path, line: (.line // .original_line), body} ],
+     sections: sections($rev.body),
      comments: [ $cmts[] | select(type == "object") | select(.user.login != $rev.user.login)
                  | {author: .user.login, created_at, body: ((.body // "")[0:1200])} ] | .[-15:]}' \
   > "$T/wl.json" || err "the worklist could not be assembled"
