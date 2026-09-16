@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 4.1.0 — 2026-09-16
+
+**Upgrade:** Nothing — docs are re-read per run. To install the bundled
+`review-remediation` skill in the agent that answers reviews, mirror
+`.agents/skills/review-remediation/` (`SKILL.md` and its `scripts/`) from
+`definition_repo` into that agent's skills directory (operator-only; it is not
+a review skill and needs no `## Review skills` row).
+
 ## 4.0.1 — 2026-09-16
 
 **Upgrade:** Nothing — the change is a documentation pointer.

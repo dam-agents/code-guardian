@@ -18,8 +18,9 @@
 #   context <n> <path> <line> [radius]     numbered source text around a candidate
 #                                          (header + `<lineno>\t<src>` lines), with
 #                                          "in this PR's hunks" / pre-existing
-#   sweep <n> <ERE>                        occurrences over the changed files (+ a
-#                                          count in untouched code)
+#   sweep <n> <ERE> [--tree]               occurrences over the changed files (+ a
+#                                          count in untouched code); --tree locates
+#                                          every hit in the clone, for a claim sweep
 #   collect <n>                            skill outputs → audit lines, form
 #                                          warnings, skill_timing event
 #   delta <n> <findings.json>              fixed / still / new against the prior
@@ -31,7 +32,7 @@
 #                                          context refreshed at compose time
 #   rapid <n> --body <file>                urgent phase 1: the rapid preliminary post
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
-#                                [--closed-issue <id>]
+#                                [--meta <file>] [--closed-issue <id>]
 #                                          Check 2 + dedup re-check, inline
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
@@ -142,6 +143,24 @@ prior_findings() {
     | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//')"
   [ -n "$p" ] || { printf '[]\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
+}
+# The last posted review's `review-meta` line (docs/review.md → Summary body
+# format). `{}` when the file, the line or its JSON is absent — a first review,
+# or history written before the line existed.
+prior_meta() {
+  local hist="$WORK/reviews/pr-$N.md" p=""
+  [ -f "$hist" ] && p="$(grep -o '<!-- review-meta: .* -->' "$hist" 2>/dev/null | tail -1 \
+    | sed -e 's/^<!-- review-meta: //' -e 's/ -->$//')"
+  [ -n "$p" ] || { printf '{}\n'; return 0; }
+  printf '%s' "$p" | jq -c 'if type == "object" then . else {} end' 2>/dev/null || printf '{}\n'
+}
+# A digest of the reviewed diff, compared only against itself, so any stable
+# hash does. Empty when the diff is missing — the caller then gates on it.
+diff_digest() {
+  [ -s "$DIFF" ] || { printf '\n'; return 0; }
+  { if command -v sha256sum >/dev/null 2>&1; then sha256sum
+    elif command -v shasum >/dev/null 2>&1; then shasum -a 256
+    else cksum; fi; } < "$DIFF" 2>/dev/null | tr -dc '0-9a-f' | cut -c1-12
 }
 prior_overrides() {
   local hist="$WORK/reviews/pr-$N.md"
@@ -614,6 +633,16 @@ cmd_prepare() {
     printf '%s' "$dj" | jq -e '.reachable == false' >/dev/null 2>&1 \
       && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
   fi
+  # own-change gate: a range whose PR diff is byte-identical to the one the last
+  # review digested carries base-branch merges only, so it is not a review round
+  # (docs/review.md → Re-review output). No prior digest → the normal round.
+  if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
+    local pdg cdg oc=true
+    pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
+    [ -n "$pdg" ] && [ -n "$cdg" ] && [ "$pdg" = "$cdg" ] && oc=false
+    dj="$(printf '%s' "$dj" | jq -c --argjson oc "$oc" '.own_change = $oc')"
+    [ "$oc" = "false" ] && logev info review_pr "PR #$N: range ${dbase:0:7}...${sha:0:7} does not change the PR's own diff — base merges only"
+  fi
   printf '%s\n' "$dj" > "$CTX/delta.json"
 
   # --- carried review: the work a HEAD move discarded, as this review's
@@ -805,10 +834,27 @@ cmd_context() {
 }
 
 # =================================================================== sweep ====
+# Hits a claim sweep prints before it says so; a regex that matches this much is
+# too wide to read, not a finding with this many locations.
+SWEEP_TREE_CAP=200
 cmd_sweep() {
   need_ctx
-  local re="${1:-}"; [ -n "$re" ] || fail "usage: sweep <n> <ERE>"
+  local re="" tree=false a
+  for a in "$@"; do case "$a" in (--tree) tree=true;; (*) [ -n "$re" ] || re="$a";; esac; done
+  [ -n "$re" ] || fail "usage: sweep <n> <ERE> [--tree]"
   [ -d "$PR_DIR" ] || fail "no clone for PR #$N"
+  # --tree: a claim sweep (docs/review.md → Sibling sweep). A stale statement
+  # sits in files the diff does not touch, so the changed-file scope cannot find
+  # it; this mode locates every hit in the clone instead of counting them.
+  if [ "$tree" = "true" ]; then
+    local th tn
+    th="$(git -C "$PR_DIR" grep -nE -- "$re" 2>/dev/null | head -n "$SWEEP_TREE_CAP" | jq -R . | jq -s .)"
+    [ -n "$th" ] || th='[]'
+    tn="$(printf '%s' "$th" | jq length)"
+    out "$(jq -nc --argjson h "$th" --argjson n "$tn" --argjson c "$SWEEP_TREE_CAP" \
+      '{outcome:"ok", tree_hits:$h, truncated:($n >= $c)}')"
+    return 0
+  fi
   local files hits untouched
   files="$(jq -r '.[] | select((.class | IN("code","test","config","docs")) and .status != "removed") | .path' "$CTX/files.json")"
   hits="$( [ -n "$files" ] && printf '%s\n' "$files" | while IFS= read -r f; do git -C "$PR_DIR" grep -nE -- "$re" -- "$f" 2>/dev/null; done | jq -R . | jq -s . )"
@@ -1028,6 +1074,8 @@ cmd_compose_brief() {
     printf '### Changes since last review\nPrevious HEAD: %s (%s) — verdict %s%s\n<`block` from `review-pr.sh delta %s <findings>.json`>\n\n' \
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
+    jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
+      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
@@ -1074,7 +1122,8 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json]`\n' "$N"
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
+  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json] [--meta meta.json]`\n' "$N"
   exit 0
 }
 
@@ -1103,14 +1152,16 @@ cmd_rapid() {
 # ==================================================================== post ====
 cmd_post() {
   need_ctx
-  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" CLOSED_ISSUE=""
+  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" META="" CLOSED_ISSUE=""
   while [ $# -gt 0 ]; do case "$1" in
     (--verdict) VERDICT="${2:-}"; shift 2;; (--body) BODY="${2:-}"; shift 2;; (--findings) FINDINGS="${2:-}"; shift 2;;
-    (--comments) COMMENTS="${2:-}"; shift 2;; (--closed-issue) CLOSED_ISSUE="${2:-}"; shift 2;; (*) shift;; esac; done
+    (--comments) COMMENTS="${2:-}"; shift 2;; (--meta) META="${2:-}"; shift 2;;
+    (--closed-issue) CLOSED_ISSUE="${2:-}"; shift 2;; (*) shift;; esac; done
   case "$VERDICT" in (APPROVE|COMMENT|REQUEST_CHANGES) ;; (*) fail "--verdict must be APPROVE | COMMENT | REQUEST_CHANGES";; esac
   [ -f "$BODY" ] || fail "--body <file> missing"
   [ -f "$FINDINGS" ] && jq -e 'type=="array"' "$FINDINGS" >/dev/null 2>&1 || fail "--findings <file> must be a JSON array"
   [ -z "$COMMENTS" ] || { [ -f "$COMMENTS" ] && jq -e 'type=="array"' "$COMMENTS" >/dev/null 2>&1; } || fail "--comments <file> must be a JSON array"
+  [ -z "$META" ] || { [ -f "$META" ] && jq -e 'type=="object"' "$META" >/dev/null 2>&1; } || fail "--meta <file> must be a JSON object"
   local sha kind title; sha="$(ctx_get '.head_sha')"; kind="$(ctx_get '.kind')"; title="$(ctx_get '.title')"
   local sha7="${sha:0:7}" now; now="$(now_iso)"
 
@@ -1238,6 +1289,21 @@ cmd_post() {
   local emoji footer fj
   case "$VERDICT" in (APPROVE) emoji="✅";; (COMMENT) emoji="⚠️";; (REQUEST_CHANGES) emoji="❌";; esac
   footer="_Review by [$BOT_NAME](https://$DEF_HOST/$DEFINITION_REPO) · automated code guardian_"
+  # review-meta: the agent's own `checks` and `deferred` (docs/review.md →
+  # Summary body format) plus the digest of the diff this review read, which is
+  # what the next `prepare` compares its own range against. Never rendered.
+  # `rereview` tells the author's fix round how the next round is requested
+  # (docs/config.md → rereview_trigger): the label under `label`/`both`, the
+  # login to request a review from under `review-request`/`both`.
+  local mj="" rr_lbl=null rr_login=null
+  case "$TRIG" in (label|both) rr_lbl="$(jq -nc --arg v "$REREVIEW_LABEL" '$v')";; esac
+  case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && rr_login="$(jq -nc --arg v "$BOT_LOGIN" '$v')";; esac
+  mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" --arg t "$TRIG" \
+    --argjson l "$rr_lbl" --argjson u "$rr_login" \
+    '(($m[0] // {}) | if type == "object" then . else {} end)
+     | {diff_digest: $d, checks: (.checks // []), deferred: (.deferred // []),
+        rereview: {trigger: $t, label: $l, login: $u}}' 2>/dev/null | sed 's/--/–/g')"
+
   build_payload() { # <comments-json> <moved-json> → $PAYLOAD; findings-json gets inline:false for moved anchors
     fj="$(jq -c --argjson m "$2" 'map(. as $f | if any($m[]; .path == $f.file and .line == $f.line) then .inline = false else . end)' "$FINDINGS" | sed 's/--/–/g')"
     { printf '🛡️ **%s** — %s Code Review @ `%s`\n\n' "$BOT_NAME" "$emoji" "$sha7"
@@ -1246,7 +1312,9 @@ cmd_post() {
         printf '\n\n### Findings not anchorable inline\n\n'
         printf '%s' "$2" | jq -r '.[] | "- `\(.path):\(.line // "-")` — \(.body | gsub("\n"; "\n  "))"'
       fi
-      printf '\n\n---\n%s\n\n\n<!-- findings-json: %s -->\n<!-- %s headRefOid=%s -->\n' "$footer" "$fj" "$REVIEW_MARKER" "$sha"
+      printf '\n\n---\n%s\n\n\n<!-- findings-json: %s -->\n' "$footer" "$fj"
+      [ -n "$mj" ] && printf '<!-- review-meta: %s -->\n' "$mj" || :
+      printf '<!-- %s headRefOid=%s -->\n' "$REVIEW_MARKER" "$sha"
     } > "$CTX/body.posted.md"
     jq -Rs --arg sha "$sha" --arg ev "$VERDICT" --argjson c "$1" '{commit_id:$sha, event:$ev, body:., comments:$c}' "$CTX/body.posted.md" > "$PAYLOAD"
   }

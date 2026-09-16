@@ -32,6 +32,14 @@ line alone.
 State both from the code you read, or the finding is 🟢 or nothing. Suspicion,
 the size of the change, and which source reported it never raise severity.
 
+**A defect in text alone blocks only where a reader acts on the text.** A stale
+or incomplete statement — an architecture page, a comment, a glossary entry, a
+README, the PR body — is 🟡 only when that text is what another party
+implements or operates against: a wire or API contract, a security or egress
+boundary, an operator procedure, a migration step. Every other statement
+defect is 🟢, whoever reported it. A freshness stamp, an enumeration count and
+a diagram never block on their own.
+
 **The approval bar.** 🔴 and 🟡 are blocking: they hold the verdict below
 `APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
 carries the fix that resolves it, so the bar reads off the findings themselves.
@@ -50,6 +58,12 @@ a section that reported 🟢 never reads as clean.
 ([review.md](review.md) → **Sibling sweep**) names each location in its text
 and lists them all in `also` ([review.md](review.md) → **Summary body
 format**), so one entry never reads as one site.
+
+**A Fix stated for a class names every member of the class.** A **Fix:** that
+reads as a rule — *every*, *each*, *all* — carries the complete location list
+from the sweep that verified it ([review.md](review.md) → **Sibling sweep**),
+because the fix round works the locations and not the sentence. Cannot
+enumerate → narrow the **Fix:** to the locations you verified.
 
 **Concise by default (all reviews, all channels):**
 

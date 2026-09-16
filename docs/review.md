@@ -101,15 +101,15 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    findings to inline comments**, this PR's paths, overrides and memory rules,
    and anything the conversation added since the lock (**Guarding a running
    review**). Write `body.md` (`### Summary` … `### Verdict` — **Output format**),
-   `findings.json` (a re-review posts delta's `annotated` file) and, for
-   inline-carried findings, `comments.json`
+   `findings.json` (a re-review posts delta's `annotated` file), `meta.json`
+   (**Summary body format**) and, for inline-carried findings, `comments.json`
    (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
    Then `review-pr.sh step <n> composed`, and output the review to the chat
    UI.
 f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
-   --findings findings.json [--comments comments.json]`. It runs Check 2 and
-   the dedup re-check, maps each inline comment against the hunk index
-   (outside a hunk or past the cap of 25 → moved under
+   --findings findings.json [--comments comments.json] [--meta meta.json]`. It
+   runs Check 2 and the dedup re-check, maps each inline comment against the
+   hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
    posts the payload (**Posting the GitHub review**), removes
    `$REREVIEW_LABEL`, dismisses a stale approval, appends the body to
@@ -430,7 +430,18 @@ count in untouched code. Report them as **one** finding listing every location,
 so one fix round closes the class, and carry those locations in the finding's
 `also` (**Summary body format**). An occurrence in untouched code is a
 pre-existing problem ([finding-form.md](finding-form.md)). On a delta
-re-review both passes cover only the files changed since the prior review.
+re-review both passes cover only the files changed since the prior review, the
+claim sweep excepted.
+
+**Claim sweep** — for a finding whose class is *an in-tree statement about X is
+false or incomplete*, the siblings sit outside the diff by construction, so the
+sweep covers the whole clone: `review-pr.sh sweep <n> '<regex>' --tree` returns
+each hit with its location. Read every hit that states the same rule —
+architecture pages, glossary, README, chart and config comments, CLI and tool
+descriptions, the PR body — and report the contradicted ones as **one** finding
+carrying every location. A hit the diff does not contradict is not a finding.
+The command that ran the sweep is this finding's `checks` entry (**Summary body
+format**). The claim sweep is never narrowed to the delta range.
 
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
 text — reviews, inline comments, issues, mention replies, chat, Slack — in STE
@@ -623,6 +634,15 @@ Delta-scope depth (steps c–d):
   a file without `patch` — → `reachable: false`: review at complete depth in
   the delta output format, with ` — unreachable, reviewed the whole PR`
   appended to the `Previous HEAD` line.
+- **A range that does not change the PR's own diff is not a review round.**
+  `prepare` digests the diff it fetched and compares it with the digest the
+  last review recorded (**Summary body format**); equal → `delta.own_change:
+  false`, the range holds base-branch merges only. Skip steps c and d: no
+  candidates, no skills, no sweep. Carry every open prior finding into the
+  block as `🔁 Still present` one-liners, keep the prior verdict, and write
+  `Range holds base-branch merges only — no change to this PR's own diff.`
+  under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
+  `### Findings`. No prior digest (pre-3.29.0) → the normal delta round.
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR
@@ -807,6 +827,7 @@ server-side stale guard: GitHub 422s if HEAD moved, and `post` aborts.
 _Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
 
 <!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"also":[{"file":"src/session.ts","line":18}],"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
+<!-- review-meta: {"diff_digest":"<12 hex>","checks":[{"for":"token compared with ==","run":"git grep -nE -e 'token ==|== token'","clean":"no hits"}],"deferred":[{"file":"src/session.ts","line":18,"note":"<≤ ~12 words>"}],"rereview":{"trigger":"label","label":"<rereview_label>","login":null}} -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
@@ -826,6 +847,24 @@ the file it names — `post` nulls one that is not and reports it. Keep the JSON
 free of `--` sequences — HTML-comment safety, use `–`. No findings → `[]`.
 Rapid reviews carry no such line. A review without `fix` (pre-3.1.0) or without
 `also` (pre-3.22.0) parses as before.
+
+**`review-meta`** — machine state for the next round and for the author's fix
+round, one line above `findings-json`, in every posted full review. It is
+never rendered for a reader: nothing in it appears in the review body, and the
+visible dropped-suggestion count stays as it is. `post` writes `diff_digest`
+(**Re-review output**) and `rereview` itself — how the next round is
+requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
+`label` to add or the `login` to request a review from, `null` where the
+trigger does not use it; you compose the rest in `meta.json` (`post --meta`).
+`checks` — per blocking finding whose **Fix:** is a class rule: `for` is that
+finding's `summary` verbatim, `run` the sweep that verified the class in its
+portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
+the branch, `-e` in place of `--` — and `clean` what a clean run prints
+(`no hits`, or the locations a hit is correct at); commands that only read,
+never a command that changes a file. `deferred` — every 🟢 the budget dropped
+([finding-form.md](finding-form.md)), so the next round settles them instead
+of deriving them again. Absent (pre-3.29.0), unparsable or missing a key →
+every consumer keeps the behavior it had without the line.
 
 ### Mapping findings to inline comments
 
@@ -907,9 +946,12 @@ Before you declare the run done:
   reviewing · orientation used for where to look only, `verify_live` rows read
   live, no finding citing the profile ([profile.md](profile.md)) · noise files
   excluded with their Summary line · every blocking finding verified, the
-  skills' included, and sibling-swept with its `also` locations ·
-  every open 🔴/🟡 carrying a class-rule **Fix:**, mirrored into
-  `findings-json` · every delta `ambiguous` pair settled before the post ·
+  skills' included, and sibling-swept with its `also` locations, a statement
+  finding claim-swept over the clone · every open 🔴/🟡 carrying a class-rule
+  **Fix:** whose every member is enumerated
+  ([finding-form.md](finding-form.md)), mirrored into `findings-json`, with its
+  sweep command in `review-meta.checks` and every dropped 🟢 in
+  `review-meta.deferred` · every delta `ambiguous` pair settled before the post ·
   every phase guard run and every `head_moved` honoured — restarted once, else
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
