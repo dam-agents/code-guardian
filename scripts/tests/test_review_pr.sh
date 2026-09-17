@@ -941,7 +941,7 @@ run_rp abort 1 "reset"
 setup post_measurements
 pr_fx open '[]'
 run_rp prepare 1
-printf '### Summary\nAdds query(). _(Suppressed 1 finding(s) per PR context: F1. Suppressed 2 finding(s) per in-tree decisions: F2,F3.)_\n\n### Verdict\nAPPROVE\n' > "$SANDBOX/body.md"
+printf '### Summary\nAdds query(). _(Suppressed 1 finding(s) per PR context: F1. Suppressed 2 finding(s) per in-tree decisions: F2,F3 — docs/architecture/artifact-library.md.)_\n\n### Verdict\nAPPROVE\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":78,"html_url":"https://example.test/r/78","state":"APPROVED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"

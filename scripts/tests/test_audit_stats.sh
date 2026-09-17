@@ -556,17 +556,19 @@ cat > "$WORK/reviews/pr-1.md" <<SUPEOF
 ## Review at aaaaaaa — $(iso_ago 86400) — COMMENT
 
 ### Summary
-One pass over the diff. _(Suppressed 2 finding(s) per PR-local overrides: F1,F2. Suppressed 1 finding(s) per PR context: F3. Suppressed 3 finding(s) per in-tree decisions: F4,F5,F6.)_
+One pass over the diff. _(Suppressed 2 finding(s) per PR-local overrides: F1,F2. Suppressed 1 finding(s) per PR context: F3. Suppressed 3 finding(s) per in-tree decisions: F4,F5,F6 — docs/architecture/artifact-library.md.)_
 
 ## Review at bbbbbbb — $(iso_ago 1814400) — COMMENT
 
 ### Summary
-Outside the window. _(Suppressed 9 finding(s) per in-tree decisions: F9.)_
+Outside the window. _(Suppressed 9 finding(s) per in-tree decisions: F9 — docs/architecture/artifact-library.md.)_
 SUPEOF
 run_preflight audit
 assert_jq '.stats.suppressed.overrides == 2 and .stats.suppressed.context == 1' 'the note is split per source'
 assert_jq '.stats.suppressed.decisions == 3 and .stats.suppressed.total == 6' 'only in-window notes counted'
 assert_jq '.stats.suppressed.reviews == 1' 'a review without the note is not a measured zero'
+# the decisions part names its document; the counts read the same with it
+assert_jq '.stats.suppressed.total == 6' 'the document name does not disturb the counts'
 
 # --- review style: the sentence bar on the week's posted reviews ---------------
 new_case audit_review_style

@@ -219,7 +219,9 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     a review that posted no audit note is counted as zero. Read `decisions`
     against `new`: a rising share means the review argues with the repository's
     own design records, and the finding class behind it is reconsidered and
-    recorded per [preferences.md](preferences.md). Then read the week's
+    recorded per [preferences.md](preferences.md). Each note names the document
+    that settled it, so *Action needed* names the document the week argued with
+    most. Then read the week's
     **posted** findings the author refuted in a PR comment — every
     `## PR-local overrides` bullet added this week ([review.md](review.md) → **A
     human dismissal settles the finding for this PR**). A bullet whose reason is

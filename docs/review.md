@@ -391,9 +391,11 @@ a recurring human-reviewer concern is recorded after posting, per
 [preferences.md](preferences.md) → **Observed insights** — at most 2 per PR.
 
 **Audit note** — when suppressing, append to `### Summary`:
-`_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>. Suppressed K finding(s) per in-tree decisions: <ids>.)_`
-Omit each part at count zero. Count a finding here only when the review does
-not print it; one reported as 🟢 is posted, not suppressed. The audit counts
+`_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>. Suppressed K finding(s) per in-tree decisions: <ids> — <in-tree document path(s)>.)_`
+Omit each part at count zero. The decisions part names the document that
+settled each finding, so the record the check read is on the review itself.
+Count a finding here only when the review does not print it; one reported as 🟢
+is posted, not suppressed. The audit counts
 this line ([audit.md](audit.md) task 30), so a suppressed finding is recorded
 here and nowhere else.
 
