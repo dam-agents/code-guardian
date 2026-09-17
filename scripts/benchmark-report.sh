@@ -286,6 +286,10 @@ HEAD_ALL="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
 
 GENERATED="$(printf '%s' "$ALL" | jq -r '(last // {}) | .ts // "no runs yet"')"
 
+# The page body. This heredoc is expanded, which is how the ${VARS} above reach
+# it — so page text, CSS and script must carry no backtick and no bare `$`: the
+# shell would run it as a command substitution and print the result into the
+# page.
 cat <<EOF
 <!doctype html>
 <meta charset="utf-8">
