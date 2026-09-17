@@ -28,12 +28,15 @@ price table reaches every past week.
 One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
 of the same week in both views; both files stay on disk.
 
-## Procedure (audit task 32)
+## Procedure (audit task 33)
 
 1. **Extras** — write the values only the session knows to a temp file:
-   `{"ttfr_median_min": <task 22 median>, "model": "<exact session model id>",
-   "memory_lines": <task 30 total>}`. Omit a key you did not measure; never
-   write a placeholder number.
+   `{"ttfr_median_min": <task 22 median>, "model": "<production model id>",
+   "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 31
+   total>}`. `model` is the model the week's runs actually ran on — task 27's
+   busiest `byModel` entry, falling back to this session's own id when
+   telemetry is unavailable; it also prices token events recorded as `unknown`.
+   Omit a key you did not measure; never write a placeholder number.
 2. **Append** — `bash "$HOME/scripts/audit-trend.sh" append "$HOME/work/audit" <extras file>`.
    It reads `last-worklist.json`, writes the week file, regenerates `TRENDS.md`
    and prints the week-over-week delta line plus the resolved surfaces.
@@ -65,7 +68,7 @@ write, and it never touches state outside `work/audit/`.
 | Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label` |
 | Quality | verdict split, findings raised by severity, findings per review, acceptance ratio, 👍/👎 | `stats.findings`, `stats.reactions` |
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
-| Cost | heartbeats and idle share, tokens, spend per week, spend per review | `stats.heartbeats`, `stats.tokens`, the price table |
+| Cost | heartbeats and idle share, tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.tokens`, the price table, extras |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts | `stats.stalls`, `stats.log_events`, `checks[]` |
 
 A metric the week did not measure renders `—`. Zero is written only where zero
@@ -85,7 +88,14 @@ Tokens are priced per recorded model: the `tokens` event carries the model that
 produced the session's messages, and `stats.tokens.by_model` splits the week by
 it. Tokens under a model the table does not price are **excluded** and the cell
 is marked `≥` — a floor, never a guess. Events written before the model was
-recorded arrive as `unknown` and are priced with the extras' session model.
+recorded arrive as `unknown` and are priced with the extras' model.
+
+`actual_cost_usd` is the platform's own attributed spend for the week
+([audit.md](audit.md) → task 27), rendered beside the estimate. The two answer
+different questions: the estimate reprices across the **whole** history when the
+table changes, and the actual figure is ground truth for the weeks telemetry
+still retains — so a week before that window, or on a deployment without
+telemetry, renders `—`, never a zero.
 
 ## Backfill (one-time, operator ask)
 

@@ -86,6 +86,33 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.24 and .[0].cost_floor == true' >
   || { printf 'FAIL %s: expected a flagged floor: %s\n' "$CASE" "$OUT"; FAILED=1; }
 assert_file_contains "$WORK/audit/TRENDS.md" '≥0.24' 'the floor marker reaches the row'
 
+# --- actual spend rides in on extras, beside the estimate --------------------
+new_case trend_actual_cost
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
+printf '{"actual_cost_usd":0.08,"model":"claude-opus-5"}\n' > "$WORK/extras.json"
+run_trend append "$WORK/audit" "$WORK/extras.json"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.24 and .[0].actual_cost_usd == 0.08' >/dev/null 2>&1 \
+  && printf 'ok   %s: the estimate and the attributed actual are both derived\n' "$CASE" \
+  || { printf 'FAIL %s: expected est 0.24 beside actual 0.08: %s\n' "$CASE" "$OUT"; FAILED=1; }
+assert_file_contains "$WORK/audit/TRENDS.md" '| 0.24 | 0.08 |' 'both spend columns reach the week row'
+OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
+assert_out_contains 'Spend per week (actual)' 'the report carries the actual-spend summary row'
+
+# --- a week with no telemetry renders "—", never a zero ----------------------
+new_case trend_actual_cost_absent
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].actual_cost_usd == null' >/dev/null 2>&1 \
+  && printf 'ok   %s: no extras key leaves actual spend unmeasured\n' "$CASE" \
+  || { printf 'FAIL %s: expected actual_cost_usd null: %s\n' "$CASE" "$OUT"; FAILED=1; }
+assert_file_contains "$WORK/audit/TRENDS.md" '| 0.24 | — |' 'the unmeasured actual renders "—" beside the estimate'
+
 # --- backfill reconstructs weeks from the review history ---------------------
 new_case trend_backfill
 price_config
