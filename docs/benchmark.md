@@ -35,7 +35,9 @@ report.html              # the accumulated report, regenerated every run
 rows, existing ones stay untouched forever. `report.html` is self-contained and
 interactive — every table sorts by header click, filters by substring and
 pages; it follows the reader's light/dark setting, and every delta carries an
-arrow, so direction never rests on color alone.
+arrow, so direction never rests on color alone. Every column header carries its
+own plain-language help — meaning, good direction, range, consequence — written
+once in the `TIPS` dictionary of `benchmark-report.sh`.
 
 A fixture is immutable after creation — that is what keeps scores comparable in
 time. A fixture that stops representing the target repo's stack gets a new
@@ -478,13 +480,19 @@ unmeasured tokens render "—", never a guess:
 
 | model substring | input | output | cache_read | cache_write |
 |---|---|---|---|---|
-| claude-opus-5 | 15 | 75 | 1.5 | 18.75 |
+| claude-opus-5 | 5 | 25 | 0.5 | 6.25 |
 ```
 
 USD per MTok. A row matches when its first cell is a substring of the run's
 recorded model id. The table holds the **current** prices and the report prices
 all history with them, so cost deltas reflect token usage, not price moves.
 Update it in the direct session like any other config change.
+
+**A stale row is silent** — it misreports every cost figure in both reports by
+whatever factor it is wrong by. Verify a row against the current published
+prices when you add or change it, and read the audit's drift warning
+([audit.md](audit.md) → task 27), which measures the table against the
+platform's own attributed spend every week.
 
 ## Retiring a fixture set (operator decision, direct session)
 

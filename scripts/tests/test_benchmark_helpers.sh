@@ -43,9 +43,14 @@ assert_out_contains '<td class=n>3.5</td>' 'judge column averages all dimensions
 assert_out_contains 'judge scores never enter it' 'page states the index is judge-free'
 assert_out_contains '<td>2.1.34 (Claude Code)</td>' 'harness version column rendered'
 assert_out_contains '<h3>3.12.0 — tested 2026-08-01T06:00:00Z (since 3.11.0)</h3>' 'version-change block names versions and run'
-assert_out_contains '<th>churn</th>' 'per-fixture tables carry the churn column'
+assert_out_contains '>churn</th>' 'per-fixture tables carry the churn column'
 assert_out_contains 'filter rows…' 'interactive script embedded'
 assert_out_contains 'th.dataset.d' 'sort handler embedded intact'
+# column help: every header explains its own value, in the HTML itself
+assert_out_absent '<th>' 'no column header ships without its help text'
+assert_out_contains 'title="[^"]*higher is better[^"]*">index</th>' 'the index header states the good direction'
+assert_out_contains 'title="[^"]*0 is the target[^"]*">churn</th>' 'the churn header states its target value'
+assert_out_contains "th.setAttribute('data-tip'" 'the script moves the help text into its own bubble'
 assert_out_absent 'src=|href="http|@import|fetch\(' 'page stays self-contained (no external assets)'
 if [ "$(printf '%s' "$OUT" | grep -o '<li>' | grep -c '')" = "2" ]; then
   printf 'ok   %s: release-commit subjects listed as bullets\n' "$CASE"
@@ -77,10 +82,10 @@ cat > "$SANDBOX/bench-config.md" <<'EOF'
 | model-a | 10 | 50 | 1 | 12.5 |
 EOF
 OUT="$(BENCH_CONFIG="$SANDBOX/bench-config.md" bash "$REPORT" "$SANDBOX/bench")"
-assert_out_contains '<th>est \$</th>' 'cost column present'
+assert_out_contains '>est \$</th>' 'cost column present'
 assert_out_contains '\$30 <span class="d down">▲+26\.7</span>' 'run 3 priced ($30: 1.5M in + 0.3M out) with cost delta vs run 1 (same model); rising cost is the bad direction'
 assert_out_contains '1330 <span class="d up">▼-10</span>' 'seconds delta compares vs run 1 (same model), not run 2; falling seconds is the good direction'
-assert_out_contains '<th>hard</th>' 'per-fixture tables carry the recall_hard column'
+assert_out_contains '>hard</th>' 'per-fixture tables carry the recall_hard column'
 assert_out_contains '<td class=n>0.5</td>' 'recall_hard value rendered'
 model_b_cost="$(printf '%s' "$OUT" | grep 'model-b' | grep -c '\$' || true)"
 if [ "$model_b_cost" = "0" ]; then

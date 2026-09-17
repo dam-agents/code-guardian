@@ -1641,7 +1641,7 @@ if [ "$MODE" = "audit" ]; then
   #   pod_restart  — a `pod_boot` warn falls inside the run's own event window
   #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran
   #   terminated   — SessionEnd ran but the pipeline stopped mid-way (orderly
-  #                  shutdown from outside; see docs/audit.md task 27)
+  #                  shutdown from outside; see docs/audit.md task 28)
   # `aborted_clean` counts runs that *did* terminate explicitly — the cheap
   # outcome the Stop hook drives, so a rise here against falling `stalled` is
   # the mitigation working, not a regression.
@@ -1892,7 +1892,7 @@ if [ "$MODE" = "audit" ]; then
 
   # trend artifact currency: the weekly append is the only writer of
   # work/audit/weeks/, so a history that stopped growing means the audit's
-  # task 34 stopped running (docs/trends.md). A never-appended history is
+  # task 35 stopped running (docs/trends.md). A never-appended history is
   # info — the first audit after the upgrade creates it.
   TREND_DIR="$WORK/audit/weeks"
   trend_n=0

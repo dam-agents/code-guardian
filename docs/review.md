@@ -396,7 +396,7 @@ Omit each part at count zero. The decisions part names the document that
 settled each finding, so the record the check read is on the review itself.
 Count a finding here only when the review does not print it; one reported as 🟢
 is posted, not suppressed. The audit counts
-this line ([audit.md](audit.md) task 30), so a suppressed finding is recorded
+this line ([audit.md](audit.md) task 31), so a suppressed finding is recorded
 here and nowhere else.
 
 ## Criteria & review style
@@ -470,7 +470,7 @@ concept, no idioms, no synonym variation. STE governs wording, never content.
 **The sentence bar is 20 words.** Before you post, read your own prose back and
 split every sentence above it; a sentence that carries two clauses about two
 subjects becomes two sentences. Every posted review is measured against it
-([audit.md](audit.md) task 31), and so is every benchmark run
+([audit.md](audit.md) task 32), and so is every benchmark run
 ([benchmark.md](benchmark.md)); the measurement reads prose only
 (`scripts/lib/ste.sh`), and its 15 % threshold marks a week that regressed, not
 the bar you write to.
