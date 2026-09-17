@@ -391,8 +391,10 @@ a recurring human-reviewer concern is recorded after posting, per
 [preferences.md](preferences.md) → **Observed insights** — at most 2 per PR.
 
 **Audit note** — when suppressing, append to `### Summary`:
-`_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>.)_`
-Omit either part at count zero.
+`_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>. Suppressed K finding(s) per in-tree decisions: <ids>.)_`
+Omit each part at count zero. The audit counts this line
+([audit.md](audit.md) task 30), so a suppressed finding is recorded here and
+nowhere else.
 
 ## Criteria & review style
 
@@ -423,6 +425,16 @@ is your own candidate and **regraded to 🟢 when a skill reported it** — a sk
 finding is never deleted. A false positive costs more credibility than a missed
 nit. No clone (`clone-failed`) → verify against the diff context you have.
 
+**Decision check** — same pass, for every surviving 🔴/🟡 that disputes a design
+choice: an architecture, a protocol, a boundary, a trade-off. Read the in-tree
+document that covers the changed path — the `profile_slice`'s `## Decisions`
+and `## Docs` rows locate it, the copy in the clone is the evidence. A document
+that states the disputed behavior as intended settles the finding: drop it, or
+report as 🟢 the gap the document leaves, citing the document. A document the
+diff contradicts is a claim-sweep finding instead. Count each finding the check
+settled in the audit note (**PR context**); the document is the record, so no
+memory entry is written.
+
 **Sibling sweep** — same pass. For each surviving 🔴/🟡, check the files this PR
 changes for more occurrences of the same defect class:
 `review-pr.sh sweep <n> '<regex>'` returns the hits in changed files and a
@@ -445,9 +457,14 @@ format**). The claim sweep is never narrowed to the delta range.
 
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
 text — reviews, inline comments, issues, mention replies, chat, Slack — in STE
-style: one topic per sentence (aim ≤ 20 words), active voice, simple tenses,
-one term per concept, no idioms, no synonym variation. STE governs wording,
-never content.
+style: one topic per sentence, active voice, simple tenses, one term per
+concept, no idioms, no synonym variation. STE governs wording, never content.
+
+**The sentence bar is 20 words.** Before you post, read your own prose back and
+split every sentence above it; a sentence that carries two clauses about two
+subjects becomes two sentences. Every posted review is measured against it
+([audit.md](audit.md) task 31), and so is every benchmark run
+([benchmark.md](benchmark.md)).
 
 **Finding form.** Every finding — yours or a skill's — follows
 [finding-form.md](finding-form.md).
@@ -782,8 +799,14 @@ together with the history section above:
 ```json
 {"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
  "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","bullets":{"fixed":0,"still":0},
+ "suppressed":{"overrides":0,"context":0,"decisions":0,"total":0},
+ "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0},
  "findings":[{"status":"new","severity":"critical"}]}
 ```
+
+`suppressed` counts the audit note (**PR context**) and `ste` measures the
+posted prose against the sentence bar; a row written before they existed
+carries neither, and the audit reads both as a floor.
 
 Pruning deletes the history file, the ledger row stays — so the weekly numbers
 count the reviews of the week, not only the reviews of the PRs that are still
@@ -947,7 +970,9 @@ Before you declare the run done:
   live, no finding citing the profile ([profile.md](profile.md)) · noise files
   excluded with their Summary line · every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations, a statement
-  finding claim-swept over the clone · every open 🔴/🟡 carrying a class-rule
+  finding claim-swept over the clone, a design finding checked against the
+  in-tree decision that covers its path and counted in the audit note when it
+  settled (**Decision check**) · every open 🔴/🟡 carrying a class-rule
   **Fix:** whose every member is enumerated
   ([finding-form.md](finding-form.md)), mirrored into `findings-json`, with its
   sweep command in `review-meta.checks` and every dropped 🟢 in
@@ -959,7 +984,8 @@ Before you declare the run done:
   stale approval dismissed when the verdict dropped below APPROVE · clone,
   copies, diff and state deleted · `review_step` events logged (`locked` →
   `fanned out (n=<N>)` → `verified` → `composed` → `posted`/`aborted`/`done`)
-  with `skill_timing`.
+  with `skill_timing` · every sentence of the posted prose inside the 20-word
+  bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget
   ([finding-form.md](finding-form.md)); re-review scope matched the trigger;

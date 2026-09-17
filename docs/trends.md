@@ -28,11 +28,11 @@ price table reaches every past week.
 One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
 of the same week in both views; both files stay on disk.
 
-## Procedure (audit task 32)
+## Procedure (audit task 34)
 
 1. **Extras** — write the values only the session knows to a temp file:
    `{"ttfr_median_min": <task 22 median>, "model": "<exact session model id>",
-   "memory_lines": <task 30 total>}`. Omit a key you did not measure; never
+   "memory_lines": <task 32 total>}`. Omit a key you did not measure; never
    write a placeholder number.
 2. **Append** — `bash "$HOME/scripts/audit-trend.sh" append "$HOME/work/audit" <extras file>`.
    It reads `last-worklist.json`, writes the week file, regenerates `TRENDS.md`

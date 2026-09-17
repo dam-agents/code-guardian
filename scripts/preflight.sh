@@ -1753,7 +1753,8 @@ if [ "$MODE" = "audit" ]; then
     REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
-    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}}}'
+    # the lib is what defines RR_AGG_ZERO, so this branch carries its own copy
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
     logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
   fi
   # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
@@ -1801,6 +1802,24 @@ if [ "$MODE" = "audit" ]; then
     check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review.md → Review ledger)"
   else
     check review_ledger ok "$rv_n review(s) on record, $dur_n completed review run(s) in the log"
+  fi
+
+  # the STE sentence bar on the week's own posted reviews (docs/review.md →
+  # **The sentence bar is 20 words**). Only ledger rows carry the measurement,
+  # so a week with none is reported as unmeasured and never as a pass.
+  ste_n="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.reviews // 0')"
+  if [ "${ste_n:-0}" -eq 0 ]; then
+    check review_style ok "no posted review carried a style measurement this week"
+  else
+    ste_avg="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.avg_sentence_words // 0')"
+    ste_share="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.over_20_share // 0')"
+    ste_over="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences_over_20 // 0')"
+    ste_sent="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences // 0')"
+    if [ "$(printf '%s' "$ste_share" | awk '{ print ($1 > 0.15) ? 1 : 0 }')" = "1" ]; then
+      check review_style warn "$ste_over of $ste_sent sentence(s) over 20 words in $ste_n review(s), average $ste_avg — rewrite the long ones (docs/review.md → The sentence bar is 20 words)"
+    else
+      check review_style ok "$ste_over of $ste_sent sentence(s) over 20 words in $ste_n review(s), average $ste_avg"
+    fi
   fi
 
   # the same events, split per phase of the per-PR sequence (docs/review.md →
@@ -1873,7 +1892,7 @@ if [ "$MODE" = "audit" ]; then
 
   # trend artifact currency: the weekly append is the only writer of
   # work/audit/weeks/, so a history that stopped growing means the audit's
-  # task 32 stopped running (docs/trends.md). A never-appended history is
+  # task 34 stopped running (docs/trends.md). A never-appended history is
   # info — the first audit after the upgrade creates it.
   TREND_DIR="$WORK/audit/weeks"
   trend_n=0
@@ -1910,7 +1929,7 @@ if [ "$MODE" = "audit" ]; then
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
-      findings:$ra.findings,
+      findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 

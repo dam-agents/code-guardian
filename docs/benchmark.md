@@ -377,7 +377,10 @@ spans the whole session and contention would distort `seconds`). Per fixture:
     live only in that script) — per-fixture headline scores, run totals
     (seconds, output tokens, estimated cost when the price table covers the
     model — **Model prices**) with their deltas, any non-zero
-    `churn`/`false_fixed` named explicitly (the going-in-circles signals), any
+    `churn`/`false_fixed` named explicitly (the going-in-circles signals), the
+    run's **style line** — `ste.sentences_over_20` of `ste.sentences` and
+    `ste.avg_sentence_words` over the first reviews, with the same delta
+    ([review.md](review.md) → **The sentence bar is 20 words**) — any
     skill with no fixture coverage, any **saturated fixture** (`f1 = 1.0` in
     this and the same model's previous run — recommend a harder sibling), and
     the report URL when published. First run of a model: "baseline".

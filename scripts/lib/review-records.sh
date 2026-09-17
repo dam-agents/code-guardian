@@ -5,6 +5,8 @@
 #   review_records <reviews dir> <ledger file> [<since ISO>]   # JSONL on stdout
 #
 # Record: {src, pr, ts, sha, kind, verdict, bullets:{fixed,still},
+#          suppressed:{overrides,context,decisions,total} | null,
+#          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
 #          findings:[{status,severity}] | null}
 #
 # `work/REVIEW-LEDGER.jsonl` is append-only and outlives the reviewed PR; the
@@ -17,8 +19,28 @@
 #
 # Sourced by preflight.sh (audit stats) and audit-trend.sh (backfill). Needs jq.
 
+# The `### Summary` audit note, counted per source (docs/review.md → **PR
+# context**): the findings a review settled instead of posting. Input is any
+# text that may carry the note; a text without it counts zero. A review posted
+# before the note existed is indistinguishable from one that suppressed
+# nothing, so every reader treats these counts as a floor.
+RR_SUP_DEF='
+def rr_sup:
+  [ scan("Suppressed[ ]+([0-9]+)[ ]+finding\\(s\\)[ ]+per[ ]+([^:]+):") ]
+  | map({ n: (.[0] | tonumber), r: (.[1] | ascii_downcase | sub("^ +"; "")) }) as $m
+  | { overrides: ([ $m[] | select(.r | startswith("pr-local")) | .n ] | add // 0),
+      context:   ([ $m[] | select(.r | startswith("pr context")) | .n ] | add // 0),
+      decisions: ([ $m[] | select(.r | startswith("in-tree")) | .n ] | add // 0) }
+  | . + { total: (.overrides + .context + .decisions) };
+'
+
+# the note alone, for a writer that has the posted body in a file
+RR_SUP_JQ="$RR_SUP_DEF"'
+rr_sup
+'
+
 # one object per `## Review at` section of one history file; $pr is its number
-RR_HISTORY_JQ='
+RR_HISTORY_JQ="$RR_SUP_DEF"'
 split("\n")
 | reduce .[] as $l ({ secs: [], cur: null };
     if ($l | startswith("## Review at ")) then
@@ -31,10 +53,13 @@ split("\n")
                            elif ($l | test("APPROVE")) then "APPROVE"
                            elif ($l | test("COMMENT")) then "COMMENT"
                            else null end),
-                 bullets: { fixed: 0, still: 0 }, findings: null }
+                 bullets: { fixed: 0, still: 0 },
+                 suppressed: null, ste: null, findings: null }
     elif .cur == null then .
     elif ($l | startswith("- ✅ **Fixed:**")) then .cur.bullets.fixed += 1
     elif ($l | startswith("- 🔁 **Still present:**")) then .cur.bullets.still += 1
+    elif ($l | test("Suppressed[ ]+[0-9]+[ ]+finding")) then
+      .cur.suppressed = ($l | rr_sup)
     elif ($l | startswith("<!-- findings-json:")) then
       .cur.findings = ($l | sub("^<!--[ ]*findings-json:[ ]*"; "")
                           | sub("[ ]*-->[[:space:]]*$"; "")
@@ -59,6 +84,8 @@ RR_MERGE_JQ='
   | { src: (.src // "ledger"), pr: .pr, ts: .ts, sha: (.sha // null),
       kind: (.kind // null), verdict: (.verdict // null),
       bullets: { fixed: (.bullets.fixed? // 0), still: (.bullets.still? // 0) },
+      suppressed: (if (.suppressed | type) == "object" then .suppressed else null end),
+      ste: (if (.ste | type) == "object" then .ste else null end),
       findings: (if (.findings | type) == "array" then .findings else null end) }
   | select((.pr | type) == "number" and (.ts | type) == "string") ]
 | map(select($since == "" or .ts >= $since))
@@ -96,12 +123,29 @@ RR_AGG_JQ='
                       | map({ key: (.[0].severity // "unknown"),
                               value: { fixed: ([.[] | select(.status == "fixed")] | length),
                                        still: ([.[] | select(.status == "still")] | length) } })
-                      | from_entries) }) }
+                      | from_entries) }),
+  suppressed: ([.[] | .suppressed | select(type == "object")] as $s
+    | { reviews: ($s | length),
+        overrides: ([$s[] | .overrides] | add // 0),
+        context:   ([$s[] | .context]   | add // 0),
+        decisions: ([$s[] | .decisions] | add // 0),
+        total:     ([$s[] | .total]     | add // 0) }),
+  ste: ([.[] | .ste | select(type == "object" and .sentences > 0)] as $t
+    | ([$t[] | .sentences] | add // 0) as $n
+    | { reviews: ($t | length), sentences: $n,
+        sentences_over_20: ([$t[] | .sentences_over_20] | add // 0),
+        avg_sentence_words:
+          (if $n == 0 then null
+           else ((([$t[] | .avg_sentence_words * .sentences] | add) / $n * 10) | round) / 10 end),
+        over_20_share:
+          (if $n == 0 then null
+           else ((([$t[] | .sentences_over_20] | add) / $n * 1000) | round) / 1000 end) })
+}
 '
 
 # the zero row of RR_AGG_JQ — a week that measured nothing, and the fallback a
 # reader prints when the aggregation itself could not run
-RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}}}'
+RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
 
 review_records() { # <reviews dir> <ledger file> [<since ISO>]
   local rdir="${1:-}" ledger="${2:-}" since="${3:-}" f n
