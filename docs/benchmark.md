@@ -35,7 +35,9 @@ report.html              # the accumulated report, regenerated every run
 rows, existing ones stay untouched forever. `report.html` is self-contained and
 interactive — every table sorts by header click, filters by substring and
 pages; it follows the reader's light/dark setting, and every delta carries an
-arrow, so direction never rests on color alone.
+arrow, so direction never rests on color alone. Every column header carries its
+own plain-language help — meaning, good direction, range, consequence — written
+once in the `TIPS` dictionary of `benchmark-report.sh`.
 
 A fixture is immutable after creation — that is what keeps scores comparable in
 time. A fixture that stops representing the target repo's stack gets a new
