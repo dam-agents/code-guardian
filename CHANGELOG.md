@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 4.3.0 — 2026-09-17
+
+**Upgrade:** When `work/benchmark/results/` holds at least one run, regenerate
+and republish the accumulated report so the published copy carries the new
+column help: `bash "$HOME/scripts/benchmark-report.sh" "$HOME/work/benchmark" > "$HOME/work/benchmark/report.html"`,
+then the publish step of [docs/benchmark.md](docs/benchmark.md) → **Running the
+benchmark** (phase 2, step 9). No results yet → nothing to do; the next
+benchmark run regenerates the report anyway.
+
 ## 4.2.0 — 2026-09-16
 
 **Upgrade:** Nothing — the change is inside the bundled `review-remediation`
