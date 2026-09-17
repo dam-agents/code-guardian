@@ -392,9 +392,10 @@ a recurring human-reviewer concern is recorded after posting, per
 
 **Audit note** — when suppressing, append to `### Summary`:
 `_(Suppressed N finding(s) per PR-local overrides: <ids>. Suppressed M finding(s) per PR context: <ids>. Suppressed K finding(s) per in-tree decisions: <ids>.)_`
-Omit each part at count zero. The audit counts this line
-([audit.md](audit.md) task 30), so a suppressed finding is recorded here and
-nowhere else.
+Omit each part at count zero. Count a finding here only when the review does
+not print it; one reported as 🟢 is posted, not suppressed. The audit counts
+this line ([audit.md](audit.md) task 30), so a suppressed finding is recorded
+here and nowhere else.
 
 ## Criteria & review style
 
@@ -428,10 +429,14 @@ nit. No clone (`clone-failed`) → verify against the diff context you have.
 **Decision check** — same pass, for every surviving 🔴/🟡 that disputes a design
 choice: an architecture, a protocol, a boundary, a trade-off. Read the in-tree
 document that covers the changed path — the `profile_slice`'s `## Decisions`
-and `## Docs` rows locate it, the copy in the clone is the evidence. A document
-that states the disputed behavior as intended settles the finding: drop it, or
-report as 🟢 the gap the document leaves, citing the document. A document the
-diff contradicts is a claim-sweep finding instead. Count each finding the check
+and `## Docs` rows locate it, the copy in the clone is the evidence. No row
+covers the path, or there is no profile at all ([profile.md](profile.md)) →
+search the clone for a document under that path; find none and the finding
+stands. A document that states the disputed behavior as intended settles the
+finding: drop it when it is your own candidate, **regrade it to 🟢 when a skill
+reported it** — the same rule as verification above. Either way cite the
+document, and a 🟢 names the gap the document leaves. A document the diff
+contradicts is a claim-sweep finding instead. Count each finding the check
 settled in the audit note (**PR context**); the document is the record, so no
 memory entry is written.
 
@@ -464,7 +469,9 @@ concept, no idioms, no synonym variation. STE governs wording, never content.
 split every sentence above it; a sentence that carries two clauses about two
 subjects becomes two sentences. Every posted review is measured against it
 ([audit.md](audit.md) task 31), and so is every benchmark run
-([benchmark.md](benchmark.md)).
+([benchmark.md](benchmark.md)); the measurement reads prose only
+(`scripts/lib/ste.sh`), and its 15 % threshold marks a week that regressed, not
+the bar you write to.
 
 **Finding form.** Every finding — yours or a skill's — follows
 [finding-form.md](finding-form.md).
@@ -800,7 +807,7 @@ together with the history section above:
 {"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
  "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","bullets":{"fixed":0,"still":0},
  "suppressed":{"overrides":0,"context":0,"decisions":0,"total":0},
- "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0},
+ "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0,"v":2},
  "findings":[{"status":"new","severity":"critical"}]}
 ```
 

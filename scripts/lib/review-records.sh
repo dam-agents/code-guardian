@@ -130,7 +130,9 @@ RR_AGG_JQ='
         context:   ([$s[] | .context]   | add // 0),
         decisions: ([$s[] | .decisions] | add // 0),
         total:     ([$s[] | .total]     | add // 0) }),
-  ste: ([.[] | .ste | select(type == "object" and .sentences > 0)] as $t
+  ste: ([.[] | .ste | select(type == "object" and (.sentences | type) == "number"
+                            and .sentences > 0
+                            and (.avg_sentence_words | type) == "number")] as $t
     | ([$t[] | .sentences] | add // 0) as $n
     | { reviews: ($t | length), sentences: $n,
         sentences_over_20: ([$t[] | .sentences_over_20] | add // 0),

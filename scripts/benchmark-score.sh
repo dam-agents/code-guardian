@@ -56,9 +56,9 @@
 #           (critical → REQUEST_CHANGES, warning → COMMENT, none → APPROVE;
 #           status-"fixed" entries excluded).
 #   length  {words_total, findings, words_per_finding}
-#   ste     {sentences, avg_sentence_words, sentences_over_20} — computed on
-#           prose only (code fences and HTML-comment lines removed); a
-#           sentence is the text up to . ! or ?
+#   ste     {sentences, avg_sentence_words, sentences_over_20, v} — prose only,
+#           measured by lib/ste.sh; `v` names the measurement, so two runs
+#           compare only when it matches (docs/benchmark.md step 10)
 
 set -u
 export LC_ALL=C
