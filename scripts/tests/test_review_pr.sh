@@ -935,4 +935,18 @@ run_rp compose-brief 1
 assert_out_contains '\*\*Changes:\*\* +3 −1 (3 files)' 'the header reports the counts at compose time'
 run_rp abort 1 "reset"
 
+# --- post: the ledger row carries the style and refutation measurements --------
+# docs/review.md → **Review ledger**: the week's noise and style numbers are
+# read off these two fields, so a posted review must write both.
+setup post_measurements
+pr_fx open '[]'
+run_rp prepare 1
+printf '### Summary\nAdds query(). _(Suppressed 1 finding(s) per PR context: F1. Suppressed 2 finding(s) per in-tree decisions: F2,F3 — docs/architecture/artifact-library.md.)_\n\n### Verdict\nAPPROVE\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":78,"html_url":"https://example.test/r/78","state":"APPROVED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'review posted'
+assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"suppressed":{"overrides":0,"context":1,"decisions":2,"total":3}' 'the ledger row counts the audit note per source'
+assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"ste":{"sentences":[0-9]' 'the ledger row carries the sentence measurement'
+
 finish

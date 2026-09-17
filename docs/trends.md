@@ -28,11 +28,11 @@ price table reaches every past week.
 One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
 of the same week in both views; both files stay on disk.
 
-## Procedure (audit task 33)
+## Procedure (audit task 35)
 
 1. **Extras** — write the values only the session knows to a temp file:
    `{"ttfr_median_min": <task 22 median>, "model": "<production model id>",
-   "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 31
+   "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 33
    total>}`. `model` is the model the week's runs actually ran on — task 27's
    busiest `byModel` entry, falling back to this session's own id when
    telemetry is unavailable; it also prices token events recorded as `unknown`.

@@ -543,4 +543,71 @@ run_preflight shepherd
 assert_jq '.nothing_to_do == true' 'shepherd skipped without Slack'
 assert_jq '.logs | any(contains("shepherd skipped"))' 'gate logged'
 
+# --- refuted findings: the audit note, counted per source ----------------------
+# The note in `### Summary` is the only record of a finding the review settled
+# instead of posting (docs/review.md → **PR context**), so the week's noise
+# signal is read off it (docs/audit.md → **Refuted findings**).
+new_case audit_suppressed_counts
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+cat > "$WORK/reviews/pr-1.md" <<SUPEOF
+# PR #1: open PR
+
+## Review at aaaaaaa — $(iso_ago 86400) — COMMENT
+
+### Summary
+One pass over the diff. _(Suppressed 2 finding(s) per PR-local overrides: F1,F2. Suppressed 1 finding(s) per PR context: F3. Suppressed 3 finding(s) per in-tree decisions: F4,F5,F6 — docs/architecture/artifact-library.md.)_
+
+## Review at bbbbbbb — $(iso_ago 1814400) — COMMENT
+
+### Summary
+Outside the window. _(Suppressed 9 finding(s) per in-tree decisions: F9 — docs/architecture/artifact-library.md.)_
+SUPEOF
+run_preflight audit
+assert_jq '.stats.suppressed.overrides == 2 and .stats.suppressed.context == 1' 'the note is split per source'
+assert_jq '.stats.suppressed.decisions == 3 and .stats.suppressed.total == 6' 'only in-window notes counted'
+assert_jq '.stats.suppressed.reviews == 1' 'a review without the note is not a measured zero'
+# the decisions part names its document; the counts read the same with it
+assert_jq '.stats.suppressed.total == 6' 'the document name does not disturb the counts'
+
+# --- review style: the sentence bar on the week's posted reviews ---------------
+new_case audit_review_style
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+stel() { # <pr> <ts> <sentences> <over-20> <avg>
+  jq -nc --argjson pr "$1" --arg ts "$2" --argjson n "$3" --argjson o "$4" --argjson a "$5" \
+    '{src:"ledger", pr:$pr, ts:$ts, sha:"abc1234", kind:"first", verdict:"COMMENT",
+      bullets:{fixed:0, still:0}, findings:[],
+      ste:{sentences:$n, avg_sentence_words:$a, sentences_over_20:$o}}' >> "$WORK/REVIEW-LEDGER.jsonl"
+}
+stel 7 "$(iso_ago 86400)" 20 6 18.5
+stel 8 "$(iso_ago 90000)" 20 0 12.0
+run_preflight audit
+assert_jq '.stats.ste.reviews == 2 and .stats.ste.sentences == 40' 'both reviews measured'
+assert_jq '.stats.ste.sentences_over_20 == 6 and .stats.ste.over_20_share == 0.15' 'the share is over the whole week'
+assert_jq '.stats.ste.avg_sentence_words == 15.3' 'the average is weighted by sentences'
+assert_jq '[.checks[] | select(.id == "review_style")] | length == 1 and .[0].status == "ok"' 'at the bar the check passes'
+
+# over the bar, the same week warns
+new_case audit_review_style_warn
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" \
+  '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"COMMENT",
+    bullets:{fixed:0, still:0}, findings:[],
+    ste:{sentences:20, avg_sentence_words:28.0, sentences_over_20:9}}' > "$WORK/REVIEW-LEDGER.jsonl"
+run_preflight audit
+assert_jq '[.checks[] | select(.id == "review_style")] | .[0].status == "warn"' 'past the bar the check warns'
+
+# a week whose rows predate the measurement is unmeasured, never a pass
+new_case audit_review_style_unmeasured
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" \
+  '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"COMMENT",
+    bullets:{fixed:0, still:0}, findings:[]}' > "$WORK/REVIEW-LEDGER.jsonl"
+run_preflight audit
+assert_jq '.stats.ste.reviews == 0 and .stats.ste.avg_sentence_words == null' 'an old row carries no style measurement'
+assert_jq '[.checks[] | select(.id == "review_style")] | .[0].detail | test("no posted review")' 'the check says unmeasured'
+
 finish

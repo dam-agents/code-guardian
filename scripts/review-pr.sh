@@ -71,6 +71,8 @@ CONFIG="$WORK/CONFIG.md"
 REVIEWS="$WORK/REVIEWS.md"
 LEDGER="$WORK/REVIEW-LEDGER.jsonl"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/lib/ste.sh"
+. "$SCRIPT_DIR/lib/review-records.sh"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
@@ -1404,14 +1406,19 @@ append_history() { # sha7 ts verdict body-file findings note kind — the body a
 # Best-effort by design: a row that cannot be built or written is logged and
 # never fails the post.
 append_ledger() { # sha7 ts verdict body-file findings kind
-  local fx sp row
+  local fx sp sup ste row
   fx="$(grep -cE '^- ✅ \*\*Fixed:\*\*' "$4" 2>/dev/null || true)"
   sp="$(grep -cE '^- 🔁 \*\*Still present:\*\*' "$4" 2>/dev/null || true)"
+  # the review's own audit note, counted per source (docs/review.md → **PR
+  # context**): the findings this review settled instead of posting
+  sup="$(jq -Rsc "$RR_SUP_JQ" "$4" 2>/dev/null)"
+  ste="$(ste_stats "$4")"
   row="$(jq -nc --argjson pr "$N" --arg sha "$1" --arg ts "$2" --arg v "$3" --arg k "${6:-}" \
-    --argjson fx "${fx:-0}" --argjson sp "${sp:-0}" --slurpfile f "$5" '
+    --argjson fx "${fx:-0}" --argjson sp "${sp:-0}" --slurpfile f "$5" \
+    --argjson sup "${sup:-null}" --argjson ste "${ste:-null}" '
     { src: "ledger", pr: $pr, ts: $ts, sha: $sha,
       kind: (if $k == "" then "first" else $k end), verdict: $v,
-      bullets: { fixed: $fx, still: $sp },
+      bullets: { fixed: $fx, still: $sp }, suppressed: $sup, ste: $ste,
       findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
                   | select(type == "object")
                   | { status: (.status // "unknown"), severity: (.severity // "unknown") } ] }' 2>/dev/null)"

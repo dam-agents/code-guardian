@@ -7,8 +7,8 @@ compute the derived metrics, send the report.
 
 **The audit fixes nothing.** Its only GitHub writes are a tracking issue for a
 definition bug found in task 3 and the trend artifact's publish; its local
-writes beyond `AUDIT.log` are the memory consolidation of task 31 and the trend
-append of task 33. Routine findings (pending prunes, stale
+writes beyond `AUDIT.log` are the memory consolidation of task 33 and the trend
+append of task 35. Routine findings (pending prunes, stale
 locks) heal on the next heartbeat; everything else goes to the operator. A
 skipped task is an incomplete audit — a task that is impossible this week
 (missing data, API error) is reported as `warn` with the reason, never dropped.
@@ -192,10 +192,10 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     ([config.md](config.md)) is only an estimate. Report `totalCostUsd` and the
     `byModel` split, then judge:
     - **Price-table drift** — the estimate (`stats.tokens.by_model` priced by
-      the table, the figure task 33 writes as `cost_usd`) over `totalCostUsd`
+      the table, the figure task 35 writes as `cost_usd`) over `totalCostUsd`
       outside **0.5×–2.0×** → **warn** with both figures and the model rows to
       re-check against current published prices. Judge it while you compose the
-      report, once task 33 produced the number. The band is wide on purpose:
+      report, once task 35 produced the number. The band is wide on purpose:
       this detects a stale price row, it does not reconcile the two figures —
       the populations differ at the window edges, the estimate excludes
       unpriced models, and telemetry counts direct sessions too.
@@ -210,7 +210,7 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
       the model this deployment expects. The second low-call, low-cost model
       beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
-      deployment`, and task 33's extras omit the key. Never a fail.
+      deployment`, and task 35's extras omit the key. Never a fail.
 
     Report figures only, never raw telemetry rows.
 28. **Findings acceptance** — `stats.findings` counts this week's re-review
@@ -243,9 +243,31 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     reactions** — it arrives with a `reaction_scan` warn, and the report says
     so instead of printing zeros.
 
+31. **Refuted findings** — `stats.suppressed`: the findings the week settled
+    instead of posting, split by what settled them (`overrides`, `context`,
+    `decisions` — [review.md](review.md) → **PR context**). A count is a floor:
+    a review that posted no audit note is counted as zero. Read `decisions`
+    against `new`: a rising share means the review argues with the repository's
+    own design records, and the finding class behind it is reconsidered and
+    recorded per [preferences.md](preferences.md). Each note names the document
+    that settled it, so *Action needed* names the document the week argued with
+    most. Then read the week's
+    **posted** findings the author refuted in a PR comment — every
+    `## PR-local overrides` bullet added this week ([review.md](review.md) → **A
+    human dismissal settles the finding for this PR**). A bullet whose reason is
+    an in-tree document is a decision check that did not fire: name the document
+    and the finding in *Action needed*. A bullet whose reason generalizes is
+    routed per [preferences.md](preferences.md) → **Dispute resolutions from PR
+    comments**.
+32. **Review style** — `stats.ste` and the `review_style` check: the sentence
+    bar on the week's posted reviews ([review.md](review.md) → **The sentence
+    bar is 20 words**). Over 15 % of sentences past 20 words is a **warn**.
+    Report the share and the average; a warn names the two longest reviews in
+    *Action needed*.
+
 ### H. Report & wrap-up
 
-31. **Memory consolidation** — before composing the report, run
+33. **Memory consolidation** — before composing the report, run
     [preferences.md](preferences.md) → **Weekly memory consolidation**.
     **Mandatory when `checks[]` carries a `memory_budget` warn or fail.** It
     ends within the bounds, or the report's *Action needed* names what remains.
@@ -254,13 +276,13 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     inside the stats window (Feedback Log, Observed Insights) plus the rules
     this consolidation promoted. They fill *Learned this week*, one compressed
     line each.
-32. **Profile notes** — when `work/PROFILE-NOTES.md` exists
+34. **Profile notes** — when `work/PROFILE-NOTES.md` exists
     ([profile.md](profile.md) → **Using it**): re-verify each row
     `work/PROFILE.md` marks `stale` against its live source (keep, reword or
     drop), drop `orphan` rows, and add a row when a lesson of the week
     generalizes to one code area — at most 10 rows, two sentences each. Report
     the delta on the memory line (`notes: kept X · updated Y · dropped Z`).
-33. **Trend artifact** — append this week to `work/audit/` and republish the
+35. **Trend artifact** — append this week to `work/audit/` and republish the
     accumulated report ([trends.md](trends.md)). Its delta line and the
     artifact URL fill the report's *Trend* line. A failed append or publish is
     reported as `warn` with the reason; the audit is complete regardless.
@@ -275,6 +297,8 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Reviews: <total> (<first> first / <re_review> re) — ✅<approve> ⚠️<comment> ❌<request_changes>
 • Findings acceptance: <fixed>/<fixed+still_present> fixed by the next re-review (omit when both 0)
 • Findings acceptance by severity: <sev> <fixed>/<fixed+still>, … (omit when by_severity is empty)
+• Refuted before posting: <suppressed.total> — overrides <o> / context <c> / decisions <d> (a floor; omit when total = 0)
+• Review style: <ste.sentences_over_20>/<ste.sentences> sentences over 20 words, average <ste.avg_sentence_words> (omit when ste.reviews = 0)
 • Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
@@ -288,7 +312,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
-• <tag> <rule/insight in one line>   ← per task-31 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
+• <tag> <rule/insight in one line>   ← per task-33 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
 
 *Checks*
 🔴 <id> — <detail>          ← every fail (script + tasks above)
@@ -309,5 +333,5 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail" or "error", which next week's log grep would flag), then back up
   `work/` ([persistence.md](persistence.md)). No state repairs beyond tasks
-  31–33, and no GitHub writes except the task-3 tracking issue and the trend
+  33–35, and no GitHub writes except the task-3 tracking issue and the trend
   artifact's own publish.

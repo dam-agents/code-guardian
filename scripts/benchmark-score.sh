@@ -56,9 +56,9 @@
 #           (critical → REQUEST_CHANGES, warning → COMMENT, none → APPROVE;
 #           status-"fixed" entries excluded).
 #   length  {words_total, findings, words_per_finding}
-#   ste     {sentences, avg_sentence_words, sentences_over_20} — computed on
-#           prose only (code fences and HTML-comment lines removed); a
-#           sentence is the text up to . ! or ?
+#   ste     {sentences, avg_sentence_words, sentences_over_20, v} — prose only,
+#           measured by lib/ste.sh; `v` names the measurement, so two runs
+#           compare only when it matches (docs/benchmark.md step 10)
 
 set -u
 export LC_ALL=C
@@ -66,6 +66,7 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # speed only — resolve a mise-shimmed jq to the real binary (lib/toolpath.sh)
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
+. "$SCRIPT_DIR/lib/ste.sh"
 
 MODE="${1:-}"; RAW="${2:-}"; MANIFEST="${3:-}"
 usage() { printf 'usage: benchmark-score.sh first|rereview <raw-review.md> <manifest.json>\n' >&2; exit 2; }
@@ -139,17 +140,9 @@ LENGTH="$(jq -n --argjson fj "$FJ" --argjson w "$WORDS_TOTAL" '
    words_per_finding: (if ($fj | length) == 0 then null
                        else (($w / ($fj | length)) | round) end)}')"
 
-# one jq pass computes every sentence length (no temp file, no per-sentence
-# subprocesses); fences match indented openers too — an unbalanced fence
-# still degrades this one metric only, never the scoring
-STE="$(sed -e '/^[[:space:]]*```/,/^[[:space:]]*```/d' -e '/^[[:space:]]*<!--/d' "$RAW" \
-  | tr '\n' ' ' \
-  | sed -e 's/[.!?][[:space:]][[:space:]]*/\n/g' -e 's/[.!?][[:space:]]*$//' \
-  | jq -Rs '[split("\n")[] | select(test("[^[:space:]]")) | [scan("[^[:space:]]+")] | length]
-            | {sentences: length,
-               avg_sentence_words: (if length == 0 then null
-                                    else ((add / length * 10) | round) / 10 end),
-               sentences_over_20: ([.[] | select(. > 20)] | length)}')"
+# the same measurement the posted-review ledger row carries (lib/ste.sh), so
+# the benchmark and the weekly audit never grade the style differently
+STE="$(ste_stats "$RAW")"
 
 # ------------------------------------------------------------- matching ----
 if [ "$MODE" = "first" ]; then

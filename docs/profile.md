@@ -14,7 +14,9 @@ the orientation every review and every skill subagent used to rebuild from
 - **Orientation, never evidence.** A finding is anchored in the diff and
   verified against the surrounding code in the clone ([review.md](review.md) →
   **Criteria & review style**); the profile only says where to look. No finding
-  cites the profile or the history section.
+  cites the profile or the history section. The decision check reads the
+  document a `## Decisions` or `## Docs` row locates and cites that document
+  ([review.md](review.md) → **Decision check**).
 - **Declared, never inferred.** Every row is lifted from something the
   repository states — a manifest field, a README heading, doc front matter, a
   CODEOWNERS line — and carries its source path in `src`. The one judgement
@@ -119,7 +121,7 @@ changed-file list from the diff for that PR.
   most 10 rows, two sentences each: what the map cannot state, such as a unit
   convention or a trap in one module. Written by the operator in the direct
   session, or by the audit run when a lesson generalizes to a code area
-  ([audit.md](audit.md) task 32). The audit re-verifies `stale` rows against
+  ([audit.md](audit.md) task 34). The audit re-verifies `stale` rows against
   the live source and drops `orphan` ones.
 
 ## Configuration
