@@ -405,7 +405,7 @@ SUMMARY="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
          srow($rows; "Review duration (min)"; "duration_min"; "down"; "num"),
          srow($rows; "Spend per week (est)"; "cost_usd"; "down"; "usd"),
          srow($rows; "Spend per week (actual)"; "actual_cost_usd"; "down"; "usd"),
-         srow($rows; "Spend per review"; "cost_per_review"; "down"; "usd"),
+         srow($rows; "Spend per review (est)"; "cost_per_review"; "down"; "usd"),
          srow($rows; "Output tokens"; "out_tokens"; "down"; "num"),
          srow($rows; "Idle heartbeats"; "idle_ratio"; "up"; "pct"),
          srow($rows; "Stalled runs"; "stalled"; "down"; "num"),
@@ -468,6 +468,8 @@ ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
         + ($c.out_tokens | cell)
         + (if $c.cost_usd == null then "<td class=\"n dash\">—</td>"
            else "<td class=\"n\">\(if $c.cost_floor then "≥" else "" end)\($c.cost_usd)\(rel($c.cost_usd; $p.cost_usd; "down"))</td>" end)
+        + (if $c.actual_cost_usd == null then "<td class=\"n dash\">—</td>"
+           else "<td class=\"n\">\($c.actual_cost_usd)\(rel($c.actual_cost_usd; $p.actual_cost_usd; "down"))</td>" end)
         + (if $c.cost_per_review == null then "<td class=\"n dash\">—</td>"
            else "<td class=\"n\">\($c.cost_per_review)\(rel($c.cost_per_review; $p.cost_per_review; "down"))</td>" end)
         + (if $c.stalled == null then "<td class=\"n dash\">—</td>"
@@ -559,7 +561,7 @@ ${CHARTS}
 <tr><th>week</th><th>src</th><th>version</th><th>reviews</th><th>1st/re</th>
 <th>✅/⚠️/❌</th><th>found</th><th>🔴/🟡/🟢</th><th>f/rev</th><th>acc</th>
 <th>👍/👎</th><th>ttfr</th><th>dur</th><th>slowest phase</th><th>open</th>
-<th>awaiting</th><th>heartbeats</th><th>out-tok</th><th>est \$</th><th>\$/rev</th>
+<th>awaiting</th><th>heartbeats</th><th>out-tok</th><th>est \$</th><th>act \$</th><th>\$/rev</th>
 <th>stalled</th><th>err/warn</th><th>🔴/🟡/🟢 checks</th></tr>
 </thead>
 <tbody>

@@ -191,21 +191,24 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     `stats.tokens` priced by the `## Benchmark model prices` table
     ([config.md](config.md)) is only an estimate. Report `totalCostUsd` and the
     `byModel` split, then judge:
-    - **Price-table drift** — estimated week spend (task 33's `cost_usd`) over
-      `totalCostUsd` outside **0.5×–2.0×** → **warn** with both figures and the
-      model rows to re-check against current published prices. The band is wide
-      on purpose: this detects a stale price row, it does not reconcile the two
-      figures — the populations differ at the window edges, the estimate
-      excludes unpriced models, and telemetry counts direct sessions too.
+    - **Price-table drift** — the estimate (`stats.tokens.by_model` priced by
+      the table, the figure task 33 writes as `cost_usd`) over `totalCostUsd`
+      outside **0.5×–2.0×** → **warn** with both figures and the model rows to
+      re-check against current published prices. Judge it while you compose the
+      report, once task 33 produced the number. The band is wide on purpose:
+      this detects a stale price row, it does not reconcile the two figures —
+      the populations differ at the window edges, the estimate excludes
+      unpriced models, and telemetry counts direct sessions too.
       Correcting the table belongs to the operator in a direct session; the
       audit reports it ([benchmark.md](benchmark.md) → **Model prices**).
     - **Unpriced model** — a `byModel` model no table row matches → **warn**
-      naming it. It is the model behind a `≥` cost cell, which `cost_floor`
-      alone cannot name.
+      naming it: the model behind a `≥` cost cell, which `cost_floor` alone
+      cannot name. Under 1 % of the week's `calls` it is the harness-internal
+      model of the next bullet → one **info** line.
     - **Production model** — the `byModel` entry with the most `calls` is what
       the week's runs actually ran on; report it, and **warn** when it is not
-      the model this deployment expects. A second low-call, low-cost model is
-      normally harness-internal (session titles), not a model change.
+      the model this deployment expects. The second low-call, low-cost model
+      beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
       deployment`, and task 33's extras omit the key. Never a fail.
 
@@ -279,7 +282,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
-• Spend: $<actual> actual (est $<cost_usd>) · model: <top byModel id> ×<calls> — or `not measured on this deployment` (task 27)
+• Spend: $<actual> actual (est $<cost_usd>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · actual not measured on this deployment` (task 27)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)

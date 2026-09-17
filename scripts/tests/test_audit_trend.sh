@@ -100,6 +100,8 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.24 and .[0].actual_cost_usd == 0.
 assert_file_contains "$WORK/audit/TRENDS.md" '| 0.24 | 0.08 |' 'both spend columns reach the week row'
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains 'Spend per week (actual)' 'the report carries the actual-spend summary row'
+assert_out_contains '<th>act $</th>' 'the report table carries the actual-spend column'
+assert_out_contains '<td class="n">0.08' 'the week row carries the attributed actual'
 
 # --- a week with no telemetry renders "—", never a zero ----------------------
 new_case trend_actual_cost_absent
