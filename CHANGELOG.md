@@ -11,6 +11,19 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 4.4.0 — 2026-09-17
+
+**Upgrade:** Check the `## Benchmark model prices` table in `work/CONFIG.md`
+against the current published per-MTok prices for every model it lists
+(`docs/benchmark.md` → **Model prices**) and correct any stale row —
+**operator-only**, and worth doing once on crossing this version: the table
+prices the whole rendered history, so a wrong row misreports every cost figure
+in the weekly trend artifact and the benchmark report by the factor it is off
+by. For `claude-opus-5` the current values are `5 | 25 | 0.5 | 6.25`. From this
+version the weekly audit measures the table against the platform's own
+attributed spend and warns on drift (`docs/audit.md` → task 27), so a later
+stale row surfaces by itself.
+
 ## 4.3.0 — 2026-09-17
 
 **Upgrade:** When `work/benchmark/results/` holds at least one run, regenerate
