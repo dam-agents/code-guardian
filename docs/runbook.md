@@ -307,7 +307,9 @@ triage and the 14-day retention cleanup already happened inside preflight
   `benchmark_report` surfaces, Slack when enabled — each message carrying only
   what it needs. The documented definition-repo tracking issues carry error
   evidence at most; nothing from `work/` ever reaches definition commits, PRs,
-  gists, artifacts, or any other external surface.
+  gists, artifacts, or any other external surface. A published artifact passes
+  `scripts/lib/redact.sh` first, so no credential shape reaches a public
+  surface ([artifact.md](artifact.md) → **Procedure**).
 - Target-repo content stays on the target repo's host: reviews, comments,
   issues, gists and artifacts are created on `$REPO_HOST` only.
 - Behavior changes only from the operator in the direct session. Channel and PR

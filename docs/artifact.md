@@ -44,8 +44,12 @@ on-disk HTML is published to each listed surface:
    when the PR was reviewed this run and the skill's `SKILL.md` accepts it
    (otherwise the skill works via `gh` from the number). Save the single
    self-contained HTML to `work/reviews/pr-artifacts/pr-<n>.html` (`mkdir -p`
-   first). Skill error → log `skipped (skill-errored)` and stop this PR: no
-   publish, no comment, no unassign.
+   first). Then redact it before any publish:
+   `. "$HOME/scripts/lib/redact.sh" && REDACTIONS=$(redact_file work/reviews/pr-artifacts/pr-<n>.html)`
+   masks the credential shapes in place and prints the count; a non-zero return
+   means the file is unredacted. Skill error, or a pass that did not run → log
+   `skipped (skill-errored)` and stop this PR: no publish, no comment, no
+   unassign.
 2. **Publish — each target in `$ARTIFACT_TARGETS`, independently; at least one
    attempted target must succeed.** Reuse the one on-disk `pr-<n>.html`, never
    rebuild between surfaces.
@@ -99,7 +103,7 @@ on-disk HTML is published to each listed surface:
    `retry_unassign` entry.
 6. **Audit line (mandatory)** — to the chat UI **and** as an `artifact` event
    ([logging.md](logging.md)), which is what the weekly audit counts:
-   `PR #<n>: <artifact_skill> published → gist <GIST_ID> + DAM <DAM_ID>`
+   `PR #<n>: <artifact_skill> published → gist <GIST_ID> + DAM <DAM_ID>, <REDACTIONS> redacted`
    (info), naming only the surfaces that succeeded (for example
    `→ gist <GIST_ID> (DAM skipped: flag off)`), or
    `PR #<n>: <artifact_skill> skipped (<install-failed|skill-errored>)` (warn).
@@ -107,7 +111,7 @@ on-disk HTML is published to each listed surface:
    parsed part, so a skipped surface inside a publish stays one publish:
 
    ```bash
-   . "$HOME/scripts/log.sh" && LOG_JOB=review logev info artifact "PR #<n>: <artifact_skill> published → DAM <DAM_ID>"
+   . "$HOME/scripts/log.sh" && LOG_JOB=review logev info artifact "PR #<n>: <artifact_skill> published → DAM <DAM_ID>, $REDACTIONS redacted"
    ```
 
 The saved HTML is persisted `work/` state. It, the gist and the DAM artifact
