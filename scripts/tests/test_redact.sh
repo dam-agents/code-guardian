@@ -52,6 +52,20 @@ masks 'an AWS secret access key'     'aws_secret_access_key = wJalrXUtnFEMI/K7MD
 masks 'a GitHub token'               'see ghp_16CharactersAndMoreABCDEFG here' 'ghp_16CharactersAndMoreABCDEFG'
 masks 'a Slack token'                'slack=xoxb-123456789012-abcdefghijkl' 'xoxb-123456789012-abcdefghijkl'
 
+CASE=highlighted_markup
+# what the artifact actually holds: the diff comes back as highlighted HTML, so
+# tags sit between the key, the separator and the value. The rule steps over
+# them and masks the value alone, or it protects only the plain text that this
+# surface rarely carries (lib/redact.sh)
+hl_key='<span class="n">api_key</span> <span class="o">=</span> <span class="s">"sk_live_9f3kQx7ZmTvB2pLwR8dY"</span>'
+masks 'a highlighted api_key assignment' "$hl_key" 'sk_live_9f3kQx7ZmTvB2pLwR8dY'
+is 'and the markup around it is untouched' "$(redacted_line "$hl_key")" \
+   '<span class="n">api_key</span> <span class="o">=</span> <span class="s">"[redacted]"</span>'
+hl_pw='<span class="n">password</span><span class="o">:</span> <span class="s">&quot;hunter2hunter2&quot;</span>'
+masks 'a highlighted password with escaped quotes' "$hl_pw" 'hunter2hunter2'
+is 'and the entities around it are kept' "$(redacted_line "$hl_pw")" \
+   '<span class="n">password</span><span class="o">:</span> <span class="s">&quot;[redacted]&quot;</span>'
+
 CASE=private_key_blocks
 cat > "$SANDBOX/pem.html" <<'EOF'
 <pre>
@@ -88,6 +102,10 @@ keeps 'a sha256 digest'      'sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e464
 keeps 'an md5 digest'        'md5 d41d8cd98f00b204e9800998ecf8427e'
 keeps 'a highlighted token span' '<span class="token operator">=</span>'
 keeps 'prose about bearer tokens' 'Bearer tokens are rotated every hour.'
+# an `=` inside markup with no credential key beside it — the highlighter names
+# every span a "token", which must not read as a token assignment
+keeps 'a markup assignment with no secret' \
+  '<span class="token attr-name">data-fingerprint</span><span class="token operator">=</span><span class="token attr-value">"4943d48b1a2c3d4e5f60718293a4b5c6"</span>'
 
 CASE=a_clean_file_is_untouched
 cat > "$SANDBOX/clean.html" <<'EOF'

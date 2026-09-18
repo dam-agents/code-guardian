@@ -17,9 +17,15 @@
 #
 # The shapes: PEM private key blocks (on one line and across lines), an
 # assignment whose key names an api key, secret, password, token or credential,
-# `Bearer <token>`, AWS access key ids, GitHub tokens, Slack tokens. Markup
-# between a key and its value defeats the assignment rule; the standalone
-# shapes match wherever they appear.
+# `Bearer <token>`, AWS access key ids, GitHub tokens, Slack tokens.
+#
+# The assignment rule reads markup, because the artifact is highlighted HTML: a
+# run of tags, entities, quotes and spaces on either side of the `:` or `=` is
+# stepped over, and only the value is masked, so the page stays whole. What it
+# still misses — a value split across two tags, a value under 8 characters, a
+# separator written as an entity (`&#61;`), and an assignment whose key names
+# none of the words above, which is the price of naming shapes instead of
+# measuring entropy. The standalone shapes match wherever they appear.
 #
 # `log.sh`'s `log_redact` is the same rule for one log message. This one reads
 # a whole file and reports a count, so the two stay separate.
@@ -41,7 +47,7 @@ s%-----BEGIN[A-Za-z0-9 ]*PRIVATE KEY-----.*-----END[A-Za-z0-9 ]*PRIVATE KEY-----
 s%(-----BEGIN[A-Za-z0-9 ]*PRIVATE KEY-----).*%\1[redacted]%
 /-----(BEGIN|END)[A-Za-z0-9 ]*PRIVATE KEY-----/!d
 }
-s%([A-Za-z0-9_.-]*(api[_-]?key|secret|passwd|password|token|credential)[A-Za-z0-9_.-]*[[:space:]]*[:=][[:space:]]*(&[A-Za-z]{2,6};|&#[0-9]{2,4};|[^[:alnum:][:space:][])?[[:space:]]*)[A-Za-z0-9._~+/=-]{8,}%\1[redacted]%gI
+s%([A-Za-z0-9_.-]*(api[_-]?key|secret|passwd|password|token|credential)[A-Za-z0-9_.-]*(<[^>]*>|&[A-Za-z]{2,6};|&#[0-9]{2,4};|[^[:alnum:]<>&[]){0,8}[:=](<[^>]*>|&[A-Za-z]{2,6};|&#[0-9]{2,4};|[^[:alnum:]<>&[]){0,8})[A-Za-z0-9._~+/=-]{8,}%\1[redacted]%gI
 s%(bearer[[:space:]]+)[A-Za-z0-9._~+/=-]{8,}%\1[redacted]%gI
 s%(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}%[redacted]%g
 s%(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{8,}%[redacted]%g
