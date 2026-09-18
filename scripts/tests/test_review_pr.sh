@@ -90,6 +90,18 @@ assert_file_contains "$(PR_DIR).ctx/context.json" '"looks ok"' 'human comment ke
 grep -q 'mine' "$(PR_DIR).ctx/context.json" && { printf 'FAIL %s: own marker comment leaked into context\n' "$CASE"; FAILED=1; } || printf 'ok   %s: own past review dropped from context\n' "$CASE"
 jq -e '."src/alpha.ts".right | index(6) != null and index(1) == null' "$(PR_DIR).ctx/hunks.json" >/dev/null && printf 'ok   %s: hunk index has the added line, not line 1\n' "$CASE" || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
 jq -e '."src/alpha.ts".dependents == ["src/uses-alpha.ts"] and ."src/alpha.ts".changed_lines == [3,4,5,6,7,8,9,10]' "$(PR_DIR).ctx/pack.json" >/dev/null && printf 'ok   %s: context pack lists the dependent and the hunk lines\n' "$CASE" || { printf 'FAIL %s: pack wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/pack.json")"; FAILED=1; }
+# a PR with no sensitive path and no second-look pattern: an empty signal, and
+# no block in the brief (docs/review.md → Per-PR review sequence, step b)
+assert_jq '.paths.risk == "'"$(PR_DIR)"'.ctx/risk.json"' 'the risk prescan has its path in the prepare output'
+jq -e '.paths == [] and .patterns == [] and .truncated == false' "$(PR_DIR).ctx/risk.json" >/dev/null \
+  && printf 'ok   %s: a clean PR prescans to an empty signal\n' "$CASE" \
+  || { printf 'FAIL %s: risk wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/risk.json" 2>/dev/null)"; FAILED=1; }
+grep -q 'risk prescan' "$B" \
+  && { printf 'FAIL %s: an empty signal still wrote a block into the brief\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: an empty signal writes no block\n' "$CASE"
+[ -f "$(PR_DIR).ctx/added.tsv" ] \
+  && { printf 'FAIL %s: the added-line stream outlived the prescan\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the added-line stream is deleted after the prescan\n' "$CASE"
 
 # --- --help prints the subcommand table, not a guard failure -------------------
 OUT="$(bash "$RP" delta 1 --help 2>&1)"
@@ -147,6 +159,41 @@ assert_jq '.outcome == "aborted"' 'abort reported'
 grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: row not deleted on first-review abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: first-review abort deletes the row\n' "$CASE"
 assert_event 'aborted test abort' 'abort event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no leftovers after abort\n' "$CASE"
+
+# --- risk prescan: the sensitive paths and the second-look patterns of the diff ---
+setup risk_prescan
+git -C "$FX" checkout -q b1
+mkdir -p "$FX/src/auth" "$FX/.github/workflows" "$FX/docs"
+printf 'export const login = (p) => eval(p);\n' > "$FX/src/auth/session.ts"
+printf 'name: ci\non: [push]\njobs: {}\n' > "$FX/.github/workflows/ci.yml"
+printf '#!/bin/sh\nrm -rf "$1"\n' > "$FX/src/clean-up.sh"
+printf '# notes\neval(x)\n' > "$FX/docs/notes.md"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm risky
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+R="$(PR_DIR).ctx/risk.json"
+jq -e '[.paths[] | select(.path == "src/auth/session.ts") | .reason] == ["auth"]
+   and [.paths[] | select(.path == ".github/workflows/ci.yml") | .reason] == ["ci"]' "$R" >/dev/null \
+  && printf 'ok   %s: a changed file in a sensitive area is named with its area\n' "$CASE" \
+  || { printf 'FAIL %s: risk paths wrong: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+jq -e '[.patterns[] | select(.id == "eval") | {file, line}] == [{file:"src/auth/session.ts", line:1}]
+   and [.patterns[] | select(.id == "rm-rf") | .file] == ["src/clean-up.sh"]' "$R" >/dev/null \
+  && printf 'ok   %s: an added line with a second-look pattern carries its file and line\n' "$CASE" \
+  || { printf 'FAIL %s: risk patterns wrong: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+jq -e '[.patterns[] | select(.file == "docs/notes.md")] == [] and .truncated == false' "$R" >/dev/null \
+  && printf 'ok   %s: the prescan reads the reviewable classes only\n' "$CASE" \
+  || { printf 'FAIL %s: docs class scanned: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+B="$(PR_DIR).ctx/briefs/doc-drift.md"
+grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
+  && grep -q 'src/auth/session.ts — sensitive area: auth' "$B" \
+  && printf 'ok   %s: the brief carries the prescan\n' "$CASE" \
+  || { printf 'FAIL %s: the brief misses the prescan block\n' "$CASE"; FAILED=1; }
+grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
+run_rp abort 1 "reset"
 
 # --- prepare gates ---------------------------------------------------------------
 setup prepare_gates
