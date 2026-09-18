@@ -29,7 +29,8 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `stall_rate`, `stall_alert_sent`, `pod_boot`, `log_cleanup`, `profile`, …).
+  `artifact`, `stall_rate`, `stall_alert_sent`, `pod_boot`, `log_cleanup`,
+  `profile`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 
@@ -49,6 +50,10 @@ finished. A hand-rolled line matches exactly:
   `msg` are strings; `run` is the harness session id.
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
+- **`artifact` `msg`** — `PR #<n>: <skill> <outcome> …`, where the audit counts
+  `published` and `skipped` in that third position; the unassign retry carries
+  neither ([artifact.md](artifact.md) step 6). A missing event makes
+  `stats.artifacts.generated` a floor, which the `artifacts` check reports.
 
 ### Tool path resolution (`scripts/lib/toolpath.sh`)
 

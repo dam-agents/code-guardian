@@ -48,7 +48,8 @@ skipped task is an incomplete audit — a task that is impossible this week
 4. Everything else the script checks is already in `checks[]` — connectivity,
    scopes, CLI deps, state consistency, logs, hygiene, skills, roster,
    definition currency, benchmark fixture and results integrity, the memory
-   budget, the profile's currency, the definition repo's open-issue backlog
+   budget, artifact outcome logging, the profile's currency, the definition
+   repo's open-issue backlog
    (see [preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
    do not recompute. Two special cases:
    - A missing **token scope** is **operator-only**: report what it breaks
@@ -211,6 +212,10 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
       beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
       deployment`, and task 35's extras omit the key. Never a fail.
+    - **Per review** — each spend figure divided by `stats.reviews.total`, 2
+      decimals. A week with no review omits both per-review figures. A `≥`
+      estimate keeps its `≥`. The trend's `$/review` is the same estimate
+      ([trends.md](trends.md)).
 
     Report figures only, never raw telemetry rows.
 28. **Findings acceptance** — `stats.findings` counts this week's re-review
@@ -303,10 +308,10 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
-• Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
+• Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
-• Spend: $<actual> actual (est $<cost_usd>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · actual not measured on this deployment` (task 27)
+• Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Memory: distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
