@@ -65,7 +65,7 @@ write, and it never touches state outside `work/audit/`.
 
 | Group | Metrics | Source |
 | --- | --- | --- |
-| Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label` |
+| Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog, artifacts published | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label`, `stats.artifacts` |
 | Quality | verdict split, findings raised by severity, findings per review, acceptance ratio, 👍/👎 | `stats.findings`, `stats.reactions` |
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
 | Cost | heartbeats and idle share, tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.tokens`, the price table, extras |

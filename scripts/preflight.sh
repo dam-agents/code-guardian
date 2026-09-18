@@ -1635,6 +1635,38 @@ if [ "$MODE" = "audit" ]; then
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
+  # Artifacts published this week, from the `artifact` outcome events the
+  # artifact step writes (docs/artifact.md step 6). Counted per PR, so a
+  # repeated log line cannot inflate the figure. The events survive a prune,
+  # which the on-disk HTML and the history markers do not — that is why the
+  # count reads the log and not `reviews/pr-artifacts/`.
+  # `unreported` is the guard: preflight's own `artifact generate due` lines
+  # name every PR that entered the step, so a due PR with no outcome event
+  # means the step ran without logging its audit line, and the count below it
+  # would silently read as zero. Due lines from the last hour are excluded —
+  # that PR is handled by the next heartbeat, not missing.
+  ARTIFACTS_WEEK='null'
+  if [ -n "$ARTIFACT_SKILL" ]; then
+    ART_CUTOFF="$(date -u -d "@$(( NOW_EPOCH - 3600 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                  || date -u -r "$(( NOW_EPOCH - 3600 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    ARTIFACTS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$ART_CUTOFF" '
+      def prs(f): [ .[] | select(.ts >= $s) | select(f) | .msg
+                    | capture("^PR #(?<n>[0-9]+)") | .n ] | unique;
+      { generated: (prs(.event=="artifact" and (.msg|test("published"))) | length),
+        skipped:   (prs(.event=="artifact" and (.msg|test("skipped")))   | length),
+        unreported: ((prs(.event=="preflight" and (.msg|test("artifact generate due")) and .ts <= $cut)
+                      - prs(.event=="artifact")) | length) }' 2>/dev/null)"
+    [ -n "$ARTIFACTS_WEEK" ] || ARTIFACTS_WEEK='null'
+    art_unrep="$(printf '%s' "$ARTIFACTS_WEEK" | jq -r '.unreported // 0' 2>/dev/null)"
+    # a broken pass reports unmeasured, never an all-zero literal, which reads
+    # as "no artifact was due" and is exactly what this metric must not invent
+    if [ "$ARTIFACTS_WEEK" = "null" ]; then
+      check artifacts warn "artifact outcomes could not be counted this week — treat stats.artifacts as unmeasured, not zero"
+    elif [ "${art_unrep:-0}" -gt 0 ]; then
+      check artifacts warn "${art_unrep} artifact generation(s) with no outcome event — the step skipped its audit line, so stats.artifacts.generated is a floor (docs/artifact.md step 6)"
+    else check artifacts ok "artifact outcomes logged: $(printf '%s' "$ARTIFACTS_WEEK" | jq -r '"\(.generated) published, \(.skipped) skipped"')"; fi
+  fi
+
   # Wasted-review accounting: a run that locked a PR and never reached a
   # terminal `review_step` threw its work away — the next heartbeat redoes the
   # review at full cost. Classified by cause, deterministically, from the log:
@@ -1926,11 +1958,12 @@ if [ "$MODE" = "audit" ]; then
     --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" \
+    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
+      artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
 
   # wording note: never write the substring "fail"/"error" into this line —

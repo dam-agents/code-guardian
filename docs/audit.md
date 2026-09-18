@@ -48,7 +48,8 @@ skipped task is an incomplete audit — a task that is impossible this week
 4. Everything else the script checks is already in `checks[]` — connectivity,
    scopes, CLI deps, state consistency, logs, hygiene, skills, roster,
    definition currency, benchmark fixture and results integrity, the memory
-   budget, the profile's currency, the definition repo's open-issue backlog
+   budget, artifact outcome logging, the profile's currency, the definition
+   repo's open-issue backlog
    (see [preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
    do not recompute. Two special cases:
    - A missing **token scope** is **operator-only**: report what it breaks
@@ -303,7 +304,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
-• Heartbeats: <total> (<idle> idle) · Artifacts: <generated>
+• Heartbeats: <total> (<idle> idle) · Artifacts: <artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; whole segment `not configured` when artifacts is null)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Spend: $<actual> actual (est $<cost_usd>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · actual not measured on this deployment` (task 27)

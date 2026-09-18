@@ -610,4 +610,46 @@ run_preflight audit
 assert_jq '.stats.ste.reviews == 0 and .stats.ste.avg_sentence_words == null' 'an old row carries no style measurement'
 assert_jq '[.checks[] | select(.id == "review_style")] | .[0].detail | test("no posted review")' 'the check says unmeasured'
 
+# --- artifacts published (stats.artifacts) ------------------------------------
+# counted from the `artifact` outcome events of docs/artifact.md step 6, per PR,
+# with preflight's own `generate due` lines as the guard against a generation
+# that never logged one
+new_case audit_artifacts
+base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+eva() { # <event> <level> <msg> <secs-ago>
+  jq -nc --arg e "$1" --arg l "$2" --arg m "$3" --arg t "$(iso_ago "$4")" \
+    '{ts:$t, run:"r1", job:"review", level:$l, event:$e, msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172800
+eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172700  # same PR twice
+eva artifact  info "PR #11: pr-artifact published → gist bbb"         86400
+eva artifact  warn "PR #12: pr-artifact skipped (skill-errored)"      86400
+eva preflight info "PR #12: artifact generate due"                    86500
+eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 # outside the window
+eva preflight info "PR #14: artifact generate due"                    43200   # never reported an outcome
+eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
+eva artifact  info "PR #16: artifact unassign retried (ok)"           86400   # neither a publish nor a skip
+run_preflight audit
+assert_jq '.stats.artifacts.generated == 2' 'published events counted once per PR, in-window only'
+assert_jq '.stats.artifacts.skipped == 1' 'a skipped generation is not counted as published'
+assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
+assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
+
+new_case audit_artifacts_zero
+base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight audit
+assert_jq '.stats.artifacts == {generated: 0, skipped: 0, unreported: 0}' 'nothing due is a measured zero'
+assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "ok"' 'a quiet week passes the check'
+
+new_case audit_artifacts_off
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight audit
+assert_jq '.stats.artifacts == null' 'the feature off is unmeasured, never a zero'
+assert_jq '[.checks[] | select(.id == "artifacts")] | length == 0' 'no check for a feature that is off'
+
 finish

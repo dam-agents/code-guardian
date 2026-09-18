@@ -212,6 +212,7 @@ JQ_DERIVE='
                       else (max_by(.value.median_min) | "\(.key) \(.value.median_min)m") end),
         open_prs: ($s.open_prs // null),
         awaiting: ($s.awaiting_label.n // null),
+        artifacts: ($s.artifacts.generated // null),
         heartbeats: ($s.heartbeats.total // null),
         idle_ratio: (if ($s.heartbeats.total // 0) == 0 then null
                      else (($s.heartbeats.idle // 0) / $s.heartbeats.total | r2) end),
@@ -462,7 +463,7 @@ ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
            else "<td class=\"n\">\($c.ttfr_min)\(rel($c.ttfr_min; $p.ttfr_min; "down"))</td>" end)
         + ($c.duration_min | cell)
         + "<td>\($c.top_phase // "—")</td>"
-        + ($c.open_prs | cell) + ($c.awaiting | cell)
+        + ($c.open_prs | cell) + ($c.awaiting | cell) + ($c.artifacts | cell)
         + (if $c.heartbeats == null then "<td class=\"n dash\">—</td>"
            else "<td class=\"n\">\($c.heartbeats) (\($c.idle_ratio | pc))</td>" end)
         + ($c.out_tokens | cell)
@@ -561,7 +562,7 @@ ${CHARTS}
 <tr><th>week</th><th>src</th><th>version</th><th>reviews</th><th>1st/re</th>
 <th>✅/⚠️/❌</th><th>found</th><th>🔴/🟡/🟢</th><th>f/rev</th><th>acc</th>
 <th>👍/👎</th><th>ttfr</th><th>dur</th><th>slowest phase</th><th>open</th>
-<th>awaiting</th><th>heartbeats</th><th>out-tok</th><th>est \$</th><th>act \$</th><th>\$/rev</th>
+<th>awaiting</th><th>artifacts</th><th>heartbeats</th><th>out-tok</th><th>est \$</th><th>act \$</th><th>\$/rev</th>
 <th>stalled</th><th>err/warn</th><th>🔴/🟡/🟢 checks</th></tr>
 </thead>
 <tbody>
