@@ -245,7 +245,8 @@ what it can and asking for the rest. Per-key semantics are in
   by URL. With `artifact_targets: gist,dam` the artifact is also published to
   the platform's DAM Artifact Library (best-effort, behind the owner's
   experimental flag), whose `visibility:"public"` share URL is likewise
-  reachable by anyone holding it (`docs/artifact.md`).
+  reachable by anyone holding it. The HTML passes a redaction pass before
+  either publish (`docs/artifact.md`).
 
 ### Connections
 
