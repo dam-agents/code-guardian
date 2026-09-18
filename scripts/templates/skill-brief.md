@@ -5,7 +5,7 @@ ref for diffing is `origin/{{BASE_REF}}` (`git -C "{{WORKDIR}}" diff origin/{{BA
 {{FILES_BLOCK}}
 Orientation: read `{{PROFILE}}` before touching the tree — the repository map
 (modules, docs ↔ paths, decisions, conventions, ownership, noise globs). It says
-where to look; it is never evidence for a finding.{{VERIFY_LIVE_BLOCK}}
+where to look; it is never evidence for a finding.{{VERIFY_LIVE_BLOCK}}{{RISK_BLOCK}}
 
 Do exactly this:
 
