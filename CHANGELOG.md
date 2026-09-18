@@ -14,7 +14,9 @@ they are released history and stay as written.
 ## 4.6.0 — 2026-09-18
 
 **Upgrade:** Nothing — docs are re-read per run. The first audit after this
-version measures `stats.artifacts`; earlier weeks stay `—` in the trend.
+version measures `stats.artifacts`; earlier weeks stay `—` in the trend. That
+audit can also report artifacts as `unlogged`. The artifact step wrote no
+`artifact` event before this version. The next audit reads clean.
 
 ## 4.5.0 — 2026-09-17
 
