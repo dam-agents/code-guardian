@@ -103,7 +103,8 @@ on-disk HTML is published to each listed surface:
    (info), naming only the surfaces that succeeded (for example
    `→ gist <GIST_ID> (DAM skipped: flag off)`), or
    `PR #<n>: <artifact_skill> skipped (<install-failed|skill-errored>)` (warn).
-   The words `published` and `skipped` are the parsed part:
+   The outcome word after the skill name — `published` or `skipped` — is the
+   parsed part, so a skipped surface inside a publish stays one publish:
 
    ```bash
    . "$HOME/scripts/log.sh" && LOG_JOB=review logev info artifact "PR #<n>: <artifact_skill> published → DAM <DAM_ID>"

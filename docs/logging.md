@@ -50,9 +50,9 @@ finished. A hand-rolled line matches exactly:
   `msg` are strings; `run` is the harness session id.
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
-- **`artifact` `msg`** — `PR #<n>: …` and the outcome word the audit counts:
-  `published`, `skipped`, or neither for the unassign retry
-  ([artifact.md](artifact.md) step 6). A missing event makes
+- **`artifact` `msg`** — `PR #<n>: <skill> <outcome> …`, where the audit counts
+  `published` and `skipped` in that third position; the unassign retry carries
+  neither ([artifact.md](artifact.md) step 6). A missing event makes
   `stats.artifacts.generated` a floor, which the `artifacts` check reports.
 
 ### Tool path resolution (`scripts/lib/toolpath.sh`)

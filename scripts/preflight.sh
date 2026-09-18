@@ -1640,6 +1640,9 @@ if [ "$MODE" = "audit" ]; then
   # repeated log line cannot inflate the figure. The events survive a prune,
   # which the on-disk HTML and the history markers do not — that is why the
   # count reads the log and not `reviews/pr-artifacts/`.
+  # The outcome word is read at its documented position, after the skill name:
+  # a publish that names a skipped surface ("… published → gist X (DAM skipped:
+  # flag off)") is one publish, and counts in `generated` alone.
   # `unreported` is the guard: preflight's own `artifact generate due` lines
   # name every PR that entered the step, so a due PR with no outcome event
   # means the step ran without logging its audit line, and the count below it
@@ -1652,10 +1655,13 @@ if [ "$MODE" = "audit" ]; then
     ARTIFACTS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$ART_CUTOFF" '
       def prs(f): [ .[] | select(.ts >= $s) | select(f) | .msg
                     | capture("^PR #(?<n>[0-9]+)") | .n ] | unique;
-      { generated: (prs(.event=="artifact" and (.msg|test("published"))) | length),
-        skipped:   (prs(.event=="artifact" and (.msg|test("skipped")))   | length),
-        unreported: ((prs(.event=="preflight" and (.msg|test("artifact generate due")) and .ts <= $cut)
-                      - prs(.event=="artifact")) | length) }' 2>/dev/null)"
+      [ .[] | select(.ts >= $s) | select(.event=="artifact") | .msg
+        | capture("^PR #(?<n>[0-9]+): +[^ ]+ +(?<o>published|skipped)") ] as $out
+      | def outcome(w): [ $out[] | select(.o == w) | .n ] | unique;
+        { generated: (outcome("published") | length),
+          skipped:   (outcome("skipped")   | length),
+          unreported: ((prs(.event=="preflight" and (.msg|test("artifact generate due")) and .ts <= $cut)
+                        - (outcome("published") + outcome("skipped"))) | length) }' 2>/dev/null)"
     [ -n "$ARTIFACTS_WEEK" ] || ARTIFACTS_WEEK='null'
     art_unrep="$(printf '%s' "$ARTIFACTS_WEEK" | jq -r '.unreported // 0' 2>/dev/null)"
     # a broken pass reports unmeasured, never an all-zero literal, which reads

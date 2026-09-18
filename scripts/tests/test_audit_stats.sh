@@ -632,9 +632,11 @@ eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 
 eva preflight info "PR #14: artifact generate due"                    43200   # never reported an outcome
 eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
 eva artifact  info "PR #16: artifact unassign retried (ok)"           86400   # neither a publish nor a skip
+eva preflight info "PR #17: artifact generate due"                    86500
+eva artifact  info "PR #17: pr-artifact published → gist ddd (DAM skipped: flag off)" 86400 # one surface skipped
 run_preflight audit
-assert_jq '.stats.artifacts.generated == 2' 'published events counted once per PR, in-window only'
-assert_jq '.stats.artifacts.skipped == 1' 'a skipped generation is not counted as published'
+assert_jq '.stats.artifacts.generated == 3' 'published events counted once per PR, in-window only'
+assert_jq '.stats.artifacts.skipped == 1' 'a surface skipped inside a publish stays one publish'
 assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
 assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
 

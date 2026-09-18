@@ -308,7 +308,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
-• Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; whole segment `not configured` when artifacts is null)
+• Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27)
