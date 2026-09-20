@@ -64,7 +64,7 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
      progress status, fetches context and the diff into `$PR_DIR.diff` with a
      hunk index, clones the branch with its base ref ([skills.md](skills.md) →
      **Clone, credential helper, cleanup**), and renders the per-skill copies,
-     briefs and context pack.
+     briefs, context pack and risk prescan.
 
    The live trigger follows `rereview_trigger` and sets the scope: label →
    `full: true`, else delta (**Re-review output**). The JSON also carries
@@ -77,7 +77,9 @@ b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    its findings are this review's starting point (**Carried review after a
    HEAD move**). `paths.pack` lists per changed code file its dependents, its
    tests and its changed lines; `paths.context` holds the PR context
-   (**PR context**).
+   (**PR context**); `paths.risk` names the changed files in sensitive areas
+   and the added lines that ask for a second look — orientation, never
+   evidence ([profile.md](profile.md) → **What it is, and is not**).
 c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
    classes `code`, `test`, `docs`, `config`. The noise classes (`lockfile`,
    `snapshot`, `build`, `vendored`, `minified`, `sourcemap`, `generated`) are
@@ -405,8 +407,13 @@ Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
 risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
 **Performance** (allocations, N+1, missing indexes) · **Architecture**
 (coupling, layer boundaries, broken contracts) · **Tests** (missing coverage,
-flaky patterns) · **Maintainability** (dead code, error handling). Past 2000
-diff lines: focus on the most critical files, still post a full review.
+flaky patterns) · **Maintainability** (dead code, error handling) ·
+**Delivery** (a breaking change in an env var, a CLI flag, a config key or a
+migration; a CI step that does not run what the change needs; a runtime
+assumption about paths, permissions, time zone or the concurrency model). The
+profile's `## Checks` rows say what CI runs, as orientation only
+([profile.md](profile.md) → **What it is, and is not**). Past 2000 diff lines:
+focus on the most critical files, still post a full review.
 
 **Audience: agent-written, agent-read code.** Human readability is not a review
 goal. Flag naming taste, cosmetic structure, comment density, file layout and
@@ -486,6 +493,7 @@ the bar you write to.
 
 ### Summary
 <1-2 sentence summary of what the PR does>
+_Limits: <what this review could not read>._
 
 ### Findings
 <findings, per finding-form.md>
@@ -507,6 +515,13 @@ severity + short label + `file:line` — while its description, rationale and
 suggestion block live only in the inline comment. Summary-only findings keep
 their full text here. One format for every channel (chat UI, GitHub body,
 history file); the one-liners carry the next re-review's delta matching.
+
+**`_Limits: …_`** — the conditions this review ran under, as facts, never a
+score or a confidence: a clone that failed, a skill that did not run, a PR
+context that did not load, a diff past 2000 lines.
+`review-pr.sh compose-brief` composes the line from this run's own state and
+prints it in the skeleton — nothing to report, no line — and `post` refuses a
+body that drops it.
 
 **`### For the human reviewer`** — the last section, written when a blocking
 finding comes from a design decision of the PR itself. Three or four sentences
@@ -976,8 +991,9 @@ Before you declare the run done:
   dismissal in it recorded as an override before posting · observed insights
   recorded ([preferences.md](preferences.md)) · `memory_due` read before
   reviewing · orientation used for where to look only, `verify_live` rows read
-  live, no finding citing the profile ([profile.md](profile.md)) · noise files
-  excluded with their Summary line · every blocking finding verified, the
+  live, no finding citing the profile or the risk prescan
+  ([profile.md](profile.md)) · noise files excluded with their Summary line ·
+  every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations, a statement
   finding claim-swept over the clone, a design finding checked against the
   in-tree decision that covers its path and counted in the audit note when it

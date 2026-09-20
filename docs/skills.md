@@ -83,7 +83,8 @@ brief carries:
   skill uses `$PR_DIR`;
 - the base ref `origin/<baseRefName>` and the routed file list;
 - the profile path with the rows this PR changes (`verify_live`,
-  [profile.md](profile.md));
+  [profile.md](profile.md)), and this diff's risk prescan when it found
+  something ([review.md](review.md) → **Per-PR review sequence**);
 - the output file `$PR_DIR.out/<skill>.txt` and the finding form to write it in
   ([finding-form.md](finding-form.md) — reformat, never reduce);
 - the **no circling** rule: whatever fails or comes back empty gets one retry,
@@ -149,7 +150,9 @@ Missing lines mean the skill step is not done: do not proceed to posting.
 - ✅ **Include the section** whenever the skill ran — with zero findings too,
   its clean-run line (for example `✅ No findings.`) under the heading.
 - ❌ **Omit the section entirely** on any skip. No placeholder; the audit line
-  is the only trace.
+  and the review's `_Limits:_` line, which counts and names the skills that did
+  not run ([review.md](review.md) → **Output format (first reviews)**), are its
+  trace.
 
 ## Verdict integration
 

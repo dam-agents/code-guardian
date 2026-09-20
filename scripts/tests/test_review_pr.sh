@@ -48,11 +48,12 @@ skills_config() { # [extra config lines…]
 }
 setup() { # fresh case with repo, config and open-PR fixtures
   new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; skills_config "${@:2}"; pr_fx; ctx_fx
+  CLONE_SRC=""   # a case sets it to make the clone fail
   : > "$SANDBOX/gh.log"
 }
 run_rp() { # <cmd> <n> [args…] → $OUT
   OUT="$(GITHUB_REPO="$TEST_REPO" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
-         CG_CLONE_URL="$FX" LOG_RUN_ID="$SESSION" GH_CALLS_LOG="$SANDBOX/gh.log" \
+         CG_CLONE_URL="${CLONE_SRC:-$FX}" LOG_RUN_ID="$SESSION" GH_CALLS_LOG="$SANDBOX/gh.log" \
          PATH="$T_DIR/bin:$PATH" bash "$RP" "$@" 2>/dev/null)"
 }
 events() { cat "$WORK"/logs/events-*.jsonl 2>/dev/null | jq -r 'select(.event=="review_step") | .msg'; }
@@ -90,6 +91,18 @@ assert_file_contains "$(PR_DIR).ctx/context.json" '"looks ok"' 'human comment ke
 grep -q 'mine' "$(PR_DIR).ctx/context.json" && { printf 'FAIL %s: own marker comment leaked into context\n' "$CASE"; FAILED=1; } || printf 'ok   %s: own past review dropped from context\n' "$CASE"
 jq -e '."src/alpha.ts".right | index(6) != null and index(1) == null' "$(PR_DIR).ctx/hunks.json" >/dev/null && printf 'ok   %s: hunk index has the added line, not line 1\n' "$CASE" || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
 jq -e '."src/alpha.ts".dependents == ["src/uses-alpha.ts"] and ."src/alpha.ts".changed_lines == [3,4,5,6,7,8,9,10]' "$(PR_DIR).ctx/pack.json" >/dev/null && printf 'ok   %s: context pack lists the dependent and the hunk lines\n' "$CASE" || { printf 'FAIL %s: pack wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/pack.json")"; FAILED=1; }
+# a PR with no sensitive path and no second-look pattern: an empty signal, and
+# no block in the brief (docs/review.md → Per-PR review sequence, step b)
+assert_jq '.paths.risk == "'"$(PR_DIR)"'.ctx/risk.json"' 'the risk prescan has its path in the prepare output'
+jq -e '.paths == [] and .patterns == [] and .truncated == false' "$(PR_DIR).ctx/risk.json" >/dev/null \
+  && printf 'ok   %s: a clean PR prescans to an empty signal\n' "$CASE" \
+  || { printf 'FAIL %s: risk wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/risk.json" 2>/dev/null)"; FAILED=1; }
+grep -q 'risk prescan' "$B" \
+  && { printf 'FAIL %s: an empty signal still wrote a block into the brief\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: an empty signal writes no block\n' "$CASE"
+[ -f "$(PR_DIR).ctx/added.tsv" ] \
+  && { printf 'FAIL %s: the added-line stream outlived the prescan\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the added-line stream is deleted after the prescan\n' "$CASE"
 
 # --- --help prints the subcommand table, not a guard failure -------------------
 OUT="$(bash "$RP" delta 1 --help 2>&1)"
@@ -147,6 +160,41 @@ assert_jq '.outcome == "aborted"' 'abort reported'
 grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: row not deleted on first-review abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: first-review abort deletes the row\n' "$CASE"
 assert_event 'aborted test abort' 'abort event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no leftovers after abort\n' "$CASE"
+
+# --- risk prescan: the sensitive paths and the second-look patterns of the diff ---
+setup risk_prescan
+git -C "$FX" checkout -q b1
+mkdir -p "$FX/src/auth" "$FX/.github/workflows" "$FX/docs"
+printf 'export const login = (p) => eval(p);\n' > "$FX/src/auth/session.ts"
+printf 'name: ci\non: [push]\njobs: {}\n' > "$FX/.github/workflows/ci.yml"
+printf '#!/bin/sh\nrm -rf "$1"\n' > "$FX/src/clean-up.sh"
+printf '# notes\neval(x)\n' > "$FX/docs/notes.md"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm risky
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+R="$(PR_DIR).ctx/risk.json"
+jq -e '[.paths[] | select(.path == "src/auth/session.ts") | .reason] == ["auth"]
+   and [.paths[] | select(.path == ".github/workflows/ci.yml") | .reason] == ["ci"]' "$R" >/dev/null \
+  && printf 'ok   %s: a changed file in a sensitive area is named with its area\n' "$CASE" \
+  || { printf 'FAIL %s: risk paths wrong: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+jq -e '[.patterns[] | select(.id == "eval") | {file, line}] == [{file:"src/auth/session.ts", line:1}]
+   and [.patterns[] | select(.id == "rm-rf") | .file] == ["src/clean-up.sh"]' "$R" >/dev/null \
+  && printf 'ok   %s: an added line with a second-look pattern carries its file and line\n' "$CASE" \
+  || { printf 'FAIL %s: risk patterns wrong: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+jq -e '[.patterns[] | select(.file == "docs/notes.md")] == [] and .truncated == false' "$R" >/dev/null \
+  && printf 'ok   %s: the prescan reads the reviewable classes only\n' "$CASE" \
+  || { printf 'FAIL %s: docs class scanned: %s\n' "$CASE" "$(cat "$R" 2>/dev/null)"; FAILED=1; }
+B="$(PR_DIR).ctx/briefs/doc-drift.md"
+grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
+  && grep -q 'src/auth/session.ts — sensitive area: auth' "$B" \
+  && printf 'ok   %s: the brief carries the prescan\n' "$CASE" \
+  || { printf 'FAIL %s: the brief misses the prescan block\n' "$CASE"; FAILED=1; }
+grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
+run_rp abort 1 "reset"
 
 # --- prepare gates ---------------------------------------------------------------
 setup prepare_gates
@@ -934,6 +982,47 @@ pr_fx open '[]'   # GitHub finished counting: +3 −1 over 3 files, same HEAD
 run_rp compose-brief 1
 assert_out_contains '\*\*Changes:\*\* +3 −1 (3 files)' 'the header reports the counts at compose time'
 run_rp abort 1 "reset"
+
+# --- compose-brief: the review states what it could not read ---------------------
+# docs/review.md → Output format (first reviews)
+setup compose_limits_quiet
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_absent '_Limits:' 'a run with nothing to report prints no limits line'
+[ -f "$(PR_DIR).ctx/limits.txt" ] \
+  && { printf 'FAIL %s: a limits file was written with nothing to report\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no limits file with nothing to report\n' "$CASE"
+# one skill without output is skill-errored: its section is gone, the line says so
+mkdir -p "$(PR_DIR).out"; printf -- '- ✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+run_rp compose-brief 1
+assert_out_contains '_Limits: 1 skill(s) did not run: typescript-engineering\._' 'the line counts and names the skill that did not run'
+assert_out_absent 'the clone failed' 'a clone that worked is not reported as a limit'
+assert_out_contains 'refuses a body without it' 'the brief says the line is mandatory'
+run_rp abort 1 "reset"
+
+# a failed clone reaches the reader, and `post` refuses a body that drops the line
+setup compose_limits_clone
+CLONE_SRC="$SANDBOX/no-such-repo"
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .clone == "failed"' 'the clone did not succeed'
+run_rp compose-brief 1
+assert_out_contains '_Limits: the clone failed — findings come from the diff only\.' 'the failed clone is stated as a fact'
+assert_out_contains '2 skill(s) did not run: doc-drift, typescript-engineering\.' 'every clone-failed skill is named in the same line'
+assert_file_contains "$(PR_DIR).ctx/limits.txt" '^_Limits: the clone failed' 'the facts are stored for post'
+printf '### Summary\nAdds query().\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":91,"html_url":"https://example.test/r/91","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "error" and (.error | test("limits line"))' 'post refuses a body that drops the limits line'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: nothing was posted\n' "$CASE"
+assert_file_contains "$WORK/REVIEWS.md" '| 1 | .* | in_progress |' 'the lock survives the refusal'
+{ printf '### Summary\nAdds query().\n'; cat "$(PR_DIR).ctx/limits.txt"; printf '\n### Verdict\nCOMMENT\n'; } > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the body that carries the line posts'
+assert_file_contains "$WORK/reviews/pr-1.md" '_Limits: the clone failed' 'the posted body states the limit'
 
 # --- post: the ledger row carries the style and refutation measurements --------
 # docs/review.md → **Review ledger**: the week's noise and style numbers are
