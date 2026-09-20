@@ -149,7 +149,9 @@ Missing lines mean the skill step is not done: do not proceed to posting.
 - ✅ **Include the section** whenever the skill ran — with zero findings too,
   its clean-run line (for example `✅ No findings.`) under the heading.
 - ❌ **Omit the section entirely** on any skip. No placeholder; the audit line
-  is the only trace.
+  and the review's `_Limits:_` line, which counts and names the skills that did
+  not run ([review.md](review.md) → **Output format (first reviews)**), are its
+  trace.
 
 ## Verdict integration
 
