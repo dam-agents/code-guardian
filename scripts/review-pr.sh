@@ -8,7 +8,8 @@
 #   prepare <n> [--eta <s>] [--on-demand]   Check 1 + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
-#                                          copies, skill briefs, the context pack
+#                                          copies, skill briefs, the context pack,
+#                                          the risk prescan
 #   step <n> <milestone…>                  lock heartbeat + review_step event
 #   guard <n>                              re-read the live HEAD: a commit that
 #                                          landed mid-review stops the run here
@@ -45,8 +46,8 @@
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
-# files.json, pack.json, briefs/, prior.json, collect.json, limits.txt,
-# findings.annotated.json). GitHub writes happen only in `rapid` and
+# files.json, pack.json, risk.json, briefs/, prior.json, collect.json,
+# limits.txt, findings.annotated.json). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
 # docs/review.md mandates) and the progress status under review_progress.
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
@@ -453,9 +454,11 @@ holder_alive() {
 
 # ----------------------------------------------------------- hunk index ----
 # $DIFF → $CTX/hunks.json: {path: {right:[new-file lines in hunks], left:[old-file lines]}}
+# The same walk writes $CTX/added.tsv (`<path>\t<line>\t<text>` per added line),
+# which `build_risk` greps — one pass over the diff serves both.
 build_hunks() {
-  local file="" inhunk=0 oldl=0 newl=0 line h old new tsv="$CTX/hunks.tsv"
-  : > "$tsv"
+  local file="" inhunk=0 oldl=0 newl=0 line h old new tsv="$CTX/hunks.tsv" add="$CTX/added.tsv"
+  : > "$tsv"; : > "$add"
   while IFS= read -r line; do
     case "$line" in
       ('diff --git '*) file=""; inhunk=0;;
@@ -470,7 +473,8 @@ build_hunks() {
         [ "$inhunk" -eq 1 ] && [ -n "$file" ] || continue
         case "$line" in
           ('\ No newline'*) ;;
-          ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"; newl=$((newl+1));;
+          ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
+                 printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
           ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
           (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
         esac;;
@@ -486,6 +490,72 @@ build_hunks() {
 in_hunk() { # <path> <line> [RIGHT|LEFT] → 0 when the line is inside this PR's hunks
   jq -e --arg p "$1" --argjson l "$2" --arg s "${3:-RIGHT}" \
     '.[$p] | (if $s == "LEFT" then .left else .right end) | index($l) != null' "$CTX/hunks.json" >/dev/null 2>&1
+}
+
+# ------------------------------------------------------- risk prescan ----
+# Where to look first in this PR: changed files in a sensitive area, and added
+# lines that ask for a second look. Both lists are built in, like profile.sh's
+# noise globs. Orientation, never evidence (docs/profile.md → What it is, and
+# is not): a hit raises no finding and no severity.
+RISK_CAP=25          # hits listed per list; past it the data says `truncated`
+# id ; description ; ERE, matched case-insensitively against the added line
+RISK_PATTERNS='eval;dynamic code evaluation;(^|[^[:alnum:]_.])eval[[:space:]]*\(
+exec;dynamic code execution;(^|[^[:alnum:]_.])exec[[:space:]]*\(
+subprocess;a subprocess is started;(subprocess\.|child_process|os\.system\(|popen\(|shell_exec\(|execSync\(|spawnSync\(|Runtime\.getRuntime)
+innerhtml;HTML written into the DOM;(inner|outer)HTML[[:space:]]*\+?=
+dangerously-set-inner-html;raw HTML into a React node;dangerouslySetInnerHTML
+raw-sql;a SQL statement built in code;(SELECT[[:space:]].*[[:space:]]FROM[[:space:]]|INSERT[[:space:]]+INTO[[:space:]]|UPDATE[[:space:]].*[[:space:]]SET[[:space:]]|DELETE[[:space:]]+FROM[[:space:]]|DROP[[:space:]]+TABLE[[:space:]])
+chmod-777;a world-writable permission;chmod([[:space:]]+-[^[:space:]]+)*[[:space:]]+[0-7]*777
+rm-rf;a recursive force delete;rm[[:space:]]+-[[:alpha:]]*r[[:alpha:]]*f|rm[[:space:]]+-[[:alpha:]]*f[[:alpha:]]*r'
+
+build_risk() { # $CTX/added.tsv + $CTX/files.json → $CTX/risk.json
+  local rows="" scope="" pre="^[^$TAB]*$TAB[0-9]*$TAB" seen="" trunc=false
+  local p r np=0 nx=0 id desc re f l
+  # (a) sensitive areas — the first matching area of each changed file, over
+  # the reviewable classes only (noise and deleted files are not reviewed)
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    scope="$scope<$p>"
+    case "$p" in
+      (*[Aa]uth*|*[Ll]ogin*|*[Ss]ession*|*[Pp]assw*|*[Cc]redential*|*[Oo][Aa]uth*|*[Jj][Ww][Tt]*) r=auth;;
+      (*[Pp]ayment*|*[Bb]illing*|*[Ii]nvoice*|*[Cc]heckout*|*[Ss]tripe*|*[Pp]aypal*) r=payment;;
+      (*[Cc]rypt*|*[Cc]ipher*|*[Hh]mac*|*[Kk]eystore*|*[Ss]ecret*|*[Ss]igning*) r=crypto;;
+      (*[Mm]igrat*|*schema.sql*|*[Aa]lembic*|*[Ff]lyway*|*[Ll]iquibase*) r=migration;;
+      (*.github/workflows/*|*.gitlab-ci*|*[Jj]enkinsfile*|*azure-pipelines*|*.circleci/*|*.buildkite/*) r=ci;;
+      (*[Dd]ockerfile*|*docker-compose*|*k8s/*|*helm/*|*kubernetes/*) r=container;;
+      (*) continue;;
+    esac
+    if [ "$np" -ge "$RISK_CAP" ]; then trunc=true; continue; fi
+    rows="$rows"$'\n'"P$TAB$p$TAB$r"; np=$((np+1))
+  done <<EOF
+$(jq -r '.[] | select((.class | IN("code","test","config")) and .status != "removed") | .path' "$CTX/files.json" 2>/dev/null)
+EOF
+  # (b) second-look patterns — the first added line per pattern and file
+  [ -s "$CTX/added.tsv" ] || { printf '%s' "$rows" | risk_json "$trunc"; return 0; }
+  while IFS=';' read -r id desc re; do
+    [ -n "$id" ] || continue
+    while IFS="$TAB" read -r f l; do
+      [ -n "$f" ] || continue
+      case "$scope" in (*"<$f>"*) ;; (*) continue;; esac
+      case "$seen" in (*"<$id$TAB$f>"*) continue;; esac
+      if [ "$nx" -ge "$RISK_CAP" ]; then trunc=true; break; fi
+      seen="$seen<$id$TAB$f>"
+      rows="$rows"$'\n'"X$TAB$id$TAB$desc$TAB$f$TAB$l"; nx=$((nx+1))
+    done <<EOF
+$(grep -iE -- "$pre.*($re)" "$CTX/added.tsv" 2>/dev/null | cut -f1,2)
+EOF
+  done <<EOF
+$RISK_PATTERNS
+EOF
+  printf '%s' "$rows" | risk_json "$trunc"
+}
+risk_json() { # <truncated> — the collected rows on stdin → $CTX/risk.json
+  jq -R -s --argjson t "$1" '[ split("\n")[] | select(length > 0) | split("\t") ] as $r
+    | {paths:    [ $r[] | select(.[0] == "P") | {path:.[1], reason:.[2]} ],
+       patterns: [ $r[] | select(.[0] == "X") | {id:.[1], description:.[2], file:.[3], line:(.[4]|tonumber)} ],
+       truncated: $t}' > "$CTX/risk.json" 2>/dev/null \
+    || printf '{"paths":[],"patterns":[],"truncated":false}\n' > "$CTX/risk.json"
+  rm -f "$CTX/added.tsv"
 }
 
 # --------------------------------------------------------- skill routing ----
@@ -507,7 +577,7 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
     --argjson resumed "$1" --arg pd "$PR_DIR" --arg diff "$DIFF" --arg ctx "$CTX" --arg out "$OUT" '
     $pr[0] + {outcome:"ready", resumed:$resumed, delta:$dl[0], prior_findings:$pf[0], carry:$cf[0],
       paths:{clone:$pd, diff:$diff, context:($ctx+"/context.json"), hunks:($ctx+"/hunks.json"), files:($ctx+"/files.json"),
-             pack:($ctx+"/pack.json"), briefs:($ctx+"/briefs"), out:$out},
+             pack:($ctx+"/pack.json"), risk:($ctx+"/risk.json"), briefs:($ctx+"/briefs"), out:$out},
       files:$f[0], skills:$sk[0]} + $sl[0]')"
   out "$j"
 }
@@ -611,6 +681,7 @@ cmd_prepare() {
   printf '%s' "$slice" | jq '.files' > "$CTX/files.json"
   printf '%s' "$slice" | jq '{profile_slice, structure_changed, history_slice, memory_due, noise_count}' > "$CTX/slice.json"
   rm -f "$CTX/files.raw.json"
+  build_risk
 
   # --- delta range (delta-scope re-review only, docs/review.md → Re-review output) ---
   # One compare call decides the range: `ahead` with a patch on every file →
@@ -720,9 +791,13 @@ cmd_prepare() {
   tpaths="$(tool_paths)"
   skills="$(skills_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
-  local vl vlblock=""
+  local vl vlblock="" rk rkblock=""
   vl="$(jq -r '[.profile_slice[]? | select(.verify_live) | .row] + (.structure_changed // []) | unique | .[]' "$CTX/slice.json" 2>/dev/null | sed 's/^/- /')"
   [ -n "$vl" ] && vlblock=$' Rows and paths this PR itself changes — read them live, never from the map:\n'"$vl"
+  rk="$(jq -r '[.paths[]? | "- \(.path) — sensitive area: \(.reason)"]
+               + [.patterns[]? | "- \(.file):\(.line) — \(.id): \(.description)"]
+               + (if .truncated then ["- more hits than the prescan lists"] else [] end) | .[]' "$CTX/risk.json" 2>/dev/null)"
+  [ -n "$rk" ] && rkblock=$'\n\nSame status for this diff\'s risk prescan — the changed paths in sensitive\nareas and the added lines that ask for a second look:\n'"$rk"
   # extension triggers route from the reviewed scope: the PR diff, or on a
   # reachable delta range the files changed since the prior review
   # (docs/skills.md → Triggers & file routing)
@@ -763,6 +838,7 @@ cmd_prepare() {
       t="${t//\{\{SKILL\}\}/$s}"; t="${t//\{\{PR\}\}/$N}"; t="${t//\{\{REPO\}\}/$REPO_HOST/$REPO}"
       t="${t//\{\{HEAD_SHA\}\}/$sha}"; t="${t//\{\{BASE_REF\}\}/$base}"; t="${t//\{\{OUT_FILE\}\}/$OUT/$s.txt}"
       t="${t//\{\{PROFILE\}\}/$profile}"; t="${t//\{\{FILES_BLOCK\}\}/$fblock}"; t="${t//\{\{VERIFY_LIVE_BLOCK\}\}/$vlblock}"
+      t="${t//\{\{RISK_BLOCK\}\}/$rkblock}"
       t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"

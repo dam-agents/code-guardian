@@ -64,7 +64,7 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
      progress status, fetches context and the diff into `$PR_DIR.diff` with a
      hunk index, clones the branch with its base ref ([skills.md](skills.md) →
      **Clone, credential helper, cleanup**), and renders the per-skill copies,
-     briefs and context pack.
+     briefs, context pack and risk prescan.
 
    The live trigger follows `rereview_trigger` and sets the scope: label →
    `full: true`, else delta (**Re-review output**). The JSON also carries
@@ -77,7 +77,9 @@ b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    its findings are this review's starting point (**Carried review after a
    HEAD move**). `paths.pack` lists per changed code file its dependents, its
    tests and its changed lines; `paths.context` holds the PR context
-   (**PR context**).
+   (**PR context**); `paths.risk` names the changed files in sensitive areas
+   and the added lines that ask for a second look — orientation, never
+   evidence ([profile.md](profile.md) → **What it is, and is not**).
 c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
    classes `code`, `test`, `docs`, `config`. The noise classes (`lockfile`,
    `snapshot`, `build`, `vendored`, `minified`, `sourcemap`, `generated`) are
@@ -989,8 +991,9 @@ Before you declare the run done:
   dismissal in it recorded as an override before posting · observed insights
   recorded ([preferences.md](preferences.md)) · `memory_due` read before
   reviewing · orientation used for where to look only, `verify_live` rows read
-  live, no finding citing the profile ([profile.md](profile.md)) · noise files
-  excluded with their Summary line · every blocking finding verified, the
+  live, no finding citing the profile or the risk prescan
+  ([profile.md](profile.md)) · noise files excluded with their Summary line ·
+  every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations, a statement
   finding claim-swept over the clone, a design finding checked against the
   in-tree decision that covers its path and counted in the audit note when it
