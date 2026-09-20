@@ -1020,9 +1020,9 @@ Before you declare the run done:
   one; `RAPID` row and `rapid posted` step recorded; terminal only on the full
   review, the closed-PR issue, or an abort. **Closed entries** — no review
   posted, criticals in one deduped issue assigned to the author.
-- **Artifacts** ([artifact.md](artifact.md)) — published to each
-  `artifact_targets` surface, one comment with the surviving links, markers
-  recorded.
+- **Artifacts** ([artifact.md](artifact.md)) — redacted before the first
+  publish, published to each `artifact_targets` surface, one comment with the
+  surviving links, markers recorded.
 - **Watch rules** — evaluated send-then-marker ([watches.md](watches.md)).
 - **`review_progress: enabled`** — every locked PR on a terminal `success`
   status; `status_resets_due` closed out and their rows deleted.
