@@ -47,7 +47,7 @@
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, pack.json, risk.json, briefs/, prior.json, collect.json,
-# findings.annotated.json). GitHub writes happen only in `rapid` and
+# limits.txt, findings.annotated.json). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
 # docs/review.md mandates) and the progress status under review_progress.
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
@@ -650,11 +650,14 @@ cmd_prepare() {
   progress pending "queued $(now_hm)Z · fetching diff and clone$eta_txt"
 
   # --- context: body, comments, reviews, inline threads ---
-  local ctxj inline
+  # `cstat` records what answered: an empty list is a PR without comments or a
+  # fetch that did not respond, and only the run itself can tell them apart
+  # (docs/review.md → Output format (first reviews), the `_Limits:_` line).
+  local ctxj inline cstat=ok
   ctxj="$(gh pr view "$N" --repo "$REPO" --json body,author,comments,reviews 2>/dev/null)"
-  { printf '%s' "$ctxj" | jq -e 'type=="object"' >/dev/null 2>&1; } || { ctxj='{}'; logev warn gh_api "PR #$N: context fetch (pr view) did not respond — reviewing without it"; }
+  { printf '%s' "$ctxj" | jq -e 'type=="object"' >/dev/null 2>&1; } || { ctxj='{}'; cstat=failed; logev warn gh_api "PR #$N: context fetch (pr view) did not respond — reviewing without it"; }
   inline="$(gh api "repos/$REPO/pulls/$N/comments?per_page=100" --paginate 2>/dev/null | jq -s 'map(select(type=="array")) | add // []' 2>/dev/null)"
-  [ -n "$inline" ] || { inline='[]'; logev warn gh_api "PR #$N: inline threads did not respond — reviewing without them"; }
+  [ -n "$inline" ] || { inline='[]'; [ "$cstat" = ok ] && cstat=partial; logev warn gh_api "PR #$N: inline threads did not respond — reviewing without them"; }
   build_context "$ctxj" "$inline" "$(printf '%s' "$PJ" | jq -r .body)"
 
   # --- diff + hunk index + files ---
@@ -781,7 +784,7 @@ cmd_prepare() {
     if [ "$clone" = "ok" ]; then logstep "${sha:0:7} cloned"
     else rm -rf "$PR_DIR"; logev error clone "PR #$N: clone of $ref did not succeed — every skill is clone-failed"; fi
   fi
-  jq --arg c "$clone" '.clone = $c' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
+  jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
   # --- skills: inclusive routing, per-skill copies, briefs from the template ---
   local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths
@@ -1113,7 +1116,7 @@ cmd_compose_brief() {
 
   # skills: table order, sections only for the ones that ran (`collect`
   # decides ran vs skill-errored; before it, the routed status stands)
-  local skills s st sec ran="" omitted=""
+  local skills s st sec ran="" omitted="" skipped="" nskipped=0
   skills="$(skills_json)"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
@@ -1122,9 +1125,25 @@ cmd_compose_brief() {
     sec="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .section')"
     case "$st" in
       (run|ran) ran="$ran$sec"$'\n';;
-      (*) omitted="$omitted$s ($st), ";;
+      (*) omitted="$omitted$s ($st), "; skipped="$skipped$s, "; nskipped=$((nskipped+1));;
     esac
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
+
+  # limits: what this review could not read, as facts for the reader of the
+  # posted body (docs/review.md → Output format (first reviews)). The script
+  # composes the sentence and `post` refuses a body without it; nothing to
+  # report writes no line and no file.
+  local limits="" dlines
+  [ "$(ctx_get '.clone')" = failed ] && limits="$limits the clone failed — findings come from the diff only."
+  [ "$nskipped" -gt 0 ] && limits="$limits $nskipped skill(s) did not run: ${skipped%, }."
+  case "$(ctx_get '.context')" in
+    (failed)  limits="$limits the PR context did not load — comments and reviews are not in this review.";;
+    (partial) limits="$limits the inline threads did not load — this review does not read them.";;
+  esac
+  dlines="$(grep -c '' "$DIFF" 2>/dev/null)"; case "$dlines" in (''|*[!0-9]*) dlines=0;; esac
+  [ "$dlines" -gt 2000 ] && limits="$limits the diff is more than 2000 lines — the review covers the most critical files."
+  if [ -n "$limits" ]; then limits="_Limits:${limits}_"; printf '%s\n' "$limits" > "$CTX/limits.txt"
+  else rm -f "$CTX/limits.txt"; fi
 
   printf '# Compose brief — PR #%s @ %s — %s\n' "$N" "$sha7" "$scope"
   printf '# Rendered for this PR. The rules are quoted from docs/review.md and\n'
@@ -1144,7 +1163,9 @@ cmd_compose_brief() {
   printf '**Author:** %s | **Branch:** %s → %s | **Changes:** +%s −%s (%s files)\n\n' \
     "$(ctx_get '.author')" "$(ctx_get '.head_ref')" "$(ctx_get '.base_ref')" \
     "$(live_change additions)" "$(live_change deletions)" "$(live_change changed_files)"
-  printf '### Summary\n<1–2 sentences on what the PR does>\n\n'
+  printf '### Summary\n<1–2 sentences on what the PR does>\n'
+  [ -n "$limits" ] && printf '%s\n' "$limits"
+  printf '\n'
   if [ "$kind" = "re-review" ]; then
     local unreach=""
     jq -e '.reachable == false' "$CTX/delta.json" >/dev/null 2>&1 \
@@ -1193,6 +1214,7 @@ cmd_compose_brief() {
   local seclist; seclist="$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
   printf -- '- sections that post: %s\n' "${seclist:-none}"
   [ -n "$omitted" ] && printf -- '- no section (audit line only): %s\n' "${omitted%, }"
+  [ -n "$limits" ] && printf -- '- the `_Limits:_` line above goes into `### Summary` word for word — `post` refuses a body without it\n'
   local ovr mem mdue
   ovr="$(prior_overrides | jq -r '.[]' 2>/dev/null | sed 's/^/  /')"
   mem="$(sed -n '/^## Feedback Log/,$d; p' "$WORK/MEMORY.md" 2>/dev/null | grep -E '^- ' | sed 's/^/  /')"
@@ -1240,6 +1262,14 @@ cmd_post() {
   [ -f "$FINDINGS" ] && jq -e 'type=="array"' "$FINDINGS" >/dev/null 2>&1 || fail "--findings <file> must be a JSON array"
   [ -z "$COMMENTS" ] || { [ -f "$COMMENTS" ] && jq -e 'type=="array"' "$COMMENTS" >/dev/null 2>&1; } || fail "--comments <file> must be a JSON array"
   [ -z "$META" ] || { [ -f "$META" ] && jq -e 'type=="object"' "$META" >/dev/null 2>&1; } || fail "--meta <file> must be a JSON object"
+  # the limits line `compose-brief` composed must reach the reader. The script
+  # never writes into the body, so a body without it is refused, exactly as a
+  # stale HEAD is (docs/review.md → Output format (first reviews)).
+  if [ -s "$CTX/limits.txt" ]; then
+    local lim; lim="$(cat "$CTX/limits.txt")"
+    grep -qF -- "$lim" "$BODY" 2>/dev/null \
+      || fail "the body drops the limits line — copy it into ### Summary word for word: $lim"
+  fi
   local sha kind title; sha="$(ctx_get '.head_sha')"; kind="$(ctx_get '.kind')"; title="$(ctx_get '.title')"
   local sha7="${sha:0:7}" now; now="$(now_iso)"
 

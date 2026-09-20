@@ -407,8 +407,13 @@ Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
 risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
 **Performance** (allocations, N+1, missing indexes) · **Architecture**
 (coupling, layer boundaries, broken contracts) · **Tests** (missing coverage,
-flaky patterns) · **Maintainability** (dead code, error handling). Past 2000
-diff lines: focus on the most critical files, still post a full review.
+flaky patterns) · **Maintainability** (dead code, error handling) ·
+**Delivery** (a breaking change in an env var, a CLI flag, a config key or a
+migration; a CI step that does not run what the change needs; a runtime
+assumption about paths, permissions, time zone or the concurrency model). The
+profile's `## Checks` rows say what CI runs, as orientation only
+([profile.md](profile.md) → **What it is, and is not**). Past 2000 diff lines:
+focus on the most critical files, still post a full review.
 
 **Audience: agent-written, agent-read code.** Human readability is not a review
 goal. Flag naming taste, cosmetic structure, comment density, file layout and
@@ -488,6 +493,7 @@ the bar you write to.
 
 ### Summary
 <1-2 sentence summary of what the PR does>
+_Limits: <what this review could not read>._
 
 ### Findings
 <findings, per finding-form.md>
@@ -509,6 +515,13 @@ severity + short label + `file:line` — while its description, rationale and
 suggestion block live only in the inline comment. Summary-only findings keep
 their full text here. One format for every channel (chat UI, GitHub body,
 history file); the one-liners carry the next re-review's delta matching.
+
+**`_Limits: …_`** — the conditions this review ran under, as facts, never a
+score or a confidence: a clone that failed, a skill that did not run, a PR
+context that did not load, a diff past 2000 lines.
+`review-pr.sh compose-brief` composes the line from this run's own state and
+prints it in the skeleton — nothing to report, no line — and `post` refuses a
+body that drops it.
 
 **`### For the human reviewer`** — the last section, written when a blocking
 finding comes from a design decision of the PR itself. Three or four sentences
