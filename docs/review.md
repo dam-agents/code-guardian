@@ -405,8 +405,13 @@ Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
 risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
 **Performance** (allocations, N+1, missing indexes) · **Architecture**
 (coupling, layer boundaries, broken contracts) · **Tests** (missing coverage,
-flaky patterns) · **Maintainability** (dead code, error handling). Past 2000
-diff lines: focus on the most critical files, still post a full review.
+flaky patterns) · **Maintainability** (dead code, error handling) ·
+**Delivery** (a breaking change in an env var, a CLI flag, a config key or a
+migration; a CI step that does not run what the change needs; a runtime
+assumption about paths, permissions, time zone or the concurrency model). The
+profile's `## Checks` rows say what CI runs, as orientation only
+([profile.md](profile.md) → **What it is, and is not**). Past 2000 diff lines:
+focus on the most critical files, still post a full review.
 
 **Audience: agent-written, agent-read code.** Human readability is not a review
 goal. Flag naming taste, cosmetic structure, comment density, file layout and
