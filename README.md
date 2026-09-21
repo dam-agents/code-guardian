@@ -111,7 +111,13 @@ drop stale — so memory stays useful and bounded
 
 ## Setup
 
-Bringing up a new code-guardian agent takes four steps:
+Bringing up a new code-guardian agent takes four steps — or one, on a
+platform whose starter kit catalog offers this repository: creating the
+agent from the **Code Guardian** kit grants the connections, registers the
+schedules and points the first turn at [`ONBOARDING.md`](ONBOARDING.md),
+which then asks for the repository to review.
+
+Bringing it up by hand:
 
 1. **Create the agent** on the platform, with GitHub — and optionally Slack —
    connections granted (see **Connections**).
@@ -345,6 +351,10 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`self-modification.md`](docs/self-modification.md).
 - [`ONBOARDING.md`](ONBOARDING.md) — the first-run setup runbook; it also
   carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
+- [`kit.yaml`](kit.yaml) — the starter kit this definition is offered as:
+  the connections it asks for, the schedules it registers, the bundled
+  skills and the seed. A catalog entry points here and the platform reads
+  it at a commit, so the kit and the definition it describes move together.
 - [`VERSION`](VERSION) + [`CHANGELOG.md`](CHANGELOG.md) — definition semver,
   bumped with every change, and the per-version upgrade steps instances apply.
 - [`LICENSE`](LICENSE) — Apache License 2.0.
