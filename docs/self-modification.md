@@ -51,7 +51,9 @@ records the ask; acting on it still takes the operator.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
   the **single source of truth**. Changing a run's gate or entry command means
   updating Step 6, not just CLAUDE.md — and `kit.yaml`, which repeats Step 6's
-  names, crons, gates and task texts verbatim for a new instance.
+  names, crons, gates and task texts verbatim for a new instance, and which CI
+  compares against Step 6 on every PR. A cadence or a timezone is the
+  instance's own: `kit.yaml` carries the default cron alone.
 
 ## 4. Architecture boundaries
 

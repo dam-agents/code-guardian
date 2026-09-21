@@ -26,13 +26,14 @@ connections:
       not as the account that opens the pull requests it reviews.
   - accepts: [slack]
     note: >-
-      Used by the shepherd and weekly-audit schedules, which are created
-      disabled. Turn them on under Schedules once Slack is connected.
+      Used by the shepherd sweep, which is created disabled. Turn it on under
+      Schedules once Slack is connected. The weekly audit runs without it and
+      posts its report to Slack only when Slack is connected.
 channels:
   - type: slack
     note: >-
-      Where reviewer nudges and the weekly audit post land once those
-      schedules are on. Skip it to keep everything in chat.
+      Where reviewer nudges and the weekly audit report land once Slack is
+      connected. Skip it to keep everything in chat.
 # The set ONBOARDING.md Step 6 registers, at its default cadence: names, crons,
 # `precheck` commands and `task` texts are Step 6's, their single source of truth
 # (docs/self-modification.md §3), so a change there is a change here and an
@@ -40,6 +41,8 @@ channels:
 # `precheck` is the schedule gate (docs/runbook.md → The schedule gate): a fire
 # with no work costs no model call. A platform that does not carry the field
 # leaves the runs correct but ungated, and every idle tick pays for a session.
+# The crons hold the platform's own time. An instance's cadence, hours and days
+# are its own (`work/CONFIG.md`), and Step 6 registers them for that instance.
 schedules:
   # Review heartbeat (Step 6a) — the active window, plus one quiet schedule per
   # part of the week it leaves uncovered. Same task; the cadence is the only
@@ -85,11 +88,12 @@ schedules:
       each sent nudge's row_update to the ledger immediately after its send
       (send-then-record), and back up work/ (`scripts/work-backup.sh persist`)
       when GITHUB_REPO_WORK is set.
-  # Weekly audit (Step 6c) — ungated: its worklist always carries work.
+  # Weekly audit (Step 6c) — every instance gets it: ungated, because its
+  # worklist always carries work, and Slack-independent, because the report
+  # falls back to the chat UI (docs/config.md → audit_report).
   - name: code-guardian-audit-weekly
     cron: "0 7 * * 5"
     sessionMode: fresh
-    enabled: false
     task: >-
       Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first — this
       run is ungated. Follow CLAUDE.md → "Audit run": read docs/audit.md, add the

@@ -13,8 +13,10 @@ they are released history and stay as written.
 
 ## 4.11.0 — 2026-09-21
 
-**Upgrade:** Nothing — `kit.yaml` is read only when a new agent is created from
-the kit. A deployed instance keeps the schedules it already registered.
+**Upgrade:** Confirm the weekly audit still fires: list the schedules and, when
+`code-guardian-audit-weekly` is registered but disabled, enable it
+(`toggle_schedule`) — an instance created from an earlier kit got it disabled.
+Nothing else: `kit.yaml` is read only when a new agent is created from the kit.
 
 ## 4.10.0 — 2026-09-21
 
