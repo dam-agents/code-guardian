@@ -16,6 +16,16 @@ Two git repositories exist after onboarding and must never overlap:
 (`docs/persistence.md` → **Backup & restore**), so the two stay fully
 independent.
 
+**Created from the starter kit.** A platform that offers this definition as a
+kit ([`kit.yaml`](kit.yaml)) grants the connections, seeds the definition into
+`$HOME` and registers the schedules before the first turn. Onboarding runs the
+same steps over that instance: it reads the seeded checkout instead of asking
+for a URL (Step 0.2), and reconciles the registered schedules with the
+operator's configuration (Step 6). Everything else — `work/`, `CONFIG.md`, the
+roster, the labels, the review state, the sentinel — exists only after this
+run. A hand-made agent starts on an empty volume and gets all of it from the
+steps below.
+
 ## Guard — skip if already onboarded
 
 ```bash
@@ -74,12 +84,22 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
 2. **Definition repo & branch** — derive the **host**, `OWNER/REPO` and the
    branch from the URL of this runbook as the operator gave it
    (`https://<host>/OWNER/REPO/blob/<branch>/ONBOARDING.md`, or its raw form);
-   for a fork that is the fork, never upstream. No URL available → ask.
-   Validate with
+   for a fork that is the fork, never upstream. A kit-created instance carries
+   no such URL, because the kit seeded the definition into `$HOME` already —
+   read both values from that checkout instead:
+
+   ```bash
+   git -C "$HOME" remote get-url origin              # host + OWNER/REPO
+   git -C "$HOME" symbolic-ref --quiet --short HEAD  # branch; empty on the
+                                                     # seed's pinned commit —
+                                                     # use the remote default
+   ```
+
+   Neither a URL nor a seeded checkout → ask. Validate with
    `gh api --hostname "<host>" "repos/<owner/repo>" --jq .full_name` and
    `export DEF_HOST="<host>" DEFINITION_REPO="<owner/repo>"`. Then
-   `export DEF_BRANCH="<branch from the URL, else main>"` and validate it
-   exists (`gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`)
+   `export DEF_BRANCH="<branch from the URL or the checkout, else main>"` and
+   validate it exists (`gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`)
    — invalid → say so and ask, never fall back silently. Both are persisted in
    Step 4 (host-prefixed when it is not `github.com`) and drive the outer-repo
    `origin`, updates, definition PRs and the review footer.
@@ -110,11 +130,13 @@ definition files — is what makes a repo at `$HOME` safe. Do **not**
 `git clone` into `$HOME` (it needs an empty dir); init, fetch and hard-reset
 instead, which never touches untracked files.
 
-`$DEF_BRANCH` is the branch **this instance runs from** — the one in the
-runbook URL, or `main`. It is persisted as `definition_branch` in Step 4 and
+`$DEF_BRANCH` is the branch **this instance runs from** — the one Step 0.2
+resolved, or `main`. It is persisted as `definition_branch` in Step 4 and
 used for updates and for keeping the checkout in place
 (`docs/persistence.md` → **Tracked branch**); definition PRs are still based on
-`main`.
+`main`. The commands below are idempotent over a seeded checkout: they move a
+kit-created instance from the kit's pinned commit onto `$DEF_BRANCH`, which is
+what every later update tracks.
 
 ```bash
 cd /home/agent
@@ -498,17 +520,31 @@ skipped.
 
 Independent schedules — the shepherd one only under
 `slack_notifications: enabled`, the benchmark one only under
-`benchmark: enabled`. Check with `mcp__platform-outbound__list_schedules`
-first: a schedule with the same `name` already exists → skip creating it (the
-review schedules of 6a share a prefix, so compare full names, not prefixes).
-Never use an in-process cron tool — only platform schedules survive restarts
-and are visible to the operator.
+`benchmark: enabled`. Never use an in-process cron tool — only platform
+schedules survive restarts and are visible to the operator.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/runbook.md` → **The
 schedule gate**); the audit is ungated because its worklist always carries work.
-`create_schedule` never updates an existing schedule — a changed gate or task
-text means create, then delete the old id.
+
+**Reconcile with what is registered; never create blindly.** Start with
+`mcp__platform-outbound__list_schedules`. A kit-created instance already
+carries every schedule of 6a–6d, at the default cadence of its step, with the
+Slack- and benchmark-dependent ones disabled ([`kit.yaml`](kit.yaml) →
+`schedules`). Compare full names, not prefixes — the review schedules of 6a
+share one. For each schedule this step defines:
+
+| Registered state | Action |
+| --- | --- |
+| absent | create it |
+| same `name`, same cron, `task` and `precheck` as this step derives | keep it, and `toggle_schedule` it **enabled** |
+| same `name`, different cron, `task` or `precheck` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
+
+A registered schedule this step does **not** define is kept, disabled, when
+only its feature is off — 6b and 6d are then a `toggle_schedule`, not a create.
+Delete the ones the configuration rules out: the quiet-hour and off-day
+heartbeats under a 24/7 cadence, and a sweep whose name no longer matches its
+cadence shorthand.
 
 **6a — Review heartbeat.** Registers the cadence of Step 4 item 11 as **one to
 three** schedules: one for the active window, plus a quiet-hour schedule for
@@ -533,12 +569,13 @@ produce the active schedule alone. Each carries
 
 > Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
-**6b — Shepherd sweep** (only when Slack is enabled; create it later if Slack
-is enabled in chat). Ask: *During which hours and days should I nudge reviewers
-on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).* Create
-`name: code-guardian-shepherd-<cadence-shorthand>` (for example
-`…-1h-workdays`), cron default `0 7-18 * * 1-5`, `sessionMode: fresh`,
-`precheck: bash "$HOME/scripts/precheck.sh" shepherd`, `task`:
+**6b — Shepherd sweep** (only when Slack is enabled; enable or create it later
+if Slack is enabled in chat). Ask: *During which hours and days should I nudge
+reviewers on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).*
+Create `name: code-guardian-shepherd-<cadence-shorthand>` — the default cadence
+keeps the kit's `…-1h-workdays` — cron default `0 7-18 * * 1-5`,
+`sessionMode: fresh`, `precheck: bash "$HOME/scripts/precheck.sh" shepherd`,
+`task`:
 
 > Shepherd sweep. The precheck already ran preflight and found nudges due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" shepherd` yourself. Then follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), apply each sent nudge's row_update to the ledger immediately after its send (send-then-record), and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
@@ -558,10 +595,9 @@ Default is the 1st of the month, 06:00 (platform timezone).* Create
 
 > Model benchmark. The precheck already ran preflight and found the benchmark due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
 
-`toggle_schedule` and `delete_schedule` exist for management. Cadence note: the
-nudge rules are hour-granular (24 h age gate, 20 h cooldown, 2-day escalation),
-so an hourly work-hours sweep loses nothing versus a continuous one — it only
-stops burning tokens at night and on weekends.
+Cadence note: the nudge rules are hour-granular (24 h age gate, 20 h cooldown,
+2-day escalation), so an hourly work-hours sweep loses nothing versus a
+continuous one — it only stops burning tokens at night and on weekends.
 
 ## Step 7 — Record the version, write the sentinel, verify, report
 
