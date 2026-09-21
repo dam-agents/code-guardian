@@ -180,3 +180,62 @@ jobs:
           print('checked %d kit schedules against ONBOARDING Step 6' % len(schedules))
           sys.exit(1 if bad else 0)
           PY
+
+      # The rest of kit.yaml — what a NEW instance is given. Nothing in a run
+      # reads it, so a stale field surfaces only at the next instance creation
+      # (docs/self-modification.md §9). These are the pairs a machine can check;
+      # the catalog text stays the sweep's.
+      - name: kit.yaml matches the definition
+        run: |
+          python3 -c 'import yaml' 2>/dev/null \
+            || pip install --quiet pyyaml 2>/dev/null \
+            || pip install --quiet --break-system-packages pyyaml
+          python3 - <<'PY'
+          import os, re, sys, yaml
+
+          kit = yaml.safe_load(open('kit.yaml'))
+          bad = []
+
+          def need(cond, msg):
+              if not cond:
+                  bad.append(msg)
+
+          need(kit.get('schemaVersion') == 'v1',
+               'schemaVersion is %r, the schema this file pins is v1' % kit.get('schemaVersion'))
+          for key in ('id', 'name', 'description', 'category'):
+              need(str(kit.get(key) or '').strip(), '%s is empty — the schema requires it' % key)
+
+          kid = kit.get('id') or ''
+
+          # id <-> the names the definition builds from it
+          onb = open('ONBOARDING.md').read()
+          need('$HOME/.%s-onboarded' % kid in onb,
+               'ONBOARDING.md names no $HOME/.%s-onboarded sentinel' % kid)
+          for s in kit.get('schedules') or []:
+              need((s.get('name') or '').startswith(kid + '-'),
+                   'schedule %r does not start with the kit id %r' % (s.get('name'), kid))
+
+          # the paths the platform resolves when it creates an instance
+          skills = (kit.get('bundledSkills') or {}).get('path')
+          need(skills and os.path.isdir(skills),
+               'bundledSkills.path %r is not a directory in this repo' % skills)
+
+          seed = kit.get('seed') or {}
+          need(seed.get('self') is True, 'seed.self must be true — the kit ships this commit')
+          need(seed.get('into') == 'home',
+               'seed.into is %r, the definition lives at $HOME (docs/persistence.md)' % seed.get('into'))
+
+          onboarding = kit.get('onboarding')
+          need(isinstance(onboarding, dict) and 'ONBOARDING.md' in (onboarding.get('prompt') or ''),
+               'onboarding.prompt does not send the first turn to ONBOARDING.md')
+
+          # a connection the kit marks required is one onboarding can count on
+          accepts = [a for c in (kit.get('connections') or []) if c.get('required')
+                     for a in (c.get('accepts') or [])]
+          need('github' in accepts, 'no required github connection')
+
+          for line in bad:
+              print(line)
+          print('checked %d kit.yaml pairs against the definition' % (10 + len(kit.get('schedules') or [])))
+          sys.exit(1 if bad else 0)
+          PY

@@ -342,7 +342,7 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`config.md`](docs/config.md), [`mentions.md`](docs/mentions.md),
   [`watches.md`](docs/watches.md), [`artifact.md`](docs/artifact.md),
   [`shepherd.md`](docs/shepherd.md), [`audit.md`](docs/audit.md),
-  [`benchmark.md`](docs/benchmark.md),
+  [`trends.md`](docs/trends.md), [`benchmark.md`](docs/benchmark.md),
   [`preferences.md`](docs/preferences.md),
   [`persistence.md`](docs/persistence.md), [`logging.md`](docs/logging.md),
   [`self-modification.md`](docs/self-modification.md).

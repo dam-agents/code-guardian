@@ -32,10 +32,14 @@ model call at all. A started run receives the gate's stdout: the
   same fallback applies and the run is correct — only the saving is missing. The
   fix is a runtime upgrade (operator-only), never a change to the run.
 - **The audit is never gated** (its worklist always carries work) and neither is
-  the direct session: both run the entry command
-  ([CLAUDE.md](../CLAUDE.md) → run-type table).
+  the direct session: both run the **Entry command** below.
 
 ## The pre-flight contract
+
+**Entry command:** `bash "$HOME/scripts/preflight.sh" <mode>` — `review`,
+`shepherd`, `audit` or `benchmark`. A run executes it only when its prompt
+carries no worklist path: the ungated audit, the direct session, a gate that
+broke. Cadence, gate and task text per run: ONBOARDING Step 6.
 
 **The script detects, it never acts** — no GitHub writes, no commits, no
 pushes. It lists open non-draft PRs in one REST call and computes every
