@@ -5,7 +5,6 @@
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"
-TEST_ENV_REPO=""   # what the case exports as $GITHUB_REPO (never the dev's shell)
 
 # fake definition checkout at $FAKE_HOME + matching work/ seeds
 seed_home() {
@@ -34,19 +33,18 @@ seed_memory() {
 seed_lessons() { printf '# Operational Lessons\n' > "$WORK/LESSONS.md"; }
 
 verify_config() { # [extra CONFIG lines…]
-  base_config '- definition_repo: acme/code-guardian' "- github_repo: $TEST_REPO" "$@"
+  base_config '- definition_repo: acme/code-guardian' "$@"
 }
 
-run_verify() { # [extra env assignments are passed through the environment]
-  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GITHUB_REPO="$TEST_ENV_REPO" \
+run_verify() {
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 \
          bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"
   RC=$?
 }
 
 # --live in the sandbox: the fake gh serves fixtures, preflight runs against them
 run_verify_live() {
-  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GH_HOST="" GITHUB_REPO="$TEST_ENV_REPO" \
-         GITHUB_REPO_WORK="" \
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GH_HOST="" \
          PATH="$T_DIR/bin:$PATH" \
          bash "$REPO_ROOT/scripts/verify-onboarding.sh" --live 2>&1)"
   RC=$?
@@ -229,18 +227,22 @@ assert_out 'warn work-layout .*UNEXPECTED.txt' 'extras are listed as a warning'
 
 new_case missing_github_repo
 seed_home; seed_memory; seed_lessons
-base_config '- definition_repo: acme/code-guardian'     # no github_repo, no env var
+{                                            # no github_repo anywhere
+  printf -- '- bot_login: test-bot\n'
+  printf -- '- review_marker: cg:review\n'
+  printf -- '- definition_repo: acme/code-guardian\n'
+} > "$WORK/CONFIG.md"
 run_verify
 assert_rc 1 'unresolvable target repo fails'
 assert_out 'FAIL config-github_repo' 'names the key'
 assert_out "fix: add '- github_repo:" 'carries the fix'
 
-new_case github_repo_from_env_only
+new_case bad_work_repo_shape
 seed_home; seed_memory; seed_lessons
-base_config '- definition_repo: acme/code-guardian'
-TEST_ENV_REPO="$TEST_REPO"; run_verify; TEST_ENV_REPO=""
-assert_rc 0 'env var alone never blocks'
-assert_out 'warn config-github_repo .*scheduled run' 'warns that fresh runs need the platform env var'
+verify_config '- work_repo: not a repo ref'
+run_verify
+assert_rc 1 'a malformed backup reference fails'
+assert_out 'FAIL config-work_repo-shape' 'names the key'
 
 new_case host_prefixed_refs
 seed_home; seed_memory; seed_lessons
@@ -287,6 +289,20 @@ assert_out '^PASS \(structure\+live\)' 'reports the live scope'
 assert_out 'ok   live-identity' 'token identity matches bot_login'
 assert_out 'ok   live-skills — 1 repo-sourced' 'harness rows are not fetched'
 assert_out 'ok   live-preflight' 'preflight returns a valid worklist'
+
+new_case live_work_repo_from_config
+seed_home; seed_memory; seed_lessons
+verify_config '- work_repo: acme/cg-state'
+fx 'api --hostname github.com user --jq .login'                                   <<< 'test-bot'
+fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"                   <<< "$TEST_REPO"
+fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push"            <<< 'true'
+fx "api --hostname github.com repos/$TEST_REPO/labels?per_page=100 --paginate --jq .[].name" <<< 'cg-rereview'
+fx 'api --hostname github.com repos/acme/code-guardian/branches/main --jq .name'  <<< 'main'
+fx 'api --hostname github.com repos/acme/cg-state --jq .full_name'                <<< 'acme/cg-state'
+fx 'api --hostname github.com repos/acme/cg-state --jq .permissions.push'         <<< 'true'
+run_verify_live
+assert_rc 0 'a writable backup repo passes'
+assert_out 'ok   live-work-repo — work backup repo writable' 'the repo comes from the config key'
 
 new_case live_wrong_identity_and_missing_label
 seed_home; seed_memory; seed_lessons

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # work-backup.sh — durable backup / restore of the NFS-resident work/ state to
-# $GITHUB_REPO_WORK, performed ENTIRELY inside a private tmpfs clone so the
-# shared work/ directory never has a .git mutated under concurrent runs. That
-# concurrent .git rename-churn on the virtiofs-over-NFS home is the source of
-# the "Stale file handle" (ESTALE) + .nfs* silly-rename failures. Details and
-# rationale: docs/persistence.md.
+# the `work_repo` of work/CONFIG.md, performed ENTIRELY inside a private tmpfs
+# clone so the shared work/ directory never has a .git mutated under concurrent
+# runs. That concurrent .git rename-churn on the virtiofs-over-NFS home is the
+# source of the "Stale file handle" (ESTALE) + .nfs* silly-rename failures.
+# Details and rationale: docs/persistence.md.
 #
 #   work-backup.sh persist   # end of run: snapshot work/ -> commit -> push
 #   work-backup.sh restore   # fresh volume: remote state -> work/ (data only)
 #
 # Durability model — nothing authoritative ever lives on tmpfs:
 #   - live state      : work/ on the persistent home volume (survives restart)
-#   - backup/history  : the $GITHUB_REPO_WORK remote (survives restart)
+#   - backup/history  : the `work_repo` remote (survives restart)
 #   - tmpfs clone     : disposable scratch in /dev/shm, RAM-backed and WIPED on
 #                       pod restart — so it is re-seeded from the remote on
 #                       every call and never trusted to persist. Worst case (a
@@ -48,19 +48,27 @@ if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 
 say() { echo "work-backup: $*"; }
 
-if [ -z "${GITHUB_REPO_WORK:-}" ]; then
-  say "GITHUB_REPO_WORK unset — local-only, nothing to $MODE."
+# The backup remote is `work_repo` in work/CONFIG.md — the same reader every
+# other script uses (docs/config.md). Missing key = local-only persistence.
+CONFIG="$WORK/CONFIG.md"
+cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
+        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
+WORK_REPO="$(cfg work_repo)"
+
+if [ -z "$WORK_REPO" ]; then
+  say "no work_repo in work/CONFIG.md — local-only, nothing to $MODE."
   exit 0
 fi
 if ! command -v git >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
   say "git/tar unavailable — skipping $MODE."; logev warn work_backup "git/tar unavailable — $MODE skipped"; exit 0
 fi
 
-# GITHUB_REPO_WORK is `[<host>/]<owner>/<repo>`: three segments name the host,
-# two use the ambient default (docs/config.md)
-case "$GITHUB_REPO_WORK" in
-  (*/*/*) WORK_REF="$GITHUB_REPO_WORK";;
-  (*)     WORK_REF="${GH_HOST:-github.com}/$GITHUB_REPO_WORK";;
+# work_repo is `[<host>/]<owner>/<repo>`: three segments name the host, two use
+# the ambient default (docs/config.md)
+case "$WORK_REPO" in
+  (*/*/*) WORK_REF="$WORK_REPO";;
+  (*)     WORK_REF="${GH_HOST:-github.com}/$WORK_REPO";;
 esac
 REMOTE_URL="${WORK_BACKUP_REMOTE:-https://$WORK_REF}"
 

@@ -8,6 +8,7 @@ SHA1="1111111111111111111111111111111111111111"
 
 new_case skills_table_bounded
 {
+  printf -- '- github_repo: %s\n' "$TEST_REPO"
   printf -- '- bot_login: test-bot\n- review_marker: cg:review\n- rereview_label: cg-rereview\n\n'
   printf '## Review skills\n\n'
   printf '| skill | source | trigger | section |\n'

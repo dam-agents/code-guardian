@@ -11,6 +11,42 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.0.0 — 2026-09-21
+
+**Upgrade:** The agent reads no environment variables of its own any more. The
+target repo comes from `github_repo` alone, and the state backup from the new
+`work_repo` key ([docs/config.md](docs/config.md)).
+
+1. Carry both values into `work/CONFIG.md`, while this session's environment
+   still holds them — idempotent, and it writes nothing that is already there:
+
+   ```bash
+   C=/home/agent/work/CONFIG.md
+   add() { grep -q "^- $1:" "$C" || [ -z "$2" ] || printf -- '- %s: %s\n' "$1" "$2" >> "$C"; }
+   add github_repo "${GITHUB_REPO:-}"
+   add work_repo   "${GITHUB_REPO_WORK:-}"
+   bash "$HOME/scripts/verify-onboarding.sh"
+   ```
+
+   A `work_repo` that stays missing while backups were running means **every
+   backup stops silently**: read the `config-work_repo` and `live-work-repo`
+   lines of the verification before going on, and ask the operator for the
+   backup repo reference when neither the key nor the old env var holds one.
+2. Re-register every schedule whose `task` still ends with "when
+   GITHUB_REPO_WORK is set" — `delete_schedule` + `create_schedule` with the
+   text of [ONBOARDING.md](ONBOARDING.md) Step 6 (6a–6d), keeping each existing
+   name and cron.
+3. **Operator-only:** drop the `GITHUB_REPO` and `GITHUB_REPO_WORK` environment
+   variables from the agent's platform configuration. Nothing reads them after
+   step 1.
+
+## 4.11.0 — 2026-09-21
+
+**Upgrade:** Confirm the weekly audit still fires: list the schedules and, when
+`code-guardian-audit-weekly` is registered but disabled, enable it
+(`toggle_schedule`) — an instance created from an earlier kit got it disabled.
+Nothing else: `kit.yaml` is read only when a new agent is created from the kit.
+
 ## 4.10.0 — 2026-09-21
 
 **Upgrade:** Nothing — docs are re-read per run.

@@ -110,3 +110,73 @@ jobs:
           done
           echo "checked $n cross-file section references"
           exit $rc
+
+      # kit.yaml carries ONBOARDING Step 6's schedules verbatim for a new
+      # instance, because the platform reads YAML and cannot follow a link
+      # (docs/self-modification.md §3). Step 6 stays the single source of truth,
+      # and this step is what keeps the copy equal to it.
+      - name: kit.yaml matches ONBOARDING Step 6
+        run: |
+          python3 -c 'import yaml' 2>/dev/null \
+            || pip install --quiet pyyaml 2>/dev/null \
+            || pip install --quiet --break-system-packages pyyaml
+          python3 - <<'PY'
+          import re, sys, yaml
+
+          md = open('ONBOARDING.md').read()
+          head = '## Step 6 — Ensure the scheduled jobs exist'
+          if head not in md:
+              sys.exit('ONBOARDING.md: Step 6 heading not found — this check cannot run')
+          step6 = md.split(head)[1].split('\n## ')[0]
+
+          quotes = [' '.join(l[2:].split()) for l in step6.splitlines() if l.startswith('> ')]
+          if len(quotes) != 4:
+              sys.exit('ONBOARDING Step 6: expected 4 task blockquotes, found %d' % len(quotes))
+          crons = {c for c in re.findall(r'`([^`]+)`', step6)
+                   if re.fullmatch(r'[-0-9*/,]+( [-0-9*/,]+){4}', c)}
+          modes = set(re.findall(r'precheck: bash "\$HOME/scripts/precheck\.sh" (\w+)', step6))
+          names = set(re.findall(r'code-guardian-[a-z0-9-]+', step6))
+
+          # Step 6 defines four runs; a kit schedule joins one by its name prefix.
+          # Per run: its task blockquote, its precheck mode, and whether the kit
+          # creates it enabled (the Slack and benchmark runs wait for their key).
+          SPEC = {'code-guardian-review-':    (0, 'review',    True),
+                  'code-guardian-shepherd-':  (1, 'shepherd',  False),
+                  'code-guardian-audit-':     (2, None,        True),
+                  'code-guardian-benchmark-': (3, 'benchmark', False)}
+
+          schedules = yaml.safe_load(open('kit.yaml')).get('schedules') or []
+          bad, kit_crons = [], set()
+          for s in schedules:
+              name = s.get('name', '<unnamed>')
+              prefix = next((p for p in SPEC if name.startswith(p)), None)
+              if prefix is None:
+                  bad.append('%s: Step 6 defines no run of this name' % name)
+                  continue
+              if not (name in names or any(n.endswith('-') and name.startswith(n) for n in names)):
+                  bad.append('%s: Step 6 names no such schedule' % name)
+              quote, mode, enabled = SPEC[prefix]
+              if ' '.join((s.get('task') or '').split()) != quotes[quote]:
+                  bad.append('%s: task text differs from its Step 6 blockquote' % name)
+              want = 'bash "$HOME/scripts/precheck.sh" %s' % mode if mode else None
+              if mode and mode not in modes:
+                  bad.append('%s: Step 6 no longer gates this run with precheck.sh %s' % (name, mode))
+              if s.get('precheck') != want:
+                  bad.append('%s: precheck is %r, Step 6 says %r' % (name, s.get('precheck'), want))
+              if s.get('enabled', True) != enabled:
+                  bad.append('%s: enabled is %s, Step 6 makes it %s' % (name, s.get('enabled', True), enabled))
+              for key in ('timezone', 'rrule'):
+                  if key in s:
+                      bad.append('%s: %s belongs to the instance, never to the kit' % (name, key))
+              if 'cron' in s:
+                  kit_crons.add(s['cron'])
+              else:
+                  bad.append('%s: no cron' % name)
+
+          if kit_crons != crons:
+              bad.append('crons differ — kit.yaml: %s, Step 6: %s' % (sorted(kit_crons), sorted(crons)))
+          for line in bad:
+              print(line)
+          print('checked %d kit schedules against ONBOARDING Step 6' % len(schedules))
+          sys.exit(1 if bad else 0)
+          PY

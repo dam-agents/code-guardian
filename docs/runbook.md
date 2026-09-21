@@ -191,8 +191,8 @@ chat UI **and** a GitHub PR review — every reviewed PR produces both.
    `escalation_owner` under `slack_notifications: enabled`. Never repair state
    in response.
 9. Walk the review-run self-check at the end of [review.md](review.md).
-10. **If `$GITHUB_REPO_WORK` is set, back up `work/`** as the very last action
-    — `bash "$HOME/scripts/work-backup.sh" persist`
+10. **Back up `work/`** as the very last action —
+    `bash "$HOME/scripts/work-backup.sh" persist`, a no-op without `work_repo`
     ([persistence.md](persistence.md)). This also persists preflight's
     bookkeeping.
 
@@ -243,11 +243,11 @@ triage and the 14-day retention cleanup already happened inside preflight
 
 ## Hard invariants (every run)
 
-- Never emit an unexpanded `$GITHUB_REPO` — the literal string in an output is
-  a resolution bug. Name and link the resolved target repo freely where the
-  recipient already has it (target-repo reviews, comments and issues, chat UI,
-  Slack), never on `$DEFINITION_REPO`, whose tracking issues identify PRs by
-  number alone.
+- Never emit an unexpanded `$REPO` or a raw `github_repo` placeholder — the
+  literal string in an output is a resolution bug. Name and link the resolved
+  target repo freely where the recipient already has it (target-repo reviews,
+  comments and issues, chat UI, Slack), never on `$DEFINITION_REPO`, whose
+  tracking issues identify PRs by number alone.
 - Every posted review carries the trailing full-SHA marker line;
   `review_marker` never changes once used.
 - Every posted review states its approval bar: each open 🔴/🟡 carries the fix
@@ -302,8 +302,8 @@ triage and the 14-day retention cleanup already happened inside preflight
   always allowed.
 - `work/` is instance-private and may hold sensitive data (config, roster Slack
   IDs, memory, review history, logs). It leaves the agent only as the
-  `$GITHUB_REPO_WORK` backup or through the configured output surfaces — chat
-  UI, target-repo reviews/comments/issues, the benchmark report on its
+  `work_repo` backup or through the configured output surfaces — chat UI,
+  target-repo reviews/comments/issues, the benchmark report on its
   `benchmark_report` surfaces, Slack when enabled — each message carrying only
   what it needs. The documented definition-repo tracking issues carry error
   evidence at most; nothing from `work/` ever reaches definition commits, PRs,

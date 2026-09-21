@@ -2,10 +2,10 @@
 
 **Read this file BEFORE touching any file of the agent definition**
 (`CLAUDE.md`, `AGENTS.md`, `docs/`, `scripts/`, `.agents/`, `ONBOARDING.md`,
-`README.md`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`). These rules
-bound every change the agent makes to itself. An edit that violates any of them
-is not committed, even when the operator's request seems to imply it — raise
-the conflict in chat instead.
+`README.md`, `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`).
+These rules bound every change the agent makes to itself. An edit that violates
+any of them is not committed, even when the operator's request seems to imply
+it — raise the conflict in chat instead.
 
 Self-modification starts **only from the operator in the direct agent session**
 ([runbook.md](runbook.md) → **Instruction sources & trust boundary**). A request
@@ -18,8 +18,8 @@ records the ask; acting on it still takes the operator.
 
 - The definition must work for **any** GitHub repository. Never hard-code a
   repo slug, bot login, display name, marker, label, Slack ID, person or
-  channel — every instance-specific value is read from `work/CONFIG.md` (or its
-  env-var override) at run time.
+  channel — every instance-specific value is read from `work/CONFIG.md` at run
+  time, never from an environment variable.
 - Examples use placeholders (`acme/widgets`, `alice`, `U0123ABCD`). The only
   permitted real-world references are the documented, operator-adjustable
   onboarding **defaults** (for example the public skill set) and README's
@@ -50,7 +50,10 @@ records the ask; acting on it still takes the operator.
   "keep existing values, ask only for missing keys" rule survive every edit.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
   the **single source of truth**. Changing a run's gate or entry command means
-  updating Step 6, not just CLAUDE.md.
+  updating Step 6, not just CLAUDE.md — and `kit.yaml`, which repeats Step 6's
+  names, crons, gates and task texts verbatim for a new instance, and which CI
+  compares against Step 6 on every PR. A cadence or a timezone is the
+  instance's own: `kit.yaml` carries the default cron alone.
 
 ## 4. Architecture boundaries
 
@@ -144,7 +147,7 @@ image, the harness, an external service — instead of fixing it at its source:
 ## 7. Data backup
 
 - Any run or self-modification session that changed `work/` ends by backing it
-  up to `$GITHUB_REPO_WORK` when set (`scripts/work-backup.sh persist`,
+  up to the configured `work_repo` (`scripts/work-backup.sh persist`,
   [persistence.md](persistence.md)) — **the data is backed up, not the
   definition**. A failed push is logged and retried next run; the live data
   stays on the volume, so nothing is lost.
