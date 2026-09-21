@@ -1030,4 +1030,4 @@ Before you declare the run done:
   state "repaired".
 - **Every `reviews_due` PR reached a terminal state** — the run never ended
   mid-pipeline, for example after a skill report; all errors logged; no
-  unexpanded `$GITHUB_REPO` in any output.
+  unexpanded repo placeholder in any output.

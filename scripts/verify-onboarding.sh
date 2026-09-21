@@ -161,7 +161,7 @@ else
 
   if [ -e "$WORK/.git" ]; then
     fail work-plain "work/.git exists — work/ must stay a plain data directory (docs/persistence.md)" \
-      "delete the stray work/.git directory (state files stay in place; backup history lives on the \$GITHUB_REPO_WORK remote)"
+      "delete the stray work/.git directory (state files stay in place; backup history lives on the work_repo remote)"
   else
     ok work-plain "plain data directory (no .git)"
   fi
@@ -181,28 +181,25 @@ else
       fi
     done
 
-    for k in definition_repo github_repo; do
+    for k in definition_repo github_repo work_repo; do
       v="$(cfg "$k")"
       if [ -n "$v" ] && ! printf '%s' "$v" | grep -Eq '^([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
         fail "config-$k-shape" "'$v' is not a [host/]owner/repo reference" "correct the '- $k:' value"
       fi
     done
 
-    # The target repo must still resolve in a fresh scheduled run, which carries
-    # no session exports: either the key is stored, or the platform sets the env
-    # var for every run. A session-only export passes here and fails at 03:00.
+    # CONFIG.md is the only place the target repo comes from, so a missing key
+    # stops every scheduled run at pre-flight.
     if [ -n "$(cfg github_repo)" ]; then
-      ok config-github_repo "stored — the target resolves without the env var"
-    elif [ -n "${GITHUB_REPO:-}" ]; then
-      warn config-github_repo "not in CONFIG.md — the target resolves from the env var alone; confirm the platform sets it for every scheduled run, or add '- github_repo: <[host/]owner/repo>'"
+      ok config-github_repo "stored — the target resolves in every fresh run"
     else
-      fail config-github_repo "target repo unresolvable — neither \$GITHUB_REPO nor a '- github_repo:' key is set" \
+      fail config-github_repo "target repo unresolvable — no '- github_repo:' key" \
         "add '- github_repo: <[host/]owner/repo>' (ONBOARDING Step 4 item 1); preflight fails every run without it"
     fi
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies project_profile artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies project_profile artifact_skill artifact_targets slack_notifications audit_report benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -476,7 +473,7 @@ if [ "$LIVE" = 1 ]; then
   else
     ghq() { gh api --hostname "$1" "$2" --jq "$3" 2>/dev/null; }   # read-only
 
-    TARGET_REF="${GITHUB_REPO:-$(cfg github_repo)}"
+    TARGET_REF="$(cfg github_repo)"
     T_HOST="$(refhost "$TARGET_REF")"; T_REPO="$(refslug "$TARGET_REF")"
 
     if [ -z "$T_REPO" ]; then
@@ -505,7 +502,7 @@ if [ "$LIVE" = 1 ]; then
           || warn live-target-write "no push permission — label writes and assignee handling will fail; reviews still post"
       else
         fail live-target "target repo not readable on $T_HOST" \
-          "grant the account access to the repo, or correct the target reference (\$GITHUB_REPO / '- github_repo:')"
+          "grant the account access to the repo, or correct the '- github_repo:' reference"
       fi
 
       RRL="$(cfg rereview_label)"; RRL="${RRL:-code-guardian-review}"
@@ -563,19 +560,20 @@ EOF
       fi
     fi
 
-    if [ -n "${GITHUB_REPO_WORK:-}" ]; then
-      W_HOST="$(refhost "$GITHUB_REPO_WORK")"; W_SLUG="$(refslug "$GITHUB_REPO_WORK")"
+    WORK_REF="$(cfg work_repo)"
+    if [ -n "$WORK_REF" ]; then
+      W_HOST="$(refhost "$WORK_REF")"; W_SLUG="$(refslug "$WORK_REF")"
       if [ "$(ghq "$W_HOST" "repos/$W_SLUG" .full_name)" != "$W_SLUG" ]; then
         fail live-work-repo "the work backup repo is not readable — every run's state backup would fail" \
-          "create/grant access to \$GITHUB_REPO_WORK, or unset it for local-only persistence (docs/persistence.md)"
+          "create/grant access to the repo, or drop the '- work_repo:' key for local-only persistence (docs/persistence.md)"
       elif [ "$(ghq "$W_HOST" "repos/$W_SLUG" .permissions.push)" != "true" ]; then
         fail live-work-repo "no push permission on the work backup repo" \
-          "grant write access to the account, or unset \$GITHUB_REPO_WORK (docs/persistence.md)"
+          "grant write access to the account, or drop the '- work_repo:' key (docs/persistence.md)"
       else
         ok live-work-repo "work backup repo writable"
       fi
     else
-      ok live-work-repo "local-only persistence (GITHUB_REPO_WORK unset)"
+      ok live-work-repo "local-only persistence (no work_repo)"
     fi
 
     # end-to-end proof: the entry command of every scheduled run, read-only

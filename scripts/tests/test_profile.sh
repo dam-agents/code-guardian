@@ -33,7 +33,7 @@ mk_fixture() { # → $FX (path), $FX_SHA
 fx_commit() { git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm "$1" && FX_SHA="$(git -C "$FX" rev-parse HEAD)"; }
 
 run_profile() { # <cmd> [args…] → $OUT (the JSON status / slice)
-  OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+  OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$FX}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
          PATH="$T_DIR/bin:$PATH" bash "$PROFILE" "$@" 2>>"$STDERR_LOG")"
 }

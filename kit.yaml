@@ -69,7 +69,7 @@ schedules:
       (chat UI + GitHub review with the marker; honour the HEAD-freshness checks,
       locks, and the re-review label gate, removing the label after posting),
       handle artifacts_due per docs/artifact.md, and back up work/ at the end
-      (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+      (`scripts/work-backup.sh persist`).
   - name: code-guardian-review-quiet
     cron: "0 22-23,0-7 * * 1-5"
     sessionMode: fresh
@@ -94,8 +94,7 @@ schedules:
       CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges
       in nudges_due to the shared Slack channel (roster-only mentions), apply
       each sent nudge's row_update to the ledger immediately after its send
-      (send-then-record), and back up work/ (`scripts/work-backup.sh persist`)
-      when GITHUB_REPO_WORK is set.
+      (send-then-record), and back up work/ (`scripts/work-backup.sh persist`).
   # Weekly audit (Step 6c) — every instance gets it: ungated, because its
   # worklist always carries work, and Slack-independent, because the report
   # falls back to the chat UI (docs/config.md → audit_report).
@@ -108,8 +107,7 @@ schedules:
       agent-side checks (schedules, memory compliance, nudge integrity, reaction
       feedback), compose the health report from stats + checks, send it to Slack
       when slack_notifications is enabled (chat UI always), append the AUDIT.log
-      line, and back up work/ (`scripts/work-backup.sh persist`) when
-      GITHUB_REPO_WORK is set.
+      line, and back up work/ (`scripts/work-backup.sh persist`).
   # Model benchmark (Step 6d) — only under `benchmark: enabled`.
   - name: code-guardian-benchmark-monthly
     cron: "0 6 1 * *"
@@ -128,6 +126,6 @@ schedules:
       scripts/benchmark-score.sh (plus the judge when configured), appends the
       results to work/benchmark/, regenerates and republishes the accumulated
       report, and reports the scores — and back up work/
-      (`scripts/work-backup.sh persist`) when GITHUB_REPO_WORK is set.
+      (`scripts/work-backup.sh persist`).
 bundledSkills:
   path: .agents/skills

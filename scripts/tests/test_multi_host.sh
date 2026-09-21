@@ -16,6 +16,7 @@ assert_jq '.reviews_due | length == 1' 'a host-prefixed target resolves to the b
 # --- skill sources resolve per host ------------------------------------------
 new_case skill_source_hosts
 {
+  printf -- '- github_repo: %s\n' "$TEST_REPO"
   printf -- '- bot_login: test-bot\n- review_marker: cg:review\n\n'
   printf '## Review skills\n\n'
   printf '| skill | source | trigger | section |\n'

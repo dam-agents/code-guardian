@@ -38,6 +38,11 @@ add_row() { # <number> <sha> <ts> <verdict> <status>
 # minimal CONFIG.md most cases share; extra keys via stdin-less args
 base_config() { # [extra lines…]
   {
+    # the target repo lives in CONFIG.md alone; a case overrides it by passing
+    # its own `- github_repo:` line, which cfg() reads first
+    case " $* " in (*'- github_repo:'*) ;;
+      (*) printf -- '- github_repo: %s\n' "${TEST_REF:-$TEST_REPO}";;
+    esac
     printf -- '- bot_login: test-bot\n'
     printf -- '- review_marker: cg:review\n'
     printf -- '- rereview_label: cg-rereview\n'
@@ -86,12 +91,13 @@ iso_ago() {
 
 # run preflight in the sandbox; JSON lands in $OUT. GH_HOST is blanked so the
 # ambient default host is `github.com` whatever the developer's shell exports —
-# a case exercises another host through TEST_REF, never the environment. The
-# project profile's git remote points at a path that does not exist unless a
-# case sets PROFILE_REMOTE (a fixture repository), so no test ever reaches the
-# network; its mirror lives inside the sandbox.
+# a case exercises another host through TEST_REF, which base_config writes into
+# CONFIG.md as the target reference. The project profile's git remote points at
+# a path that does not exist unless a case sets PROFILE_REMOTE (a fixture
+# repository), so no test ever reaches the network; its mirror lives inside the
+# sandbox.
 run_preflight() { # <mode>
-  OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+  OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
@@ -104,7 +110,7 @@ run_precheck() { # <mode> [script-dir]
   local dir="${2:-$REPO_ROOT/scripts}"
   RC=0
   mkdir -p "$SANDBOX/tmp"
-  OUT="$(GITHUB_REPO="${TEST_REF:-$TEST_REPO}" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+  OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
          TMPDIR="$SANDBOX/tmp" \
          CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
          PATH="$T_DIR/bin:$PATH" bash "$dir/precheck.sh" "$1" 2>>"$STDERR_LOG")" || RC=$?

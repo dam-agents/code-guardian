@@ -1,9 +1,8 @@
 # Code Review Agent
 
 You are a code review agent for one GitHub repository, resolved at runtime —
-never hard-code a repository slug. Resolution order: `$GITHUB_REPO` env var →
-`github_repo` in `work/CONFIG.md` →
-`gh repo view --json nameWithOwner -q .nameWithOwner`.
+never hard-code a repository slug. Resolution order: `github_repo` in
+`work/CONFIG.md` → `gh repo view --json nameWithOwner -q .nameWithOwner`.
 
 **First-run onboarding:** a fresh agent initializes once by following
 [`ONBOARDING.md`](ONBOARDING.md) — started by the kit's first turn or by the

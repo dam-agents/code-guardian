@@ -1,11 +1,11 @@
 # code-guardian
 
-PR code review agent for any GitHub repository. The target repo is supplied at
-runtime (`GITHUB_REPO`). Built on the Claude Code harness, it uses the GitHub
-CLI (`gh`) to fetch open pull requests and delivers a structured review to the
-chat UI and the GitHub PR thread. Optionally — opt-in at onboarding — it also
-nudges reviewers on Slack when PRs wait too long for human review (the **PR
-Shepherd** role).
+PR code review agent for any GitHub repository. The target repo is named at
+onboarding and stored in `work/CONFIG.md`. Built on the Claude Code harness, it
+uses the GitHub CLI (`gh`) to fetch open pull requests and delivers a structured
+review to the chat UI and the GitHub PR thread. Optionally — opt-in at
+onboarding — it also nudges reviewers on Slack when PRs wait too long for human
+review (the **PR Shepherd** role).
 
 ## How it works
 
@@ -111,7 +111,7 @@ drop stale — so memory stays useful and bounded
 
 ## Setup
 
-Bringing up a new code-guardian agent takes four steps — or one, on a
+Bringing up a new code-guardian agent takes three steps — or one, on a
 platform whose starter kit catalog offers this repository: creating the
 agent from the **Code Guardian** kit grants the connections, registers the
 schedules and points the first turn at [`ONBOARDING.md`](ONBOARDING.md),
@@ -121,17 +121,13 @@ Bringing it up by hand:
 
 1. **Create the agent** on the platform, with GitHub — and optionally Slack —
    connections granted (see **Connections**).
-2. **Set the environment variables** — ideally `GITHUB_REPO` (the repo to
-   review; skipping it makes the agent ask for the slug at the start of
-   onboarding), and optionally `GITHUB_REPO_WORK` (a repo to back the agent's
-   persistent state). See the table below.
-3. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — **from the repo or
+2. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — **from the repo or
    fork you actually deploy from**, for example
    `https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md`. The
    agent derives its *definition repo* from this URL, host included, so a
    GitHub Enterprise URL works the same; it is stored as `definition_repo`, so
    a fork's agent stays pinned to the fork and never resets itself to upstream.
-4. **Tell the agent**, in its first message:
+3. **Tell the agent**, in its first message:
 
    > Here is a file — read it and set yourself up according to it: https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md
 
@@ -174,12 +170,11 @@ sources & trust boundary**).
 
 ## Configuration
 
-### Environment variables
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `GITHUB_REPO` | Recommended | `[host/]owner/repo` of the repository whose PRs are reviewed. **Unset → the agent asks for the slug at the very start of onboarding**, validates it, and persists it to `work/CONFIG.md` (`github_repo:`). The env var, when later set, always takes precedence. Last-resort fallback is the repo detected via `gh repo view`. |
-| `GITHUB_REPO_WORK` | No | `[host/]owner/repo` of a separate repository backing the agent's persistent state (`work/`). **Set** → `work/` is a plain data directory backed up to this repo after every run via a disposable tmpfs clone, never a `.git` on the shared volume (`docs/persistence.md`). **Unset** → the agent reconstructs review-tracking state on init from its own marker-carrying reviews already posted on `GITHUB_REPO`, and persistence is local-only (the `/workspace` PVC). |
+The agent reads **no environment variables of its own**: onboarding asks for
+the target repository and the optional state-backup repository and stores both
+in `work/CONFIG.md` (`github_repo`, `work_repo`), which every scheduled run
+reads from a fresh shell. `GH_HOST` is the only ambient value it honours, and
+only to name the default GitHub host.
 
 ### `work/CONFIG.md` — instance configuration
 
@@ -190,7 +185,8 @@ what it can and asking for the rest. Per-key semantics are in
 
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
-| `github_repo` | Step 0 answer | Stored target-repo reference (`[host/]owner/repo`); the env var always wins. |
+| `github_repo` | Step 0 answer | Target-repo reference (`[host/]owner/repo`) — the only source the runtime reads. |
+| `work_repo` | Step 0 answer (optional) | Repo backing `work/` up (`[host/]owner/repo`); omitted = local-only persistence (`docs/persistence.md`). |
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
 | `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
@@ -224,7 +220,7 @@ what it can and asking for the rest. Per-key semantics are in
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
   schedules and Slack. Running elsewhere requires adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
-  target repo, this definition, the skill sources and `GITHUB_REPO_WORK` may
+  target repo, this definition, the skill sources and the `work_repo` backup may
   each live on a different host — `github.com` or a GitHub Enterprise instance.
   Each host in play must be authenticated separately
   (`gh auth login --hostname <host>`, operator-only) and reachable from the
@@ -239,7 +235,7 @@ what it can and asking for the rest. Per-key semantics are in
 
   | Scope | Required? | What needs it |
   | --- | --- | --- |
-  | `repo` | **yes** | PRs, reviews, comments, labels and issues on `GITHUB_REPO`; push to `GITHUB_REPO_WORK` and the definition repo |
+  | `repo` | **yes** | PRs, reviews, comments, labels and issues on the target repo; push to the `work_repo` backup and the definition repo |
   | `gist` | yes, unless no gist consumer is on | Create and delete the **visual artifact** gists and update the **benchmark report** gist (`artifact_skill: none` **and** benchmark off or `benchmark_report` without `gist` → not needed) |
   | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
 
@@ -258,7 +254,7 @@ what it can and asking for the rest. Per-key semantics are in
 
 - A **GitHub** connection must be granted so `gh` can authenticate (the Envoy
   sidecar injects the OAuth token on outbound GitHub requests). The same token
-  serves `GITHUB_REPO`, `GITHUB_REPO_WORK` and the definition repo.
+  serves the target repo, the `work_repo` backup and the definition repo.
 - A **Slack** connection is **optional**, needed only when Slack notifications
   are enabled, so `mcp__platform-outbound__send_channel_message` can reach the
   shared channel. With notifications disabled — the default — the agent never
@@ -271,14 +267,15 @@ learned preferences and review history. `work/CONFIG.md` and — with Slack
 enabled — `work/DEVELOPERS.md` (reviewer roster) and `work/SHEPHERD.md` (nudge
 ledger) live alongside them. They sit on the `/workspace` PVC at runtime
 (mounted as `/home/agent/work/`), so they survive pod restarts. How `work/` is
-seeded depends on `GITHUB_REPO_WORK`:
+seeded depends on the `work_repo` key:
 
 - **Set** — `work/` is a plain data directory backed up to that repo after
   every run, via a disposable tmpfs clone, giving durable, versioned,
   cross-pod history.
-- **Unset** — `REVIEWS.md` and `reviews/` are reconstructed from the agent's
-  marker-carrying reviews on `GITHUB_REPO`; `MEMORY.md`, which is not derivable
-  from PRs, starts from the seed template in `ONBOARDING.md` (Step 3b).
+- **Omitted** — `REVIEWS.md` and `reviews/` are reconstructed from the agent's
+  marker-carrying reviews on the target repo; `MEMORY.md`, which is not
+  derivable from PRs, starts from the seed template in `ONBOARDING.md`
+  (Step 3b).
 
 `work/` is **not tracked** by this definition repo: the allowlist `.gitignore`
 hides everything under it, so the two never collide and a definition update
