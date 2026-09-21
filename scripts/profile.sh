@@ -68,7 +68,7 @@ sha1() { if command -v sha1sum >/dev/null 2>&1; then sha1sum | cut -d' ' -f1; el
 DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
-TARGET_REF="${GITHUB_REPO:-$(cfg github_repo)}"
+TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
 export GH_HOST="$REPO_HOST"
 REMOTE="${CG_PROFILE_REMOTE:-https://$REPO_HOST/$REPO.git}"

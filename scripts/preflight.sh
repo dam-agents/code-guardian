@@ -151,7 +151,7 @@ if [ "$MODE" = "benchmark" ]; then
   # through an external service that only reaches github.com, so it is
   # dropped on any other target host (resolved without any gh fallback)
   BENCH_REPORT="$(cfg benchmark_report)"; BENCH_REPORT="${BENCH_REPORT:-gist}"
-  BENCH_HOST="$(refhost "${GITHUB_REPO:-$(cfg github_repo)}")"
+  BENCH_HOST="$(refhost "$(cfg github_repo)")"
   EFF_REPORT=""
   for t in $(printf '%s' "$BENCH_REPORT" | tr ',' ' '); do
     case "$t" in (off|'') continue;; esac
@@ -264,11 +264,12 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
 }
 
 # ---------------------------------------------------------------- config ----
-TARGET_REF="${GITHUB_REPO:-$(cfg github_repo)}"
+TARGET_REF="$(cfg github_repo)"
 [ -z "$TARGET_REF" ] && TARGET_REF="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
 export GH_HOST="$REPO_HOST"   # every unqualified gh call targets the review host
 BOT_LOGIN="$(cfg bot_login)"
+WORK_REPO="$(cfg work_repo)"   # empty = local-only persistence (docs/persistence.md)
 REVIEW_MARKER="$(cfg review_marker)"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
 URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
@@ -352,6 +353,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$(cfg audit_trend)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
+  --arg wr "$WORK_REPO" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -365,6 +367,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    audit_trend:(if $atr=="" then "dam" else $atr end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
+   work_repo:(if $wr=="" then null else $wr end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -399,7 +402,7 @@ fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
   exit 0
 }
 
-[ -z "$REPO" ] && fail_out "target repo unresolved (GITHUB_REPO / CONFIG.md github_repo missing)"
+[ -z "$REPO" ] && fail_out "target repo unresolved (CONFIG.md github_repo missing)"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
 
 # ------------------------------------------------------------ open PR set ----
@@ -1304,13 +1307,13 @@ if [ "$MODE" = "audit" ]; then
 
   check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
 
-  if [ -n "${GITHUB_REPO_WORK:-}" ]; then
+  if [ -n "$WORK_REPO" ]; then
     if [ -e "$WORK/.git" ]; then
       check work_repo warn "work/.git present — work/ must be a plain data dir (backup runs in a tmpfs clone); remove it per docs/persistence.md"
     else
       check work_repo ok "work/ plain data dir; durable backup via tmpfs clone (any work_backup push errors surface in the log triage below)"
     fi
-  else check work_repo ok "local-only persistence (GITHUB_REPO_WORK unset)"; fi
+  else check work_repo ok "local-only persistence (no work_repo)"; fi
 
   # count only STUCK silly-renames (>5min): a fresh .nfs* is a normal transient
   # from a concurrent data-file write and clears on its own; a stuck one means a

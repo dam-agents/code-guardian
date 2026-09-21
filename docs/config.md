@@ -12,10 +12,9 @@ stripped); the rest of the file is prose the runtime ignores. Structure and
 connectivity are verified by
 `bash "$HOME/scripts/verify-onboarding.sh" [--live]` (ONBOARDING Step 7).
 
-**Every repo reference — `github_repo`, `definition_repo`,
-`$GITHUB_REPO_WORK`, a skill source — is `[<host>/]<owner>/<repo>`.** Three
-segments name the GitHub host (`github.example.com/acme/widgets`), two use the
-ambient default (`$GH_HOST`, else `github.com`). Target, definition, skills and
+**Every repo reference — `github_repo`, `definition_repo`, `work_repo`, a skill
+source — is `[<host>/]<owner>/<repo>`.** Three segments name the GitHub host
+(`github.example.com/acme/widgets`), two use the ambient default (`$GH_HOST`, else `github.com`). Target, definition, skills and
 work backup may each sit on a different host. `GH_HOST` is exported to the
 **target** host, so every unqualified `gh` call reviews the right repo, and
 cross-host calls pass `--hostname` (`gh api`) or `[HOST/]OWNER/REPO`
@@ -34,9 +33,14 @@ below is for the manual fallback and the direct session.
 
 ### Identity & repositories
 
-- **`github_repo`** — stored target-repo reference, written at onboarding so a
-  fresh scheduled shell resolves the target without an env var. `$GITHUB_REPO`
-  always wins when set.
+- **`github_repo`** — the target-repo reference, written at onboarding.
+  **Required** — the only source, so a missing key stops every run at
+  pre-flight. Last-resort fallback: `gh repo view`.
+- **`work_repo`** — the repo that backs `work/` up
+  ([persistence.md](persistence.md)). **Missing = local-only persistence**: the
+  live state stays on the volume and `scripts/work-backup.sh` is a no-op. The
+  key must exist before a restore can run, so onboarding writes it first
+  (ONBOARDING Step 3a).
 - **`definition_repo`** — the repo this definition was installed from
   (fork-aware). Outer-repo `origin`, target of definition PRs, review-footer
   link. Fallback: `git -C "$HOME" remote get-url origin`.
@@ -176,7 +180,7 @@ cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -
 DEFAULT_HOST="${GH_HOST:-github.com}"   # capture before the re-export below
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
-TARGET="${GITHUB_REPO:-$(cfg github_repo)}"; TARGET="${TARGET:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
+TARGET="$(cfg github_repo)"; TARGET="${TARGET:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 REPO_HOST="$(refhost "$TARGET")"; REPO="$(refslug "$TARGET")"; export GH_HOST="$REPO_HOST"
 BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"

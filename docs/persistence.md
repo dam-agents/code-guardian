@@ -10,7 +10,7 @@ change to the definition itself.
 | --- | --- | --- |
 | `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `AGENTS.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
 | `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
-| `$GITHUB_REPO_WORK` | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone. |
+| `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone. |
 
 `work/` is **not** a git repo. The home volume is virtiofs over a host NFS
 export, and a `.git` there — rewritten by every commit while another concurrent
@@ -32,8 +32,8 @@ tmpfs clone.
 
 `scripts/preflight.sh` never commits or pushes — its bookkeeping goes straight
 to the `work/` files and stays on the volume until backed up. At the end of
-every run where the agent did work, as the very last action and only when
-`$GITHUB_REPO_WORK` is set:
+every run where the agent did work, as the very last action — a no-op without
+`work_repo`:
 
 ```bash
 LOG_JOB=<mode> bash "$HOME/scripts/work-backup.sh" persist

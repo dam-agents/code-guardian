@@ -52,7 +52,7 @@ setup() { # fresh case with repo, config and open-PR fixtures
   : > "$SANDBOX/gh.log"
 }
 run_rp() { # <cmd> <n> [args…] → $OUT
-  OUT="$(GITHUB_REPO="$TEST_REPO" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
+  OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
          CG_CLONE_URL="${CLONE_SRC:-$FX}" LOG_RUN_ID="$SESSION" GH_CALLS_LOG="$SANDBOX/gh.log" \
          PATH="$T_DIR/bin:$PATH" bash "$RP" "$@" 2>/dev/null)"
 }
@@ -125,10 +125,10 @@ assert_event 'fanned out (n=2)' 'milestone logged'
 assert_event 'locked (refresh, fanned out (n=2))' 'lock refresh logged'
 
 # --- context / sweep -----------------------------------------------------------
-OUT="$(GITHUB_REPO="$TEST_REPO" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 6 2)"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 6 2)"
 assert_out_contains "in this PR's hunks: yes" 'an added line is in the hunks'
 assert_out_contains '     6	NEW6' 'numbered lines printed'
-OUT="$(GITHUB_REPO="$TEST_REPO" GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 1 1)"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 1 1)"
 assert_out_contains "in this PR's hunks: no" 'an untouched line is pre-existing'
 # context prints text, never JSON — pin the contract its usage block states, so a
 # future rewrite fails here instead of inside a review that pipes it into jq.

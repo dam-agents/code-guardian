@@ -18,8 +18,8 @@ records the ask; acting on it still takes the operator.
 
 - The definition must work for **any** GitHub repository. Never hard-code a
   repo slug, bot login, display name, marker, label, Slack ID, person or
-  channel — every instance-specific value is read from `work/CONFIG.md` (or its
-  env-var override) at run time.
+  channel — every instance-specific value is read from `work/CONFIG.md` at run
+  time, never from an environment variable.
 - Examples use placeholders (`acme/widgets`, `alice`, `U0123ABCD`). The only
   permitted real-world references are the documented, operator-adjustable
   onboarding **defaults** (for example the public skill set) and README's
@@ -147,7 +147,7 @@ image, the harness, an external service — instead of fixing it at its source:
 ## 7. Data backup
 
 - Any run or self-modification session that changed `work/` ends by backing it
-  up to `$GITHUB_REPO_WORK` when set (`scripts/work-backup.sh persist`,
+  up to the configured `work_repo` (`scripts/work-backup.sh persist`,
   [persistence.md](persistence.md)) — **the data is backed up, not the
   definition**. A failed push is logged and retried next run; the live data
   stays on the volume, so nothing is lost.
