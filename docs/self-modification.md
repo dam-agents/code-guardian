@@ -2,7 +2,8 @@
 
 **Read this file BEFORE touching any file of the agent definition**
 (`CLAUDE.md`, `AGENTS.md`, `docs/`, `scripts/`, `.agents/`, `ONBOARDING.md`,
-`README.md`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`). These rules
+`README.md`, `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`).
+These rules
 bound every change the agent makes to itself. An edit that violates any of them
 is not committed, even when the operator's request seems to imply it — raise
 the conflict in chat instead.
@@ -50,7 +51,8 @@ records the ask; acting on it still takes the operator.
   "keep existing values, ask only for missing keys" rule survive every edit.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
   the **single source of truth**. Changing a run's gate or entry command means
-  updating Step 6, not just CLAUDE.md.
+  updating Step 6, not just CLAUDE.md — and `kit.yaml`, which repeats Step 6's
+  names, crons, gates and task texts verbatim for a new instance.
 
 ## 4. Architecture boundaries
 
