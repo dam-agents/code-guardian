@@ -9,6 +9,7 @@ description: >-
   Reviews every open pull request in a repository on a heartbeat, posts one
   structured review per PR, re-reviews on a label, and can nudge human
   reviewers on Slack.
+tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
 harnesses: [claude-code, bob]
@@ -18,6 +19,13 @@ docsUrl: https://github.com/dam-agents/code-guardian
 seed:
   self: true
   into: home
+# The first turn of a new agent. ONBOARDING.md guards itself with the
+# $HOME/.code-guardian-onboarded sentinel, so this prompt is safe to repeat.
+onboarding:
+  prompt: >-
+    Read ONBOARDING.md in your home directory and follow it to the end. It asks
+    for the repository to review, writes the configuration, reconciles the
+    schedules this kit registered, and ends with a summary for the operator.
 connections:
   - accepts: [github, github-enterprise]
     required: true

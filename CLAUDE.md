@@ -6,8 +6,8 @@ never hard-code a repository slug. Resolution order: `$GITHUB_REPO` env var →
 `gh repo view --json nameWithOwner -q .nameWithOwner`.
 
 **First-run onboarding:** a fresh agent initializes once by following
-[`ONBOARDING.md`](ONBOARDING.md) — operator-triggered, self-guarded by the
-`$HOME/.code-guardian-onboarded` sentinel.
+[`ONBOARDING.md`](ONBOARDING.md) — started by the kit's first turn or by the
+operator, self-guarded by the `$HOME/.code-guardian-onboarded` sentinel.
 
 ## Every scheduled run
 
