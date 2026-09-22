@@ -268,6 +268,33 @@ run_verify
 assert_rc 0 'unknown keys never block on their own'
 assert_out "warn config-keys .*'Full name'.*'GitHub username'" 'names every bullet the runtime ignores'
 
+new_case documented_keys_are_known
+# docs/config.md is the key list's home: a key documented there but missing
+# from KNOWN_KEYS makes verify-onboarding report a valid bullet as one the
+# runtime never reads.
+OUT="$(comm -23 \
+  <(sed -n '/^## Keys/,/^## Reader/p' "$REPO_ROOT/docs/config.md" \
+      | grep -oE '\*\*`[a-z_]+`\*\*' | tr -d '*`' | sort -u) \
+  <(sed -n 's/^ *KNOWN_KEYS="\(.*\)"$/\1/p' "$REPO_ROOT/scripts/verify-onboarding.sh" \
+      | tr ' ' '\n' | sort -u))"
+assert_not_out '.' 'every key of docs/config.md is a KNOWN_KEYS entry'
+
+new_case audit_trend_surfaces
+seed_home; seed_memory; seed_lessons
+verify_config '- audit_trend: gist,dam'
+run_verify
+assert_rc 0 'a documented surface list passes'
+assert_out "ok   config-audit_trend" 'the value is validated'
+assert_not_out 'warn config-keys' 'the key is never reported unknown'
+
+new_case audit_trend_invalid
+seed_home; seed_memory; seed_lessons
+verify_config '- audit_trend: slack'
+run_verify
+assert_rc 1 'an undocumented surface fails'
+assert_out 'FAIL config-audit_trend' 'names the key'
+assert_out 'gist,dam' 'carries the allowed values'
+
 new_case live_green_path
 seed_home; seed_memory; seed_lessons
 verify_config
