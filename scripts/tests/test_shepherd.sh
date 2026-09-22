@@ -120,4 +120,91 @@ run_preflight shepherd
   && { printf 'FAIL %s: the bot or the author was counted as a human review\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: neither the bot nor the author counts as a human review\n' "$CASE"
 
+# --- ready to land: approved, green, no conflict, no critical of my own -------
+# docs/shepherd.md → **Ready to land**
+green_fx() { # <sha>
+  jq -n --arg n "build" '{total_count:1, check_runs:[{name:$n, status:"completed",
+    conclusion:"success", details_url:"", output:{}}]}' \
+    | fx "api repos/acme/widgets/commits/$1/check-runs?per_page=100"
+}
+ready_setup() { # [extra config lines…]
+  shep_setup '- merge_ready_nudge: enabled' "$@"
+  pr_json 1 "approved PR" '[]' "$SHA1" | open_prs_fx
+  approved_fx 1
+  green_fx "$SHA1"
+}
+
+new_case shepherd_ready_to_land
+ready_setup
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1' 'the approved PR is announced'
+assert_jq '.nudges_due[0] | .class == "ready_to_land" and .conflict == false' 'the entry carries its own class'
+assert_jq '.nudges_due[0] | .targets == "alice!" and .needs_target_selection == false' 'it goes to the author, and picks no reviewer'
+assert_jq '.nudges_due[0].row_update.status == "ready-notified"' 'the record marks the PR announced'
+
+# --- said once: a row already marked stays silent -----------------------------
+approved_at_fx() { # <pr-number> <submitted-at>
+  jq -nc --arg ts "$2" '[{user:{login:"bob"}, state:"APPROVED", body:"", submitted_at:$ts}]' \
+    | fx "api repos/acme/widgets/pulls/$1/reviews?per_page=100"
+}
+
+new_case shepherd_ready_once
+ready_setup
+approved_at_fx 1 "$(iso_ago 86400)"   # the approval the message already covered
+printf '| 1 | %s | - | approved | 1 | %s | 1 | ready-notified |\n' "$(iso_ago 172800)" "$(iso_ago 7200)" >> "$WORK/SHEPHERD.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 0' 'an announced PR is never announced twice'
+assert_file_contains "$WORK/SHEPHERD.md" 'ready-notified' 'the row keeps the mark while the PR stays approved'
+
+# --- a second approval is a new landing moment --------------------------------
+new_case shepherd_ready_second_approval
+ready_setup
+approved_at_fx 1 "$(iso_ago 3600)"    # approved again, after the message went out
+printf '| 1 | %s | - | approved | 1 | %s | 1 | ready-notified |\n' "$(iso_ago 172800)" "$(iso_ago 7200)" >> "$WORK/SHEPHERD.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1' 'an approval newer than the mark is announced again'
+assert_jq '.nudges_due[0] | .class == "ready_to_land" and .targets == "alice!"' 'the second announcement is the same shape'
+
+# --- a running check holds it, a failing one cancels it -----------------------
+new_case shepherd_ready_ci_running
+ready_setup
+jq -n '{total_count:1, check_runs:[{name:"build", status:"in_progress", conclusion:null,
+        details_url:"", output:{}}]}' | fx "api repos/acme/widgets/commits/$SHA1/check-runs?per_page=100"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 0' 'a running rollup is not green yet'
+assert_jq '[.logs[] | select(test("checks still running"))] | length == 1' 'the wait says why'
+
+new_case shepherd_ready_ci_failed
+ready_setup
+jq -n '{total_count:1, check_runs:[{name:"build", status:"completed", conclusion:"failure",
+        details_url:"", output:{}}]}' | fx "api repos/acme/widgets/commits/$SHA1/check-runs?per_page=100"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 0' 'a red rollup is never ready to land'
+
+# --- my own open critical suppresses it --------------------------------------
+new_case shepherd_ready_own_critical
+ready_setup
+printf '## Review at aaaaaaa\n\n<!-- findings-json: [{"severity":"critical","status":"new","summary":"unbounded retry"}] -->\n' \
+  > "$WORK/reviews/pr-1.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 0' 'an open critical of mine blocks the announcement'
+assert_jq '[.logs[] | select(test("open critical"))] | length == 1' 'the reason is logged'
+assert_jq '[.logs[] | select(test("checks still running|CI failed"))] | length == 0' 'the rollup is not read for a PR my own critical blocks'
+
+new_case shepherd_ready_critical_fixed
+ready_setup
+printf '## Review at aaaaaaa\n\n<!-- findings-json: [{"severity":"critical","status":"fixed","summary":"unbounded retry"}] -->\n' \
+  > "$WORK/reviews/pr-1.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1' 'a critical the author fixed no longer blocks it'
+
+# --- off by default -----------------------------------------------------------
+new_case shepherd_ready_disabled
+shep_setup
+pr_json 1 "approved PR" '[]' "$SHA1" | open_prs_fx
+approved_fx 1
+green_fx "$SHA1"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 0' 'no announcement without the key'
+
 finish

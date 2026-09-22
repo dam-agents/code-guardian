@@ -125,6 +125,12 @@ below is for the manual fallback and the direct session.
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack.
   **Missing file or key = `disabled`** — never send Slack messages without a
   recorded opt-in.
+- **`merge_ready_nudge`** — `enabled` | `disabled`. **Missing = `disabled`.**
+  An approved PR with no conflict, a green check rollup and no open critical of
+  the agent's own gets **one** Slack message saying it is ready to land
+  ([shepherd.md](shepherd.md) → **Ready to land**). Needs
+  `slack_notifications: enabled` like every other nudge, and reads the rollup
+  through the same reader as the CI triage.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
   target of the stalled-review alert. Slack-only key, legitimately absent when
   Slack is disabled.

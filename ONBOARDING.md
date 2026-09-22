@@ -414,14 +414,20 @@ config, `review_marker` least of all.
     the weekly trend artifact), and register the schedule in Step 6d. The first scheduled run creates the fixture set, and
     the first scores land on the next monthly tick, or sooner on an on-demand
     ask.
-11. **Codebase survey** — the weekly deep pass over one area of the repository
+11. **Ready-to-land nudge** (only when Slack is enabled) — ask:
+
+    > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line saying it is ready to land. Once per approval, to the author. Without it an approved PR goes quiet, which reads the same as still waiting. Turn it on?
+
+    **Yes** → `merge_ready_nudge: enabled`. Default off; it needs no schedule
+    of its own, because the shepherd sweep already runs.
+12. **Codebase survey** — the weekly deep pass over one area of the repository
     (`docs/survey.md`). Ask:
 
     > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report what a diff cannot show: code nothing reaches, logic that exists twice, a critical path with no test, drift from your own conventions and decision records. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surfaces (`survey_report`,
     default `gist`) and register the schedule in Step 6e. Default off.
-12. **Review cadence** — `active_hours`, `active_days`,
+13. **Review cadence** — `active_hours`, `active_days`,
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
@@ -460,6 +466,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surfaces: dam (default) | gist | gist,dam | off
+- merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - survey: enabled                      # weekly deep pass over one area; omit = disabled
 - survey_report: gist                  # survey artifact surfaces: gist (default) | dam | gist,dam | off
 - survey_interval_days: 7              # floor between two passes; omit = 7
