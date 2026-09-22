@@ -1353,18 +1353,36 @@ if [ "$MODE" = "shepherd" ]; then
       new_status="approved"
       # the notification is sticky while the class stays approved, so the row
       # carries it forward and the PR is told exactly once
-      [ "$status" = "ready-notified" ] && new_status="ready-notified"
-      if [ "$MERGE_READY" = "enabled" ] && [ "$status" != "ready-notified" ]; then
-        ci_json="$(ci_runs "$REPO" "$head_sha")"
-        if ! ci_terminal "$ci_json"; then
-          log "PR #$n: approved, checks still running — ready-to-land nudge waits"
-        elif [ "$(ci_failing "$ci_json" | jq 'length')" -gt 0 ]; then
-          log "PR #$n: approved but CI failed — no ready-to-land nudge"
-        elif [ "$(own_open_criticals "$n")" -gt 0 ]; then
+      notified=0
+      if [ "$status" = "ready-notified" ]; then
+        new_status="ready-notified"; notified=1
+        # the mark covers the approval it announced. An approval submitted
+        # after that message — the second one, once new commits dropped the
+        # first — is a new landing moment and is announced again.
+        last_approval="$(printf '%s' "$reviews_json" | jq -r --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+          if type != "array" then empty else
+            [ .[] | select(.user.login != $b and .user.login != $a)
+                  | select((.body // "") | contains($m) | not)
+                  | select(.state == "APPROVED") | .submitted_at // empty ] | max // empty
+          end' 2>/dev/null)"
+        [ -n "$last_approval" ] && [ "$last" != "-" ] \
+          && [ "$(iso2epoch "$last_approval")" -gt "$(iso2epoch "$last")" ] && notified=0
+      fi
+      if [ "$MERGE_READY" = "enabled" ] && [ "$notified" -eq 0 ]; then
+        # the free local check first: a PR blocked by a critical of my own pays
+        # no rollup call on every sweep
+        if [ "$(own_open_criticals "$n")" -gt 0 ]; then
           # the review already said this in full; a second message would repeat it
-          log "PR #$n: approved and green, but my last review has open critical(s) — no ready-to-land nudge"
+          log "PR #$n: approved, but my last review has open critical(s) — no ready-to-land nudge"
         else
-          due=1; next_level=1; nudge_class="ready_to_land"
+          ci_json="$(ci_runs "$REPO" "$head_sha")"
+          if ! ci_terminal "$ci_json"; then
+            log "PR #$n: approved, checks still running — ready-to-land nudge waits"
+          elif [ "$(ci_failing "$ci_json" | jq 'length')" -gt 0 ]; then
+            log "PR #$n: approved but CI failed — no ready-to-land nudge"
+          else
+            due=1; next_level=1; nudge_class="ready_to_land"
+          fi
         fi
       fi
     elif [ "$status" = "held" ] && { [ -z "$prev_state" ] || [ "$prev_state" = "$cls" ]; }; then new_status="held"  # hold is sticky until the class changes

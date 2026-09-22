@@ -87,8 +87,10 @@ tone ladder:
   wording.
 
 A ready-to-land nudge takes no focus line and no level: preflight marks the row
-`ready-notified`, which is sticky while the PR stays approved. New commits that
-drop the approval clear it, so a second approval is announced again.
+`ready-notified`, and the mark covers the approval it announced. It is sticky
+for that approval, so the PR is told exactly once. An approval submitted after
+the message — the second one, once new commits dropped the first — is a new
+landing moment and is announced again.
 
 The focus line comes from the targets' expertise plus the PR content. Level 4 =
 widen and hold: include the `escalation` mention from the worklist when its

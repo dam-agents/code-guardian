@@ -143,12 +143,27 @@ assert_jq '.nudges_due[0] | .targets == "alice!" and .needs_target_selection == 
 assert_jq '.nudges_due[0].row_update.status == "ready-notified"' 'the record marks the PR announced'
 
 # --- said once: a row already marked stays silent -----------------------------
+approved_at_fx() { # <pr-number> <submitted-at>
+  jq -nc --arg ts "$2" '[{user:{login:"bob"}, state:"APPROVED", body:"", submitted_at:$ts}]' \
+    | fx "api repos/acme/widgets/pulls/$1/reviews?per_page=100"
+}
+
 new_case shepherd_ready_once
 ready_setup
+approved_at_fx 1 "$(iso_ago 86400)"   # the approval the message already covered
 printf '| 1 | %s | - | approved | 1 | %s | 1 | ready-notified |\n' "$(iso_ago 172800)" "$(iso_ago 7200)" >> "$WORK/SHEPHERD.md"
 run_preflight shepherd
 assert_jq '(.nudges_due | length) == 0' 'an announced PR is never announced twice'
 assert_file_contains "$WORK/SHEPHERD.md" 'ready-notified' 'the row keeps the mark while the PR stays approved'
+
+# --- a second approval is a new landing moment --------------------------------
+new_case shepherd_ready_second_approval
+ready_setup
+approved_at_fx 1 "$(iso_ago 3600)"    # approved again, after the message went out
+printf '| 1 | %s | - | approved | 1 | %s | 1 | ready-notified |\n' "$(iso_ago 172800)" "$(iso_ago 7200)" >> "$WORK/SHEPHERD.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1' 'an approval newer than the mark is announced again'
+assert_jq '.nudges_due[0] | .class == "ready_to_land" and .targets == "alice!"' 'the second announcement is the same shape'
 
 # --- a running check holds it, a failing one cancels it -----------------------
 new_case shepherd_ready_ci_running
@@ -174,6 +189,7 @@ printf '## Review at aaaaaaa\n\n<!-- findings-json: [{"severity":"critical","sta
 run_preflight shepherd
 assert_jq '(.nudges_due | length) == 0' 'an open critical of mine blocks the announcement'
 assert_jq '[.logs[] | select(test("open critical"))] | length == 1' 'the reason is logged'
+assert_jq '[.logs[] | select(test("checks still running|CI failed"))] | length == 0' 'the rollup is not read for a PR my own critical blocks'
 
 new_case shepherd_ready_critical_fixed
 ready_setup
