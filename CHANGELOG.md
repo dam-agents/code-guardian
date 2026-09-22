@@ -11,6 +11,21 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.4.0 — 2026-09-22
+
+**Upgrade:** The ready-to-land nudge is new and off by default
+([docs/shepherd.md](docs/shepherd.md) → **Ready to land**). With Slack already
+enabled, turn it on by adding the key — idempotent, and it writes nothing that
+is already there:
+
+```bash
+C=/home/agent/work/CONFIG.md
+grep -q '^- merge_ready_nudge:' "$C" || printf -- '- merge_ready_nudge: enabled\n' >> "$C"
+bash "$HOME/scripts/verify-onboarding.sh"
+```
+
+No schedule changes: it rides on the shepherd sweep that already runs.
+
 ## 5.3.0 — 2026-09-22
 
 **Upgrade:** The codebase survey is new and off by default

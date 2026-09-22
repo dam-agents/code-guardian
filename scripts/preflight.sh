@@ -1193,6 +1193,35 @@ if [ "$MODE" = "shepherd" ]; then
   [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
   [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
 
+  # Merge readiness: an approved, green, conflict-free PR is silent today, and
+  # silence reads the same as "still waiting" (docs/shepherd.md → Ready to
+  # land). Off by default, like everything that speaks to people.
+  MERGE_READY="$(cfg merge_ready_nudge)"; MERGE_READY="${MERGE_READY:-disabled}"
+  case "$MERGE_READY" in
+    (enabled|disabled) ;;
+    (*) log "merge_ready_nudge '$MERGE_READY' unknown — treating as disabled"; MERGE_READY=disabled;;
+  esac
+  if [ "$MERGE_READY" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
+    MERGE_READY=disabled
+    log_warn "lib/ci-rollup.sh unreadable — the ready-to-land nudge is disabled this run"
+  fi
+
+  # The agent's own last word on the PR: a critical it raised and the author has
+  # not fixed means the PR is not ready, whatever the humans approved. The
+  # newest findings-json of the history file is that word; no file, no review,
+  # and the check is vacuously clear.
+  own_open_criticals() { # <pr-number> -> count
+    local f="$WORK/reviews/pr-$1.md" j
+    [ -f "$f" ] || { printf 0; return 0; }
+    j="$(grep -o '<!-- findings-json: .* -->' "$f" 2>/dev/null | tail -1 \
+         | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//')"
+    [ -n "$j" ] || { printf 0; return 0; }
+    printf '%s' "$j" | jq '[.[] | select(type == "object")
+                            | select((.severity // "") == "critical")
+                            | select((.status // "") != "fixed")] | length' 2>/dev/null \
+      || printf 0
+  }
+
   # roster: login -> slack_id (table or bullet format)
   ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
       l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
@@ -1248,7 +1277,7 @@ if [ "$MODE" = "shepherd" ]; then
   }
 
   NEW_TABLE=""; NUDGES_DUE='[]'
-  while IFS=$'\t' read -r n title author created labels requested url; do
+  while IFS=$'\t' read -r n title author created head_sha labels requested url; do
     row="$(shep_row "$n")"
     eligible="$(row_field "$row" 3)"
     if [ -z "$eligible" ]; then
@@ -1317,9 +1346,27 @@ if [ "$MODE" = "shepherd" ]; then
     age_h=$(( (NOW_EPOCH - $(iso2epoch "$eligible")) / 3600 ))
     since_last=999999; [ "$last" != "-" ] && since_last=$(( (NOW_EPOCH - $(iso2epoch "$last")) / 3600 ))
 
-    due=0; new_status="watching"; next_level="$level"
-    # an approved PR nudges only while it has merge conflicts (rebase ask)
-    if [ "$cls" = "approved" ] && [ "$dirty" = "false" ]; then new_status="approved"
+    due=0; new_status="watching"; next_level="$level"; nudge_class="$cls"
+    # An approved PR nudges while it has merge conflicts (rebase ask), and once
+    # when it is ready to land (docs/shepherd.md → Ready to land).
+    if [ "$cls" = "approved" ] && [ "$dirty" = "false" ]; then
+      new_status="approved"
+      # the notification is sticky while the class stays approved, so the row
+      # carries it forward and the PR is told exactly once
+      [ "$status" = "ready-notified" ] && new_status="ready-notified"
+      if [ "$MERGE_READY" = "enabled" ] && [ "$status" != "ready-notified" ]; then
+        ci_json="$(ci_runs "$REPO" "$head_sha")"
+        if ! ci_terminal "$ci_json"; then
+          log "PR #$n: approved, checks still running — ready-to-land nudge waits"
+        elif [ "$(ci_failing "$ci_json" | jq 'length')" -gt 0 ]; then
+          log "PR #$n: approved but CI failed — no ready-to-land nudge"
+        elif [ "$(own_open_criticals "$n")" -gt 0 ]; then
+          # the review already said this in full; a second message would repeat it
+          log "PR #$n: approved and green, but my last review has open critical(s) — no ready-to-land nudge"
+        else
+          due=1; next_level=1; nudge_class="ready_to_land"
+        fi
+      fi
     elif [ "$status" = "held" ] && { [ -z "$prev_state" ] || [ "$prev_state" = "$cls" ]; }; then new_status="held"  # hold is sticky until the class changes
     elif [ "$age_h" -lt 24 ]; then new_status="watching"
     elif [ "$since_last" -lt 20 ]; then new_status="${status:-watching}"
@@ -1329,7 +1376,10 @@ if [ "$MODE" = "shepherd" ]; then
     fi
 
     if [ "$due" -eq 1 ]; then
-      if [ "$dirty" = "true" ] || [ "$cls" = "changes_requested" ]; then
+      if [ "$nudge_class" = "ready_to_land" ]; then
+        # whoever merges is the author's call, so the message goes to them
+        targets="${author}!"; nudge_status="ready-notified"
+      elif [ "$dirty" = "true" ] || [ "$cls" = "changes_requested" ]; then
         # conflicts and requested changes are both the author's to resolve
         targets="${author}!"; nudge_status="nudging-author"
       else
@@ -1341,26 +1391,27 @@ if [ "$MODE" = "shepherd" ]; then
         [ -z "$targets" ] && [ -n "$reviewers" ] && [ "$reviewers" != "-" ] && targets="$reviewers"
         nudge_status="nudging"
       fi
-      [ "$next_level" -ge 4 ] && nudge_status="held"
+      [ "$nudge_class" != "ready_to_land" ] && [ "$next_level" -ge 4 ] && nudge_status="held"
       esc_id=""; [ "$next_level" -ge 4 ] && [ -n "$ESCALATION_OWNER" ] && esc_id="$(slack_id "$ESCALATION_OWNER")"
       mentions="$(for t in $(printf '%s' "$targets" | tr -d '!*' | tr ',' ' '); do id="$(slack_id "$t")"; [ -n "$id" ] && printf '%s\t%s\n' "$t" "$id"; done | jq -R 'split("\t") | {login:.[0], slack_id:.[1]}' | jq -s .)"
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
-        --argjson age "$age_h" --arg c "$cls" --argjson l "$next_level" --argjson m "$mentions" \
+        --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson m "$mentions" \
         --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" \
         '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
           conflict:$conf,
-          needs_target_selection: ($m|length==0 and $c!="changes_requested" and ($conf|not)),
+          needs_target_selection: ($m|length==0 and $c!="changes_requested"
+                                   and $c!="ready_to_land" and ($conf|not)),
           escalation:{login:$eo, slack_id:$eid},
           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
-      log "PR #$n: nudge L$next_level due ($cls, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
+      log "PR #$n: nudge L$next_level due ($nudge_class, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
       # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
     fi
 
     [ -z "$reviewers" ] && reviewers="-"
     NEW_TABLE="$NEW_TABLE| $n | $eligible | $reviewers | $cls | $nudges | $last | $next_level | ${new_status:-watching} |"$'\n'
-  done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, (.title|gsub("\t";" ")), .author, .created_at,
+  done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, (.title|gsub("\t";" ")), .author, .created_at, .head_sha,
              ((.labels|join(","))|if .=="" then "-" else . end),
              ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
 

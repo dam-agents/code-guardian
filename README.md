@@ -216,6 +216,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
 | `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures with known defects, time and tokens measured per review (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
+| `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `gist`) | Surfaces for the accumulated survey artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
 | `audit_trend` | defaulted to `dam` | Surfaces for the weekly trend artifact, updated in place at a stable URL: `dam`, `gist`, `gist,dam`, or `off`. |

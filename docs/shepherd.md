@@ -9,8 +9,9 @@ author; only `APPROVED` silences, `CHANGES_REQUESTED` flips to author-directed
 mode, a bare `COMMENTED` counts as awaiting), applied the 24 h age gate, the
 20 h per-PR cooldown and the ≥2-day escalation tick, reset the ladder — but
 never the clock — on class transitions, kept `held` rows held, flagged merge
-conflicts (`conflict: true`; such nudges are author-directed, and an approved
-PR nudges only while conflicted), and updated the ledger's bookkeeping columns.
+conflicts (`conflict: true`; such nudges are author-directed), decided whether
+an approved PR is ready to land (**Ready to land**, under
+`merge_ready_nudge: enabled`), and updated the ledger's bookkeeping columns.
 A PR whose reviews could not be read at all is **deferred**: no class, no
 nudge, its ledger row carried over verbatim until a sweep can read it.
 **Rows with a due nudge were left untouched** — advancing them is your
@@ -70,6 +71,13 @@ style**).
 - L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <@author> please push an update or reply to the reviewer. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <@escalation-owner-slack-id> (<escalation_owner>). <@author> let's get this unblocked. <url>`
 
+**Ready to land** (`class: "ready_to_land"`, author-targeted, sent once) — an
+approved PR with no conflict, a green check rollup and no open critical of the
+agent's own. There is no ladder: silence after an approval reads the same as
+"still waiting", and one message fixes that.
+
+- `✅ PR #<n> "<title>" is approved, the checks pass and it has no conflicts. <@author> it is ready to land. <url>`
+
 **Conflict-directed** (`conflict: true`, any review class including approved;
 always author-targeted) — lead with the conflict fact, then the author-directed
 tone ladder:
@@ -77,6 +85,10 @@ tone ladder:
 - L1: `🔀 PR #<n> "<title>" has merge conflicts with the base branch. <@author> please rebase or merge so it can land. <url>`
 - L2+: the author-directed templates' rising tone, keeping the conflict
   wording.
+
+A ready-to-land nudge takes no focus line and no level: preflight marks the row
+`ready-notified`, which is sticky while the PR stays approved. New commits that
+drop the approval clear it, so a second approval is announced again.
 
 The focus line comes from the targets' expertise plus the PR content. Level 4 =
 widen and hold: include the `escalation` mention from the worklist when its
@@ -115,6 +127,7 @@ cell.
 Every send matched a `nudges_due` entry · every sent nudge's `row_update` was
 written immediately AFTER the send, with a real UTC `last_nudge_at`, and a
 failed send left its row untouched · only roster `slack_id`s mentioned ·
-targets persisted when selected · send failures logged · observed areas
+targets persisted when selected · a ready-to-land entry sent to its author
+alone, once · send failures logged · observed areas
 appended additively · `work/` backed up last
 ([persistence.md](persistence.md)).
