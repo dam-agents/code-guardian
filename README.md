@@ -65,6 +65,13 @@ schedules, memory-rule compliance, nudge integrity, lessons from 👎-flagged
 findings — and sends a traffic-light report to Slack when enabled, and to the
 chat UI always ([`docs/audit.md`](docs/audit.md)).
 
+**Codebase survey** — weekly in a quiet hour, gated by `survey`. A review reads
+a diff; a survey reads one area of the repository as it stands and reports what
+a diff structurally cannot show. The area is chosen deterministically (never
+surveyed first, then the oldest pass), the pass is capped before it starts, and
+the history accumulates in one artifact with a stable URL
+([`docs/survey.md`](docs/survey.md)).
+
 **Weekly trends** — every audit also appends its measured week to
 `work/audit/` and republishes one accumulated artifact: volume, findings and
 their acceptance, latency, spend per week and per review, stalls and error
@@ -209,6 +216,8 @@ what it can and asking for the rest. Per-key semantics are in
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
 | `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures with known defects, time and tokens measured per review (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
+| `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
+| `survey_report` | asked with `survey` (default `gist`) | Surfaces for the accumulated survey artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
 | `audit_trend` | defaulted to `dam` | Surfaces for the weekly trend artifact, updated in place at a stable URL: `dam`, `gist`, `gist,dam`, or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `gist`) | Surfaces for the accumulated report artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. The active interval defaults to 5 minutes to stay under the harness prompt-cache TTL, so back-to-back idle ticks re-read the cached prefix instead of rewriting it; quiet hours drop to hourly, where most idle spend sits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |

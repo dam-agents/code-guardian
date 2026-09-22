@@ -11,6 +11,24 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.3.0 — 2026-09-22
+
+**Upgrade:** The codebase survey is new and off by default
+([docs/survey.md](docs/survey.md)). To turn it on, add the keys and register
+its schedule — idempotent, and it writes nothing that is already there:
+
+```bash
+C=/home/agent/work/CONFIG.md
+grep -q '^- survey:' "$C" || printf -- '- survey: enabled\n' >> "$C"
+grep -q '^- survey_report:' "$C" || printf -- '- survey_report: gist\n' >> "$C"
+bash "$HOME/scripts/verify-onboarding.sh"
+```
+
+Then create `code-guardian-survey-weekly` with the cron, `precheck` and `task`
+of [ONBOARDING.md](ONBOARDING.md) Step 6e, unless a schedule of that name
+already exists. Leaving `survey` unset changes nothing: the mode reports
+`nothing_to_do` and the schedule is never registered.
+
 ## 5.2.0 — 2026-09-22
 
 **Upgrade:** Nothing — the weekly audit computes the new project-health

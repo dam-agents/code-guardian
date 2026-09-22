@@ -37,7 +37,7 @@ model call at all. A started run receives the gate's stdout: the
 ## The pre-flight contract
 
 **Entry command:** `bash "$HOME/scripts/preflight.sh" <mode>` — `review`,
-`shepherd`, `audit` or `benchmark`. A run executes it only when its prompt
+`shepherd`, `audit`, `benchmark` or `survey`. A run executes it only when its prompt
 carries no worklist path: the ungated audit, the direct session, a gate that
 broke. Cadence, gate and task text per run: ONBOARDING Step 6.
 
@@ -91,6 +91,7 @@ writes, no API calls, no self-check narration.
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` | [benchmark.md](benchmark.md) |
+| `survey_due` | survey mode: the area to read this run, with its caps and history slice | [survey.md](survey.md) |
 | `stall_alert` | `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24 h reached `stall_alert_threshold` (once per UTC day) → report it after the review work | review.md → **Stalled-review rate alert** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |
 | `config` | every `work/CONFIG.md` key resolved with its default, plus the `skills_table` and `watch_rules` rows; present whenever there is work | [config.md](config.md) |
@@ -251,6 +252,16 @@ triage and the 14-day retention cleanup already happened inside preflight
    and results that fail it never reach the history.
 2. Back up `work/` as the very last action.
 
+## Survey run (mode `survey`, worklist has `survey_due`)
+
+1. Read [survey.md](survey.md) and read the area the entry names — never one of
+   your own choosing. `scripts/survey.sh prepare` lists exactly the files this
+   pass reads; the caps are the run's cost bound.
+2. Write the findings in the review form ([finding-form.md](finding-form.md)),
+   record the pass, then regenerate and republish the accumulated artifact.
+   A survey posts nothing on GitHub and changes no code.
+3. Back up `work/` as the very last action.
+
 ## Hard invariants (every run)
 
 - Never emit an unexpanded `$REPO` or a raw `github_repo` placeholder — the
@@ -391,6 +402,7 @@ triage and the 14-day retention cleanup already happened inside preflight
 | [audit.md](audit.md) | An audit run — agent-side checks, report format, send rules |
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
+| [survey.md](survey.md) | `survey_due` present, or the operator asks about a codebase survey — area selection, the caps, the pass, the artifact |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |
 | [persistence.md](persistence.md) | End-of-run persist; an update or version-check request; any request to change the definition |
 | [logging.md](logging.md) | Writing or reading structured log events, debugging a past run, harness adapters, retention |

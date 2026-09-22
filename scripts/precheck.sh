@@ -7,7 +7,7 @@
 # timeout — means the gate itself broke, so the session starts anyway. Whatever
 # the gate prints on stdout is appended to the task prompt.
 #
-#   precheck.sh <review|shepherd|benchmark>      # the mode is required
+#   precheck.sh <review|shepherd|benchmark|survey>   # the mode is required
 #
 # It runs `preflight.sh <mode>` ONCE, keeps the worklist on disk, and prints the
 # path plus the summary the run starts from:
@@ -41,15 +41,15 @@ if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then
 fi
 
 case "$MODE" in
-  review|shepherd|benchmark) ;;
+  review|shepherd|benchmark|survey) ;;
   audit)
     printf 'precheck: audit is not gated — its worklist always carries work. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
   '')
-    printf 'precheck: no mode given (use review|shepherd|benchmark). The schedule gate names its mode — docs/runbook.md → **The schedule gate**.\n'
+    printf 'precheck: no mode given (use review|shepherd|benchmark|survey). The schedule gate names its mode — docs/runbook.md → **The schedule gate**.\n'
     exit 2;;
   *)
-    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark).\n' "$MODE"
+    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey).\n' "$MODE"
     exit 2;;
 esac
 
@@ -108,6 +108,7 @@ WHAT="$(printf '%s' "$JSON" | jq -r '
     | "\(.key)=\((.value | length))"
       + ( [ .value[] | .number? // empty ] | if length > 0 then " (#" + (map(tostring) | join(", #")) + ")" else "" end ) ]
   + ( if (.benchmark_due | type) == "object" then [ "benchmark_due=" + (.benchmark_due.action // "?") ] else [] end )
+  + ( if (.survey_due | type) == "object" then [ "survey_due=" + (.survey_due.path // "?") ] else [] end )
   + ( if has("stall_alert") then [ "stall_alert=" + (.stall_alert.count | tostring) ] else [] end )
   | join(", ")')"
 

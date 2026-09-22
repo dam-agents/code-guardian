@@ -20,8 +20,8 @@ computed worklist. `scripts/preflight.sh` detects, never acts.
    ([docs/runbook.md](docs/runbook.md) → **Entry command**).
 2. **Read [docs/runbook.md](docs/runbook.md) before any other action** — the
    schedule gate, the worklist contract, the run procedures (`Review run`,
-   `Shepherd run`, `Audit run`, `Benchmark run`: the sections a schedule's task
-   text names as `CLAUDE.md → "<name>"`), the trust boundary and the hard
+   `Shepherd run`, `Audit run`, `Benchmark run`, `Survey run`: the sections a
+   schedule's task text names as `CLAUDE.md → "<name>"`), the trust boundary and the hard
    invariants — and follow it to the end of the run.
 3. No worklist (the gate broke, the file is gone, `nothing_to_do` from an
    ungated run) → the prompt says what happened: run the entry command yourself,

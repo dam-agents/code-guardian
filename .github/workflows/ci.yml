@@ -130,20 +130,21 @@ jobs:
           step6 = md.split(head)[1].split('\n## ')[0]
 
           quotes = [' '.join(l[2:].split()) for l in step6.splitlines() if l.startswith('> ')]
-          if len(quotes) != 4:
-              sys.exit('ONBOARDING Step 6: expected 4 task blockquotes, found %d' % len(quotes))
+          if len(quotes) != 5:
+              sys.exit('ONBOARDING Step 6: expected 5 task blockquotes, found %d' % len(quotes))
           crons = {c for c in re.findall(r'`([^`]+)`', step6)
                    if re.fullmatch(r'[-0-9*/,]+( [-0-9*/,]+){4}', c)}
           modes = set(re.findall(r'precheck: bash "\$HOME/scripts/precheck\.sh" (\w+)', step6))
           names = set(re.findall(r'code-guardian-[a-z0-9-]+', step6))
 
-          # Step 6 defines four runs; a kit schedule joins one by its name prefix.
+          # Step 6 defines five runs; a kit schedule joins one by its name prefix.
           # Per run: its task blockquote, its precheck mode, and whether the kit
           # creates it enabled (the Slack and benchmark runs wait for their key).
           SPEC = {'code-guardian-review-':    (0, 'review',    True),
                   'code-guardian-shepherd-':  (1, 'shepherd',  False),
                   'code-guardian-audit-':     (2, None,        True),
-                  'code-guardian-benchmark-': (3, 'benchmark', False)}
+                  'code-guardian-benchmark-': (3, 'benchmark', False),
+                  'code-guardian-survey-':    (4, 'survey',    False)}
 
           schedules = yaml.safe_load(open('kit.yaml')).get('schedules') or []
           bad, kit_crons = [], set()
