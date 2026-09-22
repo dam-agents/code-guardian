@@ -1519,18 +1519,26 @@ append_history() { # sha7 ts verdict body-file findings note kind — the body a
 # Best-effort by design: a row that cannot be built or written is logged and
 # never fails the post.
 append_ledger() { # sha7 ts verdict body-file findings kind
-  local fx sp sup ste row
+  local fx sp sup ste size row
+  # a count GitHub has not finished computing reads as absent, never as zero
+  num() { case "${1:-}" in (''|null|*[!0-9]*) printf null;; (*) printf '%s' "$1";; esac; }
   fx="$(grep -cE '^- ✅ \*\*Fixed:\*\*' "$4" 2>/dev/null || true)"
   sp="$(grep -cE '^- 🔁 \*\*Still present:\*\*' "$4" 2>/dev/null || true)"
   # the review's own audit note, counted per source (docs/review.md → **PR
   # context**): the findings this review settled instead of posting
   sup="$(jq -Rsc "$RR_SUP_JQ" "$4" 2>/dev/null)"
   ste="$(ste_stats "$4")"
+  # the PR's own size, so the week can report what the team ships, not only what
+  # the agent said about it (docs/audit.md → task 33)
+  size="$(jq -nc --argjson f "$(num "$(ctx_get '.changes.changed_files')")" \
+    --argjson a "$(num "$(ctx_get '.changes.additions')")" \
+    --argjson d "$(num "$(ctx_get '.changes.deletions')")" \
+    '{files:$f, additions:$a, deletions:$d}' 2>/dev/null)"
   row="$(jq -nc --argjson pr "$N" --arg sha "$1" --arg ts "$2" --arg v "$3" --arg k "${6:-}" \
     --argjson fx "${fx:-0}" --argjson sp "${sp:-0}" --slurpfile f "$5" \
-    --argjson sup "${sup:-null}" --argjson ste "${ste:-null}" '
+    --argjson sup "${sup:-null}" --argjson ste "${ste:-null}" --argjson size "${size:-null}" '
     { src: "ledger", pr: $pr, ts: $ts, sha: $sha,
-      kind: (if $k == "" then "first" else $k end), verdict: $v,
+      kind: (if $k == "" then "first" else $k end), verdict: $v, size: $size,
       bullets: { fixed: $fx, still: $sp }, suppressed: $sup, ste: $ste,
       findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
                   | select(type == "object")

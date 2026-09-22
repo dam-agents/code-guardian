@@ -821,15 +821,18 @@ together with the history section above:
 
 ```json
 {"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
- "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","bullets":{"fixed":0,"still":0},
+ "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","size":{"files":3,"additions":40,"deletions":5},
+ "bullets":{"fixed":0,"still":0},
  "suppressed":{"overrides":0,"context":0,"decisions":0,"total":0},
  "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0,"v":2},
  "findings":[{"status":"new","severity":"critical"}]}
 ```
 
-`suppressed` counts the audit note (**PR context**) and `ste` measures the
-posted prose against the sentence bar; a row written before they existed
-carries neither, and the audit reads both as a floor.
+`suppressed` counts the audit note (**PR context**), `ste` measures the posted
+prose against the sentence bar, and `size` is the PR itself — a count GitHub
+had not finished computing is `null`, never `0` ([audit.md](audit.md) → task
+33). A row written before a field existed carries none of it, and the audit
+reads each as a floor.
 
 Pruning deletes the history file, the ledger row stays — so the weekly numbers
 count the reviews of the week, not only the reviews of the PRs that are still

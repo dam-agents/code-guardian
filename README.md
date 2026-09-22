@@ -68,8 +68,10 @@ chat UI always ([`docs/audit.md`](docs/audit.md)).
 **Weekly trends** — every audit also appends its measured week to
 `work/audit/` and republishes one accumulated artifact: volume, findings and
 their acceptance, latency, spend per week and per review, stalls and error
-counts, as a summary against the previous week and the 4-week average, inline
-charts and one row per week. The history is append-only, the report is
+counts, plus the repository's own health — how much of what merged was
+reviewed, median PR size, how long a PR waits for its first **human** review,
+and which areas carry the findings — as a summary against the previous week
+and the 4-week average, inline charts and one row per week. The history is append-only, the report is
 regenerated from it, and the whole step is two deterministic script calls — no
 model calls ([`docs/trends.md`](docs/trends.md)).
 

@@ -4,7 +4,8 @@
 #
 #   review_records <reviews dir> <ledger file> [<since ISO>]   # JSONL on stdout
 #
-# Record: {src, pr, ts, sha, kind, verdict, bullets:{fixed,still},
+# Record: {src, pr, ts, sha, kind, verdict, size:{files,additions,deletions} | null,
+#          bullets:{fixed,still},
 #          suppressed:{overrides,context,decisions,total} | null,
 #          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
 #          findings:[{status,severity}] | null}
@@ -83,6 +84,7 @@ RR_MERGE_JQ='
 [ .[] | select(type == "object")
   | { src: (.src // "ledger"), pr: .pr, ts: .ts, sha: (.sha // null),
       kind: (.kind // null), verdict: (.verdict // null),
+      size: (if (.size | type) == "object" then .size else null end),
       bullets: { fixed: (.bullets.fixed? // 0), still: (.bullets.still? // 0) },
       suppressed: (if (.suppressed | type) == "object" then .suppressed else null end),
       ste: (if (.ste | type) == "object" then .ste else null end),

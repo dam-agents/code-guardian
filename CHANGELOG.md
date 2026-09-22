@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.2.0 — 2026-09-22
+
+**Upgrade:** Nothing — the weekly audit computes the new project-health
+figures on its own, and the shepherd starts recording `work/PR-EVENTS.jsonl`
+on its next sweep. Weeks already on record render the new columns as `—`; a
+repository with no shepherd schedule leaves the human-latency and conflict
+figures unmeasured, which the report states.
+
 ## 5.1.0 — 2026-09-22
 
 **Upgrade:** CI failure triage is new and off by default

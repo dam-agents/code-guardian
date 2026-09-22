@@ -88,4 +88,36 @@ assert_jq '.nudges_due | length == 0' 'an unclassifiable PR never nudges'
 assert_file_contains "$WORK/SHEPHERD.md" 'changes_requested' 'ledger keeps the last known state'
 assert_out_absent 'awaiting_review' 'an outage is never recorded as a read answer'
 
+# --- PR facts: appended once, and they outlive the ledger row -----------------
+# docs/shepherd.md → **PR facts**: the audit counts project health from this
+# file, so a sweep must record the first independent review and any conflict.
+new_case shepherd_pr_facts
+shep_setup
+pr_json 1 "reviewed and conflicted" '[]' "$SHA1" | open_prs_fx
+printf '[{"user":{"login":"bob"},"state":"COMMENTED","body":"","submitted_at":"2026-09-10T12:00:00Z"},
+         {"user":{"login":"bob"},"state":"APPROVED","body":"","submitted_at":"2026-09-11T12:00:00Z"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+dirty_fx 1
+run_preflight shepherd
+assert_file_contains "$WORK/PR-EVENTS.jsonl" '"kind":"first_review"' 'the first independent review is recorded'
+assert_file_contains "$WORK/PR-EVENTS.jsonl" '2026-09-10T12:00:00Z' 'the earliest review is the one recorded, not the latest'
+assert_file_contains "$WORK/PR-EVENTS.jsonl" '"kind":"conflict"' 'the conflict is recorded'
+BEFORE="$(grep -c '' "$WORK/PR-EVENTS.jsonl")"
+run_preflight shepherd
+AFTER="$(grep -c '' "$WORK/PR-EVENTS.jsonl")"
+if [ "$BEFORE" = "$AFTER" ]; then printf 'ok   %s: a second sweep appends nothing\n' "$CASE"
+else printf 'FAIL %s: the second sweep re-appended (%s -> %s)\n' "$CASE" "$BEFORE" "$AFTER"; FAILED=1; fi
+
+# --- the bot's own review is not a human review -------------------------------
+new_case shepherd_pr_facts_bot_excluded
+shep_setup
+pr_json 1 "only the bot reviewed" '[]' "$SHA1" | open_prs_fx
+printf '[{"user":{"login":"test-bot"},"state":"COMMENTED","body":"<!-- cg:review -->","submitted_at":"2026-09-10T12:00:00Z"},
+         {"user":{"login":"alice"},"state":"COMMENTED","body":"","submitted_at":"2026-09-11T12:00:00Z"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+run_preflight shepherd
+[ -f "$WORK/PR-EVENTS.jsonl" ] && grep -q 'first_review' "$WORK/PR-EVENTS.jsonl" \
+  && { printf 'FAIL %s: the bot or the author was counted as a human review\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: neither the bot nor the author counts as a human review\n' "$CASE"
+
 finish

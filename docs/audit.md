@@ -7,8 +7,8 @@ compute the derived metrics, send the report.
 
 **The audit fixes nothing.** Its only GitHub writes are a tracking issue for a
 definition bug found in task 3 and the trend artifact's publish; its local
-writes beyond `AUDIT.log` are the memory consolidation of task 33 and the trend
-append of task 35. Routine findings (pending prunes, stale
+writes beyond `AUDIT.log` are the memory consolidation of task 34 and the trend
+append of task 36. Routine findings (pending prunes, stale
 locks) heal on the next heartbeat; everything else goes to the operator. A
 skipped task is an incomplete audit — a task that is impossible this week
 (missing data, API error) is reported as `warn` with the reason, never dropped.
@@ -193,10 +193,10 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     ([config.md](config.md)) is only an estimate. Report `totalCostUsd` and the
     `byModel` split, then judge:
     - **Price-table drift** — the estimate (`stats.tokens.by_model` priced by
-      the table, the figure task 35 writes as `cost_usd`) over `totalCostUsd`
+      the table, the figure task 36 writes as `cost_usd`) over `totalCostUsd`
       outside **0.5×–2.0×** → **warn** with both figures and the model rows to
       re-check against current published prices. Judge it while you compose the
-      report, once task 35 produced the number. The band is wide on purpose:
+      report, once task 36 produced the number. The band is wide on purpose:
       this detects a stale price row, it does not reconcile the two figures —
       the populations differ at the window edges, the estimate excludes
       unpriced models, and telemetry counts direct sessions too.
@@ -211,7 +211,7 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
       the model this deployment expects. The second low-call, low-cost model
       beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
-      deployment`, and task 35's extras omit the key. Never a fail.
+      deployment`, and task 36's extras omit the key. Never a fail.
     - **Per review** — each spend figure divided by `stats.reviews.total`, 2
       decimals. A week with no review omits both per-review figures. A `≥`
       estimate keeps its `≥`. The trend's `$/review` is the same estimate
@@ -270,9 +270,32 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     Report the share and the average; a warn names the two longest reviews in
     *Action needed*.
 
+33. **Project health** — `stats.project` measures the **repository**, not the
+    agent, from local state plus one list call. Report each figure and judge
+    only what moved:
+    - `coverage` — merged PRs of the week against those this agent reviewed.
+      A share under 80 % means changes land unreviewed: name the count, and
+      read it against `awaiting_label` before calling it a gap.
+    - `pr_size` — the median first-reviewed PR in files and lines. A rising
+      median is the strongest single predictor of a slow review; report it,
+      never act on it.
+    - `human_latency` — the median hours from a PR becoming eligible to its
+      first **independent** review, over the PRs whose first review landed this
+      week. `n` is the population; a median over fewer than 3 is reported with
+      its `n` and judged as an anecdote.
+    - `conflicts` — PRs that hit a merge conflict this week.
+    - `hot_areas` — the three directories carrying the most open findings, from
+      the profile's own history ([profile.md](profile.md)). Orientation for the
+      reader, never a claim about the live code.
+
+    Every figure the week did not measure is `null` and is reported as
+    unmeasured, never as zero. `human_latency` and `conflicts` are counted from
+    `work/PR-EVENTS.jsonl`, which the shepherd appends to; without a shepherd
+    schedule both stay empty and the report says so once.
+
 ### H. Report & wrap-up
 
-33. **Memory consolidation** — before composing the report, run
+34. **Memory consolidation** — before composing the report, run
     [preferences.md](preferences.md) → **Weekly memory consolidation**.
     **Mandatory when `checks[]` carries a `memory_budget` warn or fail.** It
     ends within the bounds, or the report's *Action needed* names what remains.
@@ -281,13 +304,13 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     inside the stats window (Feedback Log, Observed Insights) plus the rules
     this consolidation promoted. They fill *Learned this week*, one compressed
     line each.
-34. **Profile notes** — when `work/PROFILE-NOTES.md` exists
+35. **Profile notes** — when `work/PROFILE-NOTES.md` exists
     ([profile.md](profile.md) → **Using it**): re-verify each row
     `work/PROFILE.md` marks `stale` against its live source (keep, reword or
     drop), drop `orphan` rows, and add a row when a lesson of the week
     generalizes to one code area — at most 10 rows, two sentences each. Report
     the delta on the memory line (`notes: kept X · updated Y · dropped Z`).
-35. **Trend artifact** — append this week to `work/audit/` and republish the
+36. **Trend artifact** — append this week to `work/audit/` and republish the
     accumulated report ([trends.md](trends.md)). Its delta line and the
     artifact URL fill the report's *Trend* line. A failed append or publish is
     reported as `warn` with the reason; the audit is complete regardless.
@@ -306,6 +329,8 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review style: <ste.sentences_over_20>/<ste.sentences> sentences over 20 words, average <ste.avg_sentence_words> (omit when ste.reviews = 0)
 • Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
+• Project — coverage: <project.coverage.reviewed>/<project.coverage.merged> merged PRs reviewed (<share>%) · median PR <pr_size.median_files> files / <median_lines> lines (n=<n>) · first human review <human_latency.median_hours>h (n=<n>) · merge conflicts: <conflicts> PRs (each figure "not measured" when null)
+• Findings sit in: <hot_areas[].dir> <critical>🔴/<warning>🟡, … — top 3 (omit when empty)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
