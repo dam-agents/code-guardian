@@ -121,7 +121,9 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
    `anchors_nulled`, `label_removed`, `dismissed_approval`) · `aborted`
    (**Error handling**) · `duplicate` (the marker is already on GitHub; the row
    self-heals with its timestamp) · `closed_*` (**PR closed mid-review**). Then
-   evaluate the configured watch rules ([watches.md](watches.md)).
+   evaluate the configured watch rules ([watches.md](watches.md)), and under
+   `ci_triage: enabled` triage a failing check on the posted SHA
+   ([ci-triage.md](ci-triage.md)).
 g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
@@ -1021,6 +1023,9 @@ Before you declare the run done:
   publish, published to each `artifact_targets` surface, one comment with the
   surviving links, markers recorded.
 - **Watch rules** — evaluated send-then-marker ([watches.md](watches.md)).
+- **`ci_triage: enabled`** — every `ci_failures_due` entry and every review
+  that ended on a failing check answered post-then-marker
+  ([ci-triage.md](ci-triage.md)).
 - **`review_progress: enabled`** — every locked PR on a terminal `success`
   status; `status_resets_due` closed out and their rows deleted.
 - **`stall_alert`** — reported, DM'd under Slack, `stall_alert_sent` logged, no
