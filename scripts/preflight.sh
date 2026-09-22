@@ -62,6 +62,11 @@ CONFIG="$WORK/CONFIG.md"
 REVIEWS="$WORK/REVIEWS.md"
 LEDGER="$WORK/REVIEW-LEDGER.jsonl"
 SHEPHERD="$WORK/SHEPHERD.md"
+# Append-only PR facts the weekly project-health metrics are counted from.
+# The shepherd ledger cannot serve them: pruning deletes a merged PR's row,
+# which is exactly the population a latency median must keep
+# (docs/audit.md → task 36).
+PR_EVENTS="$WORK/PR-EVENTS.jsonl"
 DEVELOPERS="$WORK/DEVELOPERS.md"
 SKILL_CACHE="$HOME_DIR/.claude/skills/.cache"
 NOW_EPOCH=$(date -u +%s)
@@ -1111,6 +1116,19 @@ if [ "$MODE" = "shepherd" ]; then
   }
 
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
+
+  # One append-only line per (PR, kind), written the first time a fact is seen
+  # and never rewritten. Both facts outlive the ledger row, which pruning
+  # deletes with the merged PR (docs/audit.md → task 36).
+  pr_event() { # <pr> <kind> <iso ts> [extra json object]
+    grep -qE "\"pr\":$1,\"kind\":\"$2\"" "$PR_EVENTS" 2>/dev/null && return 0
+    local line extra="$4"
+    [ -n "$extra" ] || extra='{}'
+    line="$(jq -nc --argjson pr "$1" --arg k "$2" --arg ts "$3" --argjson x "$extra" \
+      '{pr:$pr, kind:$k, ts:$ts} + $x' 2>/dev/null)" || return 0
+    [ -n "$line" ] && printf '%s\n' "$line" >> "$PR_EVENTS" 2>/dev/null
+    return 0
+  }
   shep_row()  { shep_rows | grep -E "^\| *$1 *\|" | head -1; }
 
   # Review classification from independent reviews (bot + author excluded,
@@ -1152,16 +1170,18 @@ if [ "$MODE" = "shepherd" ]; then
     # GraphQL endpoint answered correctly), and if neither responds the PR is
     # deferred with its ledger row carried over untouched — the same deferral
     # the review path makes on __api_error__.
-    cls="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null | classify_reviews "$author")"
+    reviews_json="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null)"
+    cls="$(printf '%s' "$reviews_json" | classify_reviews "$author")"
     if [ -z "$cls" ]; then
-      cls="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
+      reviews_json="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
                query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
-                 pullRequest(number:$n){reviews(last:100){nodes{state body author{login}}}}}}' 2>/dev/null \
+                 pullRequest(number:$n){reviews(last:100){nodes{state body submittedAt author{login}}}}}}' 2>/dev/null \
              | jq -c 'if (.data.repository.pullRequest.reviews.nodes | type) == "array"
                       then [ .data.repository.pullRequest.reviews.nodes[]
-                             | {user:{login:(.author.login // "")}, state, body} ]
-                      else empty end' 2>/dev/null \
-             | classify_reviews "$author")"
+                             | {user:{login:(.author.login // "")}, state, body,
+                                submitted_at: .submittedAt} ]
+                      else empty end' 2>/dev/null)"
+      cls="$(printf '%s' "$reviews_json" | classify_reviews "$author")"
       [ -n "$cls" ] && logev warn gh_api "PR #$n: reviews REST read faulted — classified via GraphQL"
     fi
     if [ -z "$cls" ]; then
@@ -1174,6 +1194,23 @@ if [ "$MODE" = "shepherd" ]; then
     # state; null = still computing, treated as clean until the next sweep)
     dirty=false
     [ "$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r '.mergeable_state // empty')" = "dirty" ] && dirty=true
+
+    # the earliest independent review is a historical fact the API carries, so
+    # this fills in for PRs that were already reviewed before the file existed
+    first_rev="$(printf '%s' "$reviews_json" | jq -r --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+      if type != "array" then empty else
+        [ .[] | select(.user.login != $b and .user.login != $a)
+              | select((.body // "") | contains($m) | not)
+              | .submitted_at // empty ] | min // empty
+      end' 2>/dev/null)"
+    if [ -n "$first_rev" ]; then
+      lat=$(( ($(iso2epoch "$first_rev") - $(iso2epoch "$eligible")) / 3600 ))
+      [ "$lat" -lt 0 ] && lat=0
+      pr_event "$n" first_review "$first_rev" "$(jq -nc --argjson h "$lat" --arg e "$eligible" '{latency_hours:$h, eligible_since:$e}')"
+    fi
+    # a conflict is only observable while it lasts, so the first sweep that sees
+    # one is the record; a later rebase never erases that the PR had one
+    [ "$dirty" = "true" ] && pr_event "$n" conflict "$NOW_ISO" '{}'
 
     # class transition resets the ladder (never the clock)
     [ -n "$prev_state" ] && [ "$prev_state" != "$cls" ] && level=1
@@ -1814,7 +1851,20 @@ if [ "$MODE" = "audit" ]; then
       rm -f "$LEDGER.tmp"
     fi
   fi
-  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d, the review ledger to 180d"
+  # PR facts: the same 180 days as the review ledger, for the same reason — the
+  # trend artifact reads project health back over past weeks (docs/audit.md
+  # task 36)
+  if [ -f "$PR_EVENTS" ]; then
+    pk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+          || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    if [ -n "$pk" ] && jq -c --arg k "$pk" 'select(type == "object" and (.ts // "") >= $k)' \
+         "$PR_EVENTS" > "$PR_EVENTS.tmp" 2>/dev/null; then
+      mv "$PR_EVENTS.tmp" "$PR_EVENTS"
+    else
+      rm -f "$PR_EVENTS.tmp"
+    fi
+  fi
+  logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d, the review ledger and the PR facts to 180d"
 
   # --- 7-day stats -----------------------------------------------------------
   # Volume, verdicts and findings all come from the same week of review records
@@ -1993,6 +2043,74 @@ if [ "$MODE" = "audit" ]; then
       '{n:$n, oldest_days:$d}')"
   else AWAITING_JSON="$(jq -n --argjson n "$al_n" '{n:$n, oldest_days:null}')"; fi
 
+  # --- project health: the repository's week, not the agent's (docs/audit.md
+  # → task 36). Local state plus one list call; every figure that was not
+  # measured stays null, never zero.
+  # the records reader is optional (its lib may be unreadable — the stats block
+  # above says so), so both callers below go through this guard
+  rr_week() {
+    command -v review_records >/dev/null 2>&1 || return 0
+    review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" 2>/dev/null
+  }
+  # coverage — PRs merged this week against the ones this agent reviewed
+  merged_nums="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null \
+    | jq -r --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s) | .number] | .[]' 2>/dev/null)"
+  if [ -n "$merged_nums" ]; then
+    reviewed_list="$(rr_week | jq -rs '[.[] | .pr] | unique | .[]' 2>/dev/null)"
+    m_total=0; m_reviewed=0
+    for mn in $merged_nums; do
+      m_total=$((m_total + 1))
+      printf '%s\n' "$reviewed_list" | grep -qx "$mn" && m_reviewed=$((m_reviewed + 1))
+    done
+    COVERAGE="$(jq -n --argjson m "$m_total" --argjson r "$m_reviewed" \
+      '{merged:$m, reviewed:$r, share:(if $m == 0 then null else (($r / $m * 100) | round) end)}')"
+  else
+    COVERAGE='{"merged":0,"reviewed":0,"share":null}'
+  fi
+
+  # PR size — from the ledger rows of the week, first reviews only, so a PR is
+  # measured once however often it came back
+  PR_SIZE="$(rr_week | jq -sc '
+      def med: sort | if length == 0 then null
+                      elif (length % 2) == 1 then .[(length / 2) | floor]
+                      else ((.[length / 2 - 1] + .[length / 2]) / 2 | round) end;
+      [.[] | select(.kind == "first") | .size | select(type == "object")] as $s
+      | { n: ($s | length),
+          median_files: ([$s[] | .files | select(type == "number")] | med),
+          median_lines: ([$s[] | select((.additions | type) == "number" and (.deletions | type) == "number")
+                              | (.additions + .deletions)] | med) }' 2>/dev/null)"
+  case "$PR_SIZE" in (''|null) PR_SIZE='{"n":0,"median_files":null,"median_lines":null}';; esac
+
+  # human review latency and conflict incidence — the append-only PR facts the
+  # shepherd records, which outlive the pruned ledger row
+  PROJECT_EVENTS="$(jq -sc --arg s "$SINCE_ISO" '
+      def med: sort | if length == 0 then null
+                      elif (length % 2) == 1 then .[(length / 2) | floor]
+                      else ((.[length / 2 - 1] + .[length / 2]) / 2 | round) end;
+      [.[] | select(type == "object" and .ts >= $s)] as $e
+      | { human_latency: ([$e[] | select(.kind == "first_review") | .latency_hours
+                                | select(type == "number")]
+                          | { n: length, median_hours: med }),
+          conflicts: ([$e[] | select(.kind == "conflict") | .pr] | unique | length) }' \
+    "$PR_EVENTS" 2>/dev/null)"
+  case "$PROJECT_EVENTS" in (''|null) PROJECT_EVENTS='{"human_latency":{"n":0,"median_hours":null},"conflicts":0}';; esac
+
+  # where the findings sit — the profile's own per-directory history, read
+  # locally; orientation for the report, never a claim about the live code
+  HOT_AREAS="$(jq -c '
+      [ (.history.dirs // [])[]
+        | { dir, critical: (.critical // 0), warning: (.warning // 0),
+            still: (.still // 0) }
+        | select(.critical + .warning > 0) ]
+      | sort_by(-(.critical * 10 + .warning)) | .[0:3]' \
+    "$WORK/PROFILE.json" 2>/dev/null)"
+  case "$HOT_AREAS" in (''|null) HOT_AREAS='[]';; esac
+
+  PROJECT_JSON="$(jq -nc --argjson cov "$COVERAGE" --argjson size "$PR_SIZE" \
+    --argjson ev "$PROJECT_EVENTS" --argjson hot "$HOT_AREAS" \
+    '{coverage:$cov, pr_size:$size, human_latency:$ev.human_latency,
+      conflicts:$ev.conflicts, hot_areas:$hot}')"
+
   STATS="$(jq -n --arg since "$SINCE_ISO" \
     --argjson al "$AWAITING_JSON" \
     --argjson open "$OPEN_COUNT" --argjson ra "$REVIEWS_AGG" \
@@ -2000,12 +2118,14 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
+    --argjson proj "$PROJECT_JSON" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
-      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx}')"
+      log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
+      project:$proj}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

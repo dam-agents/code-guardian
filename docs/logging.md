@@ -183,6 +183,8 @@ script-side), keeping at least 14 days:
 - `work/REVIEW-LEDGER.jsonl` ([review.md](review.md) → **Review ledger**) is
   trimmed to rows younger than **180 days** — it outlives the reviewed PR, and
   the trend backfill reads back over past weeks.
+- `work/PR-EVENTS.jsonl` ([shepherd.md](shepherd.md) → **PR facts**) is trimmed
+  to the same **180 days**, for the same reason.
 - `work/AUDIT.log` is exempt (one line per week).
 - The cleanup logs itself (`log_cleanup`, info). With `work/` git-backed, older
   logs stay recoverable from the work repo's history.

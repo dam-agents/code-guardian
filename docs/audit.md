@@ -270,6 +270,29 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     Report the share and the average; a warn names the two longest reviews in
     *Action needed*.
 
+36. **Project health** — `stats.project` measures the **repository**, not the
+    agent, from local state plus one list call. Report each figure and judge
+    only what moved:
+    - `coverage` — merged PRs of the week against those this agent reviewed.
+      A share under 80 % means changes land unreviewed: name the count, and
+      read it against `awaiting_label` before calling it a gap.
+    - `pr_size` — the median first-reviewed PR in files and lines. A rising
+      median is the strongest single predictor of a slow review; report it,
+      never act on it.
+    - `human_latency` — the median hours from a PR becoming eligible to its
+      first **independent** review, over the PRs whose first review landed this
+      week. `n` is the population; a median over fewer than 3 is reported with
+      its `n` and judged as an anecdote.
+    - `conflicts` — PRs that hit a merge conflict this week.
+    - `hot_areas` — the three directories carrying the most open findings, from
+      the profile's own history ([profile.md](profile.md)). Orientation for the
+      reader, never a claim about the live code.
+
+    Every figure the week did not measure is `null` and is reported as
+    unmeasured, never as zero. `human_latency` and `conflicts` are counted from
+    `work/PR-EVENTS.jsonl`, which the shepherd appends to; without a shepherd
+    schedule both stay empty and the report says so once.
+
 ### H. Report & wrap-up
 
 33. **Memory consolidation** — before composing the report, run
@@ -306,6 +329,8 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review style: <ste.sentences_over_20>/<ste.sentences> sentences over 20 words, average <ste.avg_sentence_words> (omit when ste.reviews = 0)
 • Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
+• Project — coverage: <project.coverage.reviewed>/<project.coverage.merged> merged PRs reviewed (<share>%) · median PR <pr_size.median_files> files / <median_lines> lines (n=<n>) · first human review <human_latency.median_hours>h (n=<n>) · merge conflicts: <conflicts> PRs (each figure "not measured" when null)
+• Findings sit in: <hot_areas[].dir> <critical>🔴/<warning>🟡, … — top 3 (omit when empty)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)

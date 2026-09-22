@@ -70,10 +70,14 @@ write, and it never touches state outside `work/audit/`.
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
 | Cost | heartbeats and idle share, tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.tokens`, the price table, extras |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts | `stats.stalls`, `stats.log_events`, `checks[]` |
+| Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 36) |
 
 A metric the week did not measure renders `—`. Zero is written only where zero
 was measured. Volume and quality are counted from the review ledger
-([review.md](review.md) → **Review ledger**).
+([review.md](review.md) → **Review ledger**); the project group is counted from
+that ledger, `work/PR-EVENTS.jsonl` and one list call of merged PRs. Every week
+recorded before a metric existed renders `—` for it — the week files are
+append-only, so history is never back-filled with a number nobody measured.
 
 ## Cost
 
