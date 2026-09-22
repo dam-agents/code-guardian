@@ -227,7 +227,7 @@ JQ_DERIVE='
         errors: ($s.log_events.errors // null), warns: ($s.log_events.warns // null),
         c_ok: (.checks.ok // null), c_warn: (.checks.warn // null), c_fail: (.checks.fail // null),
         memory_lines: (.extras.memory_lines // null),
-        # project health (docs/audit.md task 36): absent in every week recorded
+        # project health (docs/audit.md task 33): absent in every week recorded
         # before these metrics existed, which renders as a dash
         merged: ($s.project.coverage.merged // null),
         coverage: ($s.project.coverage.share // null),

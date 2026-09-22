@@ -831,7 +831,7 @@ together with the history section above:
 `suppressed` counts the audit note (**PR context**), `ste` measures the posted
 prose against the sentence bar, and `size` is the PR itself — a count GitHub
 had not finished computing is `null`, never `0` ([audit.md](audit.md) → task
-36). A row written before a field existed carries none of it, and the audit
+33). A row written before a field existed carries none of it, and the audit
 reads each as a floor.
 
 Pruning deletes the history file, the ledger row stays — so the weekly numbers

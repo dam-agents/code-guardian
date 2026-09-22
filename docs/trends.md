@@ -28,11 +28,11 @@ price table reaches every past week.
 One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
 of the same week in both views; both files stay on disk.
 
-## Procedure (audit task 35)
+## Procedure (audit task 36)
 
 1. **Extras** — write the values only the session knows to a temp file:
    `{"ttfr_median_min": <task 22 median>, "model": "<production model id>",
-   "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 33
+   "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 34
    total>}`. `model` is the model the week's runs actually ran on — task 27's
    busiest `byModel` entry, falling back to this session's own id when
    telemetry is unavailable; it also prices token events recorded as `unknown`.
@@ -70,7 +70,7 @@ write, and it never touches state outside `work/audit/`.
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
 | Cost | heartbeats and idle share, tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.tokens`, the price table, extras |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts | `stats.stalls`, `stats.log_events`, `checks[]` |
-| Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 36) |
+| Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
 
 A metric the week did not measure renders `—`. Zero is written only where zero
 was measured. Volume and quality are counted from the review ledger

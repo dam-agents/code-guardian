@@ -1529,7 +1529,7 @@ append_ledger() { # sha7 ts verdict body-file findings kind
   sup="$(jq -Rsc "$RR_SUP_JQ" "$4" 2>/dev/null)"
   ste="$(ste_stats "$4")"
   # the PR's own size, so the week can report what the team ships, not only what
-  # the agent said about it (docs/audit.md → task 36)
+  # the agent said about it (docs/audit.md → task 33)
   size="$(jq -nc --argjson f "$(num "$(ctx_get '.changes.changed_files')")" \
     --argjson a "$(num "$(ctx_get '.changes.additions')")" \
     --argjson d "$(num "$(ctx_get '.changes.deletions')")" \

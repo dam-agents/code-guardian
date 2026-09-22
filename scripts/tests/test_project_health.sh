@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Project health (docs/audit.md task 36): the weekly audit measures the
+# Project health (docs/audit.md task 33): the weekly audit measures the
 # repository — review coverage, PR size, human review latency, conflicts and
 # the areas carrying findings — and reports every unmeasured figure as null.
 . "$(dirname "$0")/helpers.sh"

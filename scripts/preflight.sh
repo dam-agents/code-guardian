@@ -65,7 +65,7 @@ SHEPHERD="$WORK/SHEPHERD.md"
 # Append-only PR facts the weekly project-health metrics are counted from.
 # The shepherd ledger cannot serve them: pruning deletes a merged PR's row,
 # which is exactly the population a latency median must keep
-# (docs/audit.md → task 36).
+# (docs/audit.md → task 33).
 PR_EVENTS="$WORK/PR-EVENTS.jsonl"
 DEVELOPERS="$WORK/DEVELOPERS.md"
 SKILL_CACHE="$HOME_DIR/.claude/skills/.cache"
@@ -1119,7 +1119,7 @@ if [ "$MODE" = "shepherd" ]; then
 
   # One append-only line per (PR, kind), written the first time a fact is seen
   # and never rewritten. Both facts outlive the ledger row, which pruning
-  # deletes with the merged PR (docs/audit.md → task 36).
+  # deletes with the merged PR (docs/audit.md → task 33).
   pr_event() { # <pr> <kind> <iso ts> [extra json object]
     grep -qE "\"pr\":$1,\"kind\":\"$2\"" "$PR_EVENTS" 2>/dev/null && return 0
     local line extra="$4"
@@ -1853,7 +1853,7 @@ if [ "$MODE" = "audit" ]; then
   fi
   # PR facts: the same 180 days as the review ledger, for the same reason — the
   # trend artifact reads project health back over past weeks (docs/audit.md
-  # task 36)
+  # task 33)
   if [ -f "$PR_EVENTS" ]; then
     pk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
           || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
@@ -2015,7 +2015,7 @@ if [ "$MODE" = "audit" ]; then
 
   # trend artifact currency: the weekly append is the only writer of
   # work/audit/weeks/, so a history that stopped growing means the audit's
-  # task 35 stopped running (docs/trends.md). A never-appended history is
+  # task 36 stopped running (docs/trends.md). A never-appended history is
   # info — the first audit after the upgrade creates it.
   TREND_DIR="$WORK/audit/weeks"
   trend_n=0
@@ -2044,7 +2044,7 @@ if [ "$MODE" = "audit" ]; then
   else AWAITING_JSON="$(jq -n --argjson n "$al_n" '{n:$n, oldest_days:null}')"; fi
 
   # --- project health: the repository's week, not the agent's (docs/audit.md
-  # → task 36). Local state plus one list call; every figure that was not
+  # → task 33). Local state plus one list call; every figure that was not
   # measured stays null, never zero.
   # the records reader is optional (its lib may be unreadable — the stats block
   # above says so), so both callers below go through this guard

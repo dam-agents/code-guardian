@@ -95,7 +95,7 @@ roster member, derive area keywords from its title plus changed paths and
 Each sweep appends one line per PR the first time it sees a fact, and never
 rewrites one: `first_review` (the earliest independent review, with the hours
 from `eligible_since`) and `conflict`. The weekly audit counts project health
-from this file ([audit.md](audit.md) → task 36), which the ledger cannot serve
+from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
 — pruning deletes a merged PR's row, and that is exactly the population a
 latency median must keep. `first_review` carries the review's own
 `submitted_at`, so a PR reviewed before the file existed is still recorded
