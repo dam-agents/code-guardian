@@ -85,7 +85,7 @@ writes, no API calls, no self-check narration.
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, gist and artifact included | review.md → **Pruning** |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
-| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → roster-only Slack alert, **before any other run work** | review.md → **Urgent PRs** |
+| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review.md → **Urgent PRs** |
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the review loop** | [mentions.md](mentions.md) |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
@@ -176,7 +176,7 @@ chat UI **and** a GitHub PR review — every reviewed PR produces both.
    comes from the worklist's `config` object, the repository map from each
    entry's `profile_slice` and `work/PROFILE.md` ([profile.md](profile.md)).
 3. Send every `urgent_alerts_due` alert **first** — marker write immediately
-   after the send, roster-only mentions.
+   after the send.
 4. Apply the bookkeeping arrays — `selfheals_due`, `label_cleanups_due`,
    `prunes_due`, `status_resets_due` — with per-PR log lines.
 5. Handle every `mentions_due` entry: ledger row immediately after each

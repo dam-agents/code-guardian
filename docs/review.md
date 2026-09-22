@@ -267,17 +267,14 @@ Check 1 re-verifies the label and reviews normally when it is gone.
 lacks an `urgent-announced` marker, only under
 `slack_notifications: enabled`. Send these **before any other run work**:
 
-1. Mention roster members (`work/DEVELOPERS.md`) with a `slack_id` — filtered
-   to those online when a presence lookup is available, otherwise all.
-   **Never anyone outside the roster** ([shepherd.md](shepherd.md) →
-   **Hard rules**).
-2. `mcp__platform-outbound__send_channel_message`:
-   `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). <@id1> <@id2> … Rapid review incoming. <url>`
-3. **Write the marker immediately after a successful send** —
+1. `mcp__platform-outbound__send_channel_message`, addressed to the channel
+   alone — the alert carries no @-mention:
+   `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). Rapid review incoming. <url>`
+2. **Write the marker immediately after a successful send** —
    `<!-- urgent-announced: <ISO timestamp> -->` into `reviews/pr-<n>.md`,
    creating the file with its title heading when missing. A failed send writes
    no marker and is logged; the next heartbeat re-emits the alert.
-4. Log `PR #<n>: urgent alert sent (<k> mentioned)`.
+3. Log `PR #<n>: urgent alert sent`.
 
 **Phase 1 — rapid preliminary review**, right after `prepare` returns, before
 orientation and skills. Optimize for delivery speed.
