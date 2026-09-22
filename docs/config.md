@@ -120,7 +120,7 @@ below is for the manual fallback and the direct session.
   skill routing ([profile.md](profile.md)). Orientation only, never evidence;
   its absence never blocks a review.
 
-### Slack, audit, benchmark
+### Slack, audit, survey, benchmark
 
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack.
   **Missing file or key = `disabled`** — never send Slack messages without a
@@ -136,6 +136,19 @@ below is for the manual fallback and the direct session.
   `off`. Same host and best-effort semantics as `artifact_targets`; `off` keeps
   the history and the local report and publishes nothing
   ([trends.md](trends.md)).
+- **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
+  deep pass over one area of the repository: what a diff cannot show —
+  unreachable code, duplicated logic, untested paths, drift from the
+  repository's own conventions and decision records ([survey.md](survey.md)).
+  One area per run, capped before the run starts, read-only on the repository.
+  Enabling it registers the schedule of ONBOARDING Step 6e.
+- **`survey_report`** — publish surfaces for the accumulated survey artifact,
+  updated in place so its URL stays stable: `gist` (default) | `dam` |
+  `gist,dam` | `off`. Same host and best-effort semantics as
+  `artifact_targets`.
+- **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;
+  an unparseable value falls back to `7`. It bounds a drifting cron, so a
+  weekly schedule never surveys twice in one week.
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
   monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
   pipeline, scores each output against its known defects, and records time and

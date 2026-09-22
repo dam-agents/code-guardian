@@ -129,6 +129,105 @@ refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";;
 # exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
 BENCH_LOCK_TTL_MIN=360
 
+# ============================================================ SURVEY MODE ====
+# Local like the benchmark: choosing the area needs the profile and the ledger,
+# both on disk, so a disabled or gated tick never touches the network. The pass
+# itself is docs/survey.md — one area per run, capped by scripts/survey.sh.
+if [ "$MODE" = "survey" ]; then
+  survey_out() { # <nothing_to_do bool> <survey_due json | null>
+    printf '%s\n' "$NOW_ISO survey nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+    logev info heartbeat "mode=survey nothing_to_do=$1"
+    jq -n --argjson nothing "$1" --argjson due "$2" \
+      --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+      '{mode:"survey", nothing_to_do:$nothing, logs:$logs}
+       + (if $due == null then {} else {survey_due:$due} end)'
+    exit 0
+  }
+  [ "$(cfg survey)" = "enabled" ] || { log "survey disabled — nothing to do"; survey_out true null; }
+
+  SURVEY_DIR="$WORK/survey"
+  SURVEY_LEDGER="$SURVEY_DIR/LEDGER.md"
+  SURVEY_INTERVAL_D="$(cfg survey_interval_days)"
+  case "$SURVEY_INTERVAL_D" in (''|*[!0-9]*) SURVEY_INTERVAL_D=7;; esac
+  # report surfaces: the gist renderer only reaches github.com, the same rule
+  # the artifact and benchmark surfaces follow
+  SURVEY_REPORT="$(cfg survey_report)"; SURVEY_REPORT="${SURVEY_REPORT:-gist}"
+  SURVEY_HOST="$(refhost "$(cfg github_repo)")"
+  EFF_SURVEY=""
+  for t in $(printf '%s' "$SURVEY_REPORT" | tr ',' ' '); do
+    case "$t" in (off|'') continue;; esac
+    { [ "$t" = "gist" ] && [ "$SURVEY_HOST" != "github.com" ]; } \
+      && { log "survey_report surface gist dropped (target host $SURVEY_HOST)"; continue; }
+    EFF_SURVEY="${EFF_SURVEY:+$EFF_SURVEY,}$t"
+  done
+  EFF_SURVEY="${EFF_SURVEY:-off}"
+
+  # the cadence floor, so a drifting cron never surveys twice in one interval
+  SURVEY_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$SURVEY_LEDGER" 2>/dev/null | sort | tail -1)"
+  if [ -n "$SURVEY_LAST" ]; then
+    d=$(( (NOW_EPOCH - $(iso2epoch "$SURVEY_LAST")) / 86400 ))
+    if [ "$d" -lt "$SURVEY_INTERVAL_D" ]; then
+      log "last survey ${d}d ago (< ${SURVEY_INTERVAL_D}d) — nothing to do"
+      survey_out true null
+    fi
+  fi
+
+  # Candidate areas: the profile's modules, else the default branch's top
+  # directories as the profile recorded them. No profile at all = nothing to
+  # survey, which is a log line, never a guess at the repository's shape.
+  SURVEY_AREAS="$(jq -c '[(.modules // [])[] | {path, name: (.name // .path)}]' "$WORK/PROFILE.json" 2>/dev/null)"
+  case "$SURVEY_AREAS" in (''|null) SURVEY_AREAS='[]';; esac
+  if [ "$(printf '%s' "$SURVEY_AREAS" | jq length)" -eq 0 ]; then
+    log "no module in work/PROFILE.json — nothing to survey (docs/profile.md)"
+    survey_out true null
+  fi
+
+  # Selection, deterministic and local: never surveyed first, then the oldest
+  # pass, then the most open findings the profile's history records, then the
+  # name. The ledger row is `| slug | path | last_surveyed | passes | findings |`.
+  SURVEY_LEDGER_JSON="$(grep -E '^\| *[A-Za-z0-9_.-]+ *\|' "$SURVEY_LEDGER" 2>/dev/null \
+    | grep -vE '^\| *(area|-+) *\|' \
+    | while IFS='|' read -r _ slug path last _passes _f _rest; do
+        jq -nc --arg s "$(trim "$slug")" --arg p "$(trim "$path")" --arg l "$(trim "$last")" \
+          '{slug:$s, path:$p, last:$l}'
+      done | jq -sc .)"
+  case "$SURVEY_LEDGER_JSON" in (''|null) SURVEY_LEDGER_JSON='[]';; esac
+  SURVEY_HISTORY="$(jq -c '[(.history.dirs // [])[] | {dir, open: ((.critical // 0) + (.warning // 0))}]' \
+    "$WORK/PROFILE.json" 2>/dev/null)"
+  case "$SURVEY_HISTORY" in (''|null) SURVEY_HISTORY='[]';; esac
+
+  SURVEY_PICK="$(jq -nc --argjson a "$SURVEY_AREAS" --argjson l "$SURVEY_LEDGER_JSON" \
+    --argjson h "$SURVEY_HISTORY" '
+    ($l | map({key: .slug, value: .last}) | from_entries) as $seen
+    | [ $a[]
+        | . as $m
+        | ($m.path | gsub("[^A-Za-z0-9._-]"; "_")) as $slug
+        | { slug: $slug, path: $m.path, name: $m.name,
+            last: ($seen[$slug] // null),
+            open: ([$h[] | select(.dir | startswith($m.path)) | .open] | add // 0) } ]
+    | sort_by([(if .last == null then 0 else 1 end), (.last // ""), (- .open), .path])
+    | first // null')"
+  [ -n "$SURVEY_PICK" ] && [ "$SURVEY_PICK" != "null" ] || { log "no area to survey"; survey_out true null; }
+
+  SURVEY_SLUG="$(printf '%s' "$SURVEY_PICK" | jq -r '.slug')"
+  SURVEY_PATH="$(printf '%s' "$SURVEY_PICK" | jq -r '.path')"
+  SURVEY_LASTP="$(printf '%s' "$SURVEY_PICK" | jq -r '.last // empty')"
+  SURVEY_SLICE="$(jq -c --arg p "$SURVEY_PATH" '[(.history.dirs // [])[] | select(.dir | startswith($p))]' \
+    "$WORK/PROFILE.json" 2>/dev/null)"
+  case "$SURVEY_SLICE" in (''|null) SURVEY_SLICE='[]';; esac
+  SURVEY_PASSES="$(grep -E "^\| *$SURVEY_SLUG *\|" "$SURVEY_LEDGER" 2>/dev/null | head -1 | cut -d'|' -f5 | tr -d ' ')"
+  case "$SURVEY_PASSES" in (''|*[!0-9]*) SURVEY_PASSES=0;; esac
+
+  log "survey due: $SURVEY_PATH (pass $((SURVEY_PASSES + 1)), last ${SURVEY_LASTP:-never})"
+  survey_out false "$(jq -nc --arg s "$SURVEY_SLUG" --arg p "$SURVEY_PATH" \
+    --arg n "$(printf '%s' "$SURVEY_PICK" | jq -r '.name')" \
+    --arg l "${SURVEY_LASTP:-}" --argjson pass "$((SURVEY_PASSES + 1))" \
+    --argjson hs "$SURVEY_SLICE" --arg rep "$EFF_SURVEY" \
+    '{slug:$s, path:$p, area:$n, pass:$pass,
+      last_surveyed:(if $l == "" then null else $l end),
+      history_slice:$hs, report:$rep}')"
+fi
+
 # ========================================================= BENCHMARK MODE ====
 # Purely local — deciding a benchmark run needs no GitHub call, so this block
 # sits before the target-repo resolution (whose last fallback is a gh call)
@@ -2144,4 +2243,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey)"

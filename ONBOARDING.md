@@ -414,7 +414,14 @@ config, `review_marker` least of all.
     the weekly trend artifact), and register the schedule in Step 6d. The first scheduled run creates the fixture set, and
     the first scores land on the next monthly tick, or sooner on an on-demand
     ask.
-11. **Review cadence** — `active_hours`, `active_days`,
+11. **Codebase survey** — the weekly deep pass over one area of the repository
+    (`docs/survey.md`). Ask:
+
+    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report what a diff cannot show: code nothing reaches, logic that exists twice, a critical path with no test, drift from your own conventions and decision records. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
+
+    **Yes** → `survey: enabled`, ask for the report surfaces (`survey_report`,
+    default `gist`) and register the schedule in Step 6e. Default off.
+12. **Review cadence** — `active_hours`, `active_days`,
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
@@ -453,6 +460,9 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surfaces: dam (default) | gist | gist,dam | off
+- survey: enabled                      # weekly deep pass over one area; omit = disabled
+- survey_report: gist                  # survey artifact surfaces: gist (default) | dam | gist,dam | off
+- survey_interval_days: 7              # floor between two passes; omit = 7
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: gist               # accumulated-report surfaces: gist (default) | dam | gist,dam | off
@@ -548,7 +558,7 @@ schedule gate**); the audit is ungated because its worklist always carries work.
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
-carries every schedule of 6a–6d, at the default cadence of its step, with the
+carries every schedule of 6a–6e, at the default cadence of its step, with the
 Slack- and benchmark-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
@@ -560,7 +570,7 @@ share one. For each schedule this step defines:
 | same `name`, different cron, `task` or `precheck` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
-only its feature is off — 6b and 6d are then a `toggle_schedule`, not a create.
+only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a create.
 Delete the ones the configuration rules out: the quiet-hour and off-day
 heartbeats under a 24/7 cadence, and a sweep whose name no longer matches its
 cadence shorthand.
@@ -613,6 +623,15 @@ Default is the 1st of the month, 06:00 (platform timezone).* Create
 `task`:
 
 > Model benchmark. The precheck already ran preflight and found the benchmark due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`).
+
+**6e — Codebase survey** (only when `survey: enabled`; create it later if the
+survey is enabled in chat). Ask: *When should the weekly codebase survey run?
+Default is Saturday 03:30 (platform timezone)* — a quiet hour, because the pass
+reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
+`30 3 * * 6`, `sessionMode: fresh`,
+`precheck: bash "$HOME/scripts/precheck.sh" survey`, `task`:
+
+> Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
 Cadence note: the nudge rules are hour-granular (24 h age gate, 20 h cooldown,
 2-day escalation), so an hourly work-hours sweep loses nothing versus a
