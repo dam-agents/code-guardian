@@ -1038,4 +1038,46 @@ assert_jq '.outcome == "posted"' 'review posted'
 assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"suppressed":{"overrides":0,"context":1,"decisions":2,"total":3}' 'the ledger row counts the audit note per source'
 assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"ste":{"sentences":[0-9]' 'the ledger row carries the sentence measurement'
 
+# --- ci: the rollup a triage reads (docs/ci-triage.md) -------------------------
+setup ci_rollup
+add_row 1 "$B1_SHA" "2026-09-01T00:00:00Z" COMMENT done
+jq -n --arg sha "$B1_SHA" '{total_count:2, check_runs:[
+    {name:"build", status:"completed", conclusion:"failure",
+     details_url:"https://github.com/acme/widgets/actions/runs/9/job/42",
+     output:{title:"build failed", summary:"tsc: cannot find name query", text:""}},
+    {name:"lint", status:"completed", conclusion:"success", details_url:"", output:{}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?per_page=100"
+printf 'line one\nline two\nerror TS2304: cannot find name query\n' \
+  | fx "api repos/acme/widgets/actions/jobs/42/logs"
+run_rp ci 1
+assert_jq '.outcome == "ci" and .terminal == true' 'a completed rollup is terminal'
+assert_jq '(.failing | length) == 1 and .failing[0].name == "build"' 'only the failing check is returned'
+assert_jq '.failing[0].evidence_source == "log"' 'the job log is the evidence'
+EV="$(printf '%s' "$OUT" | jq -r '.failing[0].evidence')"
+assert_file_contains "$EV" 'error TS2304' 'the evidence file holds the log tail'
+
+# --- ci: a running check holds the triage, and costs no log fetch --------------
+setup ci_running
+add_row 1 "$B1_SHA" "2026-09-01T00:00:00Z" COMMENT done
+jq -n '{total_count:1, check_runs:[{name:"build", status:"in_progress", conclusion:null,
+        details_url:"https://github.com/acme/widgets/actions/runs/9/job/42", output:{}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?per_page=100"
+run_rp ci 1
+assert_jq '.terminal == false and (.failing | length) == 0' 'a running rollup returns no evidence'
+grep -q 'actions/jobs/42/logs' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: a running rollup fetched a log\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no log fetched while a check still runs\n' "$CASE"
+
+# --- ci: the check run's own output is the fallback evidence -------------------
+setup ci_output_evidence
+add_row 1 "$B1_SHA" "2026-09-01T00:00:00Z" COMMENT done
+jq -n '{total_count:1, check_runs:[{name:"e2e", status:"completed", conclusion:"failure",
+        details_url:"https://ci.example.com/7",
+        output:{title:"e2e failed", summary:"login spec timed out", text:""}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?per_page=100"
+run_rp ci 1
+assert_jq '.failing[0].evidence_source == "output"' 'a check outside Actions falls back to its output'
+EV="$(printf '%s' "$OUT" | jq -r '.failing[0].evidence')"
+assert_file_contains "$EV" 'login spec timed out' 'the output text is the evidence'
+
 finish

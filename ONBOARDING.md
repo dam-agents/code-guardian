@@ -356,6 +356,11 @@ config, `review_marker` least of all.
      that the status is always `success` when it finishes, so it never blocks a
      merge, and that its name in the checks list is the `review_marker`.
      Default `disabled`; write the key only on a yes.
+   - **`ci_triage`** — whether a failing check on a reviewed commit gets one
+     comment naming the probable cause and the smallest fix
+     (`docs/ci-triage.md`). Mention that it only reads and explains: no job is
+     restarted and no verdict changes. Default `disabled`; write the key only
+     on a yes.
    - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
      reply in its inline review threads, get handled every heartbeat:
      questions answered, review feedback recorded to memory, review requests
@@ -440,6 +445,7 @@ Final shape:
 - rereview_trigger: label              # label (default) | review-request | both
 - urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
+- ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none

@@ -81,6 +81,11 @@ below is for the manual fallback and the direct session.
   (`context` = `review_marker`): started, in progress with an ETA, terminal
   outcome (review.md → **Progress signal on GitHub**). Best-effort — a failed
   write never affects the review.
+- **`ci_triage`** — `enabled` | `disabled`. **Missing = `disabled`.** After a
+  review posts, a failing check on the reviewed SHA gets one comment naming the
+  probable cause and the smallest fix ([ci-triage.md](ci-triage.md)). Reads the
+  rollup only for PRs reviewed in the last 24 h and only until the SHA's marker
+  exists; it never restarts a job or changes a verdict.
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served

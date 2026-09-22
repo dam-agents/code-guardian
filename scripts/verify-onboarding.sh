@@ -199,7 +199,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress mention_replies project_profile artifact_skill artifact_targets slack_notifications audit_report audit_trend benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies project_profile artifact_skill artifact_targets slack_notifications audit_report audit_trend benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -226,6 +226,7 @@ EOF
     chk_enum rereview_trigger 'label|review-request|both' 'label | review-request | both'
     chk_enum mention_replies 'enabled|disabled' 'enabled | disabled'
     chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
+    chk_enum ci_triage 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_trend 'dam|gist|gist,dam|off' 'dam | gist | gist,dam | off'

@@ -69,6 +69,9 @@ NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # structured events log (docs/logging.md); no-op fallback keeps set -u safe
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# ci-rollup.sh is optional: unreadable, the CI triage detector stays off and
+# every other decision of the run is unaffected (docs/ci-triage.md).
+CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" 2>/dev/null || CI_LIB=0
 LOG_JOB="$MODE"
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 # log.sh sources lib/toolpath.sh; stub it when either file was unavailable
@@ -330,6 +333,17 @@ case "$PROGRESS" in
   (enabled|disabled) ;;
   (*) log "review_progress '$PROGRESS' unknown — treating as disabled"; PROGRESS=disabled;;
 esac
+# CI failure triage — one comment explaining a failing check (docs/ci-triage.md)
+CI_TRIAGE="$(cfg ci_triage)"; CI_TRIAGE="${CI_TRIAGE:-disabled}"
+case "$CI_TRIAGE" in
+  (enabled|disabled) ;;
+  (*) log "ci_triage '$CI_TRIAGE' unknown — treating as disabled"; CI_TRIAGE=disabled;;
+esac
+if [ "$CI_TRIAGE" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
+  CI_TRIAGE=disabled
+  log_warn "lib/ci-rollup.sh unreadable — CI failure triage disabled this run"
+fi
+CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
 
 # The resolved configuration the agent works from (docs/config.md → Runtime
 # configuration): every key with its default applied, plus the two tables as
@@ -349,7 +363,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
   done | jq -s .)"; [ -n "$WATCH_RULES" ] || WATCH_RULES='[]'
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$(cfg audit_trend)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
@@ -361,7 +375,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
-   review_progress:$prog, mention_replies:(if $mr=="" then "enabled" else $mr end),
+   review_progress:$prog, ci_triage:$ci, mention_replies:(if $mr=="" then "enabled" else $mr end),
    artifact_skill:(if $art=="" then "none" else $art end), artifact_targets:(if $at=="" then null else $at end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:(if $atr=="" then "dam" else $atr end),
@@ -519,8 +533,8 @@ install_skill() { # name source -> status string (local writes only)
 }
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
-  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}"
-  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$resets"; do
+  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}"
+  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$resets" "$cifail"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
@@ -532,13 +546,13 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson resets "$resets" --argjson cifail "$cifail" --argjson stall "${STALL_ALERT:-null}" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
-      status_resets_due:$resets, skills:$skills, logs:$logs}
+      status_resets_due:$resets, ci_failures_due:$cifail, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
      + (if $profile == null then {} else {profile:$profile} end)'
@@ -547,6 +561,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
+  CI_FAILURES_DUE='[]'
   STATUS_RESETS_DUE='[]'
 
   # an aborted or killed review leaves its clone behind, so reclaim before the
@@ -695,6 +710,23 @@ if [ "$MODE" = "review" ]; then
               --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
               '{number:$n, label:$l, request:$r}')" '. + [$e]')"
             log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
+          fi
+        fi
+        # CI triage: the review is posted, so a failing check on the reviewed
+        # SHA is news the agent can explain. The rollup is read only inside the
+        # window and only until the marker exists, which bounds it to the few
+        # PRs reviewed in the last day (docs/ci-triage.md).
+        if [ "$CI_TRIAGE" = "enabled" ] && [ "$row_status" = "done" ] \
+           && ! grep -qF "<!-- ci-triage: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null \
+           && [ $(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 3600 )) -lt "$CI_TRIAGE_WINDOW_H" ]; then
+          ci_runs_json="$(ci_runs "$REPO" "$sha")"
+          ci_fail_json="$(ci_failing "$ci_runs_json")"
+          if ci_terminal "$ci_runs_json" && [ "$(printf '%s' "$ci_fail_json" | jq 'length')" -gt 0 ]; then
+            CI_FAILURES_DUE="$(printf '%s' "$CI_FAILURES_DUE" | jq --argjson e "$(jq -n \
+              --argjson n "$n" --arg sha "$sha" --arg u "$url" \
+              --argjson c "$(printf '%s' "$ci_fail_json" | jq -c '[.[].name]')" \
+              '{number:$n, sha:$sha, url:$u, checks:$c}')" '. + [$e]')"
+            log "PR #$n: CI failed at ${sha:0:7} ($(printf '%s' "$ci_fail_json" | jq -r '[.[].name] | join(", ")')) — triage due"
           fi
         fi
       else

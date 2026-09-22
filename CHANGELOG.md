@@ -11,6 +11,22 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.1.0 — 2026-09-22
+
+**Upgrade:** CI failure triage is new and off by default
+([docs/ci-triage.md](docs/ci-triage.md)). To turn it on, add the key and
+confirm the file still validates — idempotent, and it writes nothing that is
+already there:
+
+```bash
+C=/home/agent/work/CONFIG.md
+grep -q '^- ci_triage:' "$C" || printf -- '- ci_triage: enabled\n' >> "$C"
+bash "$HOME/scripts/verify-onboarding.sh"
+```
+
+No schedule changes: the triage runs inside the review heartbeat that already
+fires.
+
 ## 5.0.4 — 2026-09-22
 
 **Upgrade:** Nothing — docs are re-read per run.

@@ -38,6 +38,10 @@
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
 #                                          dismissal, done row, history, cleanup
+#   ci <n> [--sha <sha>]                  the check rollup for a reviewed SHA:
+#                                          whether it is terminal, which checks
+#                                          failed, and a file of evidence per
+#                                          failing check (docs/ci-triage.md)
 #   abort <n> <reason…>                    release the lock per kind, clean up
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
@@ -61,8 +65,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#   abort /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|abort) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|abort) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -74,12 +78,15 @@ LEDGER="$WORK/REVIEW-LEDGER.jsonl"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/ste.sh"
 . "$SCRIPT_DIR/lib/review-records.sh"
+. "$SCRIPT_DIR/lib/ci-rollup.sh"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
 FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review.md → Live holder)
 INLINE_CAP=25
+CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
+CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
 CARRY_MAX_HOPS=3        # HEAD moves a carried first review survives (docs/review.md)
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
@@ -1533,6 +1540,53 @@ append_ledger() { # sha7 ts verdict body-file findings kind
 }
 
 # =================================================================== abort ====
+cmd_ci() {
+  local sha=""
+  while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
+  [ -n "$sha" ] || sha="$(row_field "$(row_for)" 3)"
+  case "$sha" in (''|*[!0-9a-fA-F]*) fail "no reviewed SHA for PR #$N — pass --sha <full-sha>";; esac
+
+  local runs; runs="$(ci_runs "$REPO" "$sha")"
+  local terminal=true; ci_terminal "$runs" || terminal=false
+  local failing; failing="$(ci_failing "$runs")"
+
+  # Evidence is fetched only for a terminal rollup: a run still in flight is read
+  # again by a later heartbeat, and its logs would be incomplete.
+  local list='[]' dir="$PR_DIR.ci" i=0 total
+  total="$(printf '%s' "$failing" | jq 'length')"
+  if [ "$terminal" = "true" ] && [ "$total" -gt 0 ]; then
+    rm -rf "$dir"; mkdir -p "$dir" 2>/dev/null || fail "cannot create $dir"
+    while [ "$i" -lt "$total" ]; do
+      local e name url slug f got jid
+      e="$(printf '%s' "$failing" | jq -c ".[$i]")"
+      name="$(printf '%s' "$e" | jq -r '.name')"; url="$(printf '%s' "$e" | jq -r '.url')"
+      f=""; got=none
+      if [ "$i" -lt "$CI_EVIDENCE_MAX" ]; then
+        slug="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')"
+        f="$dir/$slug.log"
+        # An Actions check run links its job; the job id is the only handle the
+        # logs endpoint takes, and details_url is where it is published.
+        jid="$(printf '%s' "$url" | sed -n 's#.*/job/\([0-9][0-9]*\).*#\1#p')"
+        if [ -n "$jid" ] && gh api "repos/$REPO/actions/jobs/$jid/logs" > "$f.raw" 2>/dev/null && [ -s "$f.raw" ]; then
+          tail -n "$CI_LOG_LINES" "$f.raw" > "$f"; got=log
+        fi
+        rm -f "$f.raw"
+        if [ "$got" = "none" ]; then
+          printf '%s' "$e" | jq -r '.out' | grep -v '^[[:space:]]*$' > "$f" 2>/dev/null
+          [ -s "$f" ] && got=output
+        fi
+        [ "$got" = "none" ] && { rm -f "$f"; f=""; }
+      fi
+      list="$(printf '%s' "$list" | jq -c --argjson e "$e" --arg f "$f" --arg src "$got" \
+        '. + [{name:$e.name, conclusion:$e.conclusion, url:$e.url,
+               evidence:(if $f == "" then null else $f end), evidence_source:$src}]')"
+      i=$((i+1))
+    done
+  fi
+  out "$(jq -nc --arg sha "$sha" --argjson t "$terminal" --argjson f "$list" \
+    '{outcome:"ci", sha:$sha, terminal:$t, failing:$f}')"
+}
+
 cmd_abort() {
   need_ctx
   local reason="$*"; [ -n "$reason" ] || reason="aborted by the agent"
@@ -1544,5 +1598,6 @@ case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
-  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (abort) cmd_abort "$@";;
+  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";;
+  (abort) cmd_abort "$@";;
 esac

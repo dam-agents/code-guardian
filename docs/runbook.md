@@ -83,6 +83,7 @@ writes, no API calls, no self-check narration.
 | `label_cleanups_due` | `{number, label, request}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review.md → **Label bookkeeping** |
 | `selfheals_due` | a remote marker with no local row → write the REVIEWS.md row | review.md → **Label bookkeeping** |
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, gist and artifact included | review.md → **Pruning** |
+| `ci_failures_due` | `{number, sha, url, checks[]}` — a reviewed PR whose checks failed on the reviewed SHA → one triage comment | [ci-triage.md](ci-triage.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
 | `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review.md → **Urgent PRs** |
@@ -380,6 +381,7 @@ triage and the 14-day retention cleanup already happened inside preflight
 | [mentions.md](mentions.md) | `mentions_due` non-empty — thread fetch, classification, dedup ledger, reply mechanics |
 | [watches.md](watches.md) | `work/CONFIG.md` has watch rules — table format, evaluation, dedup, sending |
 | [artifact.md](artifact.md) | `artifacts_due` non-empty — gist/DAM publishing, retry-unassign |
+| [ci-triage.md](ci-triage.md) | `ci_failures_due` non-empty, or a review ends with a failing check — rollup read, evidence, the one comment, dedup |
 | [shepherd.md](shepherd.md) | `nudges_due` non-empty — send-then-record, templates, target selection |
 | [audit.md](audit.md) | An audit run — agent-side checks, report format, send rules |
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
