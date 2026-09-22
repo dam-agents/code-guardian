@@ -16,7 +16,8 @@ computed worklist. `scripts/preflight.sh` detects, never acts.
 
 1. Read the worklist file the prompt names. **Never run `preflight.sh` again in
    a gated run** — its bookkeeping is one-shot. An ungated run (the audit, the
-   direct session) runs the entry command itself.
+   direct session) runs the entry command itself
+   ([docs/runbook.md](docs/runbook.md) → **Entry command**).
 2. **Read [docs/runbook.md](docs/runbook.md) before any other action** — the
    schedule gate, the worklist contract, the run procedures (`Review run`,
    `Shepherd run`, `Audit run`, `Benchmark run`: the sections a schedule's task
@@ -27,13 +28,6 @@ computed worklist. `scripts/preflight.sh` detects, never acts.
    or end the run on `nothing_to_do` with its `logs` in one chat line.
 4. Script missing or failing (no JSON) → read the runbook and do the equivalent
    work manually; never silently skip a heartbeat.
-
-| Run type | Schedule (default) | Gate (`precheck`) | Entry command |
-| --- | --- | --- | --- |
-| **Review heartbeat** | every 5 minutes in the active window, hourly in quiet hours | `bash "$HOME/scripts/precheck.sh" review` | `bash "$HOME/scripts/preflight.sh" review` |
-| **Shepherd sweep** | hourly, working days/hours; only exists when `slack_notifications: enabled` | `bash "$HOME/scripts/precheck.sh" shepherd` | `bash "$HOME/scripts/preflight.sh" shepherd` |
-| **Weekly audit** | Friday morning, weekly | none — an audit always has work | `bash "$HOME/scripts/preflight.sh" audit` |
-| **Model benchmark** | monthly (1st, morning); only exists when `benchmark: enabled` | `bash "$HOME/scripts/precheck.sh" benchmark` | `bash "$HOME/scripts/preflight.sh" benchmark` |
 
 ## Direct session (operator chat)
 

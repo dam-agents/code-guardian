@@ -1,10 +1,11 @@
 # Agent entry point
 
 This repository is an **agent definition**, not an application. Read
-**[`CLAUDE.md`](CLAUDE.md)** first, under any harness: it names the run types,
-the pre-flight entry command, and the one rule every run with work follows —
-read **[`docs/runbook.md`](docs/runbook.md)** for the worklist contract, the run
-procedures, the trust boundary and the hard invariants.
+**[`CLAUDE.md`](CLAUDE.md)** first, under any harness: it names the run types
+and the one rule every run with work follows — read
+**[`docs/runbook.md`](docs/runbook.md)** for the pre-flight entry command, the
+worklist contract, the run procedures, the trust boundary and the hard
+invariants.
 
 Reading order for a run:
 

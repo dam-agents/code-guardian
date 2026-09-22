@@ -50,10 +50,11 @@ records the ask; acting on it still takes the operator.
   "keep existing values, ask only for missing keys" rule survive every edit.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
   the **single source of truth**. Changing a run's gate or entry command means
-  updating Step 6, not just CLAUDE.md — and `kit.yaml`, which repeats Step 6's
-  names, crons, gates and task texts verbatim for a new instance, and which CI
-  compares against Step 6 on every PR. A cadence or a timezone is the
-  instance's own: `kit.yaml` carries the default cron alone.
+  updating Step 6 and [runbook.md](runbook.md) → **Entry command** — and
+  `kit.yaml`, which repeats Step 6's names, crons, gates and task texts verbatim
+  for a new instance, and which CI compares against Step 6 on every PR. A
+  cadence or a timezone is the instance's own: `kit.yaml` carries the default
+  cron alone.
 
 ## 4. Architecture boundaries
 
@@ -75,7 +76,7 @@ records the ask; acting on it still takes the operator.
   PR closed). It never composes, drops, reorders or reformats a finding. The
   same holds for any script that acts on GitHub for the agent
   (`work-backup.sh persist`).
-- **CLAUDE.md stays a bootstrap** — repo resolution, the run-type table, the
+- **CLAUDE.md stays a bootstrap** — repo resolution, the run types, the
   read-the-runbook rule. The worklist contract, run procedures and hard
   invariants live in [runbook.md](runbook.md), every other procedure in its own
   `docs/` file, read on demand. A new doc gets its row in runbook.md →
@@ -192,6 +193,12 @@ image, the harness, an external service — instead of fixing it at its source:
   ONBOARDING config example matches the config.md key list, README's tables
   match both. CI resolves every `<file>.md → **Label**` reference; same-file
   `**Label**` references and the two table comparisons stay manual.
+- **`kit.yaml` carries what a new instance needs.** A change to a required
+  connection, a channel, the bundled-skills path, the seed target or what the
+  onboarding prompt asks for updates it in the same PR. CI compares the
+  schedules (section 3) and the mechanical pairs (`id`, sentinel, paths); the
+  catalog text — `description`, `tagline`, `harnesses` — is this sweep's, and a
+  new capability that changes what the kit offers belongs in it.
 - `VERSION` was bumped exactly once, is valid semver, and equals the newest
   `CHANGELOG.md` heading; the new entry has an **Upgrade** block and nothing
   else.
