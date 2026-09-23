@@ -13,7 +13,7 @@ they are released history and stay as written.
 
 ## 5.5.0 — 2026-09-23
 
-**Upgrade:** Nothing — the gate and the docs are re-read per run.
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 5.4.4 — 2026-09-23
 

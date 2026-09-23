@@ -32,8 +32,8 @@
 #                             only when a review/artifact is due)
 #                             + config (resolved keys) and memory (budget)
 #                             whenever there is work
-#                             Bookkeeping alone (cleanups, self-heals, prunes,
-#                             status resets) is deferred until it has waited or
+#                             Bookkeeping alone (self-heals, prunes, status
+#                             resets) is deferred until it has waited or
 #                             a run with other work carries it, and the run it
 #                             does start carries `housekeeping_only: true`
 #                             (docs/runbook.md -> The schedule gate)
@@ -733,7 +733,8 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}"
   local hk_only=false hk_n=0 hk_since hk_age=0
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
-  for a in "$1" "$5" "$6" "$7" "$8" "$cifail"; do
+  # A label cleanup answers a person who put a trigger on a reviewed SHA.
+  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
@@ -741,7 +742,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   # once-per-UTC-day claim, so a skipped fire loses the alert
   [ -n "${STALL_ALERT:-}" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
-  for a in "$2" "$3" "$4" "$resets"; do
+  for a in "$3" "$4" "$resets"; do
     hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
   done
   hk_since="$(hk_batch_since "$hk_n")"

@@ -31,6 +31,7 @@ add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 run_preflight review
 assert_jq '.reviews_due | length == 0' 'no review on same SHA'
 assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].label == true' 'label cleanup due'
+assert_jq '.nothing_to_do == false and has("housekeeping_only") == false' 'a trigger cleanup answers a person: it starts a run at once'
 assert_jq '.reviews_due | length == 0' 'a never-edited description does not manufacture a review'
 
 # --- same SHA, but the description was edited after the review → re-review ----

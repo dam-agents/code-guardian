@@ -20,7 +20,7 @@ audit runs the pre-flight as its platform **`precheck`**
 whether the model is woken, so idle heartbeats — about three quarters of all
 ticks — cost nothing, and a started run receives the worklist the gate already
 computed instead of recomputing it. Bookkeeping that nobody waits on — prunes,
-self-heals, trigger cleanups — does not wake the model on its own either: it
+self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
 ([`docs/runbook.md`](docs/runbook.md) → **The schedule gate**).
 
