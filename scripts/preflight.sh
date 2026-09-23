@@ -1062,11 +1062,14 @@ if [ "$MODE" = "review" ]; then
       RC_N=0
     fi
     # every page full to the bound means the window still holds more; `log` from
-    # inside the paging subshell would be lost with it, so say it out here
+    # inside the paging subshell would be lost with it, so say it out here.
+    # The line names how far back the scan reached — the oldest created_at it
+    # read — because "full" alone says nothing about how wide the scanned span is
+    scan_floor() { jq -rs 'map(.created_at // empty) | min // "unknown"' "$1" 2>/dev/null || printf unknown; }
     [ "${IC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
-      && log "mention scan: issue comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
+      && log "mention scan: issue comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)), back to $(scan_floor "$IC_TMP"); older comments in the window are not scanned"
     [ "${RC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
-      && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)) in the window"
+      && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)), back to $(scan_floor "$RC_TMP"); older comments in the window are not scanned"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
     CAND_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-cand.XXXXXX")"
     jq -nc --slurpfile ic "$IC_TMP" --slurpfile rc "$RC_TMP" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
