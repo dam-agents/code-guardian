@@ -39,7 +39,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="${TMPDIR:-/tmp}"
 
 LOG_JOB="$MODE"
-if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then
+# stdout is the task prompt (and an idle fire must print nothing at all), so
+# every command below it writes to a file, a variable or /dev/null
+if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then
   logev() { :; }; log_redact() { printf '%s' "$1"; }
 fi
 
@@ -62,7 +64,7 @@ esac
 # All these patterns are short-lived, so the 3-hour window takes only dead files.
 find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
   -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' -o -name 'cg-open-err.*' \) \
-  -mmin +180 -delete 2>/dev/null || true
+  -mmin +180 -delete >/dev/null 2>&1 || true
 
 # A gate runs outside a session, so no transcript holds why it broke: keep
 # preflight's stderr and log it with the exit code. The text reaches the task
