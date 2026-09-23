@@ -60,4 +60,18 @@ assert_jq '(.selfheals_due | length) == 1 and .selfheals_due[0].number == 7' \
   'marker found on the retry → self-heal due'
 assert_jq '.reviews_due | length == 0' 'no duplicate review scheduled'
 
+# --- review: the unanchored scan reuses the anchored scan's reviews page -------
+new_case review_scan_one_read
+base_config
+pr_json 7 "reviewed at an older SHA" '[]' "$SHA7" | open_prs_fx
+fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100' <<EOF
+[{"body":"LGTM\n\n<!-- cg:review headRefOid=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->","submitted_at":"$(iso_ago 7200)"}]
+EOF
+GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight review
+assert_jq '.selfheals_due | length == 1 and .[0].sha == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and .[0].status == "awaiting_label"' \
+  'older-SHA marker still found by the unanchored scan'
+[ "$(grep -c 'pulls/7/reviews' "$SANDBOX/calls.log")" = "1" ] \
+  && printf 'ok   %s: %s\n' "$CASE" 'the reviews page is read once' \
+  || { printf 'FAIL %s: reviews page read %s times\n' "$CASE" "$(grep -c 'pulls/7/reviews' "$SANDBOX/calls.log")"; FAILED=1; }
+
 finish

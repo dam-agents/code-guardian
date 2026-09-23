@@ -11,6 +11,8 @@ slug="$(printf '%s' "$args" | tr -c 'A-Za-z0-9._-' '_')"
 # multi-line and changes whenever the query is edited, which would silently
 # orphan every fixture named after it.
 case "$args" in
+  (*graphql*PruneStates*)
+    slug="graphql_prune_states";;
   (*graphql*pullRequest*lastEditedAt*)
     slug="graphql_pr_lastedited_$(printf '%s' "$args" | tr ' ' '\n' \
             | grep -E '^n=[0-9]+$' | head -1 | cut -d= -f2)";;
@@ -33,6 +35,28 @@ if [ -n "${GH_FIXTURES:-}" ] && [ -f "$GH_FIXTURES/$slug" ]; then
   cat "$GH_FIXTURES/$slug"
   exit 0
 fi
+# The batched prune-state query with no fixture of its own answers from the
+# per-PR REST fixtures, in the GraphQL shape: one alias per PR, null where the
+# REST call would fail or has no fixture — as GitHub answers a PR it cannot
+# resolve. Cases written for the per-PR call keep exercising the batch.
+case "$args" in
+  (*graphql*PruneStates*)
+    o="$(printf '%s\n' "$@" | sed -n 's/^o=//p' | head -1)"
+    r="$(printf '%s\n' "$@" | sed -n 's/^r=//p' | head -1)"
+    for n in $(printf '%s' "$args" | grep -oE 'pullRequest\(number:[0-9]+\)' | grep -oE '[0-9]+'); do
+      f="$GH_FIXTURES/$(printf '%s' "api repos/$o/$r/pulls/$n" | tr -c 'A-Za-z0-9._-' '_')"
+      if [ -f "$f" ] && [ ! -f "$f.rc" ]; then
+        jq -c --arg k "p$n" '{($k): (if .state == null then null else
+            {state: (if .merged then "MERGED" else (.state | ascii_upcase) end),
+             headRefOid: .head.sha, headRefName: .head.ref, title, author: (.user.login | if endswith("[bot]")
+               then {__typename: "Bot", login: rtrimstr("[bot]")}
+               else {__typename: "User", login: .} end)} end)}' "$f"
+      else
+        jq -nc --arg k "p$n" '{($k): null}'
+      fi
+    done | jq -s '{data: {repository: (add // {})}}'
+    exit 0;;
+esac
 case "$args" in
   *'?'*) echo '[]';;
   *)     echo '{}';;
