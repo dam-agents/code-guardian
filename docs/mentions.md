@@ -18,7 +18,8 @@ recorded here applies to the reviews of the same run.
 
 Preflight scans the repository's comments of the last 7 days, newest first, up
 to **three pages of 100** per surface. A week busier than that logs one line
-saying so, and the oldest comments of the window fall outside the scan.
+that names the oldest `created_at` the scan reached; older comments of the
+window fall outside the scan.
 
 ## Dedup ledger — `work/MENTIONS.md`
 

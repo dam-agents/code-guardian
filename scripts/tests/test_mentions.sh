@@ -119,10 +119,14 @@ assert_jq '.mentions_due | length == 1' 'the first page of chatter mentions nobo
 new_case mention_page_cap
 base_config
 full_page() { local p="$1" i=1; { while [ "$i" -le 100 ]; do ic_comment "$((p * 1000 + i))" bob User "@test-bot page $p item $i" 7; i=$((i + 1)); done; } | ic_page "$p"; }
-full_page 1; full_page 2; full_page 3
+full_page 1; full_page 2
+# the last comment of page 3 is the oldest the scan reads: the log line names it
+{ i=1; while [ "$i" -le 99 ]; do ic_comment "$((3000 + i))" bob User "@test-bot page 3 item $i" 7; i=$((i + 1)); done
+  ic_comment 3100 bob User "@test-bot page 3 item 100" 7 | jq '.created_at = "2026-08-01T12:34:56Z"'; } | ic_page 3
 run_preflight review
 assert_jq '.mentions_due | length == 300' 'three pages are scanned, no more'
 assert_out_contains 'still full after 3 pages' 'the run says the window was not exhausted'
+assert_out_contains 'back to 2026-08-01T12:34:56Z' 'the run says how far back the scan reached'
 
 # --- a page larger than one argv entry is still scanned -------------------------
 # Real comment bodies are long: one page of 100 review comments clears 400 KiB,
