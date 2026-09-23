@@ -14,7 +14,8 @@
 #     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
 #     nudge due,
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
-#     (via scripts/log.sh — docs/logging.md), the skill install cache, the
+#     (via scripts/log.sh — docs/logging.md), the per-pass /tmp scratch
+#     directory (removed on exit), the skill install cache, the
 #     git credential helper (`gh auth setup-git`, before the agent clones),
 #     the project profile refresh (work/PROFILE.{json,md} + its /tmp mirror,
 #     scripts/profile.sh — docs/profile.md), and the audit-mode cleanups
@@ -592,11 +593,19 @@ gh_get() { # <gh api args…>
 # bump API_ERRS on the sentinel and stop probing once it reaches 2 — by then
 # the API is down for the run, and each skipped call costs a retry + sleep.
 API_ERRS=0
+# Scratch for the parallel reads and the per-PR answers one scan hands the next
+# (the reviews page, prune states, file lists, skill and profile status). One
+# directory per pass; precheck.sh sweeps one a killed pass left behind.
+PF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/cg-pf.XXXXXX")"
+trap 'rm -rf "$PF_TMP"' EXIT
+REVIEWS_BODY="$PF_TMP/reviews-page"
 
 # marker-based remote dedup, anchored at one SHA -> prints GitHub timestamp
 remote_reviewed_at() { # number full_sha
   local m="<!-- $REVIEW_MARKER headRefOid=$2 -->" body ts err=0
+  : > "$REVIEWS_BODY" 2>/dev/null
   if body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")"; then
+    { printf 'pr=%s\n' "$1"; printf '%s' "$body"; } > "$REVIEWS_BODY" 2>/dev/null
     ts="$(printf '%s' "$body" \
       | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty')"
     [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
@@ -613,11 +622,54 @@ remote_reviewed_at() { # number full_sha
 # unanchored: any marker-carrying review at ANY SHA -> prints "sha<TAB>ts"
 remote_reviewed_any() { # number
   local body
-  body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")" || { printf '__api_error__'; return 0; }
+  # the anchored scan of the same PR just read this endpoint: reuse its answer
+  if [ "$(head -1 "$REVIEWS_BODY" 2>/dev/null)" = "pr=$1" ]; then
+    body="$(tail -n +2 "$REVIEWS_BODY")"
+  else
+    body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")" || { printf '__api_error__'; return 0; }
+  fi
   printf '%s' "$body" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=" '
         [.[] | select(.body != null) | select(.body | contains($m))
              | {sha: (.body | capture("headRefOid=(?<s>[0-9a-f]{40})").s), ts: .submitted_at}]
         | last // empty | if . == "" or . == null then empty else "\(.sha)\t\(.ts)" end' 2>/dev/null
+}
+
+# Prune state checks, batched: one GraphQL call per 50 rows instead of one REST
+# call per row. Still verified per PR — each alias names one PR by number. Every
+# PR the batch leaves unanswered (a failed call, a null alias) is absent from the
+# output, and the caller reads it with the per-PR REST call as before. Prints
+# JSONL {n, pj}; pj carries the REST `pulls/<n>` fields the prune loop reads.
+prune_states() { # <number…>
+  local q="" n i=0
+  for n in "$@" ''; do
+    if [ -n "$n" ]; then
+      q="$q p$n: pullRequest(number:$n){state headRefOid headRefName title author{login}}"
+      i=$((i+1))
+      [ "$i" -lt 50 ] && continue
+    fi
+    [ -n "$q" ] || continue
+    gh api graphql -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query="query PruneStates(\$o:String!,\$r:String!){repository(owner:\$o,name:\$r){$q}}" 2>/dev/null \
+      | jq -c '(.data.repository // {}) | to_entries[] | select(.value != null and .value.state != null)
+          | {n: (.key | ltrimstr("p") | tonumber),
+             pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase),
+                  head: {sha: .value.headRefOid, ref: .value.headRefName},
+                  title: .value.title, user: {login: (.value.author.login // "ghost")}}}' 2>/dev/null
+    q=""; i=0
+  done
+}
+
+# Changed-file lists of the due PRs, fetched four at a time ahead of the
+# inventory loop -> $PF_TMP/files-<n>. An empty file is a list that did not
+# answer, exactly as the loop's own call reads it; a missing file sends the loop
+# to its own call.
+prefetch_files() { # <number…>
+  local n i=0
+  for n in "$@"; do
+    ( out="$(gh api --paginate "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)" || out=""
+      printf '%s' "$out" > "$PF_TMP/files-$n.part" && mv "$PF_TMP/files-$n.part" "$PF_TMP/files-$n" ) &
+    i=$((i+1)); [ $((i % 4)) -eq 0 ] && wait
+  done
+  wait
 }
 
 # ------------------------------------------------------------ skill install ----
@@ -717,6 +769,11 @@ if [ "$MODE" = "review" ]; then
   }
 
   # --- prune detection (verified per PR; the agent executes the prune) ---
+  PRUNE_STATES="$PF_TMP/prune-states.jsonl"; : > "$PRUNE_STATES"
+  if [ "$OPEN_COUNT" -gt 0 ]; then
+    prune_states $(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
+      > "$PRUNE_STATES"
+  fi
   for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
     if open_numbers | grep -qx "$n"; then
       # Open, but absent from the non-draft set = turned draft. A draft is never
@@ -736,7 +793,8 @@ if [ "$MODE" = "review" ]; then
       continue
     fi
     if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
-    PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
+    PJ="$(jq -c --argjson n "$n" 'select(.n == $n) | .pj' "$PRUNE_STATES" 2>/dev/null | head -1)"
+    [ -n "$PJ" ] || PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
     state="$(printf '%s' "$PJ" | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end' 2>/dev/null)"
     [ -z "$state" ] && logev warn gh_api "PR #$n: state check did not respond — prune skipped this run"
     case "$state" in
@@ -942,14 +1000,47 @@ if [ "$MODE" = "review" ]; then
     # stdout goes to /dev/null like every other command here: this script's own
     # stdout IS the worklist, and a second document on it breaks the gate.
     gh auth setup-git >/dev/null 2>&1 || log_warn "gh auth setup-git did not succeed — clones may fail to authenticate"
+    # The profile check, the changed-file lists and the skill installs are
+    # independent reads: they run side by side, and their answers are collected
+    # below in the order the sequential version produced them.
+    if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
+      [ "$PROJECT_PROFILE" = "enabled" ] \
+        && { LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check > "$PF_TMP/profile-status" 2>/dev/null & PROFILE_PID=$!; }
+      prefetch_files $(printf '%s' "$REVIEWS_DUE" | jq -r '.[].number') & FILES_PID=$!
+    fi
+    # a skill listed twice keeps its first position and its last source — the
+    # key order and the installed files of back-to-back installs
+    SK_NAMES=(); SK_SRCS=()
+    sk_add() { # <name> <src>
+      local i=0
+      while [ "$i" -lt "${#SK_NAMES[@]}" ]; do
+        [ "${SK_NAMES[i]}" = "$1" ] && { SK_SRCS[i]="$2"; return; }
+        i=$((i+1))
+      done
+      SK_NAMES+=("$1"); SK_SRCS+=("$2")
+    }
     while IFS='|' read -r _ skill src _rest; do
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
-      SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$skill" --arg v "$(install_skill "$skill" "$src")" '. + {($k):$v}')"
+      sk_add "$skill" "$src"
     done < <(cfg_table 'Review skills')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
-      SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "$ARTIFACT_SKILL" --arg v "$(install_skill "$ARTIFACT_SKILL" "$ARTIFACT_SRC")" '. + {($k):$v}')"
+      sk_add "$ARTIFACT_SKILL" "$ARTIFACT_SRC"
     fi
+    SK_PIDS=(); sk_i=0
+    while [ "$sk_i" -lt "${#SK_NAMES[@]}" ]; do
+      install_skill "${SK_NAMES[sk_i]}" "${SK_SRCS[sk_i]}" > "$PF_TMP/skill-$sk_i" & SK_PIDS+=($!)
+      sk_i=$((sk_i+1))
+    done
+    sk_i=0
+    while [ "$sk_i" -lt "${#SK_NAMES[@]}" ]; do
+      wait "${SK_PIDS[sk_i]}"
+      # scratch unwritable -> the side-by-side install left no answer: install here
+      if [ -f "$PF_TMP/skill-$sk_i" ]; then sk_v="$(cat "$PF_TMP/skill-$sk_i")"
+      else sk_v="$(install_skill "${SK_NAMES[sk_i]}" "${SK_SRCS[sk_i]}")"; fi
+      SKILLS="$(printf '%s' "$SKILLS" | jq --arg k "${SK_NAMES[sk_i]}" --arg v "$sk_v" '. + {($k):$v}')"
+      sk_i=$((sk_i+1))
+    done
   fi
 
   # -------------------------------- project profile & per-PR inventory ----
@@ -962,7 +1053,9 @@ if [ "$MODE" = "review" ]; then
   # `files: null` and the agent builds the list from the diff as before.
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
     if [ "$PROJECT_PROFILE" = "enabled" ]; then
-      PROFILE_JSON_OUT="$(LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check 2>/dev/null)"
+      [ -n "${PROFILE_PID:-}" ] && wait "$PROFILE_PID"
+      if [ -f "$PF_TMP/profile-status" ]; then PROFILE_JSON_OUT="$(cat "$PF_TMP/profile-status")"
+      else PROFILE_JSON_OUT="$(LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check 2>/dev/null)"; fi
       { printf '%s' "$PROFILE_JSON_OUT" | jq -e 'has("status")' >/dev/null 2>&1; } \
         || PROFILE_JSON_OUT='{"status":"unavailable","mode":"none","note":"profile.sh produced no status"}'
       log "project profile: $(printf '%s' "$PROFILE_JSON_OUT" | jq -r '
@@ -972,6 +1065,7 @@ if [ "$MODE" = "review" ]; then
     fi
     [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ] \
       && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, \(.long_lines) past \(.line_limit) chars, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"') — consolidation due at the next audit (docs/preferences.md)"
+    [ -n "${FILES_PID:-}" ] && wait "$FILES_PID"
     FILES_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-files.XXXXXX")"
     NEW_DUE='[]'
     while IFS= read -r entry; do
@@ -979,7 +1073,8 @@ if [ "$MODE" = "review" ]; then
       n="$(printf '%s' "$entry" | jq -r '.number')"
       # the call's own output first: a failed or empty answer must never read
       # as "no files" (`jq -s` turns empty input into `[]`)
-      raw="$(gh api --paginate "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)" || raw=""
+      if [ -f "$PF_TMP/files-$n" ]; then raw="$(cat "$PF_TMP/files-$n")"
+      else raw="$(gh api --paginate "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)" || raw=""; fi
       [ -n "$raw" ] && raw="$(printf '%s' "$raw" | jq -s 'map(select(type=="array")) | add // []' 2>/dev/null)"
       if [ -z "$raw" ]; then
         log_warn "PR #$n: changed-file list unavailable — build it from the diff"
@@ -1064,8 +1159,12 @@ if [ "$MODE" = "review" ]; then
     }
     IC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-ic.XXXXXX")"
     RC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-rc.XXXXXX")"
-    IC_N="$(mention_pages "issues/comments" "$IC_TMP")"
+    # the two surfaces are independent: read them side by side
+    mention_pages "issues/comments" "$IC_TMP" > "$PF_TMP/mentions-ic-count" & IC_PID=$!
     RC_N="$(mention_pages "pulls/comments" "$RC_TMP")"
+    wait "$IC_PID"
+    if [ -f "$PF_TMP/mentions-ic-count" ]; then IC_N="$(cat "$PF_TMP/mentions-ic-count")"
+    else IC_N="$(mention_pages "issues/comments" "$IC_TMP")"; fi
     if [ "${IC_N:-0}" -lt 0 ]; then
       log_warn "mention scan: the issue-comment surface did not answer — conversation mentions are not scanned this run"
       IC_N=0
