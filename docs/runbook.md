@@ -25,8 +25,10 @@ model call at all. A started run receives the gate's stdout: the
   the preflight pass it drives carry their own run id and the session carries
   another — read one fire as that pair ([logging.md](logging.md) → **The events
   log**).
-- The gate broke — a crash, or the platform's two-minute limit — and the session
-  starts anyway; its prompt names the reason. Run the entry command yourself.
+- The gate broke — a crash, the platform's two-minute limit, or a preflight that
+  could not decide (no target repo, no answer from the GitHub API) — and the
+  session starts anyway; its prompt names the reason. Run the entry command
+  yourself.
 - **An agent runtime older than the platform's precheck support ignores the
   field**: the session starts with nothing from the gate in its prompt, so the
   same fallback applies and the run is correct — only the saving is missing. The
@@ -73,6 +75,10 @@ run.
 gated run reads when it falls back to the entry command (the gate broke, or the
 worklist file is gone) → echo its `logs` to the chat UI as a one-line summary ("no new changes") and **end the run** — no state
 writes, no API calls, no self-check narration.
+
+**`error`** — preflight could not decide and exits 2 (the gate turns this into
+a broken gate). Put the `error` text in the one chat line in place of "no new
+changes", then end the run the same way.
 
 **Otherwise you perform every action in the worklist**, per the referenced
 `docs/` file:

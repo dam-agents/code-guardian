@@ -78,6 +78,33 @@ assert_out_contains 'command not found' 'and the stderr that explains it'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'command not found' \
   'the cause also reaches the structured log'
 
+# --- no answer from the API is a broken gate, not an idle tick ---------------
+# preflight still prints its JSON, but `error` says it never decided: the fire
+# must start the session, with the API's own error text in the prompt
+new_case precheck_api_down
+base_config
+fx_fail 'api repos/acme/widgets/pulls?state=open&per_page=100' 1
+fx_err 'api repos/acme/widgets/pulls?state=open&per_page=100' 'HTTP 503: Service Unavailable'
+run_precheck review
+assert_rc 2 'an API that does not answer never skips the fire'
+assert_out_contains 'could not decide' 'the prompt says the gate did not decide'
+assert_out_contains 'HTTP 503' 'and carries the API error that explains it'
+assert_out_contains 'manually' 'and tells the run to do the work itself'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'HTTP 503' \
+  'the cause also reaches the structured log'
+
+new_case precheck_api_garbage
+base_config
+printf '<html>gateway error</html>' | fx 'api repos/acme/widgets/pulls?state=open&per_page=100'
+run_precheck review
+assert_rc 2 'an answer that is not a PR list never reads as idle'
+
+new_case precheck_no_open_prs
+base_config
+printf '[]' | fx 'api repos/acme/widgets/pulls?state=open&per_page=100'
+run_precheck review
+assert_rc 1 'an empty PR list is a real answer: the idle fire is skipped'
+
 # --- work is due but the worklist cannot be written --------------------------
 # the bookkeeping of this pass is already spent, so the gate must start the
 # session (exit 0) and name no path, never skip the fire
