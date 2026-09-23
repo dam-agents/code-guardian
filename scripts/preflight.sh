@@ -12,7 +12,7 @@
 #     and in audit mode its own worklist at work/audit/last-worklist.json
 #     (pure bookkeeping mandated by the re-review trigger gate — keeps
 #     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
-#     nudge due,
+#     nudge due, the housekeeping batch's wait marker,
 #     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
 #     (via scripts/log.sh — docs/logging.md), the per-pass /tmp scratch
 #     directory (removed on exit), the skill install cache, the
@@ -32,6 +32,11 @@
 #                             only when a review/artifact is due)
 #                             + config (resolved keys) and memory (budget)
 #                             whenever there is work
+#                             Bookkeeping alone (self-heals, prunes, status
+#                             resets) is deferred until it has waited or
+#                             a run with other work carries it, and the run it
+#                             does start carries `housekeeping_only: true`
+#                             (docs/runbook.md -> The schedule gate)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder + merge-conflict flag already
 #                             computed; the agent applies each row_update right
@@ -449,6 +454,14 @@ if [ "$CI_TRIAGE" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
   log_warn "lib/ci-rollup.sh unreadable — CI failure triage disabled this run"
 fi
 CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
+# Housekeeping deferral (docs/runbook.md → **The schedule gate**): bookkeeping
+# alone never starts a session immediately — it rides along with the next run
+# that has work of its own, and forces a run of its own only past this wait or
+# this many pending items. The count caps both the batch and the per-row state
+# check each pending prune costs every tick.
+HOUSEKEEPING_DEFER_H=6
+HOUSEKEEPING_MAX_ITEMS=10
+HOUSEKEEPING_SINCE="$WORK/.housekeeping-since"
 
 # The resolved configuration the agent works from (docs/config.md → Runtime
 # configuration): every key with its default applied, plus the two tables as
@@ -701,14 +714,49 @@ install_skill() { # name source -> status string (local writes only)
   printf 'installed (%s files)' "$count"
 }
 
+# The wait a pending housekeeping batch has already served. Review mode only:
+# a shepherd sweep carries no bookkeeping and must never consume the review
+# heartbeat's clock. Prints nothing when there is no batch.
+hk_batch_since() { # <pending count>
+  local since
+  [ "$MODE" = "review" ] || return 0
+  [ "$1" -gt 0 ] || { rm -f "$HOUSEKEEPING_SINCE" 2>/dev/null; return 0; }
+  since="$(head -1 "$HOUSEKEEPING_SINCE" 2>/dev/null || true)"
+  if [ -z "$since" ]; then
+    since="$NOW_ISO"
+    printf '%s\n' "$since" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
+  fi
+  printf '%s' "$since"
+}
+
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}"
-  for a in "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$resets" "$cifail"; do
+  local hk_only=false hk_n=0 hk_since hk_age=0
+  # Tier 1 — a person is waiting for it, so it starts a session on its own.
+  # A label cleanup answers a person who put a trigger on a reviewed SHA.
+  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
-  # otherwise idle heartbeat
+  # otherwise idle heartbeat, and never deferred: this pass already spent its
+  # once-per-UTC-day claim, so a skipped fire loses the alert
   [ -n "${STALL_ALERT:-}" ] && nothing=false
+  # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
+  for a in "$3" "$4" "$resets"; do
+    hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
+  done
+  hk_since="$(hk_batch_since "$hk_n")"
+  if [ "$hk_n" -gt 0 ] && [ -n "$hk_since" ]; then
+    hk_age=$(( (NOW_EPOCH - $(iso2epoch "$hk_since")) / 3600 ))
+    if [ "$nothing" = "false" ]; then
+      log "housekeeping: $hk_n bookkeeping item(s) ride along with this run"
+    elif [ "$hk_age" -ge "$HOUSEKEEPING_DEFER_H" ] || [ "$hk_n" -ge "$HOUSEKEEPING_MAX_ITEMS" ]; then
+      nothing=false; hk_only=true
+      log "housekeeping batch: $hk_n item(s) pending since $hk_since — a bookkeeping-only run"
+    else
+      log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h) — deferred to the next run with work"
+    fi
+  fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
@@ -716,6 +764,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
     --argjson resets "$resets" --argjson cifail "$cifail" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
@@ -723,6 +772,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
+     + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
      + (if $profile == null then {} else {profile:$profile} end)'
 }
@@ -1724,7 +1774,7 @@ if [ "$MODE" = "audit" ]; then
 
   ghost=0
   for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do open_numbers | grep -qx "$n" || ghost=$((ghost+1)); done
-  [ "$ghost" -gt 0 ] && check closed_rows warn "$ghost rows for non-open PRs (prune pending next heartbeat)" || check closed_rows ok "every row maps to an open PR"
+  [ "$ghost" -gt 0 ] && check closed_rows warn "$ghost rows for non-open PRs (prune pending the next run with work, or the housekeeping batch)" || check closed_rows ok "every row maps to an open PR"
 
   orphan_files=0
   for f in "$WORK"/reviews/pr-*.md; do

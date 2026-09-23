@@ -70,7 +70,7 @@ base_config '- review_progress: enabled'
 pr_json 2 "drafted PR" '[]' "$SHA2" | jq '.draft = true' | open_prs_fx
 add_row 2 "$SHA2" "$(iso_ago 3300)" - in_progress
 run_preflight review
-assert_jq '.nothing_to_do == false' 'a due reset is work of its own'
+assert_jq '.nothing_to_do == true' 'a reset alone is housekeeping — deferred, not a session'
 assert_jq '.status_resets_due | length == 1' 'abandoned lock on a draft emits one reset'
 assert_jq '.status_resets_due[0] | .number == 2 and .sha == "'"$SHA2"'" and .reason == "draft"' 'reset carries the locked SHA'
 assert_jq '.reviews_due == []' 'a draft is never reviewed'

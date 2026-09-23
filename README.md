@@ -19,7 +19,10 @@ audit runs the pre-flight as its platform **`precheck`**
 ([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
 whether the model is woken, so idle heartbeats — about three quarters of all
 ticks — cost nothing, and a started run receives the worklist the gate already
-computed instead of recomputing it.
+computed instead of recomputing it. Bookkeeping that nobody waits on — prunes,
+self-heals, status resets — does not wake the model on its own either: it
+rides along with the next run that has real work
+([`docs/runbook.md`](docs/runbook.md) → **The schedule gate**).
 
 **Review heartbeat** — every 5 minutes inside the active window (default
 Mon–Fri 08–21 platform time), hourly in the quiet hours outside it.

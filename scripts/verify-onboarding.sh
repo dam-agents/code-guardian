@@ -452,7 +452,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews memory benchmark .gitignore .stall-alert-day .stall-alert.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews memory benchmark .gitignore .stall-alert-day .stall-alert.lock .housekeeping-since"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

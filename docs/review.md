@@ -976,7 +976,7 @@ place. A failed dismissal is logged, not fatal.
 Before you declare the run done:
 
 - **Bookkeeping** — every `selfheals_due` / `label_cleanups_due` /
-  `prunes_due` entry executed and logged.
+  `prunes_due` / `status_resets_due` entry executed and logged.
 - **Mentions** ([mentions.md](mentions.md)) — handled before the review loop;
   ledger row immediately after each entry's actions; every entry terminal
   (`feedback + reply` / `answer` / `review` / `no-action` / `send-failed`) with
