@@ -512,20 +512,31 @@ memory_budget_json() {
 MEMORY_JSON="$(memory_budget_json)"
 PROFILE_JSON_OUT='null'
 
-fail_out() {  # nothing-to-do JSON with an error; the agent just logs it
+# preflight could not decide (no repo, no answer from the API): the JSON names
+# the cause in `error` and the exit code is 2, so the gate reports a broken
+# gate and the session starts (precheck.sh), never an idle tick.
+fail_out() {
   logev error preflight "$1"
   jq -n --arg mode "$MODE" --arg err "$1" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     '{mode:$mode, nothing_to_do:true, error:$err, logs:$logs}'
-  exit 0
+  exit 2
 }
 
 [ -z "$REPO" ] && fail_out "target repo unresolved (CONFIG.md github_repo missing)"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
 
 # ------------------------------------------------------------ open PR set ----
-OPEN_JSON="$(gh api "repos/$REPO/pulls?state=open&per_page=100" 2>/dev/null)"
-[ -z "$OPEN_JSON" ] && fail_out "could not list open PRs (API error) — skipping run"
+# an open-PR list is always a JSON array, `[]` included: anything else is no
+# answer, and the API's own error text names the cause
+OPEN_ERR="$(mktemp "${TMPDIR:-/tmp}/cg-open-err.XXXXXX" 2>/dev/null)" || OPEN_ERR=/dev/null
+OPEN_JSON="$(gh api "repos/$REPO/pulls?state=open&per_page=100" 2>"$OPEN_ERR")"
+if ! printf '%s' "$OPEN_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  OPEN_WHY="$(head -c 300 "$OPEN_ERR" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+  [ "$OPEN_ERR" = /dev/null ] || rm -f "$OPEN_ERR"
+  fail_out "could not list open PRs on $REPO (API error${OPEN_WHY:+: $OPEN_WHY})"
+fi
+[ "$OPEN_ERR" = /dev/null ] || rm -f "$OPEN_ERR"
 OPEN_NONDRAFT="$(printf '%s' "$OPEN_JSON" | jq '[.[] | select(.draft==false) | {
     number, title, author: .user.login, head_sha: .head.sha, head_ref: .head.ref,
     base_ref: .base.ref, created_at,

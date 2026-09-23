@@ -18,6 +18,9 @@
 #   no JSON       -> exit 2 with the reason, preflight's exit code and the tail
 #                    of its stderr: the session starts and does the equivalent
 #                    work manually (docs/runbook.md).
+#   error         -> exit 2 with preflight's `error`: it could not decide (no
+#                    target repo, no answer from the API), which is a broken
+#                    gate, never an idle tick.
 #
 # preflight is never run twice for one fire. Its bookkeeping is one-shot — the
 # `done -> awaiting_label` flip and the once-per-UTC-day stall-alert claim are
@@ -56,9 +59,9 @@ esac
 # The scratch of a gated fire, bounded here rather than by the session: a
 # skipped fire has no session to clean up after it, and a gate that the
 # platform stops at its two-minute limit never reaches preflight's own `rm -f`.
-# Both patterns are short-lived, so the 3-hour window takes only dead files.
+# All these patterns are short-lived, so the 3-hour window takes only dead files.
 find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
-  -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' \) \
+  -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' -o -name 'cg-open-err.*' \) \
   -mmin +180 -delete 2>/dev/null || true
 
 # A gate runs outside a session, so no transcript holds why it broke: keep
@@ -80,6 +83,15 @@ if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/d
   logev error precheck "$MODE gate: preflight printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
   printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist (exit %s)%s. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
+  exit 2
+fi
+
+PRE_ERR="$(printf '%s' "$JSON" | jq -r '.error // empty | tostring')"
+if [ -n "$PRE_ERR" ]; then
+  PRE_ERR="$(log_redact "$(printf '%s' "$PRE_ERR" | cut -c1-400)")"
+  logev error precheck "$MODE gate: preflight could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
+  printf 'precheck (%s): scripts/preflight.sh could not decide (exit %s): %s. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+    "$MODE" "$PRE_RC" "$PRE_ERR"
   exit 2
 fi
 
