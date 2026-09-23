@@ -134,12 +134,14 @@ touch -t 202001010000 "$SANDBOX/tmp/cg-worklist-review-old.json"
 : > "$SANDBOX/tmp/cg-worklist-review-fresh.json"
 touch -t 202001010000 "$SANDBOX/tmp/cg-files.deadbeef"
 touch -t 202001010000 "$SANDBOX/tmp/cg-mentions-ic.deadbeef"
+touch -t 202001010000 "$SANDBOX/tmp/cg-open-err.deadbeef"
 : > "$SANDBOX/tmp/review-pr-9.diff"
 run_precheck review
 if [ ! -e "$SANDBOX/tmp/cg-worklist-review-old.json" ]; then
   printf 'ok   %s: a worklist past the 3h window is reclaimed\n' "$CASE"
 else printf 'FAIL %s: the stale worklist was kept\n' "$CASE"; FAILED=1; fi
-if [ ! -e "$SANDBOX/tmp/cg-files.deadbeef" ] && [ ! -e "$SANDBOX/tmp/cg-mentions-ic.deadbeef" ]; then
+if [ ! -e "$SANDBOX/tmp/cg-files.deadbeef" ] && [ ! -e "$SANDBOX/tmp/cg-mentions-ic.deadbeef" ] \
+   && [ ! -e "$SANDBOX/tmp/cg-open-err.deadbeef" ]; then
   printf 'ok   %s: scratch a killed gate left behind is reclaimed too\n' "$CASE"
 else printf 'FAIL %s: the preflight scratch of a killed gate was kept\n' "$CASE"; FAILED=1; fi
 if [ -e "$SANDBOX/tmp/cg-worklist-review-fresh.json" ]; then

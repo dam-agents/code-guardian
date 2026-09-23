@@ -59,7 +59,7 @@ esac
 # The scratch of a gated fire, bounded here rather than by the session: a
 # skipped fire has no session to clean up after it, and a gate that the
 # platform stops at its two-minute limit never reaches preflight's own `rm -f`.
-# Both patterns are short-lived, so the 3-hour window takes only dead files.
+# All these patterns are short-lived, so the 3-hour window takes only dead files.
 find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
   -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' -o -name 'cg-open-err.*' \) \
   -mmin +180 -delete 2>/dev/null || true
