@@ -639,11 +639,12 @@ remote_reviewed_any() { # number
 # PR the batch leaves unanswered (a failed call, a null alias) is absent from the
 # output, and the caller reads it with the per-PR REST call as before. Prints
 # JSONL {n, pj}; pj carries the REST `pulls/<n>` fields the prune loop reads.
+# GraphQL names a bot author without the `[bot]` suffix that REST carries.
 prune_states() { # <number…>
   local q="" n i=0
   for n in "$@" ''; do
     if [ -n "$n" ]; then
-      q="$q p$n: pullRequest(number:$n){state headRefOid headRefName title author{login}}"
+      q="$q p$n: pullRequest(number:$n){state headRefOid headRefName title author{__typename login}}"
       i=$((i+1))
       [ "$i" -lt 50 ] && continue
     fi
@@ -653,7 +654,8 @@ prune_states() { # <number…>
           | {n: (.key | ltrimstr("p") | tonumber),
              pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase),
                   head: {sha: .value.headRefOid, ref: .value.headRefName},
-                  title: .value.title, user: {login: (.value.author.login // "ghost")}}}' 2>/dev/null
+                  title: .value.title, user: {login: (.value.author | if . == null then "ghost"
+                    elif .__typename == "Bot" then "\(.login)[bot]" else .login end)}}}' 2>/dev/null
     q=""; i=0
   done
 }

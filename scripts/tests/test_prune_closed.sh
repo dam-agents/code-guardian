@@ -8,10 +8,10 @@ SHA1="1111111111111111111111111111111111111111"
 SHA4="4444444444444444444444444444444444444444"
 SHA5="5555555555555555555555555555555555555555"
 
-closed_pr_fx() { # <number> <sha> <merged>
-  jq -n --argjson n "$1" --arg sha "$2" --argjson m "$3" \
+closed_pr_fx() { # <number> <sha> <merged> [author]
+  jq -n --argjson n "$1" --arg sha "$2" --argjson m "$3" --arg a "${4:-dave}" \
     '{number:$n, state:"closed", merged:$m, title:"gone PR",
-      user:{login:"dave"}, head:{sha:$sha, ref:("b"+($n|tostring))}}' \
+      user:{login:$a}, head:{sha:$sha, ref:("b"+($n|tostring))}}' \
     | fx "api repos/acme/widgets/pulls/$1"
 }
 
@@ -39,6 +39,16 @@ run_preflight review
 assert_jq '.prunes_due | length == 0' 'prune deferred'
 assert_jq '.reviews_due | length == 1' 'owed full review emitted'
 assert_jq ".reviews_due[0] | .number == 4 and .closed == true and .urgent == true and .kind == \"first\" and .prior.verdict == \"RAPID\" and .head_sha == \"$SHA4\"" 'closed entry shape'
+
+# --- a bot author keeps the REST login, `[bot]` suffix included ---------------
+new_case closed_rapid_bot_author
+base_config
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+add_row 4 "$SHA4" "$(iso_ago 5400)" RAPID in_progress
+closed_pr_fx 4 "$SHA4" true 'dependabot[bot]'
+run_preflight review
+assert_jq '.reviews_due[0].author == "dependabot[bot]"' 'bot login matches the REST form'
 
 # --- the state checks are one batched call, not one call per row -------------
 SHA6="6666666666666666666666666666666666666666"

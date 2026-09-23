@@ -48,7 +48,9 @@ case "$args" in
       if [ -f "$f" ] && [ ! -f "$f.rc" ]; then
         jq -c --arg k "p$n" '{($k): (if .state == null then null else
             {state: (if .merged then "MERGED" else (.state | ascii_upcase) end),
-             headRefOid: .head.sha, headRefName: .head.ref, title, author: .user} end)}' "$f"
+             headRefOid: .head.sha, headRefName: .head.ref, title, author: (.user.login | if endswith("[bot]")
+               then {__typename: "Bot", login: rtrimstr("[bot]")}
+               else {__typename: "User", login: .} end)} end)}' "$f"
       else
         jq -nc --arg k "p$n" '{($k): null}'
       fi
