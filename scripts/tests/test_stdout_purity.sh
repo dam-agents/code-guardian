@@ -3,7 +3,7 @@
 # writes to a file, a variable or /dev/null. A stray line turns the worklist
 # into two documents, which the gate reads as `jq -e` on the last one and a
 # two-line `.nothing_to_do` — an idle fire would start a session
-# (docs/self-modification.md §4).
+# (docs/runbook.md → The schedule gate).
 #
 # `[., inputs]` collects every document jq was given, so `length == 1` is the
 # assertion "exactly one JSON document on stdout". The stub `gh` answers an
