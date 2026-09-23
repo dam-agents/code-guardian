@@ -76,9 +76,9 @@ NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ci-rollup.sh is optional: unreadable, the CI triage detector stays off and
 # every other decision of the run is unaffected (docs/ci-triage.md).
-CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" 2>/dev/null || CI_LIB=0
+CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" >/dev/null 2>&1 || CI_LIB=0
 LOG_JOB="$MODE"
-if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
+if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 # log.sh sources lib/toolpath.sh; stub it when either file was unavailable
 command -v toolpath_shimmed >/dev/null 2>&1 || toolpath_shimmed() { :; }
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
@@ -938,8 +938,10 @@ if [ "$MODE" = "review" ]; then
   # install skills only when the agent will actually review / generate
   if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
      || [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
-    # git credential helper for every authenticated host, before the agent clones
-    gh auth setup-git 2>/dev/null || log_warn "gh auth setup-git did not succeed — clones may fail to authenticate"
+    # git credential helper for every authenticated host, before the agent clones.
+    # stdout goes to /dev/null like every other command here: this script's own
+    # stdout IS the worklist, and a second document on it breaks the gate.
+    gh auth setup-git >/dev/null 2>&1 || log_warn "gh auth setup-git did not succeed — clones may fail to authenticate"
     while IFS='|' read -r _ skill src _rest; do
       skill="$(trim "$skill")"; src="$(trim "$src")"
       case "$skill" in ''|skill|-*) continue;; esac
@@ -1803,7 +1805,7 @@ if [ "$MODE" = "audit" ]; then
 
     # definition version currency: latest (tracked branch) vs checkout vs adopted
     DB="$DEFINITION_BRANCH"
-    git -C "$HOME_DIR" fetch -q origin "$DB" 2>/dev/null
+    git -C "$HOME_DIR" fetch -q origin "$DB" >/dev/null 2>&1
     latest_v="$(git -C "$HOME_DIR" show "origin/$DB:VERSION" 2>/dev/null | head -1 | tr -d '[:space:]')"
     checkout_v="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
     adopted_v="$(head -1 "$WORK/VERSION" 2>/dev/null | tr -d '[:space:]')"
@@ -2054,7 +2056,7 @@ if [ "$MODE" = "audit" ]; then
   # files still on disk. Counting the files alone measured "reviews on the PRs
   # that are still open" — pruning deletes a merged PR's file, and with it the
   # week it was reviewed in (docs/review.md → **Review ledger**).
-  if [ -f "$SCRIPT_DIR/lib/review-records.sh" ] && . "$SCRIPT_DIR/lib/review-records.sh" 2>/dev/null; then
+  if [ -f "$SCRIPT_DIR/lib/review-records.sh" ] && . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1; then
     REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
