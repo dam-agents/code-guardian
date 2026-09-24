@@ -253,6 +253,16 @@ run_verify
 assert_rc 0 'host-prefixed references pass the shape check'
 assert_out 'ok   def-origin' 'origin matched against the prefixed reference'
 
+new_case bare_ref_under_foreign_default_host
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: github.com/acme/code-guardian' \
+            '- github_repo: acme/widgets'
+OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 GH_HOST=ghe.example.com \
+       bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"; RC=$?
+assert_rc 1 'a bare reference under a non-github.com GH_HOST fails'
+assert_out 'FAIL config-github_repo-host' 'names the key'
+assert_out 'fix: write the host explicitly' 'carries the fix'
+
 new_case backticked_values
 seed_home; seed_memory; seed_lessons
 base_config '- definition_repo: `acme/code-guardian`' '- github_repo: `acme/widgets`' \

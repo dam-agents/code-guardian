@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.6.0 — 2026-09-24
+
+**Upgrade:** When `GH_HOST` names a host other than `github.com`, rewrite
+every bare `github_repo`, `definition_repo` and `work_repo` value in
+`work/CONFIG.md` with its host (`docs/config.md`); a value that already names
+its host stays. Then run `bash "$HOME/scripts/verify-onboarding.sh"` and apply
+what it reports.
+
 ## 5.5.0 — 2026-09-23
 
 **Upgrade:** Nothing — docs are re-read per run.

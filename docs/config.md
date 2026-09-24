@@ -15,7 +15,10 @@ connectivity are verified by
 **Every repo reference — `github_repo`, `definition_repo`, `work_repo`, a skill
 source — is `[<host>/]<owner>/<repo>`.** Three segments name the GitHub host
 (`github.example.com/acme/widgets`), two use the ambient default (`$GH_HOST`, else `github.com`). Target, definition, skills and
-work backup may each sit on a different host. `GH_HOST` is exported to the
+work backup may each sit on a different host. While any host is not
+`github.com`, write every reference with its host (`github.com/…` included):
+`CONFIG.md` then resolves the same on a fresh volume, where the shell's
+`GH_HOST` does not exist yet (`verify-onboarding.sh` checks it). `GH_HOST` is exported to the
 **target** host, so every unqualified `gh` call reviews the right repo, and
 cross-host calls pass `--hostname` (`gh api`) or `[HOST/]OWNER/REPO`
 (`gh pr`/`gh issue`/`gh label -R`).

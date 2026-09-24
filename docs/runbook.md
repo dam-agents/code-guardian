@@ -359,6 +359,10 @@ triage and the 14-day retention cleanup already happened inside preflight
   exactly its list. Never from list absence, never a bulk delete of
   `reviews/pr-*.md`. `work/REVIEW-LEDGER.jsonl` is append-only — a prune never
   touches it ([review.md](review.md) → **Review ledger**).
+- The `work_repo` backup never loses history: a persist that would delete a
+  protected record is refused, and a failed or unverified restore stops
+  onboarding before any template is seeded ([persistence.md](persistence.md) →
+  **Backup & restore**).
 - **Never run `git clean` in `/home/agent`**; never `git add` outside the outer
   repo's allowlist. Definition changes go through branch + PR
   ([persistence.md](persistence.md)), never from a heartbeat — and **before

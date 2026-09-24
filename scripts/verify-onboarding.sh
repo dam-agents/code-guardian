@@ -186,6 +186,13 @@ else
       if [ -n "$v" ] && ! printf '%s' "$v" | grep -Eq '^([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
         fail "config-$k-shape" "'$v' is not a [host/]owner/repo reference" "correct the '- $k:' value"
       fi
+      # a bare reference resolves through the shell's GH_HOST, which a fresh
+      # volume does not carry; under a non-github.com default it must name its host
+      case "$v" in (*/*/*|'') ;; (*)
+        [ "$DEFAULT_HOST" = github.com ] || fail "config-$k-host" \
+          "'$v' names no host while the default host is $DEFAULT_HOST — a restore onto a fresh volume would resolve it to github.com" \
+          "write the host explicitly: '- $k: <host>/$v' (github.com/$v for github.com) — docs/config.md";;
+      esac
     done
 
     # CONFIG.md is the only place the target repo comes from, so a missing key

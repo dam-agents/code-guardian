@@ -24,7 +24,8 @@ seed:
 onboarding:
   prompt: >-
     Read ONBOARDING.md in your home directory and follow it to the end. It asks
-    for the repository to review, writes the configuration, reconciles the
+    for the state-backup repository (an existing one continues a previous
+    agent) and the repository to review, writes the configuration, reconciles the
     schedules this kit registered, and ends with a summary for the operator.
 connections:
   - accepts: [github, github-enterprise]
