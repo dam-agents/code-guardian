@@ -227,15 +227,16 @@ fi
 `RESTORE_RC` decides the path (`docs/persistence.md` → **Backup & restore**):
 
 - `0` — restored and verified. Skip 3b; Step 7 finishes the restore.
-- `2` — the remote is empty (a new agent): fall through to 3b; the first
-  end-of-run `persist` creates the initial backup.
+- `2` — the remote holds no agent state: it is empty, or it has no
+  `CONFIG.md` (for example only a README). A new agent: fall through to 3b; the
+  first end-of-run `persist` creates the initial backup.
 - `1` — the restore failed. **Stop**: report the output to the operator and
   re-run onboarding once the remote is reachable. Never seed templates over a
   backup that exists.
 
 Never make `work/` a git repo.
 
-**3b — local-only, or the 3a remote was empty** → create the seed
+**3b — local-only, or the 3a remote held no agent state** → create the seed
 files below **only if missing**. Never overwrite an existing `MEMORY.md` or
 `LESSONS.md`: they hold long-term knowledge that is not reconstructable.
 Review-tracking rows are reconstructed in Step 5, which needs the

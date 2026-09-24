@@ -62,9 +62,10 @@ first. A deletion the operator asked for passes with
 `WORK_BACKUP_ALLOW_DELETE=1`.
 
 `restore` is the inverse — remote → `work/`, data only, never a `.git` — run
-once on a fresh volume (ONBOARDING Step 3a). It verifies every file against the
-remote and exits `0` restored · `2` nothing to restore (no `work_repo`, empty
-remote) · `1` failed (unreachable, or a file did not arrive intact).
+once on a fresh volume (ONBOARDING Step 3a). It copies from a fresh clone of
+the remote, verifies every file against it and exits `0` restored · `2` nothing
+to restore (no `work_repo`, an empty remote, or no `CONFIG.md` on it) · `1`
+failed (unreachable, or a file did not arrive intact).
 
 ### After a restore
 

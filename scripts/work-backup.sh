@@ -38,8 +38,8 @@
 # persist never fails the run: all its paths exit 0 (a missed backup is retried
 # next run). restore reports its outcome by exit code for onboarding:
 #   0 restored, every tracked file verified in work/ · 2 nothing to restore
-#   (no work_repo, or an empty remote) · 1 failed (unreachable, copy error, or
-#   a file that did not arrive intact).
+#   (no work_repo, an empty remote, or a remote without CONFIG.md) · 1 failed
+#   (unreachable, clone or copy error, or a file that did not arrive intact).
 # Requires: git, tar, coreutils. Sources scripts/log.sh for events.
 set -u
 
@@ -220,33 +220,44 @@ restore() {
     w=$((w + 1)); [ "$w" -ge 5 ] && { logev warn work_backup "restore proceeding without lock after wait"; break; }
     sleep 1
   done
-  # seed_clone falls back to `git init` when it cannot clone, which would read
-  # as an empty remote here — so reachability is probed first
-  if ! git ls-remote -q "$REMOTE_URL" >/dev/null 2>&1 || ! seed_clone; then
+  # a fresh clone of the configured remote, never a clone left on tmpfs: that
+  # one may track another work_repo or a tip a failed fetch left behind, and the
+  # verification below would pass against it. The probe tells an unreachable
+  # remote (1) from one without the backup branch (2).
+  local heads
+  if ! heads="$(git ls-remote "$REMOTE_URL" "refs/heads/$BRANCH" 2>/dev/null)"; then
     say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; release_lock; return 1
+  fi
+  if [ -z "$heads" ]; then
+    say "remote is empty — nothing to restore."; release_lock; return 2
+  fi
+  rm -rf "$LOCAL" 2>/dev/null || true
+  if ! git clone -q --branch "$BRANCH" "$REMOTE_URL" "$LOCAL" 2>/dev/null; then
+    say "restore: clone of $WORK_REF failed — leaving work/ as-is."; logev warn work_backup "restore: clone failed"; release_lock; return 1
+  fi
+  # a remote without CONFIG.md holds no agent state (a repo created with a
+  # README): nothing to restore, and onboarding seeds a new agent
+  if [ ! -f "$LOCAL/CONFIG.md" ]; then
+    say "remote holds no CONFIG.md — no agent state to restore."; release_lock; return 2
   fi
   # copy data into work/ — never .git, never transient state, and never
   # historical .nfs* junk a pre-2.0.0 layout may have committed. Restore
   # targets a fresh/empty volume; it does not delete pre-existing local files.
-  if ( cd "$LOCAL" && git rev-parse HEAD >/dev/null 2>&1 ); then
-    if ( cd "$LOCAL" && tar -c "${EXCLUDES[@]}" -f - . ) | ( cd "$WORK" && tar -xf - ); then
-      # verify: every tracked file arrived byte-identical
-      while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        n=$((n + 1)); cmp -s "$LOCAL/$f" "$WORK/$f" || bad=$((bad + 1))
-      done <<EOF
+  if ( cd "$LOCAL" && tar -c "${EXCLUDES[@]}" -f - . ) | ( cd "$WORK" && tar -xf - ); then
+    # verify: every tracked file arrived byte-identical
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      n=$((n + 1)); cmp -s "$LOCAL/$f" "$WORK/$f" || bad=$((bad + 1))
+    done <<EOF
 $(cd "$LOCAL" && git -c core.quotepath=off ls-files | grep -Ev "$SKIP_RE")
 EOF
-      if [ "$bad" -eq 0 ]; then
-        say "restored work/ from remote ($n files verified)."; logev info work_backup "restored work/ from remote ($n files verified)"
-      else
-        say "restore incomplete: $bad of $n files differ from the remote."; logev error work_backup "restore incomplete: $bad of $n files differ"; rc=1
-      fi
+    if [ "$bad" -eq 0 ]; then
+      say "restored work/ from remote ($n files verified)."; logev info work_backup "restored work/ from remote ($n files verified)"
     else
-      say "restore copy failed."; logev warn work_backup "restore copy failed"; rc=1
+      say "restore incomplete: $bad of $n files differ from the remote."; logev error work_backup "restore incomplete: $bad of $n files differ"; rc=1
     fi
   else
-    say "remote is empty — nothing to restore."; rc=2
+    say "restore copy failed."; logev warn work_backup "restore copy failed"; rc=1
   fi
   release_lock
   return "$rc"

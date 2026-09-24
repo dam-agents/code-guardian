@@ -71,6 +71,28 @@ new_remote; base_config
 backup restore
 assert_rc 2 "restore without work_repo exits 2"
 
+new_case restore-readme-only-remote
+new_remote
+git clone -q "$REMOTE" "$SANDBOX/seed" 2>/dev/null
+( cd "$SANDBOX/seed" && printf '# state\n' > README.md && git add README.md \
+  && git -c user.name=t -c user.email=t@t commit -qm init && git push -q origin HEAD:main )
+base_config "- work_repo: acme/widgets-state"
+backup restore
+assert_rc 2 "a remote without CONFIG.md (README only) exits 2 — a new agent"
+assert_true "copied nothing from it" test ! -e "$WORK/README.md"
+
+new_case restore-ignores-stale-clone
+new_remote; seed_state; backup persist; OLD="$REMOTE"   # another agent's backup
+STALE="$SANDBOX/stale-clone"; git clone -q --branch main "$OLD" "$STALE" 2>/dev/null
+REMOTE="$SANDBOX/remote-b.git"; git init -q --bare "$REMOTE"
+printf '# Agent B\n' > "$WORK/MEMORY.md"; backup persist
+FRESH="$SANDBOX/fresh-b"; mkdir -p "$FRESH"
+printf -- '- work_repo: acme/widgets-state\n' > "$FRESH/CONFIG.md"
+RC=0; OUT="$(WORK_DIR="$FRESH" HOME="$FAKE_HOME" WORK_BACKUP_REMOTE="$REMOTE" \
+  WORK_BACKUP_LOCAL="$STALE" bash "$REPO_ROOT/scripts/work-backup.sh" restore 2>&1)" || RC=$?
+assert_rc 0 "restore over a stale tmpfs clone exits 0"
+assert_true "restored the configured remote, not the stale clone" grep -q 'Agent B' "$FRESH/MEMORY.md"
+
 new_case persist-refuses-protected-delete
 new_remote; seed_state
 backup persist
