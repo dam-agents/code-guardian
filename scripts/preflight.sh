@@ -43,8 +43,8 @@
 #                             after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks (auth, state consistency, log gaps/errors,
-#                             orphaned gists, disk, skills); the agent adds the
-#                             judgment checks and sends the report (docs/audit.md)
+#                             disk, skills); the agent adds the judgment
+#                             checks and sends the report (docs/audit.md)
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
@@ -130,6 +130,16 @@ iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ'
 DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+# report surface keys (docs/config.md): `off` publishes nothing, anything else
+# publishes to the DAM Artifact Library — a legacy value is logged, not fatal
+report_surface() { # <key> <var>
+  local v; v="$(cfg "$1")"
+  case "$v" in
+    (''|dam) printf -v "$2" dam;;
+    (off) printf -v "$2" off;;
+    (*) printf -v "$2" dam; log "$1 '$v' is not dam | off — publishing to dam";;
+  esac
+}
 
 # benchmark run lock TTL (docs/benchmark.md): a scored run never legitimately
 # exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
@@ -155,18 +165,7 @@ if [ "$MODE" = "survey" ]; then
   SURVEY_LEDGER="$SURVEY_DIR/LEDGER.md"
   SURVEY_INTERVAL_D="$(cfg survey_interval_days)"
   case "$SURVEY_INTERVAL_D" in (''|*[!0-9]*) SURVEY_INTERVAL_D=7;; esac
-  # report surfaces: the gist renderer only reaches github.com, the same rule
-  # the artifact and benchmark surfaces follow
-  SURVEY_REPORT="$(cfg survey_report)"; SURVEY_REPORT="${SURVEY_REPORT:-gist}"
-  SURVEY_HOST="$(refhost "$(cfg github_repo)")"
-  EFF_SURVEY=""
-  for t in $(printf '%s' "$SURVEY_REPORT" | tr ',' ' '); do
-    case "$t" in (off|'') continue;; esac
-    { [ "$t" = "gist" ] && [ "$SURVEY_HOST" != "github.com" ]; } \
-      && { log "survey_report surface gist dropped (target host $SURVEY_HOST)"; continue; }
-    EFF_SURVEY="${EFF_SURVEY:+$EFF_SURVEY,}$t"
-  done
-  EFF_SURVEY="${EFF_SURVEY:-off}"
+  report_surface survey_report EFF_SURVEY
 
   # the cadence floor, so a drifting cron never surveys twice in one interval
   SURVEY_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$SURVEY_LEDGER" 2>/dev/null | sort | tail -1)"
@@ -260,19 +259,7 @@ if [ "$MODE" = "benchmark" ]; then
     bench_out true null
   fi
   BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
-  # report surfaces: same host semantics as artifact_targets — gist renders
-  # through an external service that only reaches github.com, so it is
-  # dropped on any other target host (resolved without any gh fallback)
-  BENCH_REPORT="$(cfg benchmark_report)"; BENCH_REPORT="${BENCH_REPORT:-gist}"
-  BENCH_HOST="$(refhost "$(cfg github_repo)")"
-  EFF_REPORT=""
-  for t in $(printf '%s' "$BENCH_REPORT" | tr ',' ' '); do
-    case "$t" in (off|'') continue;; esac
-    { [ "$t" = "gist" ] && [ "$BENCH_HOST" != "github.com" ]; } \
-      && { log "benchmark_report surface gist dropped (target host $BENCH_HOST)"; continue; }
-    EFF_REPORT="${EFF_REPORT:+$EFF_REPORT,}$t"
-  done
-  EFF_REPORT="${EFF_REPORT:-off}"
+  report_surface benchmark_report EFF_REPORT
   BENCH_DIR="$WORK/benchmark"
   BENCH_MIN_FIXTURES=5
   # the active set: every fixture/<slug>/ carrying a manifest (each immutable)
@@ -389,17 +376,6 @@ URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
-# `gist` renders through an external service that only reaches github.com, so it
-# is dropped on any other target host; no surface left = feature off this run
-ARTIFACT_TARGETS="$(cfg artifact_targets)"; ARTIFACT_TARGETS="${ARTIFACT_TARGETS:-gist}"
-ARTIFACT_OFF_REASON=""; EFFECTIVE_TARGETS=""
-for t in $(printf '%s' "$ARTIFACT_TARGETS" | tr ',' ' '); do
-  { [ "$t" = "gist" ] && [ "$REPO_HOST" != "github.com" ]; } && continue
-  EFFECTIVE_TARGETS="${EFFECTIVE_TARGETS:+$EFFECTIVE_TARGETS,}$t"
-done
-if [ -n "$ARTIFACT_SKILL" ] && [ -z "$EFFECTIVE_TARGETS" ]; then
-  ARTIFACT_SKILL=""; ARTIFACT_OFF_REASON="no publish surface reachable on $REPO_HOST"
-fi
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
@@ -479,10 +455,11 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
     jq -nc --arg id "$id" --arg w "$(trim "$wf")" --arg n "$(trim "$notify")" --arg note "$(trim "$note")" \
       '{id:$id, watch_for:$w, notify:$n, note:$note}'
   done | jq -s .)"; [ -n "$WATCH_RULES" ] || WATCH_RULES='[]'
+report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
-  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$(cfg audit_trend)" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" \
@@ -494,9 +471,9 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, mention_replies:(if $mr=="" then "enabled" else $mr end),
-   artifact_skill:(if $art=="" then "none" else $art end), artifact_targets:(if $at=="" then null else $at end),
+   artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
-   audit_trend:(if $atr=="" then "dam" else $atr end),
+   audit_trend:$atr,
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
@@ -864,10 +841,9 @@ if [ "$MODE" = "review" ]; then
             "$kind" false "$prior" true true "$full"
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
-          gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
           did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" --arg d "${did:-}" \
-            '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end), dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
+          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg d "${did:-}" \
+            '{number:$n, state:$s, dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
           log "PR #$n: $state — prune due"
         fi;;
       *) : ;;  # OPEN / API error -> leave the row alone
@@ -1002,7 +978,7 @@ if [ "$MODE" = "review" ]; then
     # artifact assignee gate (independent of the review decision)
     if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qx "$BOT_LOGIN"; then
       action="generate"
-      grep -qE '<!-- artifact-(gist|dam):' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
+      grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
       ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
         '{number:$n, action:$a}')" '. + [$e]')"
       log "PR #$n: artifact $action due"
@@ -1665,11 +1641,10 @@ if [ "$MODE" = "audit" ]; then
       auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN"
     else auth_detail="${auth_detail:+$auth_detail; }$h: $me"; fi
 
-    # Token scopes the pipeline depends on: `repo` for PR state and posting,
-    # `gist` for artifact publishing (target host only). A missing scope fails
-    # those calls outright, so catch it here rather than per review; granting is
-    # operator-only.
-    want="repo"; { [ "$h" = "$REPO_HOST" ] && [ -n "$ARTIFACT_SKILL" ]; } && want="repo gist"
+    # Token scope the pipeline depends on: `repo` for PR state and posting. A
+    # missing scope fails those calls outright, so catch it here rather than per
+    # review; granting is operator-only.
+    want="repo"
     scopes="$(gh api --hostname "$h" user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
     missing_scopes=""
     for s in $want; do
@@ -1684,7 +1659,7 @@ if [ "$MODE" = "audit" ]; then
   done
   check github_auth "$auth_status" "$auth_detail"
   if [ "$scope_status" = "ok" ]; then check token_scopes ok "$scope_detail"
-  else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"; fi
+  else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting"; fi
 
   # rate limiting is reported by the target host only, and enterprise hosts may
   # not enforce it at all — unreadable is not a fault (github_auth covers tokens)
@@ -1882,17 +1857,7 @@ if [ "$MODE" = "audit" ]; then
     check state_drift ok "$verified open-PR rows verified against GitHub markers"
   fi
 
-  # --- artifacts & hygiene --------------------------------------------------
-  [ -n "$ARTIFACT_OFF_REASON" ] && check artifact_targets warn "artifact_skill configured but disabled: $ARTIFACT_OFF_REASON"
-  if [ -n "$ARTIFACT_SKILL" ] && printf '%s' ",$EFFECTIVE_TARGETS," | grep -q ',gist,'; then
-    gist_ids="$(gh api "gists?per_page=100" 2>/dev/null | jq -r '.[] | select((.description // "") | test("review artifact")) | .id')"
-    markers="$(grep -ho '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK"/reviews/pr-*.md 2>/dev/null | cut -d' ' -f3 | sort -u)"
-    orphans=""
-    for g in $gist_ids; do printf '%s\n' "$markers" | grep -qx "$g" || orphans="${orphans:+$orphans, }$g"; done
-    [ -n "$orphans" ] && check orphan_gists warn "artifact gists with no marker (leaked, never pruned): $orphans" \
-      || check orphan_gists ok "every artifact gist is tracked by a marker"
-  fi
-
+  # --- hygiene --------------------------------------------------------------
   TMP_ROOT="${TMPDIR:-/tmp}"
   swept="$(sweep_stale_clones)"
 
@@ -2048,8 +2013,8 @@ if [ "$MODE" = "audit" ]; then
   # which the on-disk HTML and the history markers do not — that is why the
   # count reads the log and not `reviews/pr-artifacts/`.
   # The outcome word is read at its documented position, after the skill name:
-  # a publish that names a skipped surface ("… published → gist X (DAM skipped:
-  # flag off)") is one publish, and counts in `generated` alone.
+  # "… published → DAM X, 0 redacted" is one publish, and counts in
+  # `generated` alone.
   # `unreported` is the guard: preflight's own `artifact generate due` lines
   # name every PR that entered the step, so a due PR with no outcome event
   # means the step ran without logging its audit line, and the count below it

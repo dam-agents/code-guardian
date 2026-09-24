@@ -94,12 +94,9 @@ skipped task is an incomplete audit — a task that is impossible this week
      **info**, never a failure.
 6. Slack connectivity — no separate probe: sending the report *is* the test (a
    send failure is a fail plus a fall back to the chat UI).
-7. Artifact feature (when `artifact_skill` is configured): report the
-   configured `artifact_targets` and, when the script emitted an
-   `artifact_targets` check, the surfaces it dropped for this host. When `dam`
-   is listed, are the DAM MCP tools (`create_artifact*`) registered this
-   session? Absent → **info**, not a failure, but report the flag state so the
-   operator knows which surfaces artifacts get.
+7. Artifact feature (when `artifact_skill` is configured): are the DAM MCP
+   tools (`create_artifact*`) registered this session? Absent → **warn**: no
+   artifact can publish until the owner's experimental flag is on.
 
 ### C. Review pipeline correctness (sample up to 3 reviews posted this week)
 

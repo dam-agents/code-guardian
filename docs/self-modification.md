@@ -60,7 +60,7 @@ records the ask; acting on it still takes the operator.
 
 - **`scripts/preflight.sh` detects, the agent acts.** The script stays
   deterministic and GitHub-read-only: no posts, no label or assignee writes, no
-  gist operations, no Slack, no git commit or push. Its local writes stay
+  artifact operations, no Slack, no git commit or push. Its local writes stay
   limited to bookkeeping (status flips, ledger bookkeeping, logs, caches).
   Anything with judgment belongs to the agent, driven by the worklist.
 - **`scripts/precheck.sh` gates, never acts.** It is the schedule's `precheck`:
