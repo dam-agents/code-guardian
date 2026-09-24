@@ -9,6 +9,13 @@
 #   work-backup.sh persist   # end of run: snapshot work/ -> commit -> push
 #   work-backup.sh restore   # fresh volume: remote state -> work/ (data only)
 #
+# Pod-local transient files (mkdir locks, *.tmp, the benchmark run lock) are
+# never carried in either direction; logs and every other work/ file are.
+# A persist that would delete an append-only or unreconstructable record
+# (PROTECTED below) is refused: that shape means work/ was never hydrated, and
+# pushing it would move the backup tip past the history. An operator-intended
+# deletion passes with WORK_BACKUP_ALLOW_DELETE=1.
+#
 # Durability model — nothing authoritative ever lives on tmpfs:
 #   - live state      : work/ on the persistent home volume (survives restart)
 #   - backup/history  : the `work_repo` remote (survives restart)
@@ -28,8 +35,12 @@
 # in-run. work/ files are only ever READ here (via tar), never renamed, so no
 # ESTALE.
 #
-# Never fails the run: all error paths exit 0 (a missed backup is retried next
-# run). Requires: git, tar, coreutils. Sources scripts/log.sh for events.
+# persist never fails the run: all its paths exit 0 (a missed backup is retried
+# next run). restore reports its outcome by exit code for onboarding:
+#   0 restored, every tracked file verified in work/ · 2 nothing to restore
+#   (no work_repo, an empty remote, or a remote without CONFIG.md) · 1 failed
+#   (unreachable, clone or copy error, or a file that did not arrive intact).
+# Requires: git, tar, coreutils. Sources scripts/log.sh for events.
 set -u
 
 MODE="${1:-persist}"
@@ -56,13 +67,23 @@ cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
               -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
 WORK_REPO="$(cfg work_repo)"
 
+# restore's exit code is its outcome (header); persist always exits 0
+end() { [ "$MODE" = restore ] && exit "$1"; exit 0; }
+
 if [ -z "$WORK_REPO" ]; then
   say "no work_repo in work/CONFIG.md — local-only, nothing to $MODE."
-  exit 0
+  end 2
 fi
 if ! command -v git >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
-  say "git/tar unavailable — skipping $MODE."; logev warn work_backup "git/tar unavailable — $MODE skipped"; exit 0
+  say "git/tar unavailable — skipping $MODE."; logev warn work_backup "git/tar unavailable — $MODE skipped"; end 1
 fi
+
+# Never carried either way: pod-local transient state. Mirrored by SKIP_RE for
+# the restore verification, which walks git's file list instead of tar's.
+EXCLUDES=(--exclude='./.git' --exclude='.nfs*' --exclude='*.lock' --exclude='*.tmp' --exclude='./benchmark/.run-lock')
+SKIP_RE='(^|/)\.nfs|\.lock(/|$)|\.tmp$|^benchmark/\.run-lock$'
+# Append-only or unreconstructable records a persist may never delete
+PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
 
 # work_repo is `[<host>/]<owner>/<repo>`: three segments name the host, two use
 # the ambient default (docs/config.md)
@@ -104,7 +125,7 @@ seed_clone() {
 # NFS files — git never renames them, so no ESTALE on work/.
 sync_in() {
   find "$LOCAL" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} + 2>/dev/null || true
-  ( cd "$WORK" && tar -c --exclude='./.git' --exclude='.nfs*' -f - . ) \
+  ( cd "$WORK" && tar -c "${EXCLUDES[@]}" -f - . ) \
     | ( cd "$LOCAL" && tar -xf - ) || return 1
   return 0
 }
@@ -164,9 +185,20 @@ do_persist() {
     ( cd "$LOCAL" || exit 1
       git add -A || exit 3
       if git diff --cached --quiet; then exit 42; fi   # nothing to persist
+      if [ "${WORK_BACKUP_ALLOW_DELETE:-0}" != 1 ]; then
+        # shellcheck disable=SC2086 # PROTECTED is a path list by design
+        gone="$(git diff --cached -M --diff-filter=D --name-only -- $PROTECTED | head -5 | tr '\n' ' ')"
+        [ -n "$gone" ] && { printf '%s' "$gone" > "$LOCAL.refused"; git reset -q --hard; exit 43; }
+      fi
       git commit -q -m "chore(work): persist state $(date -u +%Y-%m-%dT%H:%M:%SZ)" || exit 3
     ); rc=$?
     if [ "$rc" -eq 42 ]; then say "nothing to persist."; return 0; fi
+    if [ "$rc" -eq 43 ]; then
+      gone="$(cat "$LOCAL.refused" 2>/dev/null)"; rm -f "$LOCAL.refused"
+      say "refused: the snapshot deletes protected records (${gone% }) — work/ looks unhydrated; restore it first (docs/persistence.md → Backup & restore)."
+      logev error work_backup "persist refused — snapshot deletes protected records: ${gone% }"
+      return 0
+    fi
     if [ "$rc" -ne 0 ]; then logev warn work_backup "commit failed (attempt $attempt)"; continue; fi
     if ( cd "$LOCAL" && git push -q origin "HEAD:$BRANCH" 2>/dev/null ); then
       say "pushed (attempt $attempt)."; logev info work_backup "pushed work/ (attempt $attempt)"; return 0
@@ -183,29 +215,57 @@ restore() {
   # restore also drives $LOCAL, so serialize against a concurrent persist. It is
   # mandatory (onboarding), so wait briefly, then proceed best-effort rather than
   # skip — in practice it runs on a fresh volume before any schedule exists.
-  local w=0
+  local w=0 rc=0 n=0 bad=0 f
   while ! acquire_lock; do
     w=$((w + 1)); [ "$w" -ge 5 ] && { logev warn work_backup "restore proceeding without lock after wait"; break; }
     sleep 1
   done
-  seed_clone || { say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; release_lock; return 0; }
-  # copy data into work/ — never .git, and never historical .nfs* junk a
-  # pre-2.0.0 layout may have committed. Restore targets a fresh/empty volume;
-  # it does not delete pre-existing local files.
-  if ( cd "$LOCAL" && git rev-parse HEAD >/dev/null 2>&1 ); then
-    ( cd "$LOCAL" && tar -c --exclude='./.git' --exclude='.nfs*' -f - . ) | ( cd "$WORK" && tar -xf - ) \
-      && { say "restored work/ from remote."; logev info work_backup "restored work/ from remote"; } \
-      || { say "restore copy failed."; logev warn work_backup "restore copy failed"; }
+  # a fresh clone of the configured remote, never a clone left on tmpfs: that
+  # one may track another work_repo or a tip a failed fetch left behind, and the
+  # verification below would pass against it. The probe tells an unreachable
+  # remote (1) from one without the backup branch (2).
+  local heads
+  if ! heads="$(git ls-remote "$REMOTE_URL" "refs/heads/$BRANCH" 2>/dev/null)"; then
+    say "restore: could not reach remote — leaving work/ as-is."; logev warn work_backup "restore: remote unreachable"; release_lock; return 1
+  fi
+  if [ -z "$heads" ]; then
+    say "remote is empty — nothing to restore."; release_lock; return 2
+  fi
+  rm -rf "$LOCAL" 2>/dev/null || true
+  if ! git clone -q --branch "$BRANCH" "$REMOTE_URL" "$LOCAL" 2>/dev/null; then
+    say "restore: clone of $WORK_REF failed — leaving work/ as-is."; logev warn work_backup "restore: clone failed"; release_lock; return 1
+  fi
+  # a remote without CONFIG.md holds no agent state (a repo created with a
+  # README): nothing to restore, and onboarding seeds a new agent
+  if [ ! -f "$LOCAL/CONFIG.md" ]; then
+    say "remote holds no CONFIG.md — no agent state to restore."; release_lock; return 2
+  fi
+  # copy data into work/ — never .git, never transient state, and never
+  # historical .nfs* junk a pre-2.0.0 layout may have committed. Restore
+  # targets a fresh/empty volume; it does not delete pre-existing local files.
+  if ( cd "$LOCAL" && tar -c "${EXCLUDES[@]}" -f - . ) | ( cd "$WORK" && tar -xf - ); then
+    # verify: every tracked file arrived byte-identical
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      n=$((n + 1)); cmp -s "$LOCAL/$f" "$WORK/$f" || bad=$((bad + 1))
+    done <<EOF
+$(cd "$LOCAL" && git -c core.quotepath=off ls-files | grep -Ev "$SKIP_RE")
+EOF
+    if [ "$bad" -eq 0 ]; then
+      say "restored work/ from remote ($n files verified)."; logev info work_backup "restored work/ from remote ($n files verified)"
+    else
+      say "restore incomplete: $bad of $n files differ from the remote."; logev error work_backup "restore incomplete: $bad of $n files differ"; rc=1
+    fi
   else
-    say "remote is empty — nothing to restore."
+    say "restore copy failed."; logev warn work_backup "restore copy failed"; rc=1
   fi
   release_lock
-  return 0
+  return "$rc"
 }
 
 mkdir -p "$WORK" 2>/dev/null || true
 case "$MODE" in
   persist) persist ;;
-  restore) restore ;;
+  restore) restore; exit $? ;;
   *) say "unknown mode '$MODE' (use persist|restore)"; exit 0 ;;
 esac

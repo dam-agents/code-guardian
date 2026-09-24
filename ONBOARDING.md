@@ -20,7 +20,7 @@ independent.
 kit ([`kit.yaml`](kit.yaml)) grants the connections, seeds the definition into
 `$HOME` and registers the schedules before the first turn. Onboarding runs the
 same steps over that instance: it reads the seeded checkout instead of asking
-for a URL (Step 0.2), and reconciles the registered schedules with the
+for a URL (Step 0.3), and reconciles the registered schedules with the
 operator's configuration (Step 6). Everything else — `work/`, `CONFIG.md`, the
 roster, the labels, the review state, the sentinel — exists only after this
 run. A hand-made agent starts on an empty volume and gets all of it from the
@@ -81,8 +81,33 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
      (`docs/logging.md` → **Tool path resolution**). Report it — the fix
      belongs in the pod image, and the audit's `tool_shims` check keeps warning
      until it lands.
-2. **Definition repo & branch** — derive the **host**, `OWNER/REPO` and the
-   branch from the URL of this runbook as the operator gave it
+2. **Work backup repository** — ask once, do not block:
+
+   > Where should I keep a durable backup of my state (config, memory, review history)? Give me the repo as `[host/]owner/repo` — an empty one for a new agent, or the existing backup to continue a previous agent — or say "local-only" and the state lives on this volume alone.
+
+   A reference → validate it
+   (`gh api --hostname "<host>" "repos/<owner/repo>" --jq .full_name`) and
+   `export WORK_REPO="<[host/]owner/repo>"` for Step 3a, which persists it as
+   `work_repo`. "Local-only", or no reply → leave `$WORK_REPO` empty and tell
+   the operator the state is not recoverable if the volume is lost.
+
+   Then read the backup's configuration — it decides whether this is a
+   **restore**:
+
+   ```bash
+   gh api --hostname "<host>" "repos/<owner/repo>/contents/CONFIG.md" \
+     -H 'Accept: application/vnd.github.raw' 2>/dev/null
+   ```
+
+   A file → this is a restore: tell the operator which agent continues (its
+   `github_repo` and `bot_login`), and take `definition_repo`,
+   `definition_branch` and `github_repo` from it in 0.3 and 0.4. A bare
+   reference in it that does not resolve on `github.com` names the host the
+   previous volume's `GH_HOST` supplied — ask for it and use the reference
+   host-qualified from here on (`docs/config.md`). No file → a new agent.
+3. **Definition repo & branch** — on a restore, the backup's
+   `definition_repo` and `definition_branch`. Otherwise derive the **host**,
+   `OWNER/REPO` and the branch from the URL of this runbook as the operator gave it
    (`https://<host>/OWNER/REPO/blob/<branch>/ONBOARDING.md`, or its raw form);
    for a fork that is the fork, never upstream. A kit-created instance carries
    no such URL, because the kit seeded the definition into `$HOME` already —
@@ -101,27 +126,20 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    `export DEF_BRANCH="<branch from the URL or the checkout, else main>"` and
    validate it exists (`gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`)
    — invalid → say so and ask, never fall back silently. Both are persisted in
-   Step 4 (host-prefixed when it is not `github.com`) and drive the outer-repo
-   `origin`, updates, definition PRs and the review footer.
-3. **Target repository** — ask:
+   Step 4 and drive the outer-repo `origin`, updates, definition PRs and the
+   review footer.
+4. **Target repository** — on a restore, the backup's `github_repo`, without
+   asking. Otherwise ask:
 
    > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`), prefixed with the host if it is not `github.com` (e.g. `github.example.com/acme/widgets`).
 
-   Validate the answer the same way — on failure explain and ask again, never
+   Validate the reference the same way — on failure explain and ask again, never
    continue unvalidated — then export the split the steps below use:
    `export REPO_HOST="<host>" REPO="<owner/repo>" GH_HOST="$REPO_HOST"`.
    When `$REPO_HOST` is not `github.com`, persist it for the fresh shells every
    later run uses: append `export GH_HOST=<host>` to `~/.bashrc` if that line
    is absent. The durable copy — the **only** one the runtime reads — goes to
    `work/CONFIG.md` (`github_repo:`) in Step 4.
-4. **Work backup repository** — ask once, do not block:
-
-   > Where should I keep a durable backup of my state (config, memory, review history)? Give me an empty repo as `[host/]owner/repo`, or say "local-only" and the state lives on this volume alone.
-
-   A reference → validate it the same way and
-   `export WORK_REPO="<[host/]owner/repo>"` for Step 3a, which persists it as
-   `work_repo`. "Local-only", or no reply → leave `$WORK_REPO` empty and tell
-   the operator the state is not recoverable if the volume is lost.
 
 ## Step 1 — Make `/home/agent` the definition repo (safely, at HOME root)
 
@@ -131,7 +149,7 @@ definition files — is what makes a repo at `$HOME` safe. Do **not**
 `git clone` into `$HOME` (it needs an empty dir); init, fetch and hard-reset
 instead, which never touches untracked files.
 
-`$DEF_BRANCH` is the branch **this instance runs from** — the one Step 0.2
+`$DEF_BRANCH` is the branch **this instance runs from** — the one Step 0.3
 resolved, or `main`. It is persisted as `definition_branch` in Step 4 and
 used for updates and for keeping the checkout in place
 (`docs/persistence.md` → **Tracked branch**); definition PRs are still based on
@@ -201,16 +219,24 @@ if [ -n "$WORK_REPO" ]; then
       || printf -- '- work_repo: %s\n' "$WORK_REPO" >> /home/agent/work/CONFIG.md
   }
   keep_work_repo
-  LOG_JOB=session bash "$HOME/scripts/work-backup.sh" restore
+  LOG_JOB=session bash "$HOME/scripts/work-backup.sh" restore; RESTORE_RC=$?
   keep_work_repo
 fi
 ```
 
-An empty remote (first-ever deployment) makes the restore a no-op — fall
-through to 3b to seed the templates; the first end-of-run `persist` creates the
-initial backup. Never make `work/` a git repo.
+`RESTORE_RC` decides the path (`docs/persistence.md` → **Backup & restore**):
 
-**3b — local-only, or the 3a restore was empty or failed** → create the seed
+- `0` — restored and verified. Skip 3b; Step 7 finishes the restore.
+- `2` — the remote holds no agent state: it is empty, or it has no
+  `CONFIG.md` (for example only a README). A new agent: fall through to 3b; the
+  first end-of-run `persist` creates the initial backup.
+- `1` — the restore failed. **Stop**: report the output to the operator and
+  re-run onboarding once the remote is reachable. Never seed templates over a
+  backup that exists.
+
+Never make `work/` a git repo.
+
+**3b — local-only, or the 3a remote held no agent state** → create the seed
 files below **only if missing**. Never overwrite an existing `MEMORY.md` or
 `LESSONS.md`: they hold long-term knowledge that is not reconstructable.
 Review-tracking rows are reconstructed in Step 5, which needs the
@@ -308,15 +334,19 @@ what it reports, and show the file to the operator.
 
 **Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its
 values** and ask only for missing keys. Never silently overwrite operator-set
-config, `review_marker` least of all.
+config, `review_marker` least of all. Two exceptions: a reference Step 0.2
+host-qualified replaces its bare form, and a restored `bot_login` that differs
+from Step 0.1 is shown to the operator, who picks the one that applies.
 
-1. **`github_repo`** — always write the resolved target reference. It is the
+1. **`github_repo`** — always write the resolved target reference, with its
+   host whenever any configured host is not `github.com` (`docs/config.md`;
+   the same holds for every reference below). It is the
    only source the runtime has: a scheduled run starts a fresh shell with no
    session exports, so a missing key stops every run at pre-flight. Write
-   **`work_repo`** too when Step 0.4 named one (Step 3a already added it);
+   **`work_repo`** too when Step 0.2 named one (Step 3a already added it);
    omitting it is local-only persistence.
 2. **`definition_repo`** and **`definition_branch`** — always write both Step
-   0.2 values, `definition_branch` even when it is `main`, so the tracked
+   0.3 values, `definition_branch` even when it is `main`, so the tracked
    branch is explicit.
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator,
    stating the consequence:
@@ -648,10 +678,15 @@ continuous one — it only stops burning tokens at night and on weekends.
 
 Only after Steps 1–6 succeeded. `work/VERSION` records the adopted definition
 version, used by the version check (`docs/persistence.md` → **Definition
-version & upgrade**):
+version & upgrade**).
+
+- **New agent** (3b) — record the checked-out version:
+  `head -1 "$HOME/VERSION" > "$HOME/work/VERSION"`.
+- **Restore** (3a `RESTORE_RC=0`) — keep the restored `work/VERSION` and
+  finish per `docs/persistence.md` → **After a restore**: migrate, republish
+  the accumulated reports, back up.
 
 ```bash
-head -1 "$HOME/VERSION" > "$HOME/work/VERSION"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```

@@ -52,8 +52,57 @@ same shared `work/` moments later). Never force-push. A push that fails all
 retries is logged and retried next run — not a run failure, because the data is
 safe on `work/`.
 
+Both directions carry every `work/` file — logs, ledgers, `audit/`,
+`benchmark/`, `survey/` included — except pod-local transient state: mkdir
+locks (`*.lock`), `*.tmp` and `benchmark/.run-lock`. A persist that would
+delete `CONFIG.md`, `MEMORY.md`, `LESSONS.md`, `REVIEW-LEDGER.jsonl`,
+`audit/weeks/`, `benchmark/RESULTS.md` or `benchmark/results/` is refused and
+logged as an error: that snapshot comes from an unhydrated `work/`, so restore
+first. A deletion the operator asked for passes with
+`WORK_BACKUP_ALLOW_DELETE=1`.
+
 `restore` is the inverse — remote → `work/`, data only, never a `.git` — run
-once on a fresh volume when the templates are not enough (ONBOARDING Step 3a).
+once on a fresh volume (ONBOARDING Step 3a). It copies from a fresh clone of
+the remote, verifies every file against it and exits `0` restored · `2` nothing
+to restore (no `work_repo`, an empty remote, or no `CONFIG.md` on it) · `1`
+failed (unreachable, or a file did not arrive intact).
+
+### After a restore
+
+A restored instance continues where the backup ends. ONBOARDING Step 7 applies
+this, in order:
+
+1. **Version** — migrate from the restored `work/VERSION` (**Definition
+   version & upgrade** → **Migration**), never overwrite it.
+2. **Accumulated reports** — for each report whose data came back and whose
+   surface key lists `dam`, publish it again as a new DAM artifact; the
+   restored id names the previous agent's artifact:
+
+   | Report | Data | Surface key | Marker file | Regenerate, then publish |
+   | --- | --- | --- | --- | --- |
+   | Weekly trends | `audit/weeks/*.json` | `audit_trend` | `audit/TRENDS.md` | `audit-trend.sh report` · [trends.md](trends.md) → **Procedure** 3–4 |
+   | Benchmark | `benchmark/RESULTS.md` | `benchmark_report` | `benchmark/RESULTS.md` | [benchmark.md](benchmark.md) → **Running the benchmark** phase 2 step 9 |
+   | Survey | `survey/LEDGER.md` | `survey_report` | `survey/LEDGER.md` | [survey.md](survey.md) → **Procedure** step 5 |
+
+   Delete the report's `<!-- *-dam: <id> -->` marker line first, so its
+   publish step creates the artifact and writes the new marker. Gist markers
+   stay as they are. Log each as
+   `restore: republished <report> → DAM <id>`, or its failure; a failed publish
+   never stops the onboarding. PR artifacts are not republished — the links
+   already in PR comments stay valid.
+3. **Back up** `work/` (the new markers).
+
+Outside `work/`, nothing needs a copy — each part comes back by itself:
+
+| State | Returns through |
+| --- | --- |
+| Definition checkout, branch | ONBOARDING Step 1, from the restored `definition_repo` / `definition_branch` |
+| Harness hooks (`~/.claude/settings.json`) | ONBOARDING Step 1b |
+| Schedules | ONBOARDING Step 6, from the restored `CONFIG.md` cadence keys |
+| Skills | the platform; preflight installs what is due |
+| Onboarding sentinel | ONBOARDING Step 7 |
+| `in_progress` rows in `REVIEWS.md` | the stale-lock takeover ([review.md](review.md) → **Review tracking state**) |
+| GitHub token and scopes, Slack connection, DAM flag | **operator-only**, on the platform |
 
 ## Tracked branch
 

@@ -287,7 +287,9 @@ seeded depends on the `work_repo` key:
 
 - **Set** — `work/` is a plain data directory backed up to that repo after
   every run, via a disposable tmpfs clone, giving durable, versioned,
-  cross-pod history.
+  cross-pod history. Naming an existing backup at onboarding continues that
+  agent: state and logs return verified, and the accumulated reports are
+  published again (`docs/persistence.md` → **After a restore**).
 - **Omitted** — `REVIEWS.md` and `reviews/` are reconstructed from the agent's
   marker-carrying reviews on the target repo; `MEMORY.md`, which is not
   derivable from PRs, starts from the seed template in `ONBOARDING.md`
