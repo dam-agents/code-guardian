@@ -117,6 +117,10 @@ first="$(printf '%s\n' "$OUT" | grep -m1 -o '^<tr><td>[0-9]*-W[0-9]*' | sed 's/<
   && printf 'ok   %s: the newest week is the first row\n' "$CASE" \
   || { printf 'FAIL %s: expected the newest week first, got %s\n' "$CASE" "$first"; FAILED=1; }
 assert_out_contains '<th data-d="d" title="ISO week' 'the week column starts sorted newest first'
+[ "$(printf '%s' "$OUT" | grep -o '<th[^>]* data-d=' | wc -l | tr -d ' ')" = 1 ] \
+  && printf 'ok   %s: only the week column carries the sort state\n' "$CASE" \
+  || { printf 'FAIL %s: expected one sorted column\n' "$CASE"; FAILED=1; }
+assert_out_contains 'if(open&&open===document.activeElement)show(open)' 'a scroll keeps the bubble of the focused element'
 assert_out_contains '<th class="n" title="Count of reviews posted' 'a numeric header aligns with its cells and carries help'
 assert_out_contains 'th.n{text-align:right}' 'numeric headers are right-aligned'
 assert_out_contains '<td title="Count of reviews posted in the week' 'a summary metric name carries help'
@@ -200,6 +204,7 @@ assert_file_contains "$WORK/audit/TRENDS.md" 'audit-trend-dam: abc123' 'the publ
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains '<title>Weekly trends</title>' 'report renders a self-contained page'
 assert_out_contains '<circle cx=' 'the charts render from the recorded weeks'
+assert_out_contains 'class="hit" x="34" y="10" width="282"' 'the hover band of the only week covers the full plot'
 assert_out_absent 'http://|https://[a-z]' 'the page loads no external asset'
 
 # --- a missing worklist appends nothing --------------------------------------

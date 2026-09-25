@@ -336,7 +336,7 @@ TIPS='{
 "🔴/🟡/🟢": "New findings by severity: critical / warning / suggestion.",
 "f/rev": "New findings per review. A sudden change means the review became stricter or looser, or the PRs changed.",
 "acc": "Findings acceptance: the share of flagged findings that the next re-review found fixed. Higher is better. A low value means authors ignore the findings, or the findings are wrong.",
-"coverage": "The share of the PRs merged this week that the agent reviewed, and the count of merged PRs. Higher is better. Below 80 % changes merge without a review.",
+"coverage": "The share of the PRs merged this week that the agent reviewed, and the count of merged PRs. Higher is better. When the value is below 80 %, some changes merge without a review.",
 "PR size": "Median size of the first-reviewed PRs, in files and changed lines. Larger PRs make slower and weaker reviews.",
 "human ttfr": "Median hours from a PR becoming ready to its first review by a person. Lower is better.",
 "conflicts": "Count of PRs whose first merge conflict was seen this week. A PR counts one time in its life: a later conflict of the same PR is not counted. The shepherd sweep sees a conflict only while it lasts, so a conflict that is resolved between two sweeps is not counted. Lower is better.",
@@ -359,7 +359,7 @@ TIPS='{
 "Findings raised": "Count of new findings the reviews raised in the week. Read it with the acceptance: many findings that nobody fixes are noise.",
 "Findings per review": "New findings divided by reviews. A sudden change means the review became stricter or looser, or the PRs changed.",
 "Findings acceptance": "The share of flagged findings that the next re-review found fixed. Higher is better. A low value means authors ignore the findings, or the findings are wrong.",
-"Review coverage of merged PRs": "The share (%) of the PRs merged in the week that the agent reviewed. Higher is better. Below 80 % changes merge without a review.",
+"Review coverage of merged PRs": "The share (%) of the PRs merged in the week that the agent reviewed. Higher is better. When the value is below 80 %, some changes merge without a review.",
 "Median PR size (files)": "Median count of changed files of the first-reviewed PRs. Lower is better: larger PRs make slower and weaker reviews.",
 "Time to first human review (h)": "Median hours from a PR becoming ready to its first review by a person. Lower is better.",
 "PRs that hit a merge conflict": "Count of PRs whose first merge conflict was seen this week. A PR counts one time in its life: a later conflict of the same PR is not counted. The shepherd sweep sees a conflict only while it lasts, so a conflict that is resolved between two sweeps is not counted. Lower is better.",
@@ -376,12 +376,15 @@ TIPS='{
 }'
 
 # renders one header cell with its help text from $tips; $cls "n" aligns a
-# numeric column's header with its right-aligned cells
+# numeric column's header with its right-aligned cells, $dir "a"/"d" marks the
+# column the rows arrive sorted by
 JQ_TH='
-  def th($l; $key; $cls): ($tips[$key] // "") as $t
+  def th($l; $key; $cls; $dir): ($tips[$key] // "") as $t
     | "<th" + (if $cls == "" then "" else " class=\"\($cls)\"" end)
+      + (if $dir == "" then "" else " data-d=\"\($dir)\"" end)
       + (if $t == "" then "" else " title=\"\($t | @html)\"" end)
       + ">\($l | @html)</th>";
+  def th($l; $key; $cls): th($l; $key; $cls; "");
   def th($l; $cls): th($l; $l; $cls);
 '
 JQ_VIEW='
@@ -475,7 +478,7 @@ JQ_VIEW='
         # one transparent band per week: pointing to it shows every series of that week
         + ([ $rows | to_entries[]
              | .value as $r
-             | (if $n <= 1 then 282 else $step end) as $w
+             | (if $n <= 1 then 564 else $step end) as $w
              | ([ $series[] | .name as $nm | .scale as $sc
                   | ($r[.key] | if . == null then "—"
                                 else ((. * $sc * 100 | round) / 100 | tostring)
@@ -596,18 +599,17 @@ ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
         + "</tr>" ] | reverse | join("\n")' 2>/dev/null)"
 
 # the header of the table above, in its column order; "n" marks the columns
-# whose cells are right-aligned numbers
+# whose cells are right-aligned numbers. The rows arrive newest first, so the
+# week column starts sorted descending.
 HEAD_WEEKS="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
-  [ ["week",""], ["src",""], ["version",""], ["reviews","n"], ["1st/re","n"],
+  [ ["week","","d"], ["src",""], ["version",""], ["reviews","n"], ["1st/re","n"],
     ["✅/⚠️/❌","n"], ["found","n"], ["🔴/🟡/🟢","n"], ["f/rev","n"], ["acc","n"],
     ["coverage","n"], ["PR size","n"], ["human ttfr","n"], ["conflicts","n"],
     ["👍/👎","n"], ["ttfr","n"], ["dur","n"], ["slowest phase",""], ["open","n"],
     ["awaiting","n"], ["artifacts","n"], ["heartbeats","n"], ["out-tok","n"],
     ["est $","n"], ["act $","n"], ["$/rev","n"], ["stalled","n"], ["err/warn","n"],
     ["🔴/🟡/🟢 checks","n"] ]
-  | map(th(.[0]; .[1])) | join("")
-  # the rows arrive newest first: mark the week column as sorted descending
-  | sub("<th title="; "<th data-d=\"d\" title=")')"
+  | map(th(.[0]; .[0]; .[1]; .[2] // "")) | join("")')"
 
 LATEST="$(printf '%s' "$DERIVED" | jq -r '(last // {}) | .week // "no weeks yet"')"
 PRICED="$(printf '%s' "$PRICES" | jq 'length')"
@@ -654,7 +656,7 @@ svg .ax{stroke:var(--rule-strong);stroke-width:.8}
 svg .gr{stroke:var(--rule);stroke-width:.6;stroke-dasharray:2 2}
 svg .lb{font-size:5.5px;fill:var(--ink-muted);font-family:system-ui,sans-serif}
 svg .hit{fill:transparent}
-svg .hit:hover{fill:color-mix(in srgb,var(--seq) 10%,transparent)}
+svg .hit:hover,svg .hit:focus{fill:color-mix(in srgb,var(--seq) 10%,transparent);outline:none}
 .scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);
   border-radius:6px}
 table{border-collapse:collapse;width:100%;font-size:.82rem;margin:0}
@@ -738,8 +740,8 @@ document.querySelectorAll('th').forEach(function(th){
 });
 // Column help: the header title becomes a styled bubble on hover and focus —
 // a native title inside the horizontal scroller is slow, truncated and
-// untouched by the light/dark tokens. Headers also become focusable, so the
-// help and the sort both work from the keyboard.
+// untouched by the light/dark tokens. Headers and chart bands also become
+// focusable, so the help and the sort both work from the keyboard.
 (function(){
   var tip=document.createElement('div');
   tip.className='tip'; tip.id='col-tip'; tip.setAttribute('role','tooltip');
@@ -763,29 +765,35 @@ document.querySelectorAll('th').forEach(function(th){
     tip.style.left=x+'px'; tip.style.top=y+'px';
     th.setAttribute('aria-describedby','col-tip'); open=th;
   }
+  function bind(el){
+    el.setAttribute('tabindex','0');
+    el.addEventListener('mouseenter',function(){show(el)});
+    el.addEventListener('mouseleave',hide);
+    el.addEventListener('focus',function(){show(el)});
+    el.addEventListener('blur',hide);
+    el.addEventListener('keydown',function(e){
+      if(e.key==='Escape')hide();
+      else if(el.tagName==='TH'&&(e.key==='Enter'||e.key===' ')){e.preventDefault(); el.click();}
+    });
+  }
   // a chart band carries its values as an SVG <title> child, the week as data-label
   document.querySelectorAll('svg .hit').forEach(function(r){
     var t=r.querySelector('title'); if(!t)return;
     r.setAttribute('data-tip',t.textContent.replace(/^[^\n]*\n/,''));
     r.removeChild(t);
-    r.addEventListener('mouseenter',function(){show(r)});
-    r.addEventListener('mouseleave',hide);
+    bind(r);
   });
   document.querySelectorAll('th[title],td[title]').forEach(function(th){
     th.setAttribute('data-tip',th.getAttribute('title'));
     th.removeAttribute('title');
-    th.tabIndex=0;
-    th.addEventListener('mouseenter',function(){show(th)});
-    th.addEventListener('mouseleave',hide);
-    th.addEventListener('focus',function(){show(th)});
-    th.addEventListener('blur',hide);
-    th.addEventListener('keydown',function(e){
-      if(e.key==='Enter'||e.key===' '){e.preventDefault(); th.click();}
-      else if(e.key==='Escape')hide();
-    });
+    bind(th);
   });
-  // any scroll moves the header out from under a bubble anchored to the viewport
-  window.addEventListener('scroll',hide,true);
+  // a scroll moves the element under a bubble anchored to the viewport: the
+  // bubble follows the focused element (focus itself scrolls it into view) and
+  // closes otherwise
+  window.addEventListener('scroll',function(){
+    if(open&&open===document.activeElement)show(open); else hide();
+  },true);
 })();
 </script>
 EOF
