@@ -598,6 +598,13 @@ jq -nc --arg ts "$(iso_ago 86400)" \
     ste:{sentences:20, avg_sentence_words:28.0, sentences_over_20:9}}' > "$WORK/REVIEW-LEDGER.jsonl"
 run_preflight audit
 assert_jq '[.checks[] | select(.id == "review_style")] | .[0].status == "warn"' 'past the bar the check warns'
+# the pod has no awk: the share is compared without it
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+       CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
+       PATH="$SANDBOX/noawk:$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" audit)"
+assert_jq '.stats.ste.over_20_share > 0.15 and ([.checks[] | select(.id == "review_style")] | .[0].status == "warn")' \
+  'past the bar the check warns without awk'
 
 # a week whose rows predate the measurement is unmeasured, never a pass
 new_case audit_review_style_unmeasured
