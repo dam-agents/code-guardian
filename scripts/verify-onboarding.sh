@@ -206,7 +206,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies project_profile artifact_skill artifact_targets slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -238,7 +238,9 @@ EOF
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
-    chk_enum audit_trend 'dam|gist|gist,dam|off' 'dam | gist | gist,dam | off'
+    chk_enum audit_trend 'dam|off' 'dam | off'
+    chk_enum survey_report 'dam|off' 'dam | off'
+    chk_enum benchmark_report 'dam|off' 'dam | off'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
     # Review cadence (docs/config.md). Both intervals must
@@ -269,16 +271,6 @@ EOF
         ok config-artifact_skill "'$AS'"
       else
         fail config-artifact_skill "invalid value '$AS'" "use '<skill>@<owner/repo>' or 'none'"
-      fi
-      AT="$(cfg artifact_targets)"; AT="${AT:-gist}"
-      BAD_T=""
-      for t in $(printf '%s' "$AT" | tr ',' ' '); do
-        case "$t" in gist|dam) ;; *) BAD_T="$BAD_T $t" ;; esac
-      done
-      if [ -z "$BAD_T" ]; then
-        ok config-artifact_targets "'$AT'"
-      else
-        fail config-artifact_targets "unknown target(s):$BAD_T" "use a comma-separated subset of: gist, dam"
       fi
     fi
 

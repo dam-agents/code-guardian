@@ -22,10 +22,10 @@ pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
 closed_pr_fx 5 "$SHA5" false
-printf '# PR #5: gone PR\n<!-- artifact-gist: abc123 -->\n<!-- artifact-dam: dam_1 -->\n' > "$WORK/reviews/pr-5.md"
+printf '# PR #5: gone PR\n<!-- artifact-dam: dam_1 -->\n' > "$WORK/reviews/pr-5.md"
 run_preflight review
 assert_jq '.prunes_due | length == 1' 'one prune due'
-assert_jq '.prunes_due[0] | .number == 5 and .state == "CLOSED" and .gist_id == "abc123" and .dam_id == "dam_1"' 'prune carries artifact ids'
+assert_jq '.prunes_due[0] | .number == 5 and .state == "CLOSED" and .dam_id == "dam_1" and (has("gist_id") | not)' 'prune carries artifact ids'
 assert_jq '.reviews_due | length == 0' 'nothing to review'
 
 # --- RAPID lock + merged PR → closed review entry instead of prune ------------

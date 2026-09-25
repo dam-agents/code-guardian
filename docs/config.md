@@ -27,7 +27,7 @@ cross-host calls pass `--hostname` (`gh api`) or `[HOST/]OWNER/REPO`
 
 `config` — one object per run with work: every key below with its default
 applied (`bot_login` / `review_marker` are `null` when missing),
-`artifact_skill` / `artifact_targets` as effective for the target host,
+`artifact_skill` as effective (`none` when off),
 `skills_table` (`[{skill, source, trigger, section}]`) and `watch_rules`
 (`[{id, watch_for, notify, note}]`). Runs read their values from it; the reader
 below is for the manual fallback and the direct session.
@@ -103,14 +103,9 @@ below is for the manual fallback and the direct session.
 - **`## Review skills` table** — the per-PR review skills; semantics in
   [skills.md](skills.md). Missing or empty → no review skills run (log once).
 - **`artifact_skill`** — `<skill>@<[host/]owner/repo>`, or `none`/missing = the
-  artifact feature is off entirely.
-- **`artifact_targets`** — comma-separated publish surfaces: any of `gist`,
-  `dam`. **Missing or empty = `gist`.** `gist` requires the target repo on
-  `github.com` and is dropped elsewhere; with no surface left the feature is
-  off for the run. `dam` is always best-effort — its MCP tools exist only under
-  the owner's experimental flag, so `dam` listed-but-unavailable logs and is
-  skipped, never failing the run ([artifact.md](artifact.md)). Unrelated to
-  `artifact_skill`, which gates the feature as a whole.
+  artifact feature is off entirely. The artifact publishes to the DAM Artifact
+  Library, best-effort behind the owner's experimental flag
+  ([artifact.md](artifact.md)).
 - **`## Watch rules` table** — instance-local "when a PR does X, give a
   heads-up in Y" rules, evaluated during reviews and delivered to a closed set
   of vetted targets (`chat`, `slack[:<chat-id>]`, `pr-comment`) —
@@ -140,21 +135,21 @@ below is for the manual fallback and the direct session.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,
   otherwise to the chat UI.
-- **`audit_trend`** — publish surfaces for the weekly trend artifact, updated
-  in place so its URL stays stable: `dam` (default) | `gist` | `gist,dam` |
-  `off`. Same host and best-effort semantics as `artifact_targets`; `off` keeps
-  the history and the local report and publishes nothing
-  ([trends.md](trends.md)).
+- **`audit_trend`** — publish surface for the weekly trend artifact, updated
+  in place so its URL stays stable: `dam` (default) | `off`. `dam` is
+  best-effort as in [artifact.md](artifact.md); `off` keeps the history and
+  the local report and publishes nothing ([trends.md](trends.md)). Any other
+  value publishes to `dam` and is logged — the same for every report surface
+  key.
 - **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
   deep pass over one area of the repository: what a diff cannot show —
   unreachable code, duplicated logic, untested paths, drift from the
   repository's own conventions and decision records ([survey.md](survey.md)).
   One area per run, capped before the run starts, read-only on the repository.
   Enabling it registers the schedule of ONBOARDING Step 6e.
-- **`survey_report`** — publish surfaces for the accumulated survey artifact,
-  updated in place so its URL stays stable: `gist` (default) | `dam` |
-  `gist,dam` | `off`. Same host and best-effort semantics as
-  `artifact_targets`.
+- **`survey_report`** — publish surface for the accumulated survey artifact,
+  updated in place so its URL stays stable: `dam` (default) | `off`, as
+  `audit_trend`.
 - **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;
   an unparseable value falls back to `7`. It bounds a drifting cron, so a
   weekly schedule never surveys twice in one week.
@@ -167,10 +162,9 @@ below is for the manual fallback and the direct session.
   quality scores; `off`/missing = deterministic scoring only. A changed judge
   starts a new comparability window (the model that actually judged is recorded
   per result).
-- **`benchmark_report`** — publish surfaces for the accumulated report
-  artifact, updated in place so its URL stays stable: `gist` (default) | `dam`
-  | `gist,dam` | `off`. Same host and best-effort semantics as
-  `artifact_targets`.
+- **`benchmark_report`** — publish surface for the accumulated report
+  artifact, updated in place so its URL stays stable: `dam` (default) | `off`,
+  as `audit_trend`.
 - **`## Benchmark model prices` table** — optional per-MTok USD prices keyed by
   model-id substring; powers the `est $` column of both the benchmark report
   and the weekly trend artifact ([benchmark.md](benchmark.md) → **Model
@@ -213,7 +207,6 @@ BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BO
 REVIEW_MARKER="$(cfg review_marker)"
 DEF_REF="$(cfg definition_repo)"; DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
-ARTIFACT_TARGETS="$(cfg artifact_targets)"; ARTIFACT_TARGETS="${ARTIFACT_TARGETS:-gist}"
 ```
 
 All `gh` commands use `--repo "$REPO"`. `REPO` resolving empty → stop and ask
