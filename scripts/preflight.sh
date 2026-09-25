@@ -2270,7 +2270,6 @@ if [ "$MODE" = "audit" ]; then
     check review_style ok "no posted review carried a style measurement this week"
   else
     ste_avg="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.avg_sentence_words // 0')"
-    ste_share="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.over_20_share // 0')"
     ste_over="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences_over_20 // 0')"
     ste_sent="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences // 0')"
     # jq compares the share: an empty or non-numeric one is never over the bar

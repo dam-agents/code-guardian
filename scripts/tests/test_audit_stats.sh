@@ -600,9 +600,7 @@ run_preflight audit
 assert_jq '[.checks[] | select(.id == "review_style")] | .[0].status == "warn"' 'past the bar the check warns'
 # the pod has no awk: the share is compared without it
 mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
-OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
-       CG_PROFILE_REMOTE="${PROFILE_REMOTE:-$SANDBOX/no-remote}" CG_MIRROR_ROOT="$SANDBOX/mirror" \
-       PATH="$SANDBOX/noawk:$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" audit)"
+PATH="$SANDBOX/noawk:$PATH" run_preflight audit
 assert_jq '.stats.ste.over_20_share > 0.15 and ([.checks[] | select(.id == "review_style")] | .[0].status == "warn")' \
   'past the bar the check warns without awk'
 
