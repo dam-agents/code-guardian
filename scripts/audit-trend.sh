@@ -304,7 +304,9 @@ if [ "$MODE" = "append" ] || [ "$MODE" = "backfill" ]; then
       + " · human review \(if $c.human_ttfr_h == null then "—" else "\($c.human_ttfr_h)h" end)\(d($c.human_ttfr_h; $p.human_ttfr_h; "h"))"
       + " · stalled \($c.stalled|f)/\($c.locked_runs|f)"
     end'
-  surfaces="$(sed -n 's/^- *audit_trend: *//p' "$CONFIG_MD" 2>/dev/null | head -1 | tr -d ' ')"
+  # the same reader as preflight's cfg(): an inline `# …` comment is not the value
+  surfaces="$(sed -n 's/^- *audit_trend:[[:space:]]*//p' "$CONFIG_MD" 2>/dev/null | head -1 \
+    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//')"
   [ "$surfaces" = "off" ] || surfaces=dam
   printf 'weeks=%s surfaces=%s report=%s\n' "$WEEKS" "$surfaces" "$DIR/report.html"
   exit 0
@@ -312,9 +314,9 @@ fi
 
 # ---------------------------------------------------------------- report -----
 # Self-contained HTML: no external assets, because the artifact viewer allows
-# no network. Charts are inline SVG polylines over the
-# same derived rows the table shows — a missing week breaks the line instead
-# of interpolating across it.
+# no network. Charts are inline SVG polylines over the same derived rows the
+# table shows — a missing week breaks the line instead of interpolating across
+# it.
 JQ_VIEW='
   def f: if . == null then "—" else tostring end;
   def pc: if . == null then "—" else ((. * 100 | round) | tostring + "%") end;
@@ -601,7 +603,8 @@ ${ROWS_HTML}
 </table>
 </div>
 <script>
-// Sort only — no external assets (the artifact viewer allows no network). Numeric when every cell parses as a number, else text.
+// Sort only — no external assets (the artifact viewer allows no network).
+// Numeric when every cell parses as a number, else text.
 document.querySelectorAll('th').forEach(function(th,i){
   th.addEventListener('click',function(){
     var tb=th.closest('table').tBodies[0], rows=[].slice.call(tb.rows);
