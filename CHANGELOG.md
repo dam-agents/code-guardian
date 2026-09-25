@@ -11,6 +11,19 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 5.7.0 — 2026-09-25
+
+**Upgrade:** Memory now has two layers (`docs/preferences.md` → **Two
+layers**). Until the distilled files are inside their bounds, review runs keep
+reading oversized files. So do not wait for the weekly audit: in a direct
+session, run `docs/preferences.md` → **Weekly memory consolidation** now.
+Start with step 0: move every `work/memory/*.md` without `scope:` to
+`work/memory/archive/`. Then move the body of every over-bound area file and
+of `work/LESSONS.md` to the archive, distill each file back to its rules, and
+point the MEMORY.md `→ memory/<topic>.md` pointers to `→ archive/<topic>.md`.
+`bash "$HOME/scripts/preflight.sh" audit` shows `memory_budget` `ok` when it is
+done. Then back up `work/`.
+
 ## 5.6.0 — 2026-09-24
 
 **Upgrade:** When `GH_HOST` names a host other than `github.com`, rewrite
