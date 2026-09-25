@@ -317,6 +317,79 @@ fi
 # no network. Charts are inline SVG polylines over the same derived rows the
 # table shows — a missing week breaks the line instead of interpolating across
 # it.
+#
+# Every column header carries plain-language help — what the value measures and
+# which direction is better — from the TIPS dictionary below, the single home
+# of that text. It is rendered as the header `title`, so the help survives with
+# JavaScript off; the page script moves it into a styled bubble.
+TIPS='{
+"metric": "The measured value. One row is one metric of the review agent or of the project.",
+"latest": "The value of the latest recorded week.",
+"prev": "The value of the week before the latest week.",
+"w/w": "Change of the latest week against the previous week. Green means the value moved the good way for this metric. Ratios change in percentage points (pp).",
+"4-week avg": "Mean of the four weeks before the latest week. One week can be noise; this average is the baseline.",
+"vs avg": "Change of the latest week against the 4-week average. A change here that stays for more weeks is a real trend.",
+"week": "ISO week of the row. One row is one week. The newest week is at the top.",
+"src": "Where the row comes from: audit (the weekly audit measured it) or backfill (reconstructed from the review history, with fewer metrics).",
+"version": "The agent definition version at the time of the audit. If a number moves between two versions, the changelog shows what changed.",
+"reviews": "Count of reviews posted this week, first reviews and re-reviews together.",
+"1st/re": "Reviews of a PR for the first time / re-reviews after new commits.",
+"✅/⚠️/❌": "Verdict split: approve / comment / request changes.",
+"found": "Count of new findings the reviews raised this week.",
+"🔴/🟡/🟢": "New findings by severity: critical / warning / suggestion.",
+"f/rev": "New findings per review. A sudden change means the review became stricter or looser, or the PRs changed.",
+"acc": "Findings acceptance: the share of flagged findings that the next re-review found fixed. Higher is better. A low value means authors ignore the findings, or the findings are wrong.",
+"coverage": "The share of the PRs merged this week that the agent reviewed, and the count of merged PRs. Higher is better. When the value is below 80 %, some changes merge without a review.",
+"PR size": "Median size of the first-reviewed PRs, in files and changed lines. Larger PRs make slower and weaker reviews.",
+"human ttfr": "Median hours from a PR becoming ready to its first review by a person. Lower is better.",
+"conflicts": "Count of PRs whose first merge conflict was seen this week. A PR counts one time in its life: a later conflict of the same PR is not counted. The shepherd sweep sees a conflict only while it lasts, so a conflict that is resolved between two sweeps is not counted. Lower is better.",
+"👍/👎": "Reactions of people on the reviews: thumbs up / thumbs down.",
+"ttfr": "Time to first review: median minutes from a PR becoming ready to the agent review. Lower is better. Above 60 minutes, examine the heartbeat gaps.",
+"dur": "Median minutes of one review, from the lock to the posted review. Lower is better, but only at equal quality.",
+"slowest phase": "The review phase with the longest median time, and that time in minutes.",
+"open": "Count of open PRs at the time of the audit.",
+"awaiting": "Count of reviewed PRs that wait for a re-review request. A large backlog means the team does not ask for re-reviews.",
+"artifacts": "Count of review artifacts published this week.",
+"heartbeats": "Count of scheduled runs this week, and in brackets the idle share (runs that found nothing to do). A share near 0 with no reviews means something starts work on every run.",
+"out-tok": "Output tokens the model wrote this week. At equal work, lower is better: output tokens are the most expensive part of a run.",
+"est $": "Estimated spend of the week in US dollars: the counted tokens priced with the table in CONFIG.md. Lower is better. ≥ means that some tokens have no price row, so the value is a minimum.",
+"act $": "Actual spend of the week in US dollars, as the platform reports it. A dash means that the platform gave no data for this week.",
+"$/rev": "Estimated spend per review in US dollars. Lower is better at equal quality.",
+"stalled": "Runs that stopped before the end and were done again / all locked runs. Lower is better: each stalled run is wasted spend.",
+"err/warn": "Count of error / warning events in the agent logs this week. Lower is better.",
+"🔴/🟡/🟢 checks": "Audit checks of the week: fail / warn / ok. Each fail and warn is in the audit report.",
+"Reviews posted": "Count of reviews posted in the week, first reviews and re-reviews together. More reviews is more work done, not better work.",
+"Findings raised": "Count of new findings the reviews raised in the week. Read it with the acceptance: many findings that nobody fixes are noise.",
+"Findings per review": "New findings divided by reviews. A sudden change means the review became stricter or looser, or the PRs changed.",
+"Findings acceptance": "The share of flagged findings that the next re-review found fixed. Higher is better. A low value means authors ignore the findings, or the findings are wrong.",
+"Review coverage of merged PRs": "The share (%) of the PRs merged in the week that the agent reviewed. Higher is better. When the value is below 80 %, some changes merge without a review.",
+"Median PR size (files)": "Median count of changed files of the first-reviewed PRs. Lower is better: larger PRs make slower and weaker reviews.",
+"Time to first human review (h)": "Median hours from a PR becoming ready to its first review by a person. Lower is better.",
+"PRs that hit a merge conflict": "Count of PRs whose first merge conflict was seen this week. A PR counts one time in its life: a later conflict of the same PR is not counted. The shepherd sweep sees a conflict only while it lasts, so a conflict that is resolved between two sweeps is not counted. Lower is better.",
+"Time to first review (min)": "Median minutes from a PR becoming ready to the agent review: queue wait plus the review itself. Lower is better. Above 60 minutes, examine the heartbeat gaps.",
+"Review duration (min)": "Median minutes of one review, from the lock to the posted review. Lower is better, but only at equal quality.",
+"Spend per week (est)": "Estimated spend of the week in US dollars: the counted tokens priced with the table in CONFIG.md. Lower is better at equal work.",
+"Spend per week (actual)": "Actual spend of the week in US dollars, as the platform reports it. A dash means that the platform gave no data for this week.",
+"Spend per review (est)": "Estimated spend divided by reviews. Lower is better at equal quality. This is the efficiency signal.",
+"Output tokens": "Output tokens the model wrote in the week. At equal work, lower is better: output tokens are the most expensive part of a run.",
+"Idle heartbeats": "The share of scheduled runs that found nothing to do. Higher is better: the gate stops idle runs before they cost tokens. A share near 0 with no reviews means something starts work on every run.",
+"Stalled runs": "Count of runs that stopped before the end and were done again. Lower is better: each stalled run is wasted spend.",
+"Error events": "Count of error events in the agent logs. Lower is better.",
+"awaiting_label backlog": "Count of reviewed PRs that wait for a re-review request. Lower is better. A large backlog means the team does not ask for re-reviews."
+}'
+
+# renders one header cell with its help text from $tips; $cls "n" aligns a
+# numeric column's header with its right-aligned cells, $dir "a"/"d" marks the
+# column the rows arrive sorted by
+JQ_TH='
+  def th($l; $key; $cls; $dir): ($tips[$key] // "") as $t
+    | "<th" + (if $cls == "" then "" else " class=\"\($cls)\"" end)
+      + (if $dir == "" then "" else " data-d=\"\($dir)\"" end)
+      + (if $t == "" then "" else " title=\"\($t | @html)\"" end)
+      + ">\($l | @html)</th>";
+  def th($l; $key; $cls): th($l; $key; $cls; "");
+  def th($l; $cls): th($l; $l; $cls);
+'
 JQ_VIEW='
   def f: if . == null then "—" else tostring end;
   def pc: if . == null then "—" else ((. * 100 | round) | tostring + "%") end;
@@ -371,7 +444,8 @@ JQ_VIEW='
     | (if $kind == "pct" then delta((if $cur == null then null else $cur * 100 end);
                                     (if $avg == null then null else $avg * 100 end); $good; "pp")
        else rel($cur; $avg; $good) end) as $davg
-    | "<tr><td>\($label)</td><td class=\"n\"><b>\($curs)</b></td><td class=\"n\">\($prevs)</td>"
+    | ($tips[$label] // "") as $tip
+    | "<tr><td\(if $tip == "" then "" else " title=\"\($tip | @html)\"" end)>\($label)</td><td class=\"n\"><b>\($curs)</b></td><td class=\"n\">\($prevs)</td>"
       + "<td class=\"n\">\(if $dww == "" then "—" else $dww end)</td>"
       + "<td class=\"n\">\($avgs)</td>"
       + "<td class=\"n\">\(if $davg == "" then "—" else $davg end)</td></tr>";
@@ -403,7 +477,22 @@ JQ_VIEW='
         + "<text class=\"lb\" x=\"31\" y=\"83\" text-anchor=\"end\">0</text>"
         + "<text class=\"lb\" x=\"34\" y=\"95\">\($rows[0].week)</text>"
         + (if $n > 1 then "<text class=\"lb\" x=\"316\" y=\"95\" text-anchor=\"end\">\($rows[-1].week)</text>" else "" end)
-        + $paths + "</svg>"
+        + $paths
+        # one transparent band per week: pointing to it shows every series of that week
+        + ([ $rows | to_entries[]
+             | .value as $r
+             | (if $n <= 1 then 564 else $step end) as $w
+             | ([ $series[] | .name as $nm | .scale as $sc
+                  | ($r[.key] | if . == null then "—"
+                                else ((. * $sc * 100 | round) / 100 | tostring)
+                                     + (if $sc == 100 then "%" else "" end) end) as $v
+                  | "\($nm): \($v)" ] | join("\n")) as $txt
+             | ([34, 34 + .key * $step - $w / 2] | max) as $x0
+             | ([316, 34 + .key * $step + $w / 2] | min) as $x1
+             | "<rect class=\"hit\" x=\"\($x0 * 10 | round / 10)\" y=\"10\""
+               + " width=\"\(($x1 - $x0) * 10 | round / 10)\" height=\"72\" data-label=\"\($r.week)\">"
+               + "<title>\($r.week)\n\($txt | @html)</title></rect>" ] | join(""))
+        + "</svg>"
       end;
   def figure($rows; $title; $note; $series):
     "<figure><figcaption>\($title)</figcaption>"
@@ -411,13 +500,14 @@ JQ_VIEW='
     + svg($rows; $series)
     + "<p class=\"note\">\($note)</p></figure>";
 '
-SUMMARY="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
+SUMMARY="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_TH"'
   . as $rows
   | if length == 0 then "" else
     "<h2>Where it is heading</h2><div class=\"scroll\"><table><thead><tr>"
-    + "<th>metric</th><th>\($rows[-1].week)</th>"
-    + "<th>\(if length > 1 then $rows[-2].week else "prev" end)</th><th>w/w</th>"
-    + "<th>4-week avg</th><th>vs avg</th></tr></thead><tbody>"
+    + th("metric"; "") + th($rows[-1].week; "latest"; "n")
+    + th(if length > 1 then $rows[-2].week else "prev" end; "prev"; "n")
+    + th("w/w"; "n") + th("4-week avg"; "n") + th("vs avg"; "n")
+    + "</tr></thead><tbody>"
     + ([ srow($rows; "Reviews posted"; "reviews"; "up"; "num"),
          srow($rows; "Findings raised"; "findings_new"; "up"; "num"),
          srow($rows; "Findings per review"; "findings_per_review"; "up"; "num"),
@@ -442,7 +532,7 @@ SUMMARY="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
     + " before the latest one, skipping weeks a metric was not measured.</p>"
   end' 2>/dev/null)"
 
-CHARTS="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
+CHARTS="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
   . as $rows
   | if length == 0 then "" else
     "<div class=\"grid\">"
@@ -465,7 +555,7 @@ CHARTS="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
     + "</div>"
   end' 2>/dev/null)"
 
-ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
+ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
   . as $rows
   | [ to_entries[]
       | .value as $c | (if .key == 0 then null else $rows[.key - 1] end) as $p
@@ -509,7 +599,20 @@ ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r "$JQ_VIEW"'
         + (if $c.errors == null then "<td class=\"n dash\">—</td>" else "<td class=\"n\">\($c.errors)/\($c.warns)</td>" end)
         + (if $c.c_fail == null then "<td class=\"n dash\">—</td>"
            else "<td class=\"n\">\($c.c_fail)/\($c.c_warn)/\($c.c_ok)</td>" end)
-        + "</tr>" ] | join("\n")' 2>/dev/null)"
+        + "</tr>" ] | reverse | join("\n")' 2>/dev/null)"
+
+# the header of the table above, in its column order; "n" marks the columns
+# whose cells are right-aligned numbers. The rows arrive newest first, so the
+# week column starts sorted descending.
+HEAD_WEEKS="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
+  [ ["week","","d"], ["src",""], ["version",""], ["reviews","n"], ["1st/re","n"],
+    ["✅/⚠️/❌","n"], ["found","n"], ["🔴/🟡/🟢","n"], ["f/rev","n"], ["acc","n"],
+    ["coverage","n"], ["PR size","n"], ["human ttfr","n"], ["conflicts","n"],
+    ["👍/👎","n"], ["ttfr","n"], ["dur","n"], ["slowest phase",""], ["open","n"],
+    ["awaiting","n"], ["artifacts","n"], ["heartbeats","n"], ["out-tok","n"],
+    ["est $","n"], ["act $","n"], ["$/rev","n"], ["stalled","n"], ["err/warn","n"],
+    ["🔴/🟡/🟢 checks","n"] ]
+  | map(th(.[0]; .[0]; .[1]; .[2] // "")) | join("")')"
 
 LATEST="$(printf '%s' "$DERIVED" | jq -r '(last // {}) | .week // "no weeks yet"')"
 PRICED="$(printf '%s' "$PRICES" | jq 'length')"
@@ -543,7 +646,7 @@ h1{font-size:1.35rem;letter-spacing:-.01em;margin:0 0 .4rem}
 h2{font-size:1.05rem;margin:2.2rem 0 .3rem;padding-bottom:.25rem;
   border-bottom:1px solid var(--rule-strong)}
 p.meta{color:var(--ink-2);font-size:.82rem;max-width:60rem;margin:.3rem 0 1.4rem}
-.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr))}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,30rem),1fr))}
 figure{margin:0;padding:.7rem .8rem .5rem;background:var(--surface);
   border:1px solid var(--rule);border-radius:6px}
 figcaption{font-size:.85rem;font-weight:600;margin-bottom:.1rem}
@@ -554,7 +657,9 @@ svg{width:100%;height:auto;display:block;overflow:visible}
 svg polyline{fill:none;stroke-width:1.6}
 svg .ax{stroke:var(--rule-strong);stroke-width:.8}
 svg .gr{stroke:var(--rule);stroke-width:.6;stroke-dasharray:2 2}
-svg .lb{font-size:6.5px;fill:var(--ink-muted);font-family:system-ui,sans-serif}
+svg .lb{font-size:5.5px;fill:var(--ink-muted);font-family:system-ui,sans-serif}
+svg .hit{fill:transparent}
+svg .hit:hover,svg .hit:focus{fill:color-mix(in srgb,var(--seq) 10%,transparent);outline:none}
 .scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);
   border-radius:6px}
 table{border-collapse:collapse;width:100%;font-size:.82rem;margin:0}
@@ -563,6 +668,21 @@ th,td{padding:.36rem .6rem;text-align:left;border-bottom:1px solid var(--rule);
 th{background:var(--head);cursor:pointer;user-select:none;font-weight:600;
   color:var(--ink-2)}
 th:hover{color:var(--ink)}
+th.n{text-align:right}
+/* a column with help text is marked by a dotted underline; the text itself
+   ships as the header title (readable with no JS) and the script below moves it
+   into the bubble, because a native title is clipped by the scroller */
+th[title],th[data-tip],td[title],td[data-tip]{
+  text-decoration:underline dotted var(--rule-strong);text-underline-offset:3px}
+td[data-tip]{cursor:help}
+th[data-tip]:focus-visible,td[data-tip]:focus-visible{color:var(--ink);outline:2px solid var(--seq);
+  outline-offset:-2px}
+.tip{position:fixed;display:none;z-index:9;max-width:26rem;
+  padding:.5rem .65rem;font-size:.78rem;font-weight:400;line-height:1.45;
+  white-space:pre-line;color:var(--ink);background:var(--surface);
+  border:1px solid var(--rule-strong);border-radius:6px;
+  box-shadow:0 4px 14px color-mix(in srgb,var(--ink) 22%,transparent)}
+.tip b{display:block;margin-bottom:.15rem}
 th[data-d="a"]::after{content:" ▲";color:var(--seq)}
 th[data-d="d"]::after{content:" ▼";color:var(--seq)}
 tbody tr:last-child td{border-bottom:0}
@@ -581,7 +701,8 @@ Deltas (▲▼) are the relative change against the previous week — green when
 value moved the good way for its column, so ▼ is green on cost, latency and
 stalls; ratio columns change in percentage points (pp).
 Spend is a token estimate from the CONFIG price table, and "≥" marks a week
-whose tokens include a model the table does not price. Click a header to sort.
+whose tokens include a model the table does not price. Point to a header for
+its meaning; click it to sort. Newest week first.
 Semantics: docs/trends.md.</p>
 ${SUMMARY}
 <h2>Week over week</h2>
@@ -590,12 +711,7 @@ ${CHARTS}
 <div class=scroll>
 <table>
 <thead>
-<tr><th>week</th><th>src</th><th>version</th><th>reviews</th><th>1st/re</th>
-<th>✅/⚠️/❌</th><th>found</th><th>🔴/🟡/🟢</th><th>f/rev</th><th>acc</th>
-<th>coverage</th><th>PR size</th><th>human ttfr</th><th>conflicts</th>
-<th>👍/👎</th><th>ttfr</th><th>dur</th><th>slowest phase</th><th>open</th>
-<th>awaiting</th><th>artifacts</th><th>heartbeats</th><th>out-tok</th><th>est \$</th><th>act \$</th><th>\$/rev</th>
-<th>stalled</th><th>err/warn</th><th>🔴/🟡/🟢 checks</th></tr>
+<tr>${HEAD_WEEKS}</tr>
 </thead>
 <tbody>
 ${ROWS_HTML}
@@ -605,14 +721,15 @@ ${ROWS_HTML}
 <script>
 // Sort only — no external assets (the artifact viewer allows no network).
 // Numeric when every cell parses as a number, else text.
-document.querySelectorAll('th').forEach(function(th,i){
+document.querySelectorAll('th').forEach(function(th){
   th.addEventListener('click',function(){
-    var tb=th.closest('table').tBodies[0], rows=[].slice.call(tb.rows);
+    var i=th.cellIndex, tb=th.closest('table').tBodies[0], rows=[].slice.call(tb.rows);
     var dir=th.dataset.d==='a'?'d':'a';
     th.closest('tr').querySelectorAll('th').forEach(function(o){delete o.dataset.d});
     th.dataset.d=dir;
     var val=function(r){var t=(r.cells[i]?r.cells[i].textContent:'').trim()
       .replace(/[▲▼=]/g,'').replace(/[≥%,]/g,'').trim();
+      if(/^\d{4}-W\d{2}$/.test(t))return null; // an ISO week sorts as text
       var n=parseFloat(t); return isNaN(n)?null:n;};
     var numeric=rows.every(function(r){var t=(r.cells[i]?r.cells[i].textContent:'').trim();
       return t==='—'||val(r)!==null;});
@@ -624,5 +741,62 @@ document.querySelectorAll('th').forEach(function(th,i){
     rows.forEach(function(r){tb.appendChild(r)});
   });
 });
+// Column help: the header title becomes a styled bubble on hover and focus —
+// a native title inside the horizontal scroller is slow, truncated and
+// untouched by the light/dark tokens. Headers and chart bands also become
+// focusable, so the help and the sort both work from the keyboard.
+(function(){
+  var tip=document.createElement('div');
+  tip.className='tip'; tip.id='col-tip'; tip.setAttribute('role','tooltip');
+  document.body.appendChild(tip);
+  var open=null;
+  function hide(){
+    if(open)open.removeAttribute('aria-describedby');
+    open=null; tip.style.display='none';
+  }
+  function show(th){
+    var txt=th.getAttribute('data-tip'); if(!txt)return;
+    var label=document.createElement('b');
+    label.textContent=th.getAttribute('data-label')||th.textContent.trim();
+    tip.textContent=''; tip.appendChild(label);
+    tip.appendChild(document.createTextNode(txt));
+    tip.style.display='block'; tip.style.left='0px'; tip.style.top='0px';
+    var r=th.getBoundingClientRect(), b=tip.getBoundingClientRect();
+    var x=Math.min(Math.max(4,r.left),Math.max(4,window.innerWidth-b.width-4));
+    var y=r.bottom+6;
+    if(y+b.height>window.innerHeight-4)y=Math.max(4,r.top-b.height-6);
+    tip.style.left=x+'px'; tip.style.top=y+'px';
+    th.setAttribute('aria-describedby','col-tip'); open=th;
+  }
+  function bind(el){
+    el.setAttribute('tabindex','0');
+    el.addEventListener('mouseenter',function(){show(el)});
+    el.addEventListener('mouseleave',hide);
+    el.addEventListener('focus',function(){show(el)});
+    el.addEventListener('blur',hide);
+    el.addEventListener('keydown',function(e){
+      if(e.key==='Escape')hide();
+      else if(el.tagName==='TH'&&(e.key==='Enter'||e.key===' ')){e.preventDefault(); el.click();}
+    });
+  }
+  // a chart band carries its values as an SVG <title> child, the week as data-label
+  document.querySelectorAll('svg .hit').forEach(function(r){
+    var t=r.querySelector('title'); if(!t)return;
+    r.setAttribute('data-tip',t.textContent.replace(/^[^\n]*\n/,''));
+    r.removeChild(t);
+    bind(r);
+  });
+  document.querySelectorAll('th[title],td[title]').forEach(function(th){
+    th.setAttribute('data-tip',th.getAttribute('title'));
+    th.removeAttribute('title');
+    bind(th);
+  });
+  // a scroll moves the element under a bubble anchored to the viewport: the
+  // bubble follows the focused element (focus itself scrolls it into view) and
+  // closes otherwise
+  window.addEventListener('scroll',function(){
+    if(open&&open===document.activeElement)show(open); else hide();
+  },true);
+})();
 </script>
 EOF

@@ -109,8 +109,32 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.24 and .[0].actual_cost_usd == 0.
 assert_file_contains "$WORK/audit/TRENDS.md" '| 0.24 | 0.08 |' 'both spend columns reach the week row'
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains 'Spend per week (actual)' 'the report carries the actual-spend summary row'
-assert_out_contains '<th>act $</th>' 'the report table carries the actual-spend column'
+assert_out_contains '<th class="n" title="Actual spend' 'the report table carries the actual-spend column'
 assert_out_contains '<td class="n">0.08' 'the week row carries the attributed actual'
+
+# --- the week table: newest first, headers aligned and explained ------------
+new_case trend_report_layout
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+f="$(ls "$WORK/audit/weeks"/*.json | head -1)"
+jq -c '.week = "2000-W01" | .ts = "2000-01-03T07:00:00Z"' "$f" > "$WORK/audit/weeks/20000103T070000Z.json"
+OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
+first="$(printf '%s\n' "$OUT" | grep -m1 -o '^<tr><td>[0-9]*-W[0-9]*' | sed 's/<tr><td>//')"
+[ -n "$first" ] && [ "$first" != "2000-W01" ] \
+  && printf 'ok   %s: the newest week is the first row\n' "$CASE" \
+  || { printf 'FAIL %s: expected the newest week first, got %s\n' "$CASE" "$first"; FAILED=1; }
+assert_out_contains '<th data-d="d" title="ISO week' 'the week column starts sorted newest first'
+[ "$(printf '%s' "$OUT" | grep -o '<th[^>]* data-d=' | wc -l | tr -d ' ')" = 1 ] \
+  && printf 'ok   %s: only the week column carries the sort state\n' "$CASE" \
+  || { printf 'FAIL %s: expected one sorted column\n' "$CASE"; FAILED=1; }
+assert_out_contains 'if(open&&open===document.activeElement)show(open)' 'a scroll keeps the bubble of the focused element'
+assert_out_contains '<th class="n" title="Count of reviews posted' 'a numeric header aligns with its cells and carries help'
+assert_out_contains 'th.n{text-align:right}' 'numeric headers are right-aligned'
+assert_out_contains '<td title="Count of reviews posted in the week' 'a summary metric name carries help'
+assert_out_contains 'class="hit" x="34"' 'a chart carries one hover band per week, inside the plot'
+assert_out_contains 'data-label="2000-W01"><title>2000-W01' 'a hover band names its week and its values'
 
 # --- a week with no telemetry renders "—", never a zero ----------------------
 new_case trend_actual_cost_absent
@@ -189,6 +213,7 @@ assert_file_contains "$WORK/audit/TRENDS.md" 'audit-trend-dam: abc123' 'the publ
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains '<title>Weekly trends</title>' 'report renders a self-contained page'
 assert_out_contains '<circle cx=' 'the charts render from the recorded weeks'
+assert_out_contains 'class="hit" x="34" y="10" width="282"' 'the hover band of the only week covers the full plot'
 assert_out_absent 'http://|https://[a-z]' 'the page loads no external asset'
 
 # --- a missing worklist appends nothing --------------------------------------

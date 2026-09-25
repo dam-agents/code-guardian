@@ -11,6 +11,18 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 6.1.0 — 2026-09-25
+
+**Upgrade:** Render the weekly trends report again from the weeks on record,
+one time. Do not run an audit and do not append a week.
+
+1. `bash "$HOME/scripts/audit-trend.sh" report "$HOME/work/audit" > "$HOME/work/audit/report.html"`.
+   No week files in `work/audit/weeks/` = nothing to render; the step is done.
+2. Publish `report.html` in place to each surface of `audit_trend` that has a
+   marker in `work/audit/TRENDS.md`, as `docs/trends.md` → **Procedure** step 4
+   does. A surface without a marker, or `audit_trend: off`, publishes nothing.
+   A failed publish is logged; the next weekly audit publishes the report.
+
 ## 6.0.0 — 2026-09-24
 
 **Upgrade:** Gist publishing is removed; every artifact and report publishes
