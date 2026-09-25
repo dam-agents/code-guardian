@@ -27,15 +27,15 @@ never fatal — preflight re-emits the entry.
 
 ## Pruning (`prunes_due`)
 
-Preflight verified every entry `{number, state, gist_id, dam_id}`
-CLOSED/MERGED. Execute exactly this list — never from list absence, never a
-bulk delete of `reviews/pr-*.md`. An entry without ids → read the
-`<!-- artifact-gist: … -->` / `<!-- artifact-dam: … -->` markers from
-`work/reviews/pr-<n>.md` before step 2 deletes it.
+Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED.
+Execute exactly this list — never from list absence, never a bulk delete of
+`reviews/pr-*.md`. An entry without an id → read the
+`<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
+deletes it.
 
-1. Artifacts, each failure logged and never blocking: `gist_id` →
-   `gh gist delete <gist_id>`; `dam_id` → `delete_artifact {id: <dam_id>}`,
-   skipped silently when the MCP tool is absent.
+1. Artifact, a failure logged and never blocking: `dam_id` →
+   `delete_artifact {id: <dam_id>}`, skipped silently when the MCP tool is
+   absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
    work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
    (**Review ledger**).
@@ -801,7 +801,6 @@ the window; calibrate the value against `stats.reviews.phases.skills`
 
 ```markdown
 # PR #<number>: <title>
-<!-- artifact-gist: <GIST_ID> -->
 <!-- artifact-dam: <DAM_ID> -->
 
 ## PR-local overrides
@@ -1030,8 +1029,8 @@ Before you declare the run done:
   review, the closed-PR issue, or an abort. **Closed entries** — no review
   posted, criticals in one deduped issue assigned to the author.
 - **Artifacts** ([artifact.md](artifact.md)) — redacted before the first
-  publish, published to each `artifact_targets` surface, one comment with the
-  surviving links, markers recorded.
+  publish, published to the DAM Artifact Library, one comment with the link,
+  marker recorded.
 - **Watch rules** — evaluated send-then-marker ([watches.md](watches.md)).
 - **`ci_triage: enabled`** — every `ci_failures_due` entry and every review
   that ended on a failing check answered post-then-marker

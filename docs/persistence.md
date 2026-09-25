@@ -75,7 +75,7 @@ this, in order:
 1. **Version** — migrate from the restored `work/VERSION` (**Definition
    version & upgrade** → **Migration**), never overwrite it.
 2. **Accumulated reports** — for each report whose data came back and whose
-   surface key lists `dam`, publish it again as a new DAM artifact; the
+   surface key is not `off`, publish it again as a new DAM artifact; the
    restored id names the previous agent's artifact:
 
    | Report | Data | Surface key | Marker file | Regenerate, then publish |
@@ -85,8 +85,7 @@ this, in order:
    | Survey | `survey/LEDGER.md` | `survey_report` | `survey/LEDGER.md` | [survey.md](survey.md) → **Procedure** step 5 |
 
    Delete the report's `<!-- *-dam: <id> -->` marker line first, so its
-   publish step creates the artifact and writes the new marker. Gist markers
-   stay as they are. Log each as
+   publish step creates the artifact and writes the new marker. Log each as
    `restore: republished <report> → DAM <id>`, or its failure; a failed publish
    never stops the onboarding. PR artifacts are not republished — the links
    already in PR comments stay valid.

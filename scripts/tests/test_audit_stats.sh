@@ -650,7 +650,7 @@ assert_jq '[.checks[] | select(.id == "review_style")] | .[0].detail | test("no 
 # with preflight's own `generate due` lines as the guard against a generation
 # that never logged one
 new_case audit_artifacts
-base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+base_config '- artifact_skill: pr-artifact@acme/skills'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 mkdir -p "$WORK/logs"
 eva() { # <event> <level> <msg> <secs-ago>
@@ -660,7 +660,7 @@ eva() { # <event> <level> <msg> <secs-ago>
 }
 eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172800
 eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172700  # same PR twice
-eva artifact  info "PR #11: pr-artifact published → gist bbb"         86400
+eva artifact  info "PR #11: pr-artifact published → DAM bbb"          86400
 eva artifact  warn "PR #12: pr-artifact skipped (skill-errored)"      86400
 eva preflight info "PR #12: artifact generate due"                    86500
 eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 # outside the window
@@ -668,15 +668,15 @@ eva preflight info "PR #14: artifact generate due"                    43200   # 
 eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
 eva artifact  info "PR #16: artifact unassign retried (ok)"           86400   # neither a publish nor a skip
 eva preflight info "PR #17: artifact generate due"                    86500
-eva artifact  info "PR #17: pr-artifact published → gist ddd (DAM skipped: flag off)" 86400 # one surface skipped
+eva artifact  info "PR #17: pr-artifact published → DAM ddd, 2 redacted" 86400 # outcome word after the skill name
 run_preflight audit
 assert_jq '.stats.artifacts.generated == 3' 'published events counted once per PR, in-window only'
-assert_jq '.stats.artifacts.skipped == 1' 'a surface skipped inside a publish stays one publish'
+assert_jq '.stats.artifacts.skipped == 1' 'only the skipped outcome counts as a skip'
 assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
 assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
 
 new_case audit_artifacts_zero
-base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+base_config '- artifact_skill: pr-artifact@acme/skills'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 run_preflight audit
 assert_jq '.stats.artifacts == {generated: 0, skipped: 0, unreported: 0}' 'nothing due is a measured zero'

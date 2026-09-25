@@ -289,21 +289,29 @@ OUT="$(comm -23 \
       | tr ' ' '\n' | sort -u))"
 assert_not_out '.' 'every key of docs/config.md is a KNOWN_KEYS entry'
 
-new_case audit_trend_surfaces
+new_case report_surfaces
+seed_home; seed_memory; seed_lessons
+verify_config '- audit_trend: dam' '- survey_report: off' '- benchmark_report: dam'
+run_verify
+assert_rc 0 'documented surfaces pass'
+assert_out "ok   config-audit_trend" 'the trend value is validated'
+assert_out "ok   config-survey_report" 'the survey value is validated'
+assert_out "ok   config-benchmark_report" 'the benchmark value is validated'
+assert_not_out 'warn config-keys' 'the keys are never reported unknown'
+
+new_case report_surface_legacy_gist
 seed_home; seed_memory; seed_lessons
 verify_config '- audit_trend: gist,dam'
 run_verify
-assert_rc 0 'a documented surface list passes'
-assert_out "ok   config-audit_trend" 'the value is validated'
-assert_not_out 'warn config-keys' 'the key is never reported unknown'
-
-new_case audit_trend_invalid
-seed_home; seed_memory; seed_lessons
-verify_config '- audit_trend: slack'
-run_verify
-assert_rc 1 'an undocumented surface fails'
+assert_rc 1 'a removed surface fails'
 assert_out 'FAIL config-audit_trend' 'names the key'
-assert_out 'gist,dam' 'carries the allowed values'
+assert_out 'dam | off' 'carries the allowed values'
+
+new_case artifact_targets_removed
+seed_home; seed_memory; seed_lessons
+verify_config '- artifact_targets: dam'
+run_verify
+assert_out "warn config-keys" 'the removed key is reported as never read'
 
 new_case live_green_path
 seed_home; seed_memory; seed_lessons

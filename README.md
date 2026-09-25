@@ -62,7 +62,7 @@ it immediately after the send — send-then-record, roster-only mentions
 **Weekly audit** — Friday morning by default, gated by `audit_report`.
 `preflight.sh audit` computes 7-day statistics and deterministic health checks
 (auth and rate limit, missed heartbeats, error log lines, state consistency
-against the GitHub markers, stale locks, orphaned gists, disk usage, skill
+against the GitHub markers, stale locks, disk usage, skill
 freshness, roster sanity, 👍/👎 reactions). The agent adds the judgment checks —
 schedules, memory-rule compliance, nudge integrity, lessons from 👎-flagged
 findings — and sends a traffic-light report to Slack when enabled, and to the
@@ -201,7 +201,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `work_repo` | Step 0 answer (optional) | Repo backing `work/` up (`[host/]owner/repo`); omitted = local-only persistence (`docs/persistence.md`). |
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
-| `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, gist URLs, "independent reviewer" classification. |
+| `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, "independent reviewer" classification. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
@@ -211,8 +211,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
 | `project_profile` | defaulted to `enabled` | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
-| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`); `none` disables the feature. |
-| `artifact_targets` | defaulted to `gist` | Publish surfaces for the artifact (`gist`, `dam`). `gist` requires a `github.com` target repo; `dam` is best-effort behind the owner's experimental flag. |
+| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |
@@ -221,9 +220,9 @@ what it can and asking for the rest. Per-key semantics are in
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
-| `survey_report` | asked with `survey` (default `gist`) | Surfaces for the accumulated survey artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
-| `audit_trend` | defaulted to `dam` | Surfaces for the weekly trend artifact, updated in place at a stable URL: `dam`, `gist`, `gist,dam`, or `off`. |
-| `benchmark_report` | asked with `benchmark` (default `gist`) | Surfaces for the accumulated report artifact, updated in place at a stable URL: `gist`, `dam`, `gist,dam`, or `off`. |
+| `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
+| `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
+| `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. The active interval defaults to 5 minutes to stay under the harness prompt-cache TTL, so back-to-back idle ticks re-read the cached prefix instead of rewriting it; quiet hours drop to hourly, where most idle spend sits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
@@ -241,8 +240,7 @@ what it can and asking for the rest. Per-key semantics are in
   Each host in play must be authenticated separately
   (`gh auth login --hostname <host>`, operator-only) and reachable from the
   pod; a non-`github.com` target host is persisted as `GH_HOST` at onboarding.
-  The `gist` artifact surface is `github.com`-only.
-- **GitHub identity:** the agent posts reviews, comments and gists as the
+- **GitHub identity:** the agent posts reviews and comments as the
   account behind its token. Use a **dedicated machine or bot account**, not a
   personal one, that is a collaborator on the target repo with permission to
   review PRs. GitHub ignores review requests and approvals from a PR's own
@@ -252,19 +250,15 @@ what it can and asking for the rest. Per-key semantics are in
   | Scope | Required? | What needs it |
   | --- | --- | --- |
   | `repo` | **yes** | PRs, reviews, comments, labels and issues on the target repo; push to the `work_repo` backup and the definition repo |
-  | `gist` | yes, unless no gist consumer is on | Create and delete the **visual artifact** gists and update the **benchmark report** gist (`artifact_skill: none` **and** benchmark off or `benchmark_report` without `gist` → not needed) |
   | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
 
   The audit's `token_scopes` check asserts the required ones only. A missing
   scope is **operator-only** to fix: the agent reports it and never works
   around it.
-- **External services:** artifact links render via `htmlpreview.github.io`, a
-  third-party service, and "secret" gists are unlisted but publicly reachable
-  by URL. With `artifact_targets: gist,dam` the artifact is also published to
-  the platform's DAM Artifact Library (best-effort, behind the owner's
-  experimental flag), whose `visibility:"public"` share URL is likewise
-  reachable by anyone holding it. The HTML passes a redaction pass before
-  either publish (`docs/artifact.md`).
+- **External services:** artifacts and reports publish to the platform's DAM
+  Artifact Library (best-effort, behind the owner's experimental flag), whose
+  `visibility:"public"` share URL is reachable by anyone holding it. The HTML
+  passes a redaction pass before the publish (`docs/artifact.md`).
 
 ### Connections
 
