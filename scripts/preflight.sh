@@ -376,6 +376,7 @@ URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
+ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/artifact.md)
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
@@ -978,10 +979,18 @@ if [ "$MODE" = "review" ]; then
     # artifact assignee gate (independent of the review decision)
     if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qx "$BOT_LOGIN"; then
       action="generate"
-      grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
-      ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
-        '{number:$n, action:$a}')" '. + [$e]')"
-      log "PR #$n: artifact $action due"
+      if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_unassign"
+      else
+        # a session without the DAM tools recorded when it tried (docs/artifact.md
+        # step 0): the next attempt waits ARTIFACT_RETRY_H, not one heartbeat
+        skip_ts="$(sed -n 's/^<!-- artifact-skip: dam-unavailable \([0-9TZ:-]*\) -->$/\1/p' "$WORK/reviews/pr-$n.md" 2>/dev/null | tail -1)"
+        [ -n "$skip_ts" ] && [ $(( NOW_EPOCH - $(iso2epoch "$skip_ts") )) -lt $(( ARTIFACT_RETRY_H * 3600 )) ] && action=""
+      fi
+      if [ -n "$action" ]; then
+        ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
+          '{number:$n, action:$a}')" '. + [$e]')"
+        log "PR #$n: artifact $action due"
+      fi
     fi
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),

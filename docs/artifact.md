@@ -30,9 +30,12 @@ erroring → log and stop this PR. A missing DAM surface never fails the run.
 ## Procedure (per `generate` entry)
 
 0. **Tools** — `create_artifact_upload_url` and `create_artifact` not
-   registered this session → log
-   `PR #<n>: <artifact_skill> skipped (dam-unavailable)` (warn) and stop this
-   PR before generating anything; `$BOT_LOGIN` stays assigned.
+   registered this session → write
+   `<!-- artifact-skip: dam-unavailable <UTC ISO-8601> -->` in
+   `reviews/pr-<n>.md` right after the title heading (overwrite an existing one
+   in place), log `PR #<n>: <artifact_skill> skipped (dam-unavailable)` (warn)
+   and stop this PR before generating anything; `$BOT_LOGIN` stays assigned.
+   Preflight offers the next `generate` 24 h after that timestamp.
 1. **Generate** — invoke `$ARTIFACT_SKILL` with the PR number, plus `$PR_DIR`
    when the PR was reviewed this run and the skill's `SKILL.md` accepts it
    (otherwise the skill works via `gh` from the number). Save the single
@@ -62,7 +65,8 @@ erroring → log and stop this PR. A missing DAM surface never fails the run.
    ```
 4. **Record the id** in `reviews/pr-<n>.md` right after the title heading,
    overwriting an existing marker in place (pruning reads it):
-   `<!-- artifact-dam: <DAM_ID> -->`.
+   `<!-- artifact-dam: <DAM_ID> -->`. Delete an `<!-- artifact-skip: … -->`
+   line.
 5. **Unassign** — prefer REST, because `gh pr edit` goes through GraphQL, which
    401s in this pod:
 
