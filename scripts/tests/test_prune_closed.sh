@@ -8,9 +8,9 @@ SHA1="1111111111111111111111111111111111111111"
 SHA4="4444444444444444444444444444444444444444"
 SHA5="5555555555555555555555555555555555555555"
 
-closed_pr_fx() { # <number> <sha> <merged> [author]
-  jq -n --argjson n "$1" --arg sha "$2" --argjson m "$3" --arg a "${4:-dave}" \
-    '{number:$n, state:"closed", merged:$m, title:"gone PR",
+closed_pr_fx() { # <number> <sha> <merged> [author] [closed_at]
+  jq -n --argjson n "$1" --arg sha "$2" --argjson m "$3" --arg a "${4:-dave}" --arg ca "${5:-$(iso_ago 3600)}" \
+    '{number:$n, state:"closed", merged:$m, title:"gone PR", closed_at:$ca,
       user:{login:$a}, head:{sha:$sha, ref:("b"+($n|tostring))}}' \
     | fx "api repos/acme/widgets/pulls/$1"
 }
@@ -103,5 +103,24 @@ add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
 fx_fail 'api repos/acme/widgets/pulls/5'
 run_preflight review
 assert_jq '.prunes_due | length == 0' 'no prune without a verified state'
+
+# --- audit: a row for a closed PR is a warn only once its prune is overdue ---
+new_case audit_closed_rows
+base_config
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+closed_pr_fx 5 "$SHA5" false dave "$(iso_ago 7200)"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "closed_rows") | .status == "ok" and (.detail | contains("1 closed PR row(s) wait"))' \
+  'a PR closed hours ago waits for the next run with work — no warn'
+closed_pr_fx 5 "$SHA5" false dave "$(iso_ago 300000)"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "closed_rows") | .status == "warn" and (.detail | contains("never pruned: #5"))' \
+  'a PR closed days ago and still in REVIEWS.md is a stuck prune'
+fx_fail 'api repos/acme/widgets/pulls/5'
+run_preflight audit
+assert_jq '.checks[] | select(.id == "closed_rows") | .status == "warn" and (.detail | contains("unreadable"))' \
+  'an unreadable close time is a warn with its reason'
 
 finish

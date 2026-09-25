@@ -63,9 +63,9 @@ The header carries `base` (the SHA the profile was generated at), `verified`
   `src` the PR changes `verify_live: true`, and `structure_changed` lists the
   structure-bearing paths the PR touches. A `verify_live` row is a pointer to
   read the live file, not a fact.
-- **Backstop** — the audit's `profile_fresh` check fails when the stored
-  fingerprint no longer matches the default branch, the profile is older than 7
-  days, or its `generator` is not the running definition version.
+- **Backstop** — the audit's `profile_fresh` check runs the same refresh: a
+  profile it brings current is `ok`, one it cannot verify is a `warn`, and no
+  profile at all is a `fail`.
 - **Notes** keep their own currency: a note's source blob changing marks it
   `stale`, a vanished source `orphan`.
 

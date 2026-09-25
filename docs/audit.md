@@ -18,7 +18,10 @@ skipped task is an incomplete audit — a task that is impossible this week
 ### A. Script findings (from the worklist — triage, never recompute)
 
 1. Walk every `checks[]` entry. Every `fail` and `warn` appears in the report;
-   never summarize a `fail` away. Give each `recurring_errors` signature one
+   never summarize a `fail` away. The one exception: a `memory_budget` warn or
+   fail that this audit's consolidation (task 34) brought inside every bound
+   counts as `ok` in the header and leaves *Checks* — its delta is the
+   *Memory* line. Give each `recurring_errors` signature one
    line with count, sample message and likely cause — read the matching events
    in `work/logs/` ([logging.md](logging.md)) when the cause is not obvious.
 2. `stats` sanity: zero reviews in a week with open PRs and heartbeats running

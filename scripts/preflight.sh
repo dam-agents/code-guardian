@@ -657,7 +657,7 @@ prune_states() { # <number…>
   local q="" n i=0
   for n in "$@" ''; do
     if [ -n "$n" ]; then
-      q="$q p$n: pullRequest(number:$n){state headRefOid headRefName title author{__typename login}}"
+      q="$q p$n: pullRequest(number:$n){state closedAt headRefOid headRefName title author{__typename login}}"
       i=$((i+1))
       [ "$i" -lt 50 ] && continue
     fi
@@ -665,7 +665,7 @@ prune_states() { # <number…>
     gh api graphql -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query="query PruneStates(\$o:String!,\$r:String!){repository(owner:\$o,name:\$r){$q}}" 2>/dev/null \
       | jq -c '(.data.repository // {}) | to_entries[] | select(.value != null and .value.state != null)
           | {n: (.key | ltrimstr("p") | tonumber),
-             pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase),
+             pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase), closed_at: .value.closedAt,
                   head: {sha: .value.headRefOid, ref: .value.headRefName},
                   title: .value.title, user: {login: (.value.author | if . == null then "ghost"
                     elif .__typename == "Bot" then "\(.login)[bot]" else .login end)}}}' 2>/dev/null
@@ -1772,9 +1772,26 @@ if [ "$MODE" = "audit" ]; then
   dups="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | sort | uniq -d | tr '\n' ' ')"
   [ -n "${dups// /}" ] && check duplicate_rows fail "duplicate REVIEWS.md rows for: $dups" || check duplicate_rows ok "no duplicate rows"
 
-  ghost=0
-  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do open_numbers | grep -qx "$n" || ghost=$((ghost+1)); done
-  [ "$ghost" -gt 0 ] && check closed_rows warn "$ghost rows for non-open PRs (prune pending the next run with work, or the housekeeping batch)" || check closed_rows ok "every row maps to an open PR"
+  # a row for a closed PR is pruned by the next run with work, so a fresh one
+  # is normal; only a row whose PR closed more than GHOST_GRACE_H ago means the
+  # prune did not happen, and only that one is a warn
+  GHOST_GRACE_H=72
+  ghosts="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un | tr '\n' ' ')"
+  pending=0; stuck=""; unread=""
+  if [ -n "${ghosts// /}" ]; then
+    gstates="$(prune_states $ghosts)"
+    for n in $ghosts; do
+      ca="$(printf '%s\n' "$gstates" | jq -r --argjson n "$n" 'select(.n == $n) | .pj.closed_at // empty' 2>/dev/null | head -1)"
+      [ -n "$ca" ] || ca="$(gh_get "repos/$REPO/pulls/$n" | jq -r '.closed_at // empty' 2>/dev/null)"
+      if [ -z "$ca" ]; then unread="${unread:+$unread, }#$n"
+      elif [ $(( (NOW_EPOCH - $(iso2epoch "$ca")) / 3600 )) -ge "$GHOST_GRACE_H" ]; then stuck="${stuck:+$stuck, }#$n"
+      else pending=$((pending+1)); fi
+    done
+  fi
+  pend_note=""; [ "$pending" -gt 0 ] && pend_note=" ($pending closed PR row(s) wait for the next run with work)"
+  if [ -n "$stuck" ]; then check closed_rows warn "rows for PRs closed more than ${GHOST_GRACE_H} h ago, never pruned: $stuck$pend_note"
+  elif [ -n "$unread" ]; then check closed_rows warn "close time unreadable (API) for rows of non-open PRs: $unread$pend_note"
+  else check closed_rows ok "every row maps to an open PR$pend_note"; fi
 
   orphan_files=0
   for f in "$WORK"/reviews/pr-*.md; do
@@ -1809,8 +1826,7 @@ if [ "$MODE" = "audit" ]; then
   fi
 
   # project profile currency (docs/profile.md → Freshness): the check refreshes
-  # a stale profile, so a `regenerated` here means no review refreshed it in
-  # time — reported, not hidden
+  # a stale profile, so a `regenerated` here is the backstop doing its work
   if [ "$PROJECT_PROFILE" != "enabled" ]; then
     check profile_fresh ok "project profile disabled by configuration"
   else
@@ -1819,7 +1835,7 @@ if [ "$MODE" = "audit" ]; then
     pf_note="$(printf '%s' "$pf" | jq -r '[.mode, (if .base then "base " + .base else empty end), (if .age_hours != null then "\(.age_hours)h old" else empty end), (.note // empty)] | join(", ")' 2>/dev/null)"
     case "$pf_status" in
       (current)      check profile_fresh ok "profile current ($pf_note)";;
-      (regenerated)  check profile_fresh warn "profile was stale until this audit refreshed it ($pf_note) — no review refreshed it in time";;
+      (regenerated)  check profile_fresh ok "profile refreshed by this audit ($pf_note)";;
       (unverified)   check profile_fresh warn "profile could not be verified ($pf_note)";;
       (*)            check profile_fresh fail "profile unavailable ($pf_note) — reviews run without the repository map";;
     esac
@@ -1908,8 +1924,19 @@ if [ "$MODE" = "audit" ]; then
   [ "$bswept" -gt 0 ] && logev info tmp_cleanup "benchmark sweep: reclaimed $bswept leftover(s) from dead benchmark runs"
 
   sw_note=""; [ "$swept" -gt 0 ] && sw_note=" ($swept stale reclaimed)"
-  tmp_left="$(ls -d "$TMP_ROOT"/review-pr-* 2>/dev/null | grep -c . || true)"
-  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left leftover /tmp/review-pr-* entries$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
+  # after the sweep, an entry of a live review (locked, or younger than the
+  # lock TTL) is expected; only a dead one the sweep could not remove is a warn
+  tmp_live=0; tmp_left=0
+  for d in "$TMP_ROOT"/review-pr-*; do
+    [ -e "$d" ] || continue
+    cn="${d##*/review-pr-}"; cn="${cn%%.*}"
+    case "$cn" in (''|*[!0-9]*) continue;; esac   # not ours: the sweep never touches it
+    if [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] \
+       || [ -z "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ]; then tmp_live=$((tmp_live+1))
+    else tmp_left=$((tmp_left+1)); fi
+  done
+  [ "$tmp_live" -gt 0 ] && sw_note="$sw_note ($tmp_live of a live review)"
+  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left dead /tmp/review-pr-* entries the sweep could not remove$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
 
   disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
   if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
