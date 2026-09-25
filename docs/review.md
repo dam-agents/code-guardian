@@ -44,7 +44,12 @@ bulk delete of `reviews/pr-*.md`. An entry without ids → read the
 
 ## Per-PR review sequence (`reviews_due`)
 
-Every `review-pr.sh <cmd>` below is `bash "$HOME/scripts/review-pr.sh" <cmd>`.
+Every `review-pr.sh <cmd>` below is `cd "$HOME" && bash
+"$HOME/scripts/review-pr.sh" <cmd>`. Each call prints one JSON `outcome`: judge
+the call by it, never by the exit status. Write the payload files (`body.md`,
+`findings.json`, `comments.json`, `meta.json`, `rapid.md`) in the PR's context
+directory, `${TMPDIR:-/tmp}/review-pr-<n>.ctx/`, and pass them by absolute
+path — `post` and `abort` delete that directory.
 
 Entry: `{number, head_sha, head_ref, title, author, kind, takeover, prior,
 urgent, closed}`, plus `eta_seconds` under `review_progress: enabled`. `kind`
@@ -108,8 +113,9 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
    Then `review-pr.sh step <n> composed`, and output the review to the chat
    UI.
-f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
-   --findings findings.json [--comments comments.json] [--meta meta.json]`. It
+f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
+   --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
+   <ctx>/meta.json]`, as `compose-brief` prints it. It
    runs Check 2 and the dedup re-check, maps each inline comment against the
    hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
@@ -296,7 +302,7 @@ orientation and skills. Optimize for delivery speed.
    ```
 
    No criticals → the section body is `_None found at rapid-review depth._`
-3. `review-pr.sh rapid <n> --body rapid.md`. It dedups on the **rapid marker**
+3. `review-pr.sh rapid <n> --body <ctx>/rapid.md`. It dedups on the **rapid marker**
    `<!-- <review_marker>:rapid headRefOid=<full-sha> -->` at the live HEAD
    (`already_posted` → go to phase 2), posts one `event: COMMENT` review with
    the marker appended, sets the REVIEWS.md verdict cell to `RAPID` with a

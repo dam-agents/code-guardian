@@ -1230,7 +1230,10 @@ cmd_compose_brief() {
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
   printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
-  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json] [--meta meta.json]`\n' "$N"
+  # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
+  # so the shell never stands in the directory it removes (docs/review.md step f)
+  printf -- '- payload files: write them in `%s/`\n' "$CTX"
+  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/findings.json [--comments %s/comments.json] [--meta %s/meta.json]` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$CTX" "$CTX"
   exit 0
 }
 

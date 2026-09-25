@@ -914,6 +914,9 @@ assert_out_contains 'Ignore: retry loop on' "this PR's overrides are in the brie
 assert_out_contains 'Skip JSDoc findings' 'the memory rules in force are in the brief'
 assert_out_absent 'the retry finding was right' 'the Feedback Log is history, not a rule in force'
 assert_out_contains 'findings.annotated.json' 'the brief names the file post takes'
+assert_out_contains 'cd "\$HOME" && bash' 'post runs from HOME, never from the directory it deletes'
+assert_out_contains 'review-pr-1.ctx/body.md' 'the payload files are named by absolute path in the context directory'
+assert_out_contains 'never by the exit status' 'post is judged by its outcome'
 # `collect` decides which sections exist: a skill with no output is skill-errored
 mkdir -p "$(PR_DIR).out"; printf -- '- 🟡 **Warning:** x (`src/alpha.ts:6`)\n  **Fix:** y\n' > "$(PR_DIR).out/doc-drift.txt"
 run_rp collect 1
