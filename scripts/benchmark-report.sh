@@ -391,10 +391,10 @@ ${ROWS_ALL}
 ${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}
 <script>
-// Client-side sort / filter / paging — no external assets (gist renderer and
-// sealed artifact iframes allow no network). Click a header to sort (numeric
-// columns by their leading number, "—" sorts last); the box filters rows by
-// substring; long histories page.
+// Client-side sort / filter / paging — no external assets (sealed artifact
+// iframes allow no network). Click a header to sort (numeric columns by their
+// leading number, "—" sorts last); the box filters rows by substring; long
+// histories page.
 document.querySelectorAll('table').forEach(function (t) {
   var body = t.tBodies[0]; if (!body) return;
   var all = Array.prototype.slice.call(body.rows);

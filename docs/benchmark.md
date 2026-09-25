@@ -355,21 +355,11 @@ spans the whole session and contention would distort `seconds`). Per fixture:
      > "$HOME/work/benchmark/report.html"
    ```
 
-   Publish to the entry's `report` surfaces (`benchmark_report`: `gist` |
-   `dam` | `gist,dam` | `off`; `gist` reaches `github.com` target hosts only,
-   `dam` is best-effort as in [artifact.md](artifact.md)):
-   - **gist** — one persistent secret gist, updated in place so its URL never
-     changes. Its id lives in the RESULTS.md header marker
-     `<!-- benchmark-gist: <id> -->`. Marker present → update
-     (`jq -n --rawfile c report.html '{files:{"report.html":{content:$c}}}' > /tmp/bench-gist.json`,
-     then `gh api -X PATCH "gists/<id>" --input /tmp/bench-gist.json`, then
-     remove the payload file); absent →
-     `gh gist create --desc "Review benchmark report" "$HOME/work/benchmark/report.html"`
-     and write the marker. Viewable link:
-     `https://htmlpreview.github.io/?https://gist.githubusercontent.com/$BOT_LOGIN/<id>/raw/report.html`.
-   - **dam** — the DAM Artifact Library via its MCP tools when registered
-     (`<!-- benchmark-dam: <id> -->` marker, same create-once-then-update
-     pattern). Tools absent → log and skip, never fail the run.
+   Publish per the entry's `report` (`benchmark_report`: `dam` | `off`):
+   `dam` — the DAM Artifact Library via its MCP tools when registered, created
+   once and then updated in place so its URL never changes; the id lives in the
+   RESULTS.md header marker `<!-- benchmark-dam: <id> -->`. Best-effort as in
+   [artifact.md](artifact.md): tools absent → log and skip, never fail the run.
 
    A failed publish is logged; the local `report.html` is current regardless.
 10. Report to the chat UI: the run's **quality index** with its delta against
@@ -424,7 +414,6 @@ report shows what changed in the definition between tested versions.
 
 ```markdown
 # Benchmark results
-<!-- benchmark-gist: <id> -->
 <!-- benchmark-dam: <id> -->
 
 | ts | model | version | fixture | trigger | f1 | sev | fixed | new | words | sec | out-tok |

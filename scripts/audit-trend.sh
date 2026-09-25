@@ -251,7 +251,7 @@ fi
 # therefore reaches every past week), preserving the publish-id markers.
 write_trends() {
   local markers=""
-  [ -f "$DIR/TRENDS.md" ] && markers="$(grep -E '^<!-- audit-trend-(gist|dam): ' "$DIR/TRENDS.md" 2>/dev/null || true)"
+  [ -f "$DIR/TRENDS.md" ] && markers="$(grep -E '^<!-- audit-trend-dam: ' "$DIR/TRENDS.md" 2>/dev/null || true)"
   {
     printf '# Weekly trends\n'
     [ -n "$markers" ] && printf '%s\n' "$markers"
@@ -304,16 +304,19 @@ if [ "$MODE" = "append" ] || [ "$MODE" = "backfill" ]; then
       + " · human review \(if $c.human_ttfr_h == null then "—" else "\($c.human_ttfr_h)h" end)\(d($c.human_ttfr_h; $p.human_ttfr_h; "h"))"
       + " · stalled \($c.stalled|f)/\($c.locked_runs|f)"
     end'
-  surfaces="$(sed -n 's/^- *audit_trend: *//p' "$CONFIG_MD" 2>/dev/null | head -1 | tr -d ' ')"
-  printf 'weeks=%s surfaces=%s report=%s\n' "$WEEKS" "${surfaces:-dam}" "$DIR/report.html"
+  # the same reader as preflight's cfg(): an inline `# …` comment is not the value
+  surfaces="$(sed -n 's/^- *audit_trend:[[:space:]]*//p' "$CONFIG_MD" 2>/dev/null | head -1 \
+    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//')"
+  [ "$surfaces" = "off" ] || surfaces=dam
+  printf 'weeks=%s surfaces=%s report=%s\n' "$WEEKS" "$surfaces" "$DIR/report.html"
   exit 0
 fi
 
 # ---------------------------------------------------------------- report -----
-# Self-contained HTML: no external assets, because the gist renderer and the
-# artifact viewer allow no network. Charts are inline SVG polylines over the
-# same derived rows the table shows — a missing week breaks the line instead
-# of interpolating across it.
+# Self-contained HTML: no external assets, because the artifact viewer allows
+# no network. Charts are inline SVG polylines over the same derived rows the
+# table shows — a missing week breaks the line instead of interpolating across
+# it.
 JQ_VIEW='
   def f: if . == null then "—" else tostring end;
   def pc: if . == null then "—" else ((. * 100 | round) | tostring + "%") end;
@@ -600,8 +603,8 @@ ${ROWS_HTML}
 </table>
 </div>
 <script>
-// Sort only — no external assets (the gist renderer and the artifact viewer
-// allow no network). Numeric when every cell parses as a number, else text.
+// Sort only — no external assets (the artifact viewer allows no network).
+// Numeric when every cell parses as a number, else text.
 document.querySelectorAll('th').forEach(function(th,i){
   th.addEventListener('click',function(){
     var tb=th.closest('table').tBodies[0], rows=[].slice.call(tb.rows);

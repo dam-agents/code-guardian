@@ -11,6 +11,32 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 6.0.0 — 2026-09-24
+
+**Upgrade:** Gist publishing is removed; every artifact and report publishes
+to the DAM Artifact Library only (`docs/artifact.md`).
+
+1. Delete each published gist, then its marker line. The markers are
+   `<!-- artifact-gist: <id> -->` in `work/reviews/pr-*.md`,
+   `<!-- audit-trend-gist: <id> -->` in `work/audit/TRENDS.md`,
+   `<!-- survey-gist: <id> -->` in `work/survey/LEDGER.md` and
+   `<!-- benchmark-gist: <id> -->` in `work/benchmark/RESULTS.md`. Per id:
+   `gh gist delete <id> --yes`; on success or a 404, remove that marker line.
+   A different failure (for example a token without the `gist` scope) keeps
+   the line, and the ids that remain go to the operator in one chat message
+   (**operator-only** to delete). No marker left = step done.
+2. In `work/CONFIG.md`, remove the `- artifact_targets:` line, and rewrite
+   each value of `audit_trend`, `survey_report` and `benchmark_report` that is
+   not `off` to `dam`:
+
+   ```bash
+   C="$HOME/work/CONFIG.md"
+   sed -i '/^- artifact_targets:/d' "$C"
+   sed -i -E '/^- (audit_trend|survey_report|benchmark_report):[[:space:]]*off([[:space:]]|$)/!s/^(- (audit_trend|survey_report|benchmark_report):)[[:space:]]*[^#]*[^#[:space:]]/\1 dam/' "$C"
+   ```
+3. Run `bash "$HOME/scripts/verify-onboarding.sh"` and apply what it reports.
+4. **Operator-only, optional:** the token no longer needs the `gist` scope.
+
 ## 5.6.0 — 2026-09-24
 
 **Upgrade:** When `GH_HOST` names a host other than `github.com`, rewrite

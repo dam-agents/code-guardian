@@ -38,6 +38,15 @@ run_trend() { # <mode> [args…] — output in $OUT
   OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" "$@" 2>&1)"
 }
 
+# --- the surface reader drops an inline comment, as preflight's cfg() does ----
+new_case trend_surface_comment
+mkdir -p "$WORK/audit"
+printf -- '- audit_trend: off   # publishes nothing\n' > "$WORK/CONFIG.md"
+worklist 1 3 0 0 > "$WORK/audit/last-worklist.json"
+printf '{}\n' > "$WORK/extras.json"
+run_trend append "$WORK/audit" "$WORK/extras.json"
+assert_out_contains 'surfaces=off' 'an inline comment does not turn off into dam'
+
 # --- append writes one week file and the derived TRENDS.md --------------------
 new_case trend_append
 price_config

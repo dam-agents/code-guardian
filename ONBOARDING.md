@@ -63,7 +63,7 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    audit re-checks both (`token_scopes`, `cli_deps`), per host:
 
    ```bash
-   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo, gist
+   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo
    for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
    for c in gh jq; do case "$(command -v "$c")" in (*/shims/*) echo "SHIMMED: $c";; esac; done
    ```
@@ -414,10 +414,6 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      otherwise drop the row after confirming, because a missing harness skill
      would log `skill-errored` on every PR.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
-   - With the artifact skill enabled, ask which surfaces to publish to —
-     `artifact_targets` (default `gist`; `gist,dam` also publishes to the DAM
-     Artifact Library, best-effort behind the owner's experimental flag —
-     `docs/artifact.md`). Omit the key with `artifact_skill: none`.
 8. **`slack_notifications`** — strictly opt-in; it gates the shepherd nudging.
    Ask:
 
@@ -438,7 +434,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
     ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality
     scores; default `off` = deterministic scoring only) and
-    **`benchmark_report`** (`gist` default / `dam` / `gist,dam` / `off`), offer
+    **`benchmark_report`** (`dam` default / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
     **Model prices**, which enables the cost column of this report **and** of
     the weekly trend artifact), and register the schedule in Step 6d. The first scheduled run creates the fixture set, and
@@ -455,8 +451,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report what a diff cannot show: code nothing reaches, logic that exists twice, a critical path with no test, drift from your own conventions and decision records. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
-    **Yes** → `survey: enabled`, ask for the report surfaces (`survey_report`,
-    default `gist`) and register the schedule in Step 6e. Default off.
+    **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
+    default `dam`) and register the schedule in Step 6e. Default off.
 13. **Review cadence** — `active_hours`, `active_days`,
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
@@ -492,17 +488,16 @@ Final shape:
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
-- artifact_targets: gist               # gist (default) | gist,dam ; omit with artifact_skill: none
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
-- audit_trend: dam                     # weekly trend artifact surfaces: dam (default) | gist | gist,dam | off
+- audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - survey: enabled                      # weekly deep pass over one area; omit = disabled
-- survey_report: gist                  # survey artifact surfaces: gist (default) | dam | gist,dam | off
+- survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_interval_days: 7              # floor between two passes; omit = 7
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
-- benchmark_report: gist               # accumulated-report surfaces: gist (default) | dam | gist,dam | off
+- benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
 - active_hours: 08-21                  # platform timezone, both ends inclusive; missing = 00-23

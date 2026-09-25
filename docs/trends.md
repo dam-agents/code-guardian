@@ -39,20 +39,16 @@ of the same week in both views; both files stay on disk.
    Omit a key you did not measure; never write a placeholder number.
 2. **Append** — `bash "$HOME/scripts/audit-trend.sh" append "$HOME/work/audit" <extras file>`.
    It reads `last-worklist.json`, writes the week file, regenerates `TRENDS.md`
-   and prints the week-over-week delta line plus the resolved surfaces.
+   and prints the week-over-week delta line plus the resolved surface.
 3. **Report** —
    `bash "$HOME/scripts/audit-trend.sh" report "$HOME/work/audit" > "$HOME/work/audit/report.html"`.
-4. **Publish** to the surfaces of `audit_trend` ([config.md](config.md)), each
-   independently, updated in place so the URL stays stable:
+4. **Publish** per `audit_trend` ([config.md](config.md)), updated in place so
+   the URL stays stable:
    - `dam` — the DAM Artifact Library through its MCP tools, title
      `<bot_display_name> weekly trends`, exactly the sub-steps of
-     [artifact.md](artifact.md) → **Procedure** 2b; the id lives in the
+     [artifact.md](artifact.md) → **Procedure** step 2; the id lives in the
      TRENDS.md marker `<!-- audit-trend-dam: <id> -->`. Best-effort: tools not
      registered or any sub-step failing → log and continue.
-   - `gist` — the persistent secret gist of
-     [benchmark.md](benchmark.md) → **Running the benchmark** phase 2 step 9,
-     with the marker `<!-- audit-trend-gist: <id> -->` and the file name
-     `report.html`.
    - `off` — regenerate locally and publish nothing.
 5. **Report it** — the delta line and the artifact URL go on the audit report's
    *Trend* line ([audit.md](audit.md)). A failed publish is logged; the local
