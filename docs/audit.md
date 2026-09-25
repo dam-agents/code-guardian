@@ -283,7 +283,8 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
       first **independent** review, over the PRs whose first review landed this
       week. `n` is the population; a median over fewer than 3 is reported with
       its `n` and judged as an anecdote.
-    - `conflicts` — PRs that hit a merge conflict this week.
+    - `conflicts` — PRs whose first merge conflict a shepherd sweep saw this
+      week; a PR counts once in its life.
     - `hot_areas` — the three directories carrying the most open findings, from
       the profile's own history ([profile.md](profile.md)). Orientation for the
       reader, never a claim about the live code.
