@@ -31,8 +31,8 @@ assert_path gone "$TMP_T/review-pr-9.s-lint" 'its per-skill copy reclaimed'
 assert_path kept "$TMP_T/review-pr-8"        'live in_progress lock keeps its clone'
 assert_path kept "$TMP_T/review-pr-10"       'fresh clone (younger than the TTL) kept'
 assert_path kept "$TMP_T/review-pr-x"        'non-numeric name never touched'
-assert_jq '.checks[] | select(.id == "tmp_leftovers") | .status == "warn" and (.detail | contains("3 leftover") and contains("3 stale reclaimed"))' \
-  'check reports the post-sweep state'
+assert_jq '.checks[] | select(.id == "tmp_leftovers") | .status == "ok" and (.detail | contains("3 stale reclaimed") and contains("2 of a live review"))' \
+  'what a live review holds after the sweep is no leftover'
 
 # --- the review heartbeat sweeps too ------------------------------------------
 # An aborted run leaves its clone behind; a sweep that only runs in the weekly

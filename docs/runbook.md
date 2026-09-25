@@ -188,9 +188,9 @@ UI **and** a GitHub PR review — every reviewed PR produces both.
    GitHub** when `status_resets_due` is non-empty — and nothing else: go
    straight to step 4, then steps 10 and 11. Otherwise read exactly this set:
    [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md),
-   `work/MEMORY.md`, `work/LESSONS.md` ([preferences.md](preferences.md)), each
-   entry's `memory_due` files, and a rule's `→ memory/<topic>.md` detail when
-   its line is not enough to act (preferences.md → **Entry form**). Add
+   `work/MEMORY.md`, `work/LESSONS.md` ([preferences.md](preferences.md)) and
+   each entry's `memory_due` files — never the archive, which is searched only
+   to look a specific thing up (preferences.md → **Two layers**). Add
    [watches.md](watches.md) when `config.watch_rules` is non-empty,
    [mentions.md](mentions.md) when `mentions_due` is non-empty, and
    [ci-triage.md](ci-triage.md) when `ci_failures_due` is non-empty.
@@ -384,7 +384,9 @@ triage and the 14-day retention cleanup already happened inside preflight
 - Feedback, dispute resolutions and observed insights are routed by scope
   ([preferences.md](preferences.md)): global → `work/MEMORY.md`, PR-specific →
   that PR's overrides, verified environment or failure causes →
-  `work/LESSONS.md`. MEMORY.md is consolidated only by the weekly audit.
+  `work/LESSONS.md`, detail → the archive; a PR's review rounds are its
+  `reviews/pr-<n>.md`, never memory. Memory is consolidated only by the weekly
+  audit.
 - Every `mentions_due` entry reaches a terminal state: its actions are followed
   immediately by its `work/MENTIONS.md` row, at most one reply per comment
   (the ledger re-read per entry at post time),
