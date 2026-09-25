@@ -2305,10 +2305,10 @@ if [ "$MODE" = "audit" ]; then
     check review_style ok "no posted review carried a style measurement this week"
   else
     ste_avg="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.avg_sentence_words // 0')"
-    ste_share="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.over_20_share // 0')"
     ste_over="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences_over_20 // 0')"
     ste_sent="$(printf '%s' "$REVIEWS_AGG" | jq -r '.ste.sentences // 0')"
-    if [ "$(printf '%s' "$ste_share" | awk '{ print ($1 > 0.15) ? 1 : 0 }')" = "1" ]; then
+    # jq compares the share: an empty or non-numeric one is never over the bar
+    if printf '%s' "$REVIEWS_AGG" | jq -e '(.ste.over_20_share // 0) | ((type == "number") and (. > 0.15))' >/dev/null 2>&1; then
       check review_style warn "$ste_over of $ste_sent sentence(s) over 20 words in $ste_n review(s), average $ste_avg — rewrite the long ones (docs/review.md → The sentence bar is 20 words)"
     else
       check review_style ok "$ste_over of $ste_sent sentence(s) over 20 words in $ste_n review(s), average $ste_avg"
