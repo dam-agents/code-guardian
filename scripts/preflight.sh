@@ -48,6 +48,9 @@
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
+#   preflight.sh memory    -> the memory budget object alone (memory_budget_json),
+#                             for the consolidation to verify its bounds;
+#                             local reads only, no bookkeeping
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
@@ -520,14 +523,16 @@ memory_budget_json() {
   # whole-line length: "- " plus 119 or more is 121+, so the bound itself passes
   lng="$(grep -cE '^- .{119,}' "$WORK/MEMORY.md" 2>/dev/null || true)"
   # area files: the body after the front matter holds rule lines only; a file
-  # without `scope:` is never loaded by a review, so it belongs in the archive
+  # without `scope:` (or its alias `paths:`, as profile.sh reads it) is never
+  # loaded by a review, so it belongs in the archive
   for f in "$WORK"/memory/*.md; do
     [ -f "$f" ] || continue
     t="${f##*/}"; t="${t%.md}"
-    if [ -z "$(awk 'NR == 1 && $0 != "---" {exit} NR > 1 && /^---$/ {exit} /^scope:/ {print "y"; exit}' "$f")" ]; then
+    # front matter: the lines between a first-line `---` and the next `---`
+    if ! sed -n '1{/^---$/!q;d;}; /^---$/q; p' "$f" | grep -qE '^(scope|paths):'; then
       tunsc="$(printf '%s' "$tunsc" | jq -c --arg t "$t" '. + [$t]')"; continue
     fi
-    body="$(awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$f")"
+    body="$(sed '1,/^---$/d' "$f")"
     b="$(printf '%s\n' "$body" | grep -c . || true)"
     [ "$b" -gt "$tmax" ] && tmax="$b"
     if [ "$b" -gt 40 ] || printf '%s\n' "$body" | grep -qE '^.{121,}'; then
@@ -546,6 +551,9 @@ memory_budget_json() {
       area_over:$tover, area_unscoped:$tunsc, area_max_lines:$tmax, area_lines_limit:40, over_budget:$over}'
 }
 MEMORY_JSON="$(memory_budget_json)"
+# memory mode: the budget alone, so a consolidation measures its own result
+# (docs/preferences.md → Weekly memory consolidation) — local reads, no bookkeeping
+[ "$MODE" = "memory" ] && { printf '%s\n' "$MEMORY_JSON"; exit 0; }
 PROFILE_JSON_OUT='null'
 
 # preflight could not decide (no repo, no answer from the API): the JSON names
@@ -1803,8 +1811,11 @@ if [ "$MODE" = "audit" ]; then
   if [ -n "${ghosts// /}" ]; then
     gstates="$(prune_states $ghosts)"
     for n in $ghosts; do
-      ca="$(printf '%s\n' "$gstates" | jq -r --argjson n "$n" 'select(.n == $n) | .pj.closed_at // empty' 2>/dev/null | head -1)"
-      [ -n "$ca" ] || ca="$(gh_get "repos/$REPO/pulls/$n" | jq -r '.closed_at // empty' 2>/dev/null)"
+      gpj="$(printf '%s\n' "$gstates" | jq -c --argjson n "$n" 'select(.n == $n) | .pj' 2>/dev/null | head -1)"
+      [ -n "$gpj" ] || gpj="$(gh_get "repos/$REPO/pulls/$n" | jq -c '{state, closed_at}' 2>/dev/null)"
+      # open, yet past the one-page open list (or reopened): a live row
+      [ "$(printf '%s' "$gpj" | jq -r '.state // empty' 2>/dev/null)" = "open" ] && continue
+      ca="$(printf '%s' "$gpj" | jq -r '.closed_at // empty' 2>/dev/null)"
       if [ -z "$ca" ]; then unread="${unread:+$unread, }#$n"
       elif [ $(( (NOW_EPOCH - $(iso2epoch "$ca")) / 3600 )) -ge "$GHOST_GRACE_H" ]; then stuck="${stuck:+$stuck, }#$n"
       else pending=$((pending+1)); fi
@@ -2529,4 +2540,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey|memory)"

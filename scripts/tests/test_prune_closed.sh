@@ -122,5 +122,11 @@ fx_fail 'api repos/acme/widgets/pulls/5'
 run_preflight audit
 assert_jq '.checks[] | select(.id == "closed_rows") | .status == "warn" and (.detail | contains("unreadable"))' \
   'an unreadable close time is a warn with its reason'
+jq -n --arg sha "$SHA5" '{number:5, state:"open", merged:false, title:"reopened PR", closed_at:null,
+  user:{login:"dave"}, head:{sha:$sha, ref:"b5"}}' | fx 'api repos/acme/widgets/pulls/5'
+rm -f "$GH_FIXTURES/$(fx_for 'api repos/acme/widgets/pulls/5').rc"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "closed_rows") | .status == "ok"' \
+  'a PR still open but outside the open list is no ghost and no API fault'
 
 finish

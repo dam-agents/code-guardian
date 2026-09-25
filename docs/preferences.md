@@ -54,8 +54,8 @@ thresholds; this rule is about feedback stated outright.
   `scope: [<globs>]` naming the paths it applies to, body in the MEMORY.md
   section shapes and entry form. A review loads it only when the PR touches its
   scope — the entry's `memory_due` ([profile.md](profile.md) → **In the
-  worklist**). A file without `scope:` is never loaded, so it belongs in the
-  archive.
+  worklist**). A file without `scope:` (or its alias `paths:`) is never
+  loaded, so it belongs in the archive.
 - **PR-specific** — a dismissal tied to one PR's code ("the null check on line
   42 is intentional") → that PR's **`reviews/pr-<n>.md`** under
   `## PR-local overrides`.
@@ -154,10 +154,10 @@ must not be "repaired". Separate from MEMORY.md, which holds review
 Keep the distilled layer **useful and bounded forever**, so the agent keeps
 improving without the files every run reads growing. **Mandatory whenever the audit's `memory_budget`
 check is `warn` or `fail`** — any distilled file past a step-6 bound, or an
-area file without `scope:`; optional otherwise. The pass never deletes
-knowledge from the archive: what leaves the distilled layer moves there.
+area file without `scope:` or `paths:`; optional otherwise. The pass never
+deletes knowledge from the archive: what leaves the distilled layer moves there.
 
-0. **Archive** — an area file without `scope:` moves whole to
+0. **Archive** — an area file without `scope:` or `paths:` moves whole to
    `work/memory/archive/<topic>.md`, and a MEMORY.md pointer to it follows. A
    distilled file past its bound moves its body to the archive first (append,
    under a dated heading), then gets back only its rules, one line each. Read
@@ -182,8 +182,10 @@ knowledge from the archive: what leaves the distilled layer moves there.
 6. Bounds after the pass: Observed Insights ≤ 15, Feedback Log last 20,
    MEMORY.md ≤ 120 lines with no line past 120 characters, LESSONS.md ≤ 10
    sections and ≤ 100 lines with no line past 200 characters, each area file ≤
-   40 lines after its front matter with no line past 120 characters. Still
-   over → the report's *Action needed* names what remains and why.
+   40 lines after its front matter with no line past 120 characters. Measure
+   them with `bash "$HOME/scripts/preflight.sh" memory`: `"over_budget":
+   false` is inside every bound. Still over → the report's *Action needed*
+   names what remains and why.
 7. Report the delta as one line
    (`memory: archived A · distilled W · merged X · promoted Y · dropped Z`); all zeros →
    `memory: no consolidation needed`.

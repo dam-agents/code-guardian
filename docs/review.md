@@ -97,7 +97,7 @@ d. **Run every configured review skill** per [skills.md](skills.md):
    warnings and `skill_timing`. Verify every blocking finding, yours and the
    skills' (**Full-file verification**), sweep siblings (**Sibling sweep**),
    then `review-pr.sh step <n> verified`. On a re-review,
-   `review-pr.sh delta <n> findings.json` classifies your findings against
+   `review-pr.sh delta <n> <ctx>/findings.json` classifies your findings against
    `prior_findings` and returns the `### Changes since last review` block and
    `annotated` — your array with every `status` filled in (**Re-review
    output**).
@@ -115,7 +115,8 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    UI.
 f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
-   <ctx>/meta.json]`, as `compose-brief` prints it. It
+   <ctx>/meta.json]`, as `compose-brief` prints it; a re-review passes
+   `--findings <ctx>/findings.annotated.json`. It
    runs Check 2 and the dedup re-check, maps each inline comment against the
    hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
