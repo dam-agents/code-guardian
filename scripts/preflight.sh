@@ -43,11 +43,14 @@
 #                             after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks (auth, state consistency, log gaps/errors,
-#                             orphaned gists, disk, skills); the agent adds the
-#                             judgment checks and sends the report (docs/audit.md)
+#                             disk, skills); the agent adds the judgment
+#                             checks and sends the report (docs/audit.md)
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
+#   preflight.sh memory    -> the memory budget object alone (memory_budget_json),
+#                             for the consolidation to verify its bounds;
+#                             local reads only, no bookkeeping
 #
 # Output: a single JSON object on stdout. Agent contract:
 #   .nothing_to_do == true  -> end the run immediately.
@@ -130,6 +133,16 @@ iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ'
 DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+# report surface keys (docs/config.md): `off` publishes nothing, anything else
+# publishes to the DAM Artifact Library — a legacy value is logged, not fatal
+report_surface() { # <key> <var>
+  local v; v="$(cfg "$1")"
+  case "$v" in
+    (''|dam) printf -v "$2" dam;;
+    (off) printf -v "$2" off;;
+    (*) printf -v "$2" dam; log "$1 '$v' is not dam | off — publishing to dam";;
+  esac
+}
 
 # benchmark run lock TTL (docs/benchmark.md): a scored run never legitimately
 # exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
@@ -155,18 +168,7 @@ if [ "$MODE" = "survey" ]; then
   SURVEY_LEDGER="$SURVEY_DIR/LEDGER.md"
   SURVEY_INTERVAL_D="$(cfg survey_interval_days)"
   case "$SURVEY_INTERVAL_D" in (''|*[!0-9]*) SURVEY_INTERVAL_D=7;; esac
-  # report surfaces: the gist renderer only reaches github.com, the same rule
-  # the artifact and benchmark surfaces follow
-  SURVEY_REPORT="$(cfg survey_report)"; SURVEY_REPORT="${SURVEY_REPORT:-gist}"
-  SURVEY_HOST="$(refhost "$(cfg github_repo)")"
-  EFF_SURVEY=""
-  for t in $(printf '%s' "$SURVEY_REPORT" | tr ',' ' '); do
-    case "$t" in (off|'') continue;; esac
-    { [ "$t" = "gist" ] && [ "$SURVEY_HOST" != "github.com" ]; } \
-      && { log "survey_report surface gist dropped (target host $SURVEY_HOST)"; continue; }
-    EFF_SURVEY="${EFF_SURVEY:+$EFF_SURVEY,}$t"
-  done
-  EFF_SURVEY="${EFF_SURVEY:-off}"
+  report_surface survey_report EFF_SURVEY
 
   # the cadence floor, so a drifting cron never surveys twice in one interval
   SURVEY_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$SURVEY_LEDGER" 2>/dev/null | sort | tail -1)"
@@ -260,19 +262,7 @@ if [ "$MODE" = "benchmark" ]; then
     bench_out true null
   fi
   BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
-  # report surfaces: same host semantics as artifact_targets — gist renders
-  # through an external service that only reaches github.com, so it is
-  # dropped on any other target host (resolved without any gh fallback)
-  BENCH_REPORT="$(cfg benchmark_report)"; BENCH_REPORT="${BENCH_REPORT:-gist}"
-  BENCH_HOST="$(refhost "$(cfg github_repo)")"
-  EFF_REPORT=""
-  for t in $(printf '%s' "$BENCH_REPORT" | tr ',' ' '); do
-    case "$t" in (off|'') continue;; esac
-    { [ "$t" = "gist" ] && [ "$BENCH_HOST" != "github.com" ]; } \
-      && { log "benchmark_report surface gist dropped (target host $BENCH_HOST)"; continue; }
-    EFF_REPORT="${EFF_REPORT:+$EFF_REPORT,}$t"
-  done
-  EFF_REPORT="${EFF_REPORT:-off}"
+  report_surface benchmark_report EFF_REPORT
   BENCH_DIR="$WORK/benchmark"
   BENCH_MIN_FIXTURES=5
   # the active set: every fixture/<slug>/ carrying a manifest (each immutable)
@@ -389,17 +379,7 @@ URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
-# `gist` renders through an external service that only reaches github.com, so it
-# is dropped on any other target host; no surface left = feature off this run
-ARTIFACT_TARGETS="$(cfg artifact_targets)"; ARTIFACT_TARGETS="${ARTIFACT_TARGETS:-gist}"
-ARTIFACT_OFF_REASON=""; EFFECTIVE_TARGETS=""
-for t in $(printf '%s' "$ARTIFACT_TARGETS" | tr ',' ' '); do
-  { [ "$t" = "gist" ] && [ "$REPO_HOST" != "github.com" ]; } && continue
-  EFFECTIVE_TARGETS="${EFFECTIVE_TARGETS:+$EFFECTIVE_TARGETS,}$t"
-done
-if [ -n "$ARTIFACT_SKILL" ] && [ -z "$EFFECTIVE_TARGETS" ]; then
-  ARTIFACT_SKILL=""; ARTIFACT_OFF_REASON="no publish surface reachable on $REPO_HOST"
-fi
+ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/artifact.md)
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
@@ -479,10 +459,11 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
     jq -nc --arg id "$id" --arg w "$(trim "$wf")" --arg n "$(trim "$notify")" --arg note "$(trim "$note")" \
       '{id:$id, watch_for:$w, notify:$n, note:$note}'
   done | jq -s .)"; [ -n "$WATCH_RULES" ] || WATCH_RULES='[]'
+report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg at "$EFFECTIVE_TARGETS" \
-  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$(cfg audit_trend)" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" \
@@ -494,36 +475,63 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, mention_replies:(if $mr=="" then "enabled" else $mr end),
-   artifact_skill:(if $art=="" then "none" else $art end), artifact_targets:(if $at=="" then null else $at end),
+   artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
-   audit_trend:(if $atr=="" then "dam" else $atr end),
+   audit_trend:$atr,
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
-# Memory budget (docs/preferences.md → bounds): the documented caps, measured.
-# Review runs log an overrun; the audit turns it into a check and a mandatory
-# consolidation. Four local reads, no judgment.
+# Memory budget (docs/preferences.md → Two layers): the caps of the layer every
+# run reads whole, measured. The archive (work/memory/archive/) has no cap and
+# is never measured. Review runs log an overrun; the audit turns it into a
+# check and a mandatory consolidation. Local reads only, no judgment.
 memory_budget_json() {
-  local ml=0 ins=0 fb=0 ls=0 lng=0 over=false
+  local ml=0 ins=0 fb=0 ls=0 lng=0 ll=0 llng=0 over=false f t body tover='[]' tunsc='[]' tmax=0
   [ -f "$WORK/MEMORY.md" ] && ml="$(grep -c '' "$WORK/MEMORY.md" 2>/dev/null || true)"
   ins="$(sed -n '/^## Observed Insights/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   fb="$(sed -n '/^## Feedback Log/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   ls="$(grep -c '^## ' "$WORK/LESSONS.md" 2>/dev/null || true)"
-  # a rule whose wording never moved to its topic file (docs/preferences.md →
+  [ -f "$WORK/LESSONS.md" ] && ll="$(grep -c '' "$WORK/LESSONS.md" 2>/dev/null || true)"
+  llng="$(grep -cE '^.{201,}' "$WORK/LESSONS.md" 2>/dev/null || true)"
+  # a rule whose wording never moved to the archive (docs/preferences.md →
   # Entry form): the line, not the file, is what the next consolidation distills
   # whole-line length: "- " plus 119 or more is 121+, so the bound itself passes
   lng="$(grep -cE '^- .{119,}' "$WORK/MEMORY.md" 2>/dev/null || true)"
+  # area files: the body after the front matter holds rule lines only; a file
+  # without `scope:` (or its alias `paths:`, as profile.sh reads it) is never
+  # loaded by a review, so it belongs in the archive
+  for f in "$WORK"/memory/*.md; do
+    [ -f "$f" ] || continue
+    t="${f##*/}"; t="${t%.md}"
+    # front matter: the lines between a first-line `---` and the next `---`
+    if ! sed -n '1{/^---$/!q;d;}; /^---$/q; p' "$f" | grep -qE '^(scope|paths):'; then
+      tunsc="$(printf '%s' "$tunsc" | jq -c --arg t "$t" '. + [$t]')"; continue
+    fi
+    body="$(sed '1,/^---$/d' "$f")"
+    b="$(printf '%s\n' "$body" | grep -c . || true)"
+    [ "$b" -gt "$tmax" ] && tmax="$b"
+    if [ "$b" -gt 40 ] || printf '%s\n' "$body" | grep -qE '^.{121,}'; then
+      tover="$(printf '%s' "$tover" | jq -c --arg t "$t" '. + [$t]')"
+    fi
+  done
   { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] \
-    || [ "${ls:-0}" -gt 10 ] || [ "${lng:-0}" -gt 0 ]; } && over=true
+    || [ "${ls:-0}" -gt 10 ] || [ "${lng:-0}" -gt 0 ] || [ "${ll:-0}" -gt 100 ] || [ "${llng:-0}" -gt 0 ] \
+    || [ "$tover" != '[]' ] || [ "$tunsc" != '[]' ]; } && over=true
   jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" \
-    --argjson lng "${lng:-0}" --argjson over "$over" \
+    --argjson lng "${lng:-0}" --argjson ll "${ll:-0}" --argjson llng "${llng:-0}" \
+    --argjson tover "$tover" --argjson tunsc "$tunsc" --argjson tmax "$tmax" --argjson over "$over" \
     '{memory_lines:$ml, memory_limit:120, insights:$ins, insights_limit:15, feedback:$fb, feedback_limit:20,
-      lessons_sections:$ls, lessons_limit:10, long_lines:$lng, line_limit:120, over_budget:$over}'
+      lessons_sections:$ls, lessons_limit:10, lessons_lines:$ll, lessons_lines_limit:100,
+      lessons_long_lines:$llng, lessons_line_limit:200, long_lines:$lng, line_limit:120,
+      area_over:$tover, area_unscoped:$tunsc, area_max_lines:$tmax, area_lines_limit:40, over_budget:$over}'
 }
 MEMORY_JSON="$(memory_budget_json)"
+# memory mode: the budget alone, so a consolidation measures its own result
+# (docs/preferences.md → Weekly memory consolidation) — local reads, no bookkeeping
+[ "$MODE" = "memory" ] && { printf '%s\n' "$MEMORY_JSON"; exit 0; }
 PROFILE_JSON_OUT='null'
 
 # preflight could not decide (no repo, no answer from the API): the JSON names
@@ -657,7 +665,7 @@ prune_states() { # <number…>
   local q="" n i=0
   for n in "$@" ''; do
     if [ -n "$n" ]; then
-      q="$q p$n: pullRequest(number:$n){state headRefOid headRefName title author{__typename login}}"
+      q="$q p$n: pullRequest(number:$n){state closedAt headRefOid headRefName title author{__typename login}}"
       i=$((i+1))
       [ "$i" -lt 50 ] && continue
     fi
@@ -665,7 +673,7 @@ prune_states() { # <number…>
     gh api graphql -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query="query PruneStates(\$o:String!,\$r:String!){repository(owner:\$o,name:\$r){$q}}" 2>/dev/null \
       | jq -c '(.data.repository // {}) | to_entries[] | select(.value != null and .value.state != null)
           | {n: (.key | ltrimstr("p") | tonumber),
-             pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase),
+             pj: {merged: (.value.state == "MERGED"), state: (.value.state | ascii_downcase), closed_at: .value.closedAt,
                   head: {sha: .value.headRefOid, ref: .value.headRefName},
                   title: .value.title, user: {login: (.value.author | if . == null then "ghost"
                     elif .__typename == "Bot" then "\(.login)[bot]" else .login end)}}}' 2>/dev/null
@@ -864,10 +872,9 @@ if [ "$MODE" = "review" ]; then
             "$kind" false "$prior" true true "$full"
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
-          gid="$(grep -o '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
           did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg g "${gid:-}" --arg d "${did:-}" \
-            '{number:$n, state:$s, gist_id:(if $g=="" then null else $g end), dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
+          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg d "${did:-}" \
+            '{number:$n, state:$s, dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
           log "PR #$n: $state — prune due"
         fi;;
       *) : ;;  # OPEN / API error -> leave the row alone
@@ -1002,10 +1009,18 @@ if [ "$MODE" = "review" ]; then
     # artifact assignee gate (independent of the review decision)
     if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qx "$BOT_LOGIN"; then
       action="generate"
-      grep -qE '<!-- artifact-(gist|dam):' "$WORK/reviews/pr-$n.md" 2>/dev/null && action="retry_unassign"
-      ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
-        '{number:$n, action:$a}')" '. + [$e]')"
-      log "PR #$n: artifact $action due"
+      if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_unassign"
+      else
+        # a session without the DAM tools recorded when it tried (docs/artifact.md
+        # step 0): the next attempt waits ARTIFACT_RETRY_H, not one heartbeat
+        skip_ts="$(sed -n 's/^<!-- artifact-skip: dam-unavailable \([0-9TZ:-]*\) -->$/\1/p' "$WORK/reviews/pr-$n.md" 2>/dev/null | tail -1)"
+        [ -n "$skip_ts" ] && [ $(( NOW_EPOCH - $(iso2epoch "$skip_ts") )) -lt $(( ARTIFACT_RETRY_H * 3600 )) ] && action=""
+      fi
+      if [ -n "$action" ]; then
+        ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
+          '{number:$n, action:$a}')" '. + [$e]')"
+        log "PR #$n: artifact $action due"
+      fi
     fi
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
@@ -1116,7 +1131,7 @@ if [ "$MODE" = "review" ]; then
       PROFILE_JSON_OUT='{"status":"disabled","mode":"none"}'
     fi
     [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ] \
-      && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, \(.long_lines) past \(.line_limit) chars, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"') — consolidation due at the next audit (docs/preferences.md)"
+      && log "memory over budget: $(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines, \(.long_lines) past \(.line_limit) chars, insights \(.insights)/\(.insights_limit), feedback \(.feedback)/\(.feedback_limit), LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections, \(.lessons_lines)/\(.lessons_lines_limit) lines, area files over bound \(.area_over | length), without scope \(.area_unscoped | length)"') — consolidation due at the next audit (docs/preferences.md)"
     [ -n "${FILES_PID:-}" ] && wait "$FILES_PID"
     FILES_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-files.XXXXXX")"
     NEW_DUE='[]'
@@ -1665,11 +1680,10 @@ if [ "$MODE" = "audit" ]; then
       auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN"
     else auth_detail="${auth_detail:+$auth_detail; }$h: $me"; fi
 
-    # Token scopes the pipeline depends on: `repo` for PR state and posting,
-    # `gist` for artifact publishing (target host only). A missing scope fails
-    # those calls outright, so catch it here rather than per review; granting is
-    # operator-only.
-    want="repo"; { [ "$h" = "$REPO_HOST" ] && [ -n "$ARTIFACT_SKILL" ]; } && want="repo gist"
+    # Token scope the pipeline depends on: `repo` for PR state and posting. A
+    # missing scope fails those calls outright, so catch it here rather than per
+    # review; granting is operator-only.
+    want="repo"
     scopes="$(gh api --hostname "$h" user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p' | tr -d '\r')"
     missing_scopes=""
     for s in $want; do
@@ -1684,7 +1698,7 @@ if [ "$MODE" = "audit" ]; then
   done
   check github_auth "$auth_status" "$auth_detail"
   if [ "$scope_status" = "ok" ]; then check token_scopes ok "$scope_detail"
-  else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting, gist breaks artifact publishing"; fi
+  else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting"; fi
 
   # rate limiting is reported by the target host only, and enterprise hosts may
   # not enforce it at all — unreadable is not a fault (github_auth covers tokens)
@@ -1772,9 +1786,29 @@ if [ "$MODE" = "audit" ]; then
   dups="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | sort | uniq -d | tr '\n' ' ')"
   [ -n "${dups// /}" ] && check duplicate_rows fail "duplicate REVIEWS.md rows for: $dups" || check duplicate_rows ok "no duplicate rows"
 
-  ghost=0
-  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do open_numbers | grep -qx "$n" || ghost=$((ghost+1)); done
-  [ "$ghost" -gt 0 ] && check closed_rows warn "$ghost rows for non-open PRs (prune pending the next run with work, or the housekeeping batch)" || check closed_rows ok "every row maps to an open PR"
+  # a row for a closed PR is pruned by the next run with work, so a fresh one
+  # is normal; only a row whose PR closed more than GHOST_GRACE_H ago means the
+  # prune did not happen, and only that one is a warn
+  GHOST_GRACE_H=72
+  ghosts="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un | tr '\n' ' ')"
+  pending=0; stuck=""; unread=""
+  if [ -n "${ghosts// /}" ]; then
+    gstates="$(prune_states $ghosts)"
+    for n in $ghosts; do
+      gpj="$(printf '%s\n' "$gstates" | jq -c --argjson n "$n" 'select(.n == $n) | .pj' 2>/dev/null | head -1)"
+      [ -n "$gpj" ] || gpj="$(gh_get "repos/$REPO/pulls/$n" | jq -c '{state, closed_at}' 2>/dev/null)"
+      # open, yet past the one-page open list (or reopened): a live row
+      [ "$(printf '%s' "$gpj" | jq -r '.state // empty' 2>/dev/null)" = "open" ] && continue
+      ca="$(printf '%s' "$gpj" | jq -r '.closed_at // empty' 2>/dev/null)"
+      if [ -z "$ca" ]; then unread="${unread:+$unread, }#$n"
+      elif [ $(( (NOW_EPOCH - $(iso2epoch "$ca")) / 3600 )) -ge "$GHOST_GRACE_H" ]; then stuck="${stuck:+$stuck, }#$n"
+      else pending=$((pending+1)); fi
+    done
+  fi
+  pend_note=""; [ "$pending" -gt 0 ] && pend_note=" ($pending closed PR row(s) wait for the next run with work)"
+  if [ -n "$stuck" ]; then check closed_rows warn "rows for PRs closed more than ${GHOST_GRACE_H} h ago, never pruned: $stuck$pend_note"
+  elif [ -n "$unread" ]; then check closed_rows warn "close time unreadable (API) for rows of non-open PRs: $unread$pend_note"
+  else check closed_rows ok "every row maps to an open PR$pend_note"; fi
 
   orphan_files=0
   for f in "$WORK"/reviews/pr-*.md; do
@@ -1786,7 +1820,8 @@ if [ "$MODE" = "audit" ]; then
 
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
-  mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r '"MEMORY.md \(.memory_lines)/\(.memory_limit) lines · \(.long_lines) past \(.line_limit) chars · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections"')"
+  mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r 'def names: if length > 5 then (.[:5] | join(", ")) + " +\(length - 5) more" else join(", ") end;
+    "MEMORY.md \(.memory_lines)/\(.memory_limit) lines · \(.long_lines) past \(.line_limit) chars · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections, \(.lessons_lines)/\(.lessons_lines_limit) lines, \(.lessons_long_lines) past \(.lessons_line_limit) chars · area files: \(.area_over | length) over \(.area_lines_limit) lines or 120 chars\(if (.area_over | length) > 0 then " (" + (.area_over | names) + ")" else "" end)\(if (.area_unscoped | length) > 0 then " · \(.area_unscoped | length) without scope, archive them (" + (.area_unscoped | names) + ")" else "" end)"')"
   # Insights and the Feedback Log have their own counters, so an over-budget
   # MEMORY.md whose two counters sit inside bounds is carrying the lines
   # somewhere else — name the biggest sections, the consolidation needs to know
@@ -1800,7 +1835,7 @@ if [ "$MODE" = "audit" ]; then
       | map("\(.key) \(.value)") | join(" · ")' < "$WORK/MEMORY.md" 2>/dev/null)"
     [ -n "$mb_top" ] && mb_detail="$mb_detail · biggest sections: $mb_top"
   fi
-  if printf '%s' "$MEMORY_JSON" | jq -e '.memory_lines > 180 or .lessons_sections > 15' >/dev/null 2>&1; then
+  if printf '%s' "$MEMORY_JSON" | jq -e '.memory_lines > 180 or .lessons_sections > 15 or .lessons_lines > 150 or .area_max_lines > 60' >/dev/null 2>&1; then
     check memory_budget fail "far over the documented bounds — $mb_detail; consolidate now (docs/preferences.md → Weekly memory consolidation)"
   elif [ "$(printf '%s' "$MEMORY_JSON" | jq -r '.over_budget')" = "true" ]; then
     check memory_budget warn "over the documented bounds — $mb_detail; consolidation is mandatory this audit"
@@ -1809,8 +1844,7 @@ if [ "$MODE" = "audit" ]; then
   fi
 
   # project profile currency (docs/profile.md → Freshness): the check refreshes
-  # a stale profile, so a `regenerated` here means no review refreshed it in
-  # time — reported, not hidden
+  # a stale profile, so a `regenerated` here is the backstop doing its work
   if [ "$PROJECT_PROFILE" != "enabled" ]; then
     check profile_fresh ok "project profile disabled by configuration"
   else
@@ -1819,7 +1853,7 @@ if [ "$MODE" = "audit" ]; then
     pf_note="$(printf '%s' "$pf" | jq -r '[.mode, (if .base then "base " + .base else empty end), (if .age_hours != null then "\(.age_hours)h old" else empty end), (.note // empty)] | join(", ")' 2>/dev/null)"
     case "$pf_status" in
       (current)      check profile_fresh ok "profile current ($pf_note)";;
-      (regenerated)  check profile_fresh warn "profile was stale until this audit refreshed it ($pf_note) — no review refreshed it in time";;
+      (regenerated)  check profile_fresh ok "profile refreshed by this audit ($pf_note)";;
       (unverified)   check profile_fresh warn "profile could not be verified ($pf_note)";;
       (*)            check profile_fresh fail "profile unavailable ($pf_note) — reviews run without the repository map";;
     esac
@@ -1882,17 +1916,7 @@ if [ "$MODE" = "audit" ]; then
     check state_drift ok "$verified open-PR rows verified against GitHub markers"
   fi
 
-  # --- artifacts & hygiene --------------------------------------------------
-  [ -n "$ARTIFACT_OFF_REASON" ] && check artifact_targets warn "artifact_skill configured but disabled: $ARTIFACT_OFF_REASON"
-  if [ -n "$ARTIFACT_SKILL" ] && printf '%s' ",$EFFECTIVE_TARGETS," | grep -q ',gist,'; then
-    gist_ids="$(gh api "gists?per_page=100" 2>/dev/null | jq -r '.[] | select((.description // "") | test("review artifact")) | .id')"
-    markers="$(grep -ho '<!-- artifact-gist: [A-Za-z0-9]* -->' "$WORK"/reviews/pr-*.md 2>/dev/null | cut -d' ' -f3 | sort -u)"
-    orphans=""
-    for g in $gist_ids; do printf '%s\n' "$markers" | grep -qx "$g" || orphans="${orphans:+$orphans, }$g"; done
-    [ -n "$orphans" ] && check orphan_gists warn "artifact gists with no marker (leaked, never pruned): $orphans" \
-      || check orphan_gists ok "every artifact gist is tracked by a marker"
-  fi
-
+  # --- hygiene --------------------------------------------------------------
   TMP_ROOT="${TMPDIR:-/tmp}"
   swept="$(sweep_stale_clones)"
 
@@ -1908,8 +1932,19 @@ if [ "$MODE" = "audit" ]; then
   [ "$bswept" -gt 0 ] && logev info tmp_cleanup "benchmark sweep: reclaimed $bswept leftover(s) from dead benchmark runs"
 
   sw_note=""; [ "$swept" -gt 0 ] && sw_note=" ($swept stale reclaimed)"
-  tmp_left="$(ls -d "$TMP_ROOT"/review-pr-* 2>/dev/null | grep -c . || true)"
-  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left leftover /tmp/review-pr-* entries$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
+  # after the sweep, an entry of a live review (locked, or younger than the
+  # lock TTL) is expected; only a dead one the sweep could not remove is a warn
+  tmp_live=0; tmp_left=0
+  for d in "$TMP_ROOT"/review-pr-*; do
+    [ -e "$d" ] || continue
+    cn="${d##*/review-pr-}"; cn="${cn%%.*}"
+    case "$cn" in (''|*[!0-9]*) continue;; esac   # not ours: the sweep never touches it
+    if [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] \
+       || [ -z "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ]; then tmp_live=$((tmp_live+1))
+    else tmp_left=$((tmp_left+1)); fi
+  done
+  [ "$tmp_live" -gt 0 ] && sw_note="$sw_note ($tmp_live of a live review)"
+  [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left dead /tmp/review-pr-* entries the sweep could not remove$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
 
   disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
   if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
@@ -2048,8 +2083,8 @@ if [ "$MODE" = "audit" ]; then
   # which the on-disk HTML and the history markers do not — that is why the
   # count reads the log and not `reviews/pr-artifacts/`.
   # The outcome word is read at its documented position, after the skill name:
-  # a publish that names a skipped surface ("… published → gist X (DAM skipped:
-  # flag off)") is one publish, and counts in `generated` alone.
+  # "… published → DAM X, 0 redacted" is one publish, and counts in
+  # `generated` alone.
   # `unreported` is the guard: preflight's own `artifact generate due` lines
   # name every PR that entered the step, so a due PR with no outcome event
   # means the step ran without logging its audit line, and the count below it
@@ -2479,4 +2514,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey|memory)"

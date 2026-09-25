@@ -4,10 +4,25 @@ Read this file whenever user feedback arrives in chat, a dispute resolution
 appears in PR comments, review-run PR context yields an observed insight, or
 the audit run consolidates memory.
 
-Preferences live in `work/MEMORY.md` — one short line per rule — with their
-detail in `work/memory/<topic>.md`, read on request (**Entry form**). Read
-MEMORY.md and the entry's `memory_due` files before reviewing;
-**learned preferences override default behaviors**.
+Preferences live in `work/MEMORY.md` — one short line per rule — and in area
+files `work/memory/<topic>.md`; everything behind them lives in the archive
+(**Two layers**). Read MEMORY.md, LESSONS.md and the entry's `memory_due` files
+before reviewing; **learned preferences override default behaviors**.
+
+## Two layers
+
+- **Distilled** — `work/MEMORY.md`, `work/LESSONS.md` and every
+  `work/memory/<topic>.md`: rules and lessons only, one line each, short enough
+  to read whole on every run that uses them. Bounds: **Weekly memory
+  consolidation** step 6; `memory_budget` measures them.
+- **Archive** — `work/memory/archive/<topic>.md`: everything else — the
+  wording, the example and the reasoning behind a rule, measurements, evidence,
+  author notes. No size bound. **No run reads it as routine**: search it only
+  to look a specific thing up (a dispute or mention cites a rule, the operator
+  asks, a distilled line is not enough to act) — `grep -n` for the tag or term
+  first, then read the hit with `offset`/`limit`, never the whole file.
+- The record of one PR's review rounds is that PR's `reviews/pr-<n>.md`, never
+  memory — neither layer.
 
 ## Sources & trust
 
@@ -37,8 +52,10 @@ thresholds; this rule is about feedback stated outright.
   module's unit convention, a subsystem's error-handling rule) →
   **`work/memory/<topic>.md`**, one file per area, front matter
   `scope: [<globs>]` naming the paths it applies to, body in the MEMORY.md
-  section shapes. A review loads it only when the PR touches its scope — the
-  entry's `memory_due` ([profile.md](profile.md) → **In the worklist**).
+  section shapes and entry form. A review loads it only when the PR touches its
+  scope — the entry's `memory_due` ([profile.md](profile.md) → **In the
+  worklist**). A file without `scope:` (or its alias `paths:`) is never
+  loaded, so it belongs in the archive.
 - **PR-specific** — a dismissal tied to one PR's code ("the null check on line
   42 is intentional") → that PR's **`reviews/pr-<n>.md`** under
   `## PR-local overrides`.
@@ -58,21 +75,19 @@ and a reference specific enough to match on re-review (file:line or symbol):
 
 ## Entry form
 
-**MEMORY.md holds every rule as one line** — the imperative in about five
-words, ten at most, its tag, and `→ memory/<topic>.md` when a detail entry
-exists. The line alone must be enough to apply the rule while reviewing;
-`memory_budget` counts lines past 120 characters and the next consolidation
-distills them.
+**Every rule is one line**, in MEMORY.md or an area file — the imperative in
+about five words, ten at most, its tag, and `→ archive/<topic>.md` when an
+archive entry exists. The line alone must be enough to apply the rule while
+reviewing; `memory_budget` counts lines past 120 characters and the next
+consolidation distills them.
 
 ```markdown
-- [2026-07-24 from user] Skip JSDoc findings → memory/style.md
+- [2026-07-24 from user] Skip JSDoc findings → archive/style.md
 ```
 
-**The wording, the example that produced it and the reasoning go to the topic
-file**, under `## Detail` with the same tag. With `scope:` globs that file is
-area memory (**Route feedback by scope**); without them it is reference, read
-when the line is not enough to act, when a dispute or mention cites it, and at
-consolidation. A rule too long for one line moves its wording out, never
+**The wording, the example that produced it and the reasoning go to the
+archive**, `work/memory/archive/<topic>.md`, under a heading with the same tag
+(**Two layers**). A rule too long for one line moves its wording out, never
 itself.
 
 ## Dispute resolutions from PR comments
@@ -118,13 +133,16 @@ must not be "repaired". Separate from MEMORY.md, which holds review
 *preferences* under the bounds above.
 
 - **Write** an entry when a failure's root cause is **verified** (reproduced,
-  not guessed) and would otherwise be re-derived next run: the symptom, the
-  cause, and the command or approach that works. Never a raw error dump.
+  not guessed) and would otherwise be re-derived next run: the symptom and the
+  command or approach that works, in one line under its section. The evidence
+  — the cause, the probe, the failing output — goes to
+  `work/memory/archive/lessons.md` under the same heading. Never a raw error
+  dump.
 - **Read** it in a review run (step 2) — most entries are review-time traps
   (clone/diff, PR-state calls, quoting) — and whenever a tool call fails in a
   way that looks environmental.
 - Update the existing entry instead of appending a near-duplicate; delete one a
-  fix made obsolete. Cap 10 sections (the audit's `memory_budget` counts them).
+  fix made obsolete. Bounds: **Weekly memory consolidation** step 6.
   A definition-level fix belongs in the definition
   ([self-modification.md](self-modification.md)), leaving at most a pointer
   here.
@@ -133,33 +151,41 @@ must not be "repaired". Separate from MEMORY.md, which holds review
 
 ## Weekly memory consolidation (audit run)
 
-Keep MEMORY.md **useful and bounded forever**, so the agent keeps improving
-without the file growing. **Mandatory whenever the audit's `memory_budget`
-check is `warn` or `fail`** — MEMORY.md over 120 lines or carrying a line past
-120 characters, Observed Insights over 15, Feedback Log over 20, or LESSONS.md
-over 10 sections; optional otherwise.
+Keep the distilled layer **useful and bounded forever**, so the agent keeps
+improving without the files every run reads growing. **Mandatory whenever the audit's `memory_budget`
+check is `warn` or `fail`** — any distilled file past a step-6 bound, or an
+area file without `scope:` or `paths:`; optional otherwise. The pass never
+deletes knowledge from the archive: what leaves the distilled layer moves there.
 
-0. **Move** area-specific bullets — a rule naming one module or path subtree —
+0. **Archive** — an area file without `scope:` or `paths:` moves whole to
+   `work/memory/archive/<topic>.md`, and a MEMORY.md pointer to it follows. A
+   distilled file past its bound moves its body to the archive first (append,
+   under a dated heading), then gets back only its rules, one line each. Read
+   an oversized file in `offset`/`limit` pieces — never whole.
+1. **Move** area-specific bullets — a rule naming one module or path subtree —
    into `work/memory/<topic>.md` with the matching `scope`, keeping their tags.
    MEMORY.md keeps only what applies to the whole repository.
-1. **Merge** duplicate or overlapping bullets across `Observed Insights` and
+2. **Merge** duplicate or overlapping bullets across `Observed Insights` and
    the `Feedback Log`: keep the clearest wording, sum `seen N×` counts, keep
    the newest date.
-2. **Promote** insights confirmed repeatedly (`seen 3×+`, or reconfirmed in a
+3. **Promote** insights confirmed repeatedly (`seen 3×+`, or reconfirmed in a
    later week) into Custom Rules / Ignore List, keeping the `[observed …]` tag.
    A promoted entry leaves `Observed Insights`.
-3. **Distill** every line past its budget (**Entry form**): its wording moves
-   to the topic file's `## Detail` and the line keeps the imperative plus
-   `→ memory/<topic>.md`. This is how a `[from user]` entry gets shorter
+4. **Distill** every line past its budget (**Entry form**): its wording moves
+   to the archive and the line keeps the imperative plus
+   `→ archive/<topic>.md`. This is how a `[from user]` entry gets shorter
    without being dropped or reworded, so prefer it over every other move.
-4. **Compress or drop** the stale: an observed entry > 90 days old with
+5. **Compress or drop** the stale: an observed entry > 90 days old with
    `seen 1×` is dropped, or related weak entries merge into one broader rule.
    Entries tagged `[from user]` are never dropped or reworded — at most listed
    in the report as candidates for the operator.
-5. Bounds after the pass: Observed Insights ≤ 15, Feedback Log last 20,
+6. Bounds after the pass: Observed Insights ≤ 15, Feedback Log last 20,
    MEMORY.md ≤ 120 lines with no line past 120 characters, LESSONS.md ≤ 10
-   sections. Still over → the report's *Action needed* names what remains and
-   why.
-6. Report the delta as one line
-   (`memory: distilled W · merged X · promoted Y · dropped Z`); all zeros →
+   sections and ≤ 100 lines with no line past 200 characters, each area file ≤
+   40 lines after its front matter with no line past 120 characters. Measure
+   them with `bash "$HOME/scripts/preflight.sh" memory`: `"over_budget":
+   false` is inside every bound. Still over → the report's *Action needed*
+   names what remains and why.
+7. Report the delta as one line
+   (`memory: archived A · distilled W · merged X · promoted Y · dropped Z`); all zeros →
    `memory: no consolidation needed`.

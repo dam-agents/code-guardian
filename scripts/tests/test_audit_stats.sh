@@ -303,6 +303,41 @@ assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok" and (.de
 assert_jq '.checks[] | select(.id == "memory_budget") | .detail | contains("biggest sections") | not' \
   'a file within bounds is not scanned per section'
 
+# the distilled layer is bounded file by file; the archive is never measured
+# (docs/preferences.md → Two layers)
+new_case audit_memory_two_layers
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '# Memory\n\n## Custom Rules\n- one rule\n' > "$WORK/MEMORY.md"
+mkdir -p "$WORK/memory/archive"
+{ printf -- '---\nscope:\n  - src/a/**\n---\n'; for i in $(seq 1 40); do printf -- '- rule %s\n' "$i"; done; } > "$WORK/memory/short.md"
+for i in $(seq 1 5000); do printf 'archived detail line %s\n' "$i"; done > "$WORK/memory/archive/short.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok"' \
+  'a 40-line area file is inside the bound, and a 5000-line archive is never counted'
+{ printf -- '---\nscope:\n  - src/b/**\n---\n'; for i in $(seq 1 41); do printf -- '- rule %s\n' "$i"; done; } > "$WORK/memory/long.md"
+printf '# a reference file\n- no scope\n' > "$WORK/memory/notes.md"
+printf -- '---\npaths: [src/c/**]\n---\n- one rule\n' > "$WORK/memory/aliased.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "warn" and (.detail | contains("1 over 40 lines or 120 chars (long)") and contains("1 without scope, archive them (notes)"))' \
+  'an area file past 40 lines and a file without scope put the budget over'
+assert_jq '.checks[] | select(.id == "memory_budget") | .detail | contains("aliased") | not' \
+  'a file scoped by `paths:` is loaded by reviews, so it is no unscoped file'
+# the pod has no awk: the budget is measured with sed/grep alone
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$SANDBOX/noawk:$T_DIR/bin:$PATH" \
+       bash "$REPO_ROOT/scripts/preflight.sh" memory)"
+assert_jq '.area_over == ["long"] and .area_unscoped == ["notes"] and .area_max_lines == 41 and .over_budget' \
+  'memory mode prints the budget alone, measured without awk'
+for i in $(seq 1 70); do printf -- '- rule %s\n' "$i"; done >> "$WORK/memory/long.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "fail"' 'an area file at 1.5x the bound is a fail'
+rm -f "$WORK/memory/long.md" "$WORK/memory/notes.md" "$WORK/memory/aliased.md"
+{ printf '# Operational Lessons\n\n## 1. Traps\n'; for i in $(seq 1 120); do printf -- '- lesson %s\n' "$i"; done; } > "$WORK/LESSONS.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "warn" and (.detail | contains("LESSONS.md 1/10 sections, 123/100 lines"))' \
+  'LESSONS.md is bounded by lines, not only by sections'
+
 # --- definition-repo open-issue backlog check ----------------------------------
 new_case audit_issue_backlog
 base_config '- definition_repo: acme/guardian'
@@ -620,7 +655,7 @@ assert_jq '[.checks[] | select(.id == "review_style")] | .[0].detail | test("no 
 # with preflight's own `generate due` lines as the guard against a generation
 # that never logged one
 new_case audit_artifacts
-base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+base_config '- artifact_skill: pr-artifact@acme/skills'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 mkdir -p "$WORK/logs"
 eva() { # <event> <level> <msg> <secs-ago>
@@ -630,7 +665,7 @@ eva() { # <event> <level> <msg> <secs-ago>
 }
 eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172800
 eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172700  # same PR twice
-eva artifact  info "PR #11: pr-artifact published → gist bbb"         86400
+eva artifact  info "PR #11: pr-artifact published → DAM bbb"          86400
 eva artifact  warn "PR #12: pr-artifact skipped (skill-errored)"      86400
 eva preflight info "PR #12: artifact generate due"                    86500
 eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 # outside the window
@@ -638,15 +673,15 @@ eva preflight info "PR #14: artifact generate due"                    43200   # 
 eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
 eva artifact  info "PR #16: artifact unassign retried (ok)"           86400   # neither a publish nor a skip
 eva preflight info "PR #17: artifact generate due"                    86500
-eva artifact  info "PR #17: pr-artifact published → gist ddd (DAM skipped: flag off)" 86400 # one surface skipped
+eva artifact  info "PR #17: pr-artifact published → DAM ddd, 2 redacted" 86400 # outcome word after the skill name
 run_preflight audit
 assert_jq '.stats.artifacts.generated == 3' 'published events counted once per PR, in-window only'
-assert_jq '.stats.artifacts.skipped == 1' 'a surface skipped inside a publish stays one publish'
+assert_jq '.stats.artifacts.skipped == 1' 'only the skipped outcome counts as a skip'
 assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
 assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
 
 new_case audit_artifacts_zero
-base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_targets: dam'
+base_config '- artifact_skill: pr-artifact@acme/skills'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 run_preflight audit
 assert_jq '.stats.artifacts == {generated: 0, skipped: 0, unreported: 0}' 'nothing due is a measured zero'

@@ -654,7 +654,7 @@ run_check() { # <force>
 # ------------------------------------------------------------------ slice ----
 # One jq pass: classify the changed files, pick the profile rows they touch,
 # flag rows whose source they change, and select the area-memory files whose
-# scope globs match (docs/preferences.md → Area-scoped memory).
+# scope globs match (docs/preferences.md → Route feedback by scope).
 run_slice() { # <files.json>
   local files="$1" memory
   [ -f "$files" ] || { echo '{"error":"files list missing"}'; exit 0; }

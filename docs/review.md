@@ -27,15 +27,15 @@ never fatal — preflight re-emits the entry.
 
 ## Pruning (`prunes_due`)
 
-Preflight verified every entry `{number, state, gist_id, dam_id}`
-CLOSED/MERGED. Execute exactly this list — never from list absence, never a
-bulk delete of `reviews/pr-*.md`. An entry without ids → read the
-`<!-- artifact-gist: … -->` / `<!-- artifact-dam: … -->` markers from
-`work/reviews/pr-<n>.md` before step 2 deletes it.
+Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED.
+Execute exactly this list — never from list absence, never a bulk delete of
+`reviews/pr-*.md`. An entry without an id → read the
+`<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
+deletes it.
 
-1. Artifacts, each failure logged and never blocking: `gist_id` →
-   `gh gist delete <gist_id>`; `dam_id` → `delete_artifact {id: <dam_id>}`,
-   skipped silently when the MCP tool is absent.
+1. Artifact, a failure logged and never blocking: `dam_id` →
+   `delete_artifact {id: <dam_id>}`, skipped silently when the MCP tool is
+   absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
    work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
    (**Review ledger**).
@@ -44,7 +44,12 @@ bulk delete of `reviews/pr-*.md`. An entry without ids → read the
 
 ## Per-PR review sequence (`reviews_due`)
 
-Every `review-pr.sh <cmd>` below is `bash "$HOME/scripts/review-pr.sh" <cmd>`.
+Every `review-pr.sh <cmd>` below is `cd "$HOME" && bash
+"$HOME/scripts/review-pr.sh" <cmd>`. Each call prints one JSON `outcome`: judge
+the call by it, never by the exit status. Write the payload files (`body.md`,
+`findings.json`, `comments.json`, `meta.json`, `rapid.md`) in the PR's context
+directory, `${TMPDIR:-/tmp}/review-pr-<n>.ctx/`, and pass them by absolute
+path — `post` and `abort` delete that directory.
 
 Entry: `{number, head_sha, head_ref, title, author, kind, takeover, prior,
 urgent, closed}`, plus `eta_seconds` under `review_progress: enabled`. `kind`
@@ -92,7 +97,7 @@ d. **Run every configured review skill** per [skills.md](skills.md):
    warnings and `skill_timing`. Verify every blocking finding, yours and the
    skills' (**Full-file verification**), sweep siblings (**Sibling sweep**),
    then `review-pr.sh step <n> verified`. On a re-review,
-   `review-pr.sh delta <n> findings.json` classifies your findings against
+   `review-pr.sh delta <n> <ctx>/findings.json` classifies your findings against
    `prior_findings` and returns the `### Changes since last review` block and
    `annotated` — your array with every `status` filled in (**Re-review
    output**).
@@ -108,8 +113,10 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
    Then `review-pr.sh step <n> composed`, and output the review to the chat
    UI.
-f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body body.md
-   --findings findings.json [--comments comments.json] [--meta meta.json]`. It
+f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
+   --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
+   <ctx>/meta.json]`, as `compose-brief` prints it; a re-review passes
+   `--findings <ctx>/findings.annotated.json`. It
    runs Check 2 and the dedup re-check, maps each inline comment against the
    hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
@@ -296,7 +303,7 @@ orientation and skills. Optimize for delivery speed.
    ```
 
    No criticals → the section body is `_None found at rapid-review depth._`
-3. `review-pr.sh rapid <n> --body rapid.md`. It dedups on the **rapid marker**
+3. `review-pr.sh rapid <n> --body <ctx>/rapid.md`. It dedups on the **rapid marker**
    `<!-- <review_marker>:rapid headRefOid=<full-sha> -->` at the live HEAD
    (`already_posted` → go to phase 2), posts one `event: COMMENT` review with
    the marker appended, sets the REVIEWS.md verdict cell to `RAPID` with a
@@ -794,7 +801,6 @@ the window; calibrate the value against `stats.reviews.phases.skills`
 
 ```markdown
 # PR #<number>: <title>
-<!-- artifact-gist: <GIST_ID> -->
 <!-- artifact-dam: <DAM_ID> -->
 
 ## PR-local overrides
@@ -1023,8 +1029,8 @@ Before you declare the run done:
   review, the closed-PR issue, or an abort. **Closed entries** — no review
   posted, criticals in one deduped issue assigned to the author.
 - **Artifacts** ([artifact.md](artifact.md)) — redacted before the first
-  publish, published to each `artifact_targets` surface, one comment with the
-  surviving links, markers recorded.
+  publish, published to the DAM Artifact Library, one comment with the link,
+  marker recorded.
 - **Watch rules** — evaluated send-then-marker ([watches.md](watches.md)).
 - **`ci_triage: enabled`** — every `ci_failures_due` entry and every review
   that ended on a failing check answered post-then-marker

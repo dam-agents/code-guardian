@@ -55,11 +55,10 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
    <findings.json>`. It appends the pass to `work/survey/<slug>.md`, updates
    the ledger row, and prints the pass counts.
 5. **Publish** — `bash "$HOME/scripts/survey.sh" report "$HOME/work" >
-   "$HOME/work/survey/report.html"`, then publish to each surface of
-   `survey_report` ([config.md](config.md)), updated in place so the URL stays
-   stable, exactly as the trend artifact does ([trends.md](trends.md) →
-   **Procedure** step 4). The markers live in `work/survey/LEDGER.md`
-   (`<!-- survey-gist: <id> -->`, `<!-- survey-dam: <id> -->`).
+   "$HOME/work/survey/report.html"`, then publish per `survey_report`
+   ([config.md](config.md)), updated in place so the URL stays stable, exactly
+   as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
+   The marker lives in `work/survey/LEDGER.md` (`<!-- survey-dam: <id> -->`).
 6. **Report one line** to the chat UI, and to Slack under
    `slack_notifications: enabled`:
    `🔬 **<bot_display_name>** — surveyed <area> (<n> files): <c> 🔴 · <w> 🟡 · <s> 🟢. <url>`

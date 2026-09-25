@@ -11,9 +11,79 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 5.6.1 — 2026-09-25
+## 7.0.1 — 2026-09-25
 
 **Upgrade:** Nothing — scripts are re-read per run.
+
+## 7.0.0 — 2026-09-25
+
+**Upgrade:** Memory moves to two layers (`docs/preferences.md` → **Two
+layers**). Apply these steps in the migration session, before the next review
+run — until they are done, every review reads the oversized files. Each step is
+idempotent: a file already inside its bound is skipped.
+
+1. `mkdir -p /home/agent/work/memory/archive`.
+2. Every `work/memory/*.md` without `scope:` or `paths:` in its front matter
+   moves to `work/memory/archive/<same name>`; when that file exists, append
+   the source under `## Archived <date> from memory/<name>` and delete the
+   source. Then
+   rewrite every `→ memory/<name>.md` pointer in `work/MEMORY.md` and in the
+   area files to `→ archive/<name>.md`.
+3. `work/LESSONS.md` and every area file past its bound (**Weekly memory
+   consolidation** step 6) — skip one whose archive already carries today's
+   `## Archived <date> from <file>` heading, which marks a partial earlier
+   attempt:
+   - append its body to the archive — `work/memory/archive/lessons.md` for
+     LESSONS.md, `work/memory/archive/<name>.md` for an area file — under
+     `## Archived <date> from <file>`;
+   - rewrite the file with its rules only, one line each (**Entry form**):
+     LESSONS.md keeps its section headings and one line per lesson, the
+     symptom and the working approach; an area file keeps its front matter.
+     Read the archived copy in `offset`/`limit` pieces, never whole. Entries
+     tagged `[from user]` keep their wording in the archive and their rule in
+     the file.
+4. Verify: `bash "$HOME/scripts/preflight.sh" memory` prints
+   `"over_budget": false`. Still over → tell the operator which files remain
+   and why.
+5. Back up `work/` (`scripts/work-backup.sh persist`).
+
+## 6.1.0 — 2026-09-25
+
+**Upgrade:** Render the weekly trends report again from the weeks on record,
+one time. Do not run an audit and do not append a week.
+
+1. `bash "$HOME/scripts/audit-trend.sh" report "$HOME/work/audit" > "$HOME/work/audit/report.html"`.
+   No week files in `work/audit/weeks/` = nothing to render; the step is done.
+2. Publish `report.html` in place to each surface of `audit_trend` that has a
+   marker in `work/audit/TRENDS.md`, as `docs/trends.md` → **Procedure** step 4
+   does. A surface without a marker, or `audit_trend: off`, publishes nothing.
+   A failed publish is logged; the next weekly audit publishes the report.
+
+## 6.0.0 — 2026-09-24
+
+**Upgrade:** Gist publishing is removed; every artifact and report publishes
+to the DAM Artifact Library only (`docs/artifact.md`).
+
+1. Delete each published gist, then its marker line. The markers are
+   `<!-- artifact-gist: <id> -->` in `work/reviews/pr-*.md`,
+   `<!-- audit-trend-gist: <id> -->` in `work/audit/TRENDS.md`,
+   `<!-- survey-gist: <id> -->` in `work/survey/LEDGER.md` and
+   `<!-- benchmark-gist: <id> -->` in `work/benchmark/RESULTS.md`. Per id:
+   `gh gist delete <id> --yes`; on success or a 404, remove that marker line.
+   A different failure (for example a token without the `gist` scope) keeps
+   the line, and the ids that remain go to the operator in one chat message
+   (**operator-only** to delete). No marker left = step done.
+2. In `work/CONFIG.md`, remove the `- artifact_targets:` line, and rewrite
+   each value of `audit_trend`, `survey_report` and `benchmark_report` that is
+   not `off` to `dam`:
+
+   ```bash
+   C="$HOME/work/CONFIG.md"
+   sed -i '/^- artifact_targets:/d' "$C"
+   sed -i -E '/^- (audit_trend|survey_report|benchmark_report):[[:space:]]*off([[:space:]]|$)/!s/^(- (audit_trend|survey_report|benchmark_report):)[[:space:]]*[^#]*[^#[:space:]]/\1 dam/' "$C"
+   ```
+3. Run `bash "$HOME/scripts/verify-onboarding.sh"` and apply what it reports.
+4. **Operator-only, optional:** the token no longer needs the `gist` scope.
 
 ## 5.6.0 — 2026-09-24
 

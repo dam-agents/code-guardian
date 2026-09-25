@@ -340,7 +340,7 @@ new_case audit_profile_fresh
 base_config; mk_fixture
 pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
 PROFILE_REMOTE="$FX" run_preflight audit
-assert_jq '.checks[] | select(.id == "profile_fresh") | .status == "warn" and (.detail | contains("stale until this audit"))' 'a profile built only by the audit is a warn'
+assert_jq '.checks[] | select(.id == "profile_fresh") | .status == "ok" and (.detail | contains("refreshed by this audit"))' 'a profile the audit refreshed is the backstop working, not a warn'
 PROFILE_REMOTE="$FX" run_preflight audit
 assert_jq '.checks[] | select(.id == "profile_fresh") | .status == "ok"' 'a current profile is ok'
 run_preflight audit

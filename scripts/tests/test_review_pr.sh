@@ -914,6 +914,10 @@ assert_out_contains 'Ignore: retry loop on' "this PR's overrides are in the brie
 assert_out_contains 'Skip JSDoc findings' 'the memory rules in force are in the brief'
 assert_out_absent 'the retry finding was right' 'the Feedback Log is history, not a rule in force'
 assert_out_contains 'findings.annotated.json' 'the brief names the file post takes'
+assert_out_contains 'cd "\$HOME" && bash' 'post runs from HOME, never from the directory it deletes'
+assert_out_contains 'review-pr-1.ctx/body.md' 'the payload files are named by absolute path in the context directory'
+assert_out_contains 'never by the exit status' 'post is judged by its outcome'
+assert_out_contains 'post [0-9]* .* --findings [^ ]*review-pr-1.ctx/findings.annotated.json' 'a re-review posts the file delta annotated'
 # `collect` decides which sections exist: a skill with no output is skill-errored
 mkdir -p "$(PR_DIR).out"; printf -- '- 🟡 **Warning:** x (`src/alpha.ts:6`)\n  **Fix:** y\n' > "$(PR_DIR).out/doc-drift.txt"
 run_rp collect 1
@@ -930,6 +934,7 @@ run_rp compose-brief 1
 assert_out_contains 'first review' 'a first review is labelled as one'
 assert_out_absent 'Previous HEAD' 'a first review has no changes-since block'
 assert_out_contains '"status": "new"' 'a first review posts every finding as new'
+assert_out_contains 'post [0-9]* .* --findings [^ ]*review-pr-1.ctx/findings.json' 'a first review posts its own findings list'
 assert_out_contains 'none' 'no overrides and no memory read as none'
 assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
 run_rp abort 1 "reset"

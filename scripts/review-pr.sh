@@ -1209,8 +1209,8 @@ cmd_compose_brief() {
   if [ "$kind" = "re-review" ]; then
     printf -- '- prior findings: `%s` (%s still open) — write this round against their anchors and wording\n' \
       "$CTX/prior.json" "$(jq '[.[] | select(.status != "fixed")] | length' "$CTX/prior.json" 2>/dev/null || printf 0)"
-    printf -- '- findings.json: `review-pr.sh delta %s <your-findings>.json` writes `%s` with every `status` filled in — settle each `ambiguous` pair there, then post that file\n' \
-      "$N" "$CTX/findings.annotated.json"
+    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle each `ambiguous` pair there, then post that file\n' \
+      "$N" "$CTX" "$CTX/findings.annotated.json"
   else
     if jq -e '.reachable' "$CTX/carry.json" >/dev/null 2>&1; then
       printf -- '- carried findings: `%s` (%s to settle) — settle each at its anchor at this HEAD, fold the survivors in as `new`, and never name the carry\n' \
@@ -1230,7 +1230,12 @@ cmd_compose_brief() {
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
   printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
-  printf -- '- post: `review-pr.sh post %s --verdict <V> --body <body.md> --findings <findings.json> [--comments comments.json] [--meta meta.json]`\n' "$N"
+  # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
+  # so the shell never stands in the directory it removes (docs/review.md step f)
+  # a re-review posts the file `delta` annotated, a first review its own list
+  local pfind="findings.json"; [ "$kind" = "re-review" ] && pfind="findings.annotated.json"
+  printf -- '- payload files: write them in `%s/`\n' "$CTX"
+  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json]` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
   exit 0
 }
 
