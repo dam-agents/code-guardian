@@ -11,18 +11,36 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 5.7.0 — 2026-09-25
+## 6.0.0 — 2026-09-25
 
-**Upgrade:** Memory now has two layers (`docs/preferences.md` → **Two
-layers**). Until the distilled files are inside their bounds, review runs keep
-reading oversized files. So do not wait for the weekly audit: in a direct
-session, run `docs/preferences.md` → **Weekly memory consolidation** now.
-Start with step 0: move every `work/memory/*.md` without `scope:` to
-`work/memory/archive/`. Then move the body of every over-bound area file and
-of `work/LESSONS.md` to the archive, distill each file back to its rules, and
-point the MEMORY.md `→ memory/<topic>.md` pointers to `→ archive/<topic>.md`.
-`bash "$HOME/scripts/preflight.sh" audit` shows `memory_budget` `ok` when it is
-done. Then back up `work/`.
+**Upgrade:** Memory moves to two layers (`docs/preferences.md` → **Two
+layers**). Apply these steps in the migration session, before the next review
+run — until they are done, every review reads the oversized files. Each step is
+idempotent: a file already inside its bound is skipped.
+
+1. `mkdir -p /home/agent/work/memory/archive`.
+2. Every `work/memory/*.md` without `scope:` in its front matter moves to
+   `work/memory/archive/<same name>`; when that file exists, append the source
+   under `## Archived <date> from memory/<name>` and delete the source. Then
+   rewrite every `→ memory/<name>.md` pointer in `work/MEMORY.md` and in the
+   area files to `→ archive/<name>.md`.
+3. `work/LESSONS.md` and every area file past its bound (**Weekly memory
+   consolidation** step 6) — skip one whose archive already carries today's
+   `## Archived <date> from <file>` heading, which marks a partial earlier
+   attempt:
+   - append its body to the archive — `work/memory/archive/lessons.md` for
+     LESSONS.md, `work/memory/archive/<name>.md` for an area file — under
+     `## Archived <date> from <file>`;
+   - rewrite the file with its rules only, one line each (**Entry form**):
+     LESSONS.md keeps its section headings and one line per lesson, the
+     symptom and the working approach; an area file keeps its front matter.
+     Read the archived copy in `offset`/`limit` pieces, never whole. Entries
+     tagged `[from user]` keep their wording in the archive and their rule in
+     the file.
+4. Verify: `bash "$HOME/scripts/preflight.sh" audit | jq '.checks[] |
+   select(.id == "memory_budget")'` reports `ok`. Still over → tell the
+   operator which files remain and why.
+5. Back up `work/` (`scripts/work-backup.sh persist`).
 
 ## 5.6.0 — 2026-09-24
 
