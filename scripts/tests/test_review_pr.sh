@@ -78,6 +78,13 @@ assert_event 'PR #1 '"${B1_SHA:0:7}"' locked' 'locked event'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' cloned' 'cloned event'
 assert_jq '.files | map(.class) == ["lockfile","code","code"]' 'changed files classified'
 assert_jq '.files | map(.status) == ["modified","modified","added"]' 'file status read from the diff headers'
+# one diff slice per reviewable file, none for noise (docs/review.md step c)
+assert_jq '.files | map(has("diff")) == [false,true,true]' 'a slice per code file, none for the lockfile'
+jq -r '.files[] | select(.diff) | .diff' <<<"$OUT" | while read -r d; do head -1 "$d"; done | grep -c '^diff --git' | grep -qx 2 \
+  && grep -q '^+NEW6 query()$' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && ! grep -q 'gamma' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && printf 'ok   %s: each slice holds its own file section only\n' "$CASE" || { printf 'FAIL %s: slices wrong\n' "$CASE"; FAILED=1; }
+assert_jq '.skills["typescript-engineering"].prompt == "Review skill `typescript-engineering` for PR #1: read `'"$(PR_DIR)"'.ctx/briefs/typescript-engineering.md` and follow it exactly — it holds your whole task."' 'the subagent prompt names skill, PR and brief path'
 assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineering"].status == "run" and (.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"])' 'always + extension routing; the .yaml lockfile is noise and routes nowhere'
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
@@ -196,6 +203,42 @@ grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
 grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
 run_rp abort 1 "reset"
 
+# --- the diff walk: headers are read before a section's first @@ only -----------
+# A path with a space (git ends its ---/+++ line with a TAB), a deleted file, a
+# rename with an edit, a removed SQL comment (the diff line `--- note`) and an
+# added line `++ b/src/beta.ts` (the diff line `+++ b/src/beta.ts`).
+setup diff_walk_headers
+mkdir -p "$FX/docs" "$FX/db"
+printf 'intro\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\n-- note\nselect 2;\n' > "$FX/db/q.sql"
+seq 1 20 > "$FX/src/long.ts"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm more-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" merge -q --no-edit main
+printf 'intro\n++ b/src/beta.ts\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\nselect 2;\n' > "$FX/db/q.sql"
+git -C "$FX" rm -q src/beta.ts
+git -C "$FX" mv src/long.ts src/moved.ts && sed -i.bak 's/^5$/five/' "$FX/src/moved.ts" && rm -f "$FX/src/moved.ts.bak"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm edge
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff -M main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+assert_jq '[.files[] | {(.path): .status}] | add | ."docs/User Guide.md" == "modified" and ."db/q.sql" == "modified" and ."src/beta.ts" == "removed" and ."src/moved.ts" == "modified" and ."src/alpha.ts" == "modified" and ."src/gamma.ts" == "added"' 'every section listed once with its status'
+assert_jq '.files | length == 7' 'no path invented from hunk content'
+assert_jq '[.files[] | select(.class != "lockfile") | .diff | type == "string" and length > 0] | all' 'every reviewable file has a slice path'
+GUIDE="$(jq -r '.files[] | select(.path == "docs/User Guide.md") | .diff' <<<"$OUT")"
+BETA="$(jq -r '.files[] | select(.path == "src/beta.ts") | .diff' <<<"$OUT")"
+head -1 "$GUIDE" 2>/dev/null | grep -qx 'diff --git a/docs/User Guide.md b/docs/User Guide.md' \
+  && grep -qx '+++ b/src/beta.ts' "$GUIDE" && head -1 "$BETA" 2>/dev/null | grep -qx 'diff --git a/src/beta.ts b/src/beta.ts' \
+  && printf 'ok   %s: a header-shaped content line stays in its own slice\n' "$CASE" \
+  || { printf 'FAIL %s: slices wrong (guide=%s beta=%s)\n' "$CASE" "$GUIDE" "$BETA"; FAILED=1; }
+jq -e '."docs/User Guide.md".right == [1,2] and ."db/q.sql".left == [1,2,3] and ."db/q.sql".right == [1,2]' "$(PR_DIR).ctx/hunks.json" >/dev/null \
+  && printf 'ok   %s: the hunk index keys the spaced path without its TAB and counts every content line\n' "$CASE" \
+  || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
+run_rp abort 1 "reset"
+
 # --- prepare gates ---------------------------------------------------------------
 setup prepare_gates
 pr_fx open '[]' "$B1_SHA" true
@@ -307,7 +350,7 @@ assert_jq '(.skills["typescript-engineering"].files | length) == 2' 'an unreacha
 run_rp abort 1 "reset"
 
 # a range that leaves the PR's own diff untouched holds base-branch merges only
-# (docs/review.md → Re-review output)
+# (docs/review-rereview.md → Re-review output)
 diff_dg() { { if command -v sha256sum >/dev/null 2>&1; then sha256sum
     elif command -v shasum >/dev/null 2>&1; then shasum -a 256
     else cksum; fi; } < "$SANDBOX/diff.txt" 2>/dev/null | tr -dc '0-9a-f' | cut -c1-12; }
@@ -1030,7 +1073,7 @@ assert_jq '.outcome == "posted"' 'the body that carries the line posts'
 assert_file_contains "$WORK/reviews/pr-1.md" '_Limits: the clone failed' 'the posted body states the limit'
 
 # --- post: the ledger row carries the style and refutation measurements --------
-# docs/review.md → **Review ledger**: the week's noise and style numbers are
+# docs/review-mechanics.md → **Review ledger**: the week's noise and style numbers are
 # read off these two fields, so a posted review must write both.
 setup post_measurements
 pr_fx open '[]'

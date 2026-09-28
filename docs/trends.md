@@ -70,7 +70,8 @@ write, and it never touches state outside `work/audit/`.
 
 A metric the week did not measure renders `—`. Zero is written only where zero
 was measured. Volume and quality are counted from the review ledger
-([review.md](review.md) → **Review ledger**); the project group is counted from
+([review-mechanics.md](review-mechanics.md) → **Review ledger**); the project
+group is counted from
 that ledger, `work/PR-EVENTS.jsonl` and one list call of merged PRs. Every week
 recorded before a metric existed renders `—` for it — the week files are
 append-only, so history is never back-filled with a number nobody measured.
@@ -99,15 +100,16 @@ telemetry, renders `—`, never a zero.
 
 ## Backfill (one-time, operator ask)
 
-`bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit" "$HOME/work/reviews"`
-reconstructs the weeks the review record covers: review and verdict counts,
-raised findings by severity, and the acceptance bullets. It reads the ledger
-and the history files through `scripts/lib/review-records.sh`, which parses
-each `findings-json` as the one line [review.md](review.md) → **Summary body
-format** writes, so that shape and this parser change together. Everything
-measured from the event log (time, tokens, cost, heartbeats, stalls) has a
-14-day retention and stays absent. A week already on record is never
-overwritten, so the command is safe to repeat.
+`bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit"
+"$HOME/work/reviews"` reconstructs the weeks the review record covers: review
+and verdict counts, raised findings by severity, and the acceptance bullets. It
+reads the ledger and the history files through `scripts/lib/review-records.sh`,
+which parses each `findings-json` as the one line
+[review-mechanics.md](review-mechanics.md) → **Summary body format** writes, so
+that shape and this parser change together. Everything measured from the event
+log (time, tokens, cost, heartbeats, stalls) has a 14-day retention and stays
+absent. A week already on record is never overwritten, so the command is safe to
+repeat.
 
 ## Reading it
 

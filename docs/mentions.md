@@ -70,7 +70,8 @@ entry.
    - **Question** — answer in a reply, grounded in the PR's actual diff and
      review. When the answer needs data you lack, say what.
    - **Review request** ("please review / re-review / take another look") →
-     serve it per [review.md](review.md) → **On-demand review**; the mention is
+     serve it per [review-on-demand.md](review-on-demand.md) → **On-demand
+     review**; the mention is
      equivalent to adding `$REREVIEW_LABEL`. The reply is the confirmation with
      a link to the posted review.
    - **None of these** (FYI mention, thanks, courtesy ping) → ledger row
@@ -105,3 +106,10 @@ entry.
 - Closed and merged PRs are handled the same: the feedback route applies with
   global scope, because the PR's override file may already be pruned, and the
   reply still posts.
+
+## Self-check
+
+- Handled before the review loop; ledger row immediately after each entry's
+  actions; every entry terminal (`feedback + reply` / `answer` / `review` /
+  `no-action` / `send-failed`) with its `mention_handled` event; every explicit
+  correction stored and named in the reply.

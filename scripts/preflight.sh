@@ -36,7 +36,7 @@
 #                             resets) is deferred until it has waited or
 #                             a run with other work carries it, and the run it
 #                             does start carries `housekeeping_only: true`
-#                             (docs/runbook.md -> The schedule gate)
+#                             (docs/worklist.md -> The schedule gate)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder + merge-conflict flag already
 #                             computed; the agent applies each row_update right
@@ -334,7 +334,7 @@ fi
 # and any later event from that run proves it alive. Falls back to the newest
 # event of any run touching this PR when the run id can't be pinned. Prints the
 # holder's run id (8 chars) + minutes since its last event, or nothing when no
-# evidence of life is found. docs/review.md → **Live holder**.
+# evidence of life is found. docs/review-mechanics.md → **Live holder**.
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
   local n="$1" lock_ts="$2" cutoff_epoch cutoff fcut_epoch fcut
   cutoff_epoch=$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))
@@ -357,7 +357,7 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
             else [ $since[] | select(.msg | contains($n)) ] end ) as $ev
         | ( $ev | last ) as $l
         # a holder waiting on its subagents logs nothing, so the fan-out gets its
-        # own window (docs/review.md → Live holder)
+        # own window (docs/review-mechanics.md → Live holder)
         | ( ($l.msg // "") | test("fanned out") ) as $fan
         | ( if $fan then $fcut else $cut end ) as $c
         | ((($now - (($l.ts[0:19] + "Z") | fromdateiso8601)) / 60) | floor) as $mins
@@ -402,13 +402,13 @@ esac
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
 # in-progress lock TTL: minutes after which a lock is *candidate* for takeover.
-# Calibrated above the review pipeline's p95 (docs/review.md → Review tracking
+# Calibrated above the review pipeline's p95 (docs/review-mechanics.md → Review tracking
 # state) — a value under it hands live reviews to a second job.
 LOCK_TTL_MIN=50
 MENTION_PAGES=3                       # comment pages the mention scan follows (docs/mentions.md)
 # a holder that logged anything within this window is alive whatever its lock age
 # says. Must exceed the longest gap a healthy review shows between events —
-# measured at 16.7 min over real runs (docs/review.md → Live holder)
+# measured at 16.7 min over real runs (docs/review-mechanics.md → Live holder)
 HOLDER_QUIET_MIN=20
 # the skill fan-out is the one phase that is structurally silent: the holder is
 # blocked on its subagents and logs nothing until `verified`. Its own window,
@@ -434,7 +434,7 @@ if [ "$CI_TRIAGE" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
   log_warn "lib/ci-rollup.sh unreadable — CI failure triage disabled this run"
 fi
 CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
-# Housekeeping deferral (docs/runbook.md → **The schedule gate**): bookkeeping
+# Housekeeping deferral (docs/worklist.md → **The schedule gate**): bookkeeping
 # alone never starts a session immediately — it rides along with the next run
 # that has work of its own, and forces a run of its own only past this wait or
 # this many pending items. The count caps both the batch and the per-row state
@@ -775,15 +775,41 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+    "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
      + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
-     + (if $profile == null then {} else {profile:$profile} end)'
+     + (if $profile == null then {} else {profile:$profile} end)
+     | if .mode == "review" and (.nothing_to_do | not) then . + {read_set: read_set} else . end'
 }
+
+# The files a review-mode run reads before acting (docs/runbook.md → Review
+# run, step 2): the core per due key, the rare cases only when an entry needs
+# them. A mention reply and a CI triage comment write outward prose, so they
+# read review.md for its style rules and PR-context calls. A file the run needs
+# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
+# trigger, not here.
+READ_SET_JQ='def read_set:
+  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
+    (if [.reviews_due, .mentions_due, .ci_failures_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
+    + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
+    + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
+       then ["docs/review-urgent.md"] else [] end)
+    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
+          or .stall_alert != null
+       then ["docs/review-bookkeeping.md"] else [] end)
+    + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
+          and ((.config.watch_rules // []) | length) > 0
+       then ["docs/watches.md"] else [] end)
+    + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
+    + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
+    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    + ["work/MEMORY.md", "work/LESSONS.md"]
+  end;'
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
@@ -910,7 +936,7 @@ if [ "$MODE" = "review" ]; then
         elif alive="$(holder_alive "$n" "$row_ts")" && [ -n "$alive" ]; then
           # Past the TTL but demonstrably still working: the holder finishes and
           # posts (fastest delivery, no work thrown away). Taking over here is
-          # what destroys a complete fan-out. docs/review.md → **Live holder**.
+          # what destroys a complete fan-out. docs/review-mechanics.md → **Live holder**.
           log "PR #$n: lock past TTL (${age}m) but holder $alive — left running"
         else
           kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
@@ -1033,7 +1059,7 @@ if [ "$MODE" = "review" ]; then
   # ------------------------------------------------- progress-signal ETA ----
   # `eta_seconds` per due review: the median wall-clock of recent completed
   # reviews, paired per (run, PR) from the `locked`/`done` review_step events
-  # (docs/review.md → Progress signal on GitHub). Local files only, one jq
+  # (docs/review-bookkeeping.md → Progress signal on GitHub). Local files only, one jq
   # process, and only when a review is due — idle heartbeats pay nothing.
   if [ "$PROGRESS" = "enabled" ] && [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
     ETA_FILES=()
@@ -2241,7 +2267,7 @@ if [ "$MODE" = "audit" ]; then
   # (lib/review-records.sh): the append-only ledger, unioned with the history
   # files still on disk. Counting the files alone measured "reviews on the PRs
   # that are still open" — pruning deletes a merged PR's file, and with it the
-  # week it was reviewed in (docs/review.md → **Review ledger**).
+  # week it was reviewed in (docs/review-mechanics.md → **Review ledger**).
   if [ -f "$SCRIPT_DIR/lib/review-records.sh" ] && . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1; then
     REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
@@ -2288,11 +2314,11 @@ if [ "$MODE" = "audit" ]; then
   # the week is counted twice, from two independent sources: reviews from the
   # ledger, durations from `review_step` events. They must stay comparable — a
   # ledger that stopped being appended to, or lost rows, shows up here instead
-  # of as a metric that quietly shrinks (docs/review.md → **Review ledger**).
+  # of as a metric that quietly shrinks (docs/review-mechanics.md → **Review ledger**).
   rv_n="$(printf '%s' "$REVIEWS_AGG" | jq -r '.reviews.total // 0')"
   dur_n="$(printf '%s' "$REVIEW_DUR" | jq -r '.n // 0')"
   if [ "${dur_n:-0}" -ge 10 ] && [ $(( ${rv_n:-0} * 2 )) -lt "$dur_n" ]; then
-    check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review.md → Review ledger)"
+    check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review-mechanics.md → Review ledger)"
   else
     check review_ledger ok "$rv_n review(s) on record, $dur_n completed review run(s) in the log"
   fi

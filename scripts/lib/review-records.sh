@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # review-records.sh — one record per posted review, read from the two places
-# that hold them (docs/review.md → **Review ledger**).
+# that hold them (docs/review-mechanics.md → **Review ledger**).
 #
 #   review_records <reviews dir> <ledger file> [<since ISO>]   # JSONL on stdout
 #

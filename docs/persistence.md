@@ -100,7 +100,7 @@ Outside `work/`, nothing needs a copy — each part comes back by itself:
 | Schedules | ONBOARDING Step 6, from the restored `CONFIG.md` cadence keys |
 | Skills | the platform; preflight installs what is due |
 | Onboarding sentinel | ONBOARDING Step 7 |
-| `in_progress` rows in `REVIEWS.md` | the stale-lock takeover ([review.md](review.md) → **Review tracking state**) |
+| `in_progress` rows in `REVIEWS.md` | the stale-lock takeover ([review-mechanics.md](review-mechanics.md) → **Review tracking state**) |
 | GitHub token and scopes, Slack connection, DAM flag | **operator-only**, on the platform |
 
 ## Tracked branch

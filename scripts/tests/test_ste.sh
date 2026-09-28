@@ -82,7 +82,7 @@ is 'twenty-one words is over it'     "$(stat_of "$SANDBOX/over.md" sentences_ove
 
 CASE=unmeasurable_is_valid_json
 # the callers pass this straight to `jq --argjson`; invalid JSON there loses the
-# whole ledger row, not only the measurement (docs/review.md → Review ledger)
+# whole ledger row, not only the measurement (docs/review-mechanics.md → Review ledger)
 for arg in "/nonexistent/body.md" ""; do
   out="$(ste_stats "$arg")"
   printf '%s' "$out" | jq -e . >/dev/null 2>&1 \

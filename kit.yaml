@@ -47,7 +47,7 @@ channels:
 # `precheck` commands and `task` texts are Step 6's, their single source of truth
 # (docs/self-modification.md §3), so a change there is a change here and an
 # onboarding run finds these names already present and creates nothing twice.
-# `precheck` is the schedule gate (docs/runbook.md → The schedule gate): a fire
+# `precheck` is the schedule gate (docs/worklist.md → The schedule gate): a fire
 # with no work costs no model call. A platform that does not carry the field
 # leaves the runs correct but ungated, and every idle tick pays for a session.
 # The crons hold the platform's own time. An instance's cadence, hours and days

@@ -1,46 +1,16 @@
 # Reviewing a PR
 
-Read this file at the start of every **review run** — a worklist with
-`reviews_due`, `label_cleanups_due`, `selfheals_due`, `prunes_due`,
-`status_resets_due`, `urgent_alerts_due` or `mentions_due` non-empty, or a
-`stall_alert`. Preflight decided; you act. `scripts/review-pr.sh` performs the
-mechanical steps, and its two HEAD-freshness checks plus the pre-post dedup
-re-check guard the window between preflight and post time.
-
-## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
-
-Both run before the review loop, one log line each. A failed removal is logged,
-never fatal — preflight re-emits the entry.
-
-- **Self-heal** `{number, sha, ts, status}` → write the REVIEWS.md row
-  `| <number> | <sha> | <ts> | SEE-GITHUB | <status> |`. `ts` is the
-  GitHub-reported timestamp; use the remote body's verdict when you have it.
-  Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
-- **Same-SHA trigger cleanup** `{number, label, request}` → a trigger on a PR
-  whose live HEAD is reviewed and whose description is unchanged since. Clear
-  what the entry flags — `label: true` → remove the label, `request: true` →
-  remove your pending review request (**Trigger removal**) — post nothing, and
-  log
-  `PR #<n>: re-review trigger present but nothing new since <short-sha> — cleared (<label / request / label + request>), no re-review`.
-  An edited description arrives as a `reviews_due` entry instead
-  (**Description-only re-review**).
-
-## Pruning (`prunes_due`)
-
-Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED.
-Execute exactly this list — never from list absence, never a bulk delete of
-`reviews/pr-*.md`. An entry without an id → read the
-`<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
-deletes it.
-
-1. Artifact, a failure logged and never blocking: `dam_id` →
-   `delete_artifact {id: <dam_id>}`, skipped silently when the MCP tool is
-   absent.
-2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
-   work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
-   (**Review ledger**).
-3. Delete the PR's REVIEWS.md row, and its `work/SHEPHERD.md` row when present.
-4. Log `PR #<n>: pruned (<state>)`.
+Read this file when the worklist's `read_set` names it — `reviews_due`,
+`mentions_due` or `ci_failures_due` non-empty — or before an on-demand review.
+Preflight decided; you act. `scripts/review-pr.sh` performs the mechanical
+steps, and its two HEAD-freshness checks plus the pre-post dedup re-check guard
+the window between preflight and post time. The cases a first review rarely
+meets have their own files, read on their trigger:
+[review-rereview.md](review-rereview.md),
+[review-urgent.md](review-urgent.md),
+[review-bookkeeping.md](review-bookkeeping.md),
+[review-on-demand.md](review-on-demand.md) and
+[review-mechanics.md](review-mechanics.md).
 
 ## Per-PR review sequence (`reviews_due`)
 
@@ -61,9 +31,10 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
    `review_progress: enabled`, `--on-demand` for an on-demand review). Check 1
    against the live PR gives `outcome`:
    - `skip` — draft; closed, unless a `RAPID` lock still owes the full review
-     (mode `closed`, **PR closed mid-review**); a `re-review` whose trigger is
-     gone.
-   - `stand_down` — a live holder owns the PR (**Live holder**).
+     (mode `closed`, [review-urgent.md](review-urgent.md) → **PR closed
+     mid-review**); a `re-review` whose trigger is gone.
+   - `stand_down` — a live holder owns the PR
+     ([review-mechanics.md](review-mechanics.md) → **Live holder**).
    - `error` — retry once, then move on; no lock was written.
    - `ready` — it writes the `in_progress` lock row, logs `locked`, writes the
      progress status, fetches context and the diff into `$PR_DIR.diff` with a
@@ -72,23 +43,27 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
      briefs, context pack and risk prescan.
 
    The live trigger follows `rereview_trigger` and sets the scope: label →
-   `full: true`, else delta (**Re-review output**). The JSON also carries
-   `kind`, `full`, `urgent`, `prior`, `files[]`, `skills{}`, `delta`,
-   `profile_slice`, `history_slice`, `memory_due`, `structure_changed` and
-   `paths`. `urgent: true` → **phase 1** (**Urgent PRs**) before step b.
+   `full: true`, else delta ([review-rereview.md](review-rereview.md) →
+   **Re-review output**). The JSON also carries `kind`, `full`, `urgent`,
+   `prior`, `files[]`, `skills{}`, `delta`, `profile_slice`, `history_slice`,
+   `memory_due`, `structure_changed` and `paths`. `urgent: true` → **phase 1**
+   ([review-urgent.md](review-urgent.md) → **Urgent PRs**) before step b.
 b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    ([profile.md](profile.md)); a `verify_live` row means read the live file,
    not the row. A non-null `carry` is a first review a HEAD move discarded —
-   its findings are this review's starting point (**Carried review after a
-   HEAD move**). `paths.pack` lists per changed code file its dependents, its
+   its findings are this review's starting point: read
+   [review-rereview.md](review-rereview.md) → **Carried review after a HEAD
+   move**. `paths.pack` lists per changed code file its dependents, its
    tests and its changed lines; `paths.context` holds the PR context
    (**PR context**); `paths.risk` names the changed files in sensitive areas
    and the added lines that ask for a second look — orientation, never
    evidence ([profile.md](profile.md) → **What it is, and is not**).
-c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
-   classes `code`, `test`, `docs`, `config`. The noise classes (`lockfile`,
-   `snapshot`, `build`, `vendored`, `minified`, `sourcemap`, `generated`) are
-   not reviewed as code and get one `### Summary` line:
+c. **Review the diff** — file by file in `files[]` order: classes `code`,
+   `test`, `docs`, `config`. Read each entry's `diff` — that file's own section
+   of `$PR_DIR.diff` — once; the whole diff stays for the tools. The noise
+   classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
+   `sourcemap`, `generated`) carry no `diff`, are not reviewed as code and get
+   one `### Summary` line:
    `_<N> generated/lockfile file(s) not reviewed: <paths, or the classes when more than five>._`
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
 d. **Run every configured review skill** per [skills.md](skills.md):
@@ -99,20 +74,19 @@ d. **Run every configured review skill** per [skills.md](skills.md):
    then `review-pr.sh step <n> verified`. On a re-review,
    `review-pr.sh delta <n> <ctx>/findings.json` classifies your findings against
    `prior_findings` and returns the `### Changes since last review` block and
-   `annotated` — your array with every `status` filled in (**Re-review
-   output**).
-e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
-   the `body.md` skeleton with its header, its `### Changes since last review`
-   line and its skill sections in table order, the `findings.json` and
-   `comments.json` rules quoted from **Summary body format** and **Mapping
-   findings to inline comments**, this PR's paths, overrides and memory rules,
-   and anything the conversation added since the lock (**Guarding a running
-   review**). Write `body.md` (`### Summary` … `### Verdict` — **Output format**),
-   `findings.json` (a re-review posts delta's `annotated` file), `meta.json`
-   (**Summary body format**) and, for inline-carried findings, `comments.json`
-   (`[{path, line, side, body[, start_line]}]`, each `body` the full text).
-   Then `review-pr.sh step <n> composed`, and output the review to the chat
-   UI.
+   `annotated` — your array with every `status` filled in
+   ([review-rereview.md](review-rereview.md) → **Re-review output**).
+e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract: the
+   `body.md` skeleton with its header, its `### Changes since last review` line
+   and its skill sections in table order, the `findings.json`, `meta.json` and
+   `comments.json` rules quoted from their home in
+   [review-mechanics.md](review-mechanics.md), this PR's paths, overrides and
+   memory rules, and anything the conversation added since the lock (**Guarding
+   a running review**). Write `body.md` (`### Summary` … `### Verdict` —
+   **Output format**), `findings.json` (a re-review posts delta's `annotated`
+   file), `meta.json` and, for inline-carried findings, `comments.json`
+   (`[{path, line, side, body[, start_line]}]`, each `body` the full text). Then
+   `review-pr.sh step <n> composed`, and output the review to the chat UI.
 f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
    <ctx>/meta.json]`, as `compose-brief` prints it; a re-review passes
@@ -120,14 +94,16 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    runs Check 2 and the dedup re-check, maps each inline comment against the
    hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
-   posts the payload (**Posting the GitHub review**), removes
+   posts the payload ([review-mechanics.md](review-mechanics.md) → **Posting
+   the GitHub review**), removes
    `$REREVIEW_LABEL`, dismisses a stale approval, appends the body to
    `reviews/pr-<n>.md`, writes the `done` row and terminal status, logs
    `posted <verdict>` and `done`, and deletes clone, copies, diff and state —
    exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
    `anchors_nulled`, `label_removed`, `dismissed_approval`) · `aborted`
    (**Error handling**) · `duplicate` (the marker is already on GitHub; the row
-   self-heals with its timestamp) · `closed_*` (**PR closed mid-review**). Then
+   self-heals with its timestamp) · `closed_*` (read
+   [review-urgent.md](review-urgent.md) → **PR closed mid-review**). Then
    evaluate the configured watch rules ([watches.md](watches.md)), and under
    `ci_triage: enabled` triage a failing check on the posted SHA
    ([ci-triage.md](ci-triage.md)).
@@ -155,8 +131,8 @@ consecutive timestamps give per-step durations.
   ([skills.md](skills.md) → **Invocation & audit log**).
 - In the manual fallback the hook still derives `cloned`, `posted <verdict>`,
   `locked` / `done` / `aborted (lock released)` from the commands that perform
-  them (**Review tracking state**). The rest is yours, chained onto the step's
-  own command:
+  them ([review-mechanics.md](review-mechanics.md) → **Review tracking
+  state**). The rest is yours, chained onto the step's own command:
 
   ```bash
   . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
@@ -172,7 +148,8 @@ consecutive timestamps give per-step durations.
 with the **current** UTC time (same fields, status stays `in_progress`) and
 logs `locked (refresh, …)`; step d's two milestones are `step` calls too, and
 the refresh before step f is `composed`. The timestamp is the age preflight
-measures and the event is the liveness signal it reads (**Live holder**), so a
+measures and the event is the liveness signal it reads
+([review-mechanics.md](review-mechanics.md) → **Live holder**), so a
 review that refreshes never crosses the TTL.
 
 **Completion enforcement.** The `Stop` hook reads these events back at end of
@@ -183,188 +160,6 @@ are **not** terminal. It blocks up to **3 times per run**, the last attempt
 leading with the explicit-abort route, then allows the stop and logs
 `enforcement exhausted`. It makes no GitHub calls and no state writes, and is
 never a reason to pad review content.
-
-**Stalled-review rate alert.** Preflight counts the
-`stale in_progress lock` takeovers of the last 24 h. At or above
-`stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
-`stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
-UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock, so concurrent
-heartbeats cannot double-send). One stall is normal (HEAD moved, pod restart); a cluster means
-reviews are redone at full cost. Deliver it **once, after the run's review
-work**, so the numbers include this run:
-
-1. Chat UI: count, threshold, affected PR numbers, the `per_day_7d` trend.
-2. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
-   that person — never the shared channel, roster-only mentions still apply.
-3. Log `stall_alert_sent <count>`. A failed send is logged, never retried this
-   run.
-
-The alert is a signal, not a repair: never bulk-clear locks, re-review, or
-change the threshold in response. Investigate per [logging.md](logging.md) →
-triage; record a recurring cause as an operational lesson
-([preferences.md](preferences.md)).
-
-### Trigger removal
-
-Use REST — `gh pr edit` goes through GraphQL, which 401s in this pod (the
-platform's auth proxy does not rewrite that code path):
-
-```bash
-gh api -X DELETE "repos/$REPO/issues/<n>/labels/$REREVIEW_LABEL" >/dev/null \
-  || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
-```
-
-Pending review request — same-SHA cleanup only; a served request clears itself
-when the review posts:
-
-```bash
-gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null
-```
-
-## Progress signal on GitHub (`review_progress`)
-
-`review_progress: enabled` (missing = `disabled`) publishes progress as a
-**commit status** on the reviewed SHA. One call per update, `context` =
-`$REVIEW_MARKER`:
-
-```bash
-gh api -X POST "repos/$REPO/statuses/<sha>" -f state=<state> \
-  -f context="$REVIEW_MARKER" -f description="<line>" >/dev/null
-```
-
-Add `-f target_url=<url>` on the rows that have one. `description` is one short
-line — GitHub truncates past 140 characters.
-
-| Written at | `state` | `description` | `target_url` |
-| --- | --- | --- | --- |
-| `prepare` — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
-| `prepare` — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
-| Urgent phase 1 — rapid posted | `pending` | `rapid preliminary review posted · full review running` | the rapid review |
-| `post` — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
-| `post` / `abort` — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
-| PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
-| `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
-
-- `<eta>` is ` · usually ~<N> min` from `eta_seconds` — whole minutes, minimum
-  1, omitted when the field is `null`.
-- **`description` is ASCII.** The statuses API rejects 4-byte UTF-8
-  (`Description doesn't accept 4-byte Unicode`), so severity words replace the
-  emoji here; the review body keeps them.
-- Write on the SHA the review locked at Check 1.
-- Every terminal outcome is `success`, aborts included: `failure`/`error` would
-  make the agent a merge gate the moment someone made the context a required
-  check.
-- `review-pr.sh` writes each row at the step that owns it; the manual fallback
-  issues the same call at the same step.
-- **Best-effort.** A failed write is logged (`progress_status`, warn) and
-  changes nothing — never retried, never a reason to abort.
-
-**`status_resets_due`** `{number, sha, reason}` — a locked review was abandoned
-with the status left `pending` (`reason: draft`). Write the terminal row above,
-then **delete the PR's REVIEWS.md row**; the `reviews/pr-<n>.md` history stays.
-The missing row is what stops the reset repeating.
-
-## Urgent PRs — rapid-first delivery
-
-`urgent_label` (missing = off) names a **human-managed** label — the agent
-never adds or removes it. While it is on a PR, every due review of it runs
-rapid-first: preflight flags the entry `urgent: true` and orders it first,
-Check 1 re-verifies the label and reviews normally when it is gone.
-
-**Immediate Slack alert (`urgent_alerts_due`, once per PR).** Preflight emits
-`{number, title, author, url}` for every open urgent PR whose history file
-lacks an `urgent-announced` marker, only under
-`slack_notifications: enabled`. Send these **before any other run work**:
-
-1. `mcp__platform-outbound__send_channel_message`, addressed to the channel
-   alone — the alert carries no @-mention:
-   `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). Rapid review incoming. <url>`
-2. **Write the marker immediately after a successful send** —
-   `<!-- urgent-announced: <ISO timestamp> -->` into `reviews/pr-<n>.md`,
-   creating the file with its title heading when missing. A failed send writes
-   no marker and is logged; the next heartbeat re-emits the alert.
-3. Log `PR #<n>: urgent alert sent`.
-
-**Phase 1 — rapid preliminary review**, right after `prepare` returns, before
-orientation and skills. Optimize for delivery speed.
-
-1. Review the diff only (`$PR_DIR.diff`; on a re-review prefer the range since
-   the prior review) for **🔴 Critical findings only**.
-2. Write `rapid.md`, body only, no inline comments:
-
-   ```
-   ⚡ **<bot_display_name>** — ⏱️ Rapid preliminary review @ `<sha-short>`
-
-   > Fast pass triggered by the `<urgent_label>` label — critical checks
-   > only. **The full review follows.**
-
-   ### Critical findings
-   - 🔴 **Critical:** <one-liner> (`file:line`)
-   ```
-
-   No criticals → the section body is `_None found at rapid-review depth._`
-3. `review-pr.sh rapid <n> --body <ctx>/rapid.md`. It dedups on the **rapid marker**
-   `<!-- <review_marker>:rapid headRefOid=<full-sha> -->` at the live HEAD
-   (`already_posted` → go to phase 2), posts one `event: COMMENT` review with
-   the marker appended, sets the REVIEWS.md verdict cell to `RAPID` with a
-   fresh timestamp (status stays `in_progress`), logs `rapid posted`, and
-   writes the progress status.
-
-**Phase 2 — the full review, immediately after** — the normal sequence from
-step b. The `:rapid` marker is invisible to the normal dedup, so the full
-review posts as usual; watch rules evaluate once, after it. A rapid post is
-**never** terminal. A died run is recovered by the stale-lock takeover —
-verdict `RAPID` tells the next run to skip phase 1.
-
-## PR closed mid-review — critical findings become an issue
-
-Applies to **every** review. `post` finding the PR `CLOSED`/`MERGED` at Check 2
-posts no review, and its outcome says what is left:
-
-- **`closed_discarded`** — no 🔴 finding. The lock is released as on a Check 2
-  abort; log `PR #<n>: closed mid-review — discarded (no critical findings)`.
-- **`closed_criticals`** — carries `criticals`, the `issue_marker`, and
-  `existing_issue` when one is already filed. Deliver them as one issue: reuse
-  `existing_issue`, or
-  `gh api "repos/$REPO/issues" -X POST -f title="Critical findings from review of closed PR #<n>" -f body=… -f "assignees[]=<author>"`
-  with the 🔴 findings in full, a `#<n>` reference, and the trailing `:issue`
-  marker line (a failed assignment is logged, the issue stands). Then rerun
-  `post … --closed-issue <id>` → **`closed_filed`**: the review is appended to
-  `reviews/pr-<n>.md` with
-  `_Delivered as issue #<id> — PR closed before posting._`, the lock becomes a
-  `done` row, and the status names the issue. Log
-  `PR #<n>: closed mid-review — <k> critical finding(s) filed as issue #<id>`.
-
-**Crash recovery.** A closed PR whose row is an `in_progress` lock with verdict
-`RAPID` arrives as a review entry flagged `closed: true`, not as a prune.
-`prepare` runs it in mode `closed` — lock refreshed with verdict `RAPID`, no
-clone, no skills (the branch may be gone), Check 1 gates not applied — then
-review the diff and `post`.
-
-## On-demand review (Slack or mention)
-
-The one non-operator request that triggers work ([runbook.md](runbook.md) →
-**Instruction sources & trust boundary**): **anyone** in the connected channel,
-or in a GitHub comment addressed to the bot ([mentions.md](mentions.md)), may
-ask for a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
-Nothing else is changeable from those surfaces.
-
-1. Resolve the PR reference (number or URL; a mention's own PR when none is
-   named) and `gh pr view` it. Not found / closed / draft → reply so, done.
-2. `review-pr.sh prepare <n> --on-demand`. `stand_down` → reply "review
-   already running", done. A stale, silent lock is taken over — log
-   `PR #<n>: stale lock killed on on-demand request`.
-3. `skip` with `already reviewed at <short-sha>` → reply so; same-SHA dedup
-   always holds.
-4. `ready` → the sequence from step b. `kind` = `re-review` when a prior review
-   exists, else `first`; re-reviews run **delta scope** unless
-   `$REREVIEW_LABEL` is also on the PR; no trigger is required at `prepare` or
-   `post`; install missing skills per [skills.md](skills.md) →
-   **Installation**. Reply in the requesting channel or thread with a link to
-   the posted review, then persist `work/` ([persistence.md](persistence.md)).
-
-Replying to the requesting surface is responsive, not proactive — it does not
-require `slack_notifications: enabled`.
 
 ## PR context: body, comments, reviews
 
@@ -460,7 +255,8 @@ changes for more occurrences of the same defect class:
 `review-pr.sh sweep <n> '<regex>'` returns the hits in changed files and a
 count in untouched code. Report them as **one** finding listing every location,
 so one fix round closes the class, and carry those locations in the finding's
-`also` (**Summary body format**). An occurrence in untouched code is a
+`also` ([review-mechanics.md](review-mechanics.md) → **Summary body format**).
+An occurrence in untouched code is a
 pre-existing problem ([finding-form.md](finding-form.md)). On a delta
 re-review both passes cover only the files changed since the prior review, the
 claim sweep excepted.
@@ -472,7 +268,8 @@ each hit with its location. Read every hit that states the same rule —
 architecture pages, glossary, README, chart and config comments, CLI and tool
 descriptions, the PR body — and report the contradicted ones as **one** finding
 carrying every location. A hit the diff does not contradict is not a finding.
-The command that ran the sweep is this finding's `checks` entry (**Summary body
+The command that ran the sweep is this finding's `checks` entry
+([review-mechanics.md](review-mechanics.md) → **Summary body
 format**). The claim sweep is never narrowed to the delta range.
 
 **Language: ASD-STE100 (Simplified Technical English).** Write every outward
@@ -564,7 +361,8 @@ stops at the first boundary past the move.
   of the diff review has no command of its own, so call `review-pr.sh guard
   <n>` there. Check 1 and Check 2 bracket the sequence.
 - **`outcome: "head_moved"`** — the lock is released per kind, clone and state
-  are deleted, and the work is carried (**Carried review after a HEAD move**).
+  are deleted, and the work is carried ([review-rereview.md](review-rereview.md)
+  → **Carried review after a HEAD move**).
   `carried` says whether there were findings to carry; a move before the first
   finding carries the hop and run counters alone.
 - **`restart: true` → `prepare` the PR again in this run** and review the new
@@ -580,274 +378,7 @@ stops at the first boundary past the move.
 write. Inline threads are not re-read — they hang off the diff at the guarded
 SHA.
 
-## Carried review after a HEAD move
-
-A review whose HEAD moved is never published — the marker SHA must be the live
-HEAD. Its findings are still work, so the abort writes them to
-`reviews/pr-<n>.carry.json` (`{sha, ts, hops, kind, run, findings}`) and the
-next review of that PR starts from them. `prepare` resolves the carry with one
-compare call and reports it as `carry`:
-`{sha, ts, hops, kind, run, reachable, files[], findings[]}`.
-
-- **The work is delta-scope, the output is the kind's own.** Review
-  `carry.files` — the range between the carried SHA and HEAD — at first-review
-  depth. Extension-triggered skills route from that range, `always` skills run
-  over the whole clone, exactly as on a delta re-review
-  ([skills.md](skills.md) → **Triggers & file routing**). A carried re-review
-  posts as a re-review: the carry range wins over the delta range — it is the
-  narrower one and the carried findings cover everything before it — and
-  `delta` classifies them with the rest against the same unchanged prior.
-- **An empty `carry.files` means HEAD's tree is back at the carried SHA** (it
-  returned there, or a commit and its revert). The carried findings are
-  current, there is no range to review, and every skill routes over the whole
-  PR as on any first review.
-- **Settle every carried finding at its anchor** at the live HEAD, the way a
-  re-review settles a prior (**Re-review output**): read its `file:line`, keep
-  it when the defect is still there, drop it when the range fixed it. A
-  `line: null` finding is settled by re-reading its file.
-- **Never name the carry.** Nothing was published, so a first review is the
-  plain **Output format** — no `### Changes since last review`, no `🔁`, no
-  `✅ Fixed`, every `findings-json` entry `status: "new"` — and a re-review is
-  the format its trigger sets. A carried finding is reported as what it is — a
-  finding — not as a carryover.
-- **`carry: null` means review the whole PR.** `prepare` drops a carry whose
-  range is not `ahead`, is 300 files or larger, has a file without a patch,
-  whose `hops` passed 3, or whose `kind` is not this run's; each drop is logged
-  with its reason. A carry with no findings holds the hop and run counters
-  only: it is kept, and the review runs at full scope.
-- `post` deletes the carry once the review is published, and when the PR closes
-  mid-review. Pruning deletes it with the rest of the PR's state
-  (**Pruning**).
-
-## Re-review output (trigger-gated; new commits or an edited description)
-
-The trigger sets the scope:
-
-- **`$REREVIEW_LABEL` → complete re-review** (`full: true`): review the
-  **entire PR** at the live HEAD, at first-review depth. Output = the
-  first-review format with `### Changes since last review` inserted.
-  `### Findings` lists **all current findings** in full, new and still-present;
-  `✅ Fixed` stay one-liners in the block. Inline comments map only `🆕 New`
-  findings; skill sections post in full. `findings-json` carries
-  `new`/`still`/`fixed` as found.
-- **Review request / on-demand ask → delta re-review** (`full: false`): the
-  delta only, per the conciseness rules below.
-
-**Description-only re-review** (`description_changed: true`): an edited body
-answers the trigger, so the diff and SHA are the reviewed ones. `post` reads
-the earlier marker at this SHA as the prior being superseded, and an abort
-restores the `done` row. Re-read the body (**PR context: body, comments,
-reviews**) and redo the review against it: a removed justification no longer
-suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
-— write `description edited, no new commits` on that line and let the buckets
-carry the rest. No change in substance → say so in one line.
-
-Both scopes: the prior `findings-json` array is `prior_findings` in the
-prepare output, or the line in `reviews/pr-<n>.md` where no `prepare` ran, so
-this round's findings are written against its anchors and its wording (history
-older than the line: parse the visible text yourself).
-`review-pr.sh delta <n> findings.json` matches them and returns this block,
-the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
-`ambiguous` pairs, and `annotated` — the path to your array with every
-`status` filled in, which is what `post` takes.
-
-- A matched pair is `still` when the summaries are similar, or when the
-  severity is equal at the same line. Any other matched pair is `ambiguous`
-  and carries `suggest` — `still` when the severity matches, else `new` — with
-  its `distance` and `severity_match`. The block and `annotated` apply every
-  `suggest` already.
-- **Settle every `ambiguous` pair** before posting: keep its suggestion, or
-  change that entry's `status` in `annotated` and the matching block line.
-
-Insert the block between `### Summary` and `### Findings`:
-
-```
-### Changes since last review
-Previous HEAD: <short-sha> (<timestamp>) — verdict <PREV_VERDICT>[ — unreachable, reviewed the whole PR]
-
-- ✅ **Fixed:** <one-liner> (`file:line`)
-- 🔁 **Still present:** <one-liner> (`file:line`)
-- 🆕 **New:** <description> (`file:line`)
-```
-
-Delta-scope depth (steps c–d):
-
-- **One compare call decides the range, and `prepare` makes it.** Its base is
-  the `headRefOid=` of the last review marker; the result is `delta` =
-  `{base, status, reachable, files[]}`. `status: ahead` with a `patch` per file
-  → `reachable: true`, delta depth on `delta.files[]`. `status: identical`, or
-  the base already at HEAD → `reachable: true` with an empty `files[]`, the
-  description-only case. Anything else — `diverged` / `behind`, 404, 300 files,
-  a file without `patch` — → `reachable: false`: review at complete depth in
-  the delta output format, with ` — unreachable, reviewed the whole PR`
-  appended to the `Previous HEAD` line.
-- **A range that does not change the PR's own diff is not a review round.**
-  `prepare` digests the diff it fetched and compares it with the digest the
-  last review recorded (**Summary body format**); equal → `delta.own_change:
-  false`, the range holds base-branch merges only. Skip steps c and d: no
-  candidates, no skills, no sweep. Carry every open prior finding into the
-  block as `🔁 Still present` one-liners, keep the prior verdict, and write
-  `Range holds base-branch merges only — no change to this PR's own diff.`
-  under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
-  `### Findings`. No prior digest (pre-3.29.0) → the normal delta round.
-- **Candidates come from the range's hunks only** (`gh api
-  "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
-  in files the PR diff touches. A hunk whose added lines are absent from the PR
-  diff arrived with a base-branch merge and is not a candidate; the full PR
-  diff is context for reading them. A description-only re-review has an empty
-  range: candidates, verification, sweep and extension-skill routing all use
-  the full PR diff, re-read against the edited body.
-- **Each prior finding is settled at its anchor.** Read every `file:line` of
-  `prior_findings` at HEAD — from the clone, or via
-  `gh api "repos/$REPO/contents/<path>?ref=<head-sha>" -H 'Accept: application/vnd.github.raw'`
-  — and classify it `fixed` or `still` (moved code is `still`, at its new
-  line). A `line: null` finding is settled by re-reading its file.
-- **Verification and the sweep cover the range's files.** `prepare` already
-  routed extension-triggered skills from that list ([skills.md](skills.md) →
-  **Triggers & file routing**); `always` skills run unchanged. A skill routed
-  no file is skipped `no-matching-files` (section omitted) and its prior
-  findings are settled from the prior review — blocking ones through
-  `findings-json`, 🟢 through its prior section text — as one-liners in the
-  buckets above.
-
-Delta-scope conciseness (all channels):
-
-- Only non-empty buckets, every entry a **single line**. Never re-expand a
-  carryover's description, rationale, **Fix:** or suggestion.
-- `### Findings` lists **only `🆕 New` findings**, inline-carried ones as
-  one-liners. No `✅ Looks good` on re-reviews, ever. Nothing new → the section
-  body is `_No new findings at this HEAD._`
-- The **Verdict weighs all current findings** — new, still-present and skill
-  findings alike: an unfixed 🔴 keeps `REQUEST_CHANGES` even as a one-liner.
-- Skill sections condense the same way: unchanged findings collapse into
-  `🔁 <N> finding(s) from the previous review still present (see review at <short-sha>)`,
-  full text only for new findings, clean-run lines as-is.
-- Inline eligibility: mapping rule 5.
-
-Prior review file missing → skip the block, review as a first review, and
-append `(no prior review on file)` to `### Summary`.
-
-## Review tracking state
-
-**REVIEWS.md** — one row per PR:
-`| <number> | <headRefOid> | <ISO timestamp> | <verdict> | <status> |`
-
-- `status`: `in_progress` (lock; verdict `-`, or `RAPID` after an urgent PR's
-  rapid review — timestamp = lock/rapid-post time) · `done` (timestamp = post
-  time) · `awaiting_label` (a `done` review exists, newer commits arrived, no
-  trigger yet).
-- An `awaiting_label` row keeps the **SHA, verdict and timestamp of the last
-  posted review** — the one row whose timestamp is not the write time.
-  Preflight writes this flip; you write it only to restore it on a re-review
-  abort.
-- Every other timestamp is the actual UTC write time
-  (`date -u +%Y-%m-%dT%H:%M:%SZ`) — never rounded, reused or fabricated.
-- The lock is best-effort (**50-min TTL**, `LOCK_TTL_MIN` in
-  [preflight.sh](../scripts/preflight.sh)); the remote dedup check stays
-  authoritative.
-- `review-pr.sh` writes every row (`prepare` locks, `step` refreshes, `rapid`
-  sets `RAPID`, `post` / `abort` finish). In the manual fallback, rewrite the
-  PR's line in place; rows are full of `|`, so give sed another delimiter:
-
-  ```bash
-  sed -E "s#^\| *<n> \|.*#| <n> | <sha> | <ts> | <verdict> | <status> |#" work/REVIEWS.md \
-    > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md
-  ```
-
-  Keep this row shape — the adapter derives `locked`, `done` and
-  `aborted (lock released)` from it (**Progress logging**).
-
-### Live holder — a lock past its TTL that is still working
-
-**The TTL bounds a crash, not a slow review.** A lock past `LOCK_TTL_MIN` is
-only a candidate: preflight reads the holder's `run` id from its
-`review_step … locked` event and emits `takeover` **only when that run has
-logged nothing for `HOLDER_QUIET_MIN` minutes** (20 — above the 16.7-min
-longest gap a healthy review shows; both values in
-[preflight.sh](../scripts/preflight.sh)). Otherwise the PR is omitted and
-logged `holder … — left running`. The check is a local log read. Two signals
-must both go quiet: the row timestamp (**Lock heartbeat**) and the event
-stream.
-
-**The skill fan-out has its own window.** Between `fanned out (n=<N>)` and
-`verified` the holder is blocked on its subagents: it writes no event and
-touches no tree, so both signals go quiet for the longest phase of the review
-and a healthy run reads as a dead one. A holder whose last step is
-`fanned out (n=…)` therefore stays alive for `FANOUT_QUIET_MIN` (60) instead.
-The phase is the only one that is structurally silent, so no other step widens
-the window; calibrate the value against `stats.reviews.phases.skills`
-([audit.md](audit.md) task 23).
-
-- **As the holder you own the PR to a terminal state whatever your lock age.**
-  Keep refreshing and finish. Step f is the safety: a second job that posted at
-  your SHA turns your run into a self-healing abort, so no duplicate posts.
-- **As the taker, Check 1 re-checks exclusivity for every entry, whatever its
-  `takeover` flag.** `takeover: true` means preflight saw no life, not proof of
-  death; `takeover: false` only means its snapshot saw no lock, and that
-  snapshot can predate your arrival by minutes. `prepare` re-checks first: the
-  PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
-  `HOLDER_QUIET_MIN`, or when another run's **newest** `review_step` on it is
-  non-terminal (**Completion enforcement**) and inside its window —
-  `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
-  `fanned out (n=…)`. A run that ended releases the PR at once, however many
-  milestones it logged first. Then it stands down — `outcome: stand_down`,
-  nothing touched, `holder alive at Check 1 — stood down` logged — and you take
-  the next PR. An older tree with no such event is a dead run's leftover and is
-  reclaimed; the lock write comes after this check. Standing down protects a
-  finished fan-out, which the reclaim's `rm -rf` would destroy
-  ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
-
-**`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
-
-```markdown
-# PR #<number>: <title>
-<!-- artifact-dam: <DAM_ID> -->
-
-## PR-local overrides
-
-- [2026-04-23 from user] Ignore: null check on `src/auth.ts:42` — confirmed intentional
-
-## Review at <headRefOid-short> — <ISO timestamp> — <VERDICT>
-
-<full review body as posted, starting with ### Summary>
-
----
-```
-
-Title header and overrides stay at the top; reviews append below, oldest first,
-separated by `---`. Update the header on a title change. The artifact markers
-sit right after the title, one per line, overwritten in place by the artifact
-step ([artifact.md](artifact.md)); omit a marker whose surface was not
-published. Watch-rule markers (`<!-- watch-sent: <id> -->`,
-[watches.md](watches.md)) follow on their own lines.
-
-**Review ledger** — `work/REVIEW-LEDGER.jsonl`, the append-only record of the
-reviews that were posted, one line per review, written by `review-pr.sh`
-together with the history section above:
-
-```json
-{"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
- "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","size":{"files":3,"additions":40,"deletions":5},
- "bullets":{"fixed":0,"still":0},
- "suppressed":{"overrides":0,"context":0,"decisions":0,"total":0},
- "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0,"v":2},
- "findings":[{"status":"new","severity":"critical"}]}
-```
-
-`suppressed` counts the audit note (**PR context**), `ste` measures the posted
-prose against the sentence bar, and `size` is the PR itself — a count GitHub
-had not finished computing is `null`, never `0` ([audit.md](audit.md) → task
-33). A row written before a field existed carries none of it, and the audit
-reads each as a floor.
-
-Pruning deletes the history file, the ledger row stays — so the weekly numbers
-count the reviews of the week, not only the reviews of the PRs that are still
-open ([audit.md](audit.md), [trends.md](trends.md)). Every reader goes through
-`scripts/lib/review-records.sh`, which unions the ledger with the history files
-still on disk and keeps one record per `(pr, ts)`. Retention: 180 days
-([logging.md](logging.md) → **Retention**). Only the audit trims this file.
-
-### Applying PR-local overrides
+## Applying PR-local overrides
 
 **Strictly scoped to their own PR.** Reload the list per PR, discard it before
 the next. Suppress candidate findings matching an entry — same file plus
@@ -856,108 +387,7 @@ overlapping line, or the same backticked symbol in an entry naming the file
 override) — and add the Summary audit note. Overrides only suppress, never add;
 code that moved past its override lets the finding surface normally.
 
-## Posting the GitHub review
-
-`review-pr.sh post` submits one PR review — summary and inline comments in a
-single submission — from `body.md`, `findings.json` and `comments.json`
-(step e). The payload it posts to `repos/$REPO/pulls/<n>/reviews`:
-
-```json
-{ "commit_id": "<full headRefOid>", "event": "<COMMENT | APPROVE | REQUEST_CHANGES>",
-  "body": "<summary body — below>",
-  "comments": [ {"path": "src/foo.ts", "line": 42, "side": "RIGHT", "body": "🟡 **Warning:** …"} ] }
-```
-
-`event` = the Verdict verbatim. `commit_id` = the reviewed `headRefOid`, the
-server-side stale guard: GitHub 422s if HEAD moved, and `post` aborts.
-
-### Summary body format
-
-```
-🛡️ **<bot_display_name>** — <verdict-emoji> Code Review @ `<headRefOid-short>`
-
-<the full structured review>
-
----
-_Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
-
-<!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"also":[{"file":"src/session.ts","line":18}],"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
-<!-- review-meta: {"diff_digest":"<12 hex>","checks":[{"for":"token compared with ==","run":"git grep -nE -e 'token ==|== token'","clean":"no hits"}],"deferred":[{"file":"src/session.ts","line":18,"note":"<≤ ~12 words>"}],"rereview":{"trigger":"label","label":"<rereview_label>","login":null}} -->
-<!-- <review_marker> headRefOid=<full-sha> -->
-```
-
-Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker line is
-**mandatory** — it drives dedup — and uses the full 40-char SHA.
-
-**`findings-json`** — the machine-readable copy of `### Findings`, one line
-right above the marker, in every posted full review. Per finding: `status`
-(`new`|`still`|`fixed`; first reviews all `new`), `severity`
-(`critical`|`warning`|`suggestion`), `file`, `line` (null when not anchorable),
-`also` (the sibling-sweep locations of the same finding, `[{file, line}]`;
-omitted when there is one), `inline`, `summary` (≤ ~10 words), `fix` (the
-**Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical`
-and `warning` are the blocking set, so this line is the machine-readable
-approval bar the next re-review checks against. Every anchor is a real line of
-the file it names — `post` nulls one that is not and reports it. Keep the JSON
-free of `--` sequences — HTML-comment safety, use `–`. No findings → `[]`.
-Rapid reviews carry no such line. A review without `fix` (pre-3.1.0) or without
-`also` (pre-3.22.0) parses as before.
-
-**`review-meta`** — machine state for the next round and for the author's fix
-round, one line above `findings-json`, in every posted full review. It is
-never rendered for a reader: nothing in it appears in the review body, and the
-visible dropped-suggestion count stays as it is. `post` writes `diff_digest`
-(**Re-review output**) and `rereview` itself — how the next round is
-requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
-`label` to add or the `login` to request a review from, `null` where the
-trigger does not use it; you compose the rest in `meta.json` (`post --meta`).
-`checks` — per blocking finding whose **Fix:** is a class rule: `for` is that
-finding's `summary` verbatim, `run` the sweep that verified the class in its
-portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
-the branch, `-e` in place of `--` — and `clean` what a clean run prints
-(`no hits`, or the locations a hit is correct at); commands that only read,
-never a command that changes a file. `deferred` — every 🟢 the budget dropped
-([finding-form.md](finding-form.md)), so the next round settles them instead
-of deriving them again. Absent (pre-3.29.0), unparsable or missing a key →
-every consumer keeps the behavior it had without the line.
-
-### Mapping findings to inline comments
-
-1. Inline-eligible = `(file, line)` inside a diff hunk: `path` repo-relative,
-   `line` in the new file (`side: "RIGHT"`; `"LEFT"` + old line for deleted
-   code); multi-line adds `start_line`, both ends in one hunk. A finding with
-   `also` locations takes one comment per location, so each site carries the
-   fix; the cap and priority of 4 count them all.
-2. Outside every hunk, or no precise line → summary-only. `post` checks each
-   comment against the hunk index and moves the ineligible ones under
-   `### Findings not anchorable inline`, because otherwise the whole POST 422s.
-3. `✅ Looks good` → summary-only, never inline (first reviews only).
-4. **Cap 25 inline comments** — `post` keeps 🔴/🟡 first and moves excess 🟢 to
-   the summary.
-5. **Re-reviews: only `🆕 New` findings inline** — carryovers keep their
-   existing thread, `✅ Fixed` get nothing.
-
-**Suggestion blocks**: for a small, unambiguous fix, append a
-` ```suggestion ` block replacing exactly the anchored line(s) — matching
-indentation, replacement lines only, one block per comment. Never for style
-preferences.
-
-### Revoking a stale approval on re-review
-
-On a re-review whose verdict is **not** `APPROVE`, `post` finds the agent's
-most recent `APPROVED` review — its own login or the marker, never a human's —
-and dismisses it after the new review posts:
-
-```bash
-gh api "repos/$REPO/pulls/<n>/reviews/<id>/dismissals" -X PUT -f event="DISMISS" \
-  -f message="Superseded by $BOT_NAME re-review at <new-sha> — verdict is now <new-verdict>."
-```
-
-It logs `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)`
-(`dismissed_approval` in its outcome). A new `APPROVE` leaves the approval in
-place. A failed dismissal is logged, not fatal.
-
-### Error handling
+## Error handling
 
 - **Transient tool failure** (context fetch, clone, skill run, post — network
   error, timeout, 5xx, rate limit) → **retry once**, then abort the PR.
@@ -981,13 +411,6 @@ place. A failed dismissal is logged, not fatal.
 
 Before you declare the run done:
 
-- **Bookkeeping** — every `selfheals_due` / `label_cleanups_due` /
-  `prunes_due` / `status_resets_due` entry executed and logged.
-- **Mentions** ([mentions.md](mentions.md)) — handled before the review loop;
-  ledger row immediately after each entry's actions; every entry terminal
-  (`feedback + reply` / `answer` / `review` / `no-action` / `send-failed`) with
-  its `mention_handled` event; every explicit correction stored and named in
-  the reply.
 - **Per reviewed PR** — one GitHub review carrying the full-SHA marker · Check
   1, Check 2 and the dedup re-check done, the re-review trigger check included
   · a `post` or `abort` outcome, lock lifecycle correct (aborted re-reviews
@@ -1024,21 +447,11 @@ Before you declare the run done:
   ([finding-form.md](finding-form.md)); re-review scope matched the trigger;
   `### For the human reviewer` written when a design decision drives a blocking
   finding, and free of files, lines and symbols.
-- **Urgent entries** — rapid review posted or dedup-skipped **before** the full
-  one; `RAPID` row and `rapid posted` step recorded; terminal only on the full
-  review, the closed-PR issue, or an abort. **Closed entries** — no review
-  posted, criticals in one deduped issue assigned to the author.
-- **Artifacts** ([artifact.md](artifact.md)) — redacted before the first
-  publish, published to the DAM Artifact Library, one comment with the link,
-  marker recorded.
 - **Watch rules** — evaluated send-then-marker ([watches.md](watches.md)).
 - **`ci_triage: enabled`** — every `ci_failures_due` entry and every review
   that ended on a failing check answered post-then-marker
   ([ci-triage.md](ci-triage.md)).
 - **`review_progress: enabled`** — every locked PR on a terminal `success`
-  status; `status_resets_due` closed out and their rows deleted.
-- **`stall_alert`** — reported, DM'd under Slack, `stall_alert_sent` logged, no
-  state "repaired".
+  status.
 - **Every `reviews_due` PR reached a terminal state** — the run never ended
-  mid-pipeline, for example after a skill report; all errors logged; no
-  unexpanded repo placeholder in any output.
+  mid-pipeline, for example after a skill report.
