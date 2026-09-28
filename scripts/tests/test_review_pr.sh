@@ -624,6 +624,23 @@ assert_jq '.outcome == "ready" and .kind == "re-review" and .prior == null' 'a t
 run_rp abort 1 "dead run"
 grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: row kept after abort without a prior\n' "$CASE"; FAILED=1; } || printf 'ok   %s: row deleted for self-heal\n' "$CASE"
 
+# --- a history file without a posted review is a first review ----------------------
+# The urgent alert writes its marker before the first review exists (docs/review.md
+# → Urgent PRs — rapid-first delivery); the re-review gate would skip it forever.
+setup urgent_announced_first '- urgent_label: hotfix' '- slack_notifications: enabled'
+pr_fx open '["hotfix"]'
+printf '# PR #1: alpha PR\n<!-- urgent-announced: 2026-09-28T10:00:00Z -->\n' > "$WORK/reviews/pr-1.md"
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "first" and .full == true and .urgent == true' 'an alert-only history file prepares a first review'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the first review posts'
+assert_file_contains "$WORK/reviews/pr-1.md" '<!-- urgent-announced: 2026-09-28T10:00:00Z -->' 'the alert marker survives the post'
+assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"kind":"first"' 'the ledger records a first review'
+run_rp prepare 1
+assert_jq '.outcome == "skip" and .reason == "re-review trigger withdrawn"' 'after the post the file holds a review: a re-review needs its trigger'
+
 # --- re-entrant prepare for the same run; path guard on context --------------------
 setup reentrant_case
 run_rp prepare 1

@@ -43,6 +43,16 @@ run_preflight review
 assert_jq '.reviews_due | length == 1' 'stale lock re-emitted'
 assert_jq '.reviews_due[0] | .takeover == true and .kind == "first"' 'takeover, kind first (no history file)'
 
+# --- takeover kind: a posted review in the history file, not the file itself ---
+lock_case stale_lock_alert_only 3300
+printf '# PR #1: locked PR\n<!-- urgent-announced: 2026-09-28T10:00:00Z -->\n' > "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '.reviews_due[0] | .takeover == true and .kind == "first" and .full == true' 'an alert-only history file is no prior review'
+lock_case stale_lock_reviewed 3300
+printf '# PR #1: locked PR\n\n## Review at 1111111 — 2026-09-27T10:00:00Z — COMMENT\n\nx\n' > "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '.reviews_due[0] | .takeover == true and .kind == "re-review" and .full == false' 'a posted review section makes the takeover a re-review'
+
 # --- past TTL, holder still logging → left running ---------------------------
 lock_case live_holder 3300
 holder_event 3300 aaaa1111 review_step "PR #1 1111111 locked"

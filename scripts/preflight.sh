@@ -86,6 +86,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ci-rollup.sh is optional: unreadable, the CI triage detector stays off and
 # every other decision of the run is unaffected (docs/ci-triage.md).
 CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" >/dev/null 2>&1 || CI_LIB=0
+# review-records.sh is optional: unreadable, every takeover and owed closed-PR
+# pass reads as a first review (full scope) and the audit counts no reviews.
+RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; rr_posted() { return 1; }; }
 LOG_JOB="$MODE"
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 # log.sh sources lib/toolpath.sh; stub it when either file was unavailable
@@ -864,7 +867,7 @@ if [ "$MODE" = "review" ]; then
           # urgent PR closed after the rapid preliminary review but before the
           # full one — the agent still owes the full pass (criticals become a
           # linked issue, docs/review.md); prune happens on the next heartbeat
-          kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          kind="first"; rr_posted "$WORK/reviews/pr-$n.md" && kind="re-review"
           full=false; [ "$kind" = "first" ] && full=true
           prior="$(jq -n --arg sha "$(row_field "$row" 3)" --arg ts "$(row_field "$row" 4)" '{sha:$sha, ts:$ts, verdict:"RAPID"}')"
           add_review "$n" "$(printf '%s' "$PJ" | jq -r .head.sha)" "$(printf '%s' "$PJ" | jq -r .head.ref)" \
@@ -913,7 +916,7 @@ if [ "$MODE" = "review" ]; then
           # what destroys a complete fan-out. docs/review.md → **Live holder**.
           log "PR #$n: lock past TTL (${age}m) but holder $alive — left running"
         else
-          kind="first"; [ -f "$WORK/reviews/pr-$n.md" ] && kind="re-review"
+          kind="first"; rr_posted "$WORK/reviews/pr-$n.md" && kind="re-review"
           full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
           log "PR #$n: stale in_progress lock (${age}m) — takeover"
           add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
@@ -2242,7 +2245,7 @@ if [ "$MODE" = "audit" ]; then
   # files still on disk. Counting the files alone measured "reviews on the PRs
   # that are still open" — pruning deletes a merged PR's file, and with it the
   # week it was reviewed in (docs/review.md → **Review ledger**).
-  if [ -f "$SCRIPT_DIR/lib/review-records.sh" ] && . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1; then
+  if [ "$RR_LIB" -eq 1 ]; then
     REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else

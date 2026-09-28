@@ -607,7 +607,7 @@ cmd_prepare() {
 
   local row row_status row_verdict row_sha row_ts kind=first full=true urgent=false mode=review prior=null
   row="$(row_for)"; row_status="$(row_field "$row" 6)"; row_verdict="$(row_field "$row" 5)"; row_sha="$(row_field "$row" 3)"; row_ts="$(row_field "$row" 4)"
-  [ -f "$WORK/reviews/pr-$N.md" ] && kind="re-review"
+  rr_posted "$WORK/reviews/pr-$N.md" && kind="re-review"
   # the prior is a posted review the row records; a lock taken over from a
   # dead run has none (release_lock then deletes the row for self-heal)
   case "$row_status" in (done|awaiting_label)
