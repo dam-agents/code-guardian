@@ -130,7 +130,7 @@ printf '%s' "$OUT" | jq -e '.[0].wakeups == 20 and .[0].wake_reviews == 4
 assert_file_contains "$WORK/audit/TRENDS.md" '| 20 (4/6/3) |' 'the week row carries the wake-ups'
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains 'Wake-ups by work' 'the report carries the wake-ups chart'
-assert_out_contains '<th class="n" title="Count of scheduled runs that started' 'the report table explains the wake-ups column'
+assert_out_contains '<th class="n" title="Count of runs that found work' 'the report table explains the wake-ups column'
 
 # a week recorded before the metric renders a dash, never a zero
 new_case trend_wakeups_absent

@@ -442,7 +442,7 @@ run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
 
-# --- wake-ups: the gated runs that started a session, by kind of work --------
+# --- wake-ups: the preflight passes that found work, by kind of work ---------
 new_case audit_wakeups
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
@@ -465,6 +465,29 @@ assert_jq '.stats.wakeups.by_work.mentions.runs == 1 and .stats.wakeups.by_work.
 assert_jq '.stats.wakeups.by_work.nudges.items == 3 and .stats.wakeups.by_work.housekeeping.runs == 1' \
   'nudges and bookkeeping-only runs counted'
 assert_jq '.stats.wakeups.unlabelled == 1' 'a legacy event is counted but unlabelled'
+
+# the heartbeats preflight itself writes, read back by the audit: every kind the
+# audit counts is a key some writer emits, and no current writer is unlabelled
+new_case audit_wakeups_roundtrip
+base_config '- survey: enabled' '- benchmark: enabled'
+mkdir -p "$WORK/survey"
+jq -n '{modules:[{path:"src/api",name:"api"}], noise:[], history:{dirs:[]}}' > "$WORK/PROFILE.json"
+run_preflight survey
+run_preflight benchmark
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+run_preflight audit
+assert_jq '.stats.wakeups.by_mode == {survey: 1, benchmark: 1, review: 1}' 'each pass with work is a wake-up'
+assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 1}
+  and .stats.wakeups.by_work.survey.runs == 1 and .stats.wakeups.by_work.benchmark.runs == 1' \
+  'each pass counts under its own kind'
+assert_jq '.stats.wakeups.unlabelled == 0' 'no current writer is unlabelled'
+missing="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_work | keys')" '
+  [ .[] | select(.event == "heartbeat") | .msg ] as $m
+  | [ $k[] as $x | select(any($m[]; test("(^| )" + $x + "=[0-9]+( |$)")) | not) | $x ] | join(", ")' \
+  "$WORK"/logs/events-*.jsonl 2>/dev/null)" || missing="(the query failed)"
+[ -z "$missing" ] && printf 'ok   %s: every kind the audit reads is a key a heartbeat writes\n' "$CASE" \
+  || { printf 'FAIL %s: kinds no heartbeat writes: %s\n' "$CASE" "$missing"; FAILED=1; }
 
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions

@@ -216,7 +216,7 @@ JQ_DERIVE='
         heartbeats: ($s.heartbeats.total // null),
         idle_ratio: (if ($s.heartbeats.total // 0) == 0 then null
                      else (($s.heartbeats.idle // 0) / $s.heartbeats.total | r2) end),
-        # wake-ups (docs/audit.md task 26): runs that started a session, and
+        # wake-ups (docs/audit.md task 26): runs that found work, and
         # the runs that carried each kind of work
         wakeups: ($s.wakeups.runs // null),
         wake_reviews: ($s.wakeups.by_work.reviews.runs // null),
@@ -359,7 +359,7 @@ TIPS='{
 "awaiting": "Count of reviewed PRs that wait for a re-review request. A large backlog means the team does not ask for re-reviews.",
 "artifacts": "Count of review artifacts published this week.",
 "heartbeats": "Count of scheduled runs this week, and in brackets the idle share (runs that found nothing to do). A share near 0 with no reviews means something starts work on every run.",
-"wake-ups": "Count of scheduled runs that started a session this week, and in brackets the runs that carried reviews / mention replies / artifacts. One run can carry more than one kind of work.",
+"wake-ups": "Count of runs that found work this week, and in brackets the runs that carried reviews / mention replies / artifacts. One run can carry more than one kind of work.",
 "out-tok": "Output tokens the model wrote this week. At equal work, lower is better: output tokens are the most expensive part of a run.",
 "est $": "Estimated spend of the week in US dollars: the counted tokens priced with the table in CONFIG.md. Lower is better. ≥ means that some tokens have no price row, so the value is a minimum.",
 "act $": "Actual spend of the week in US dollars, as the platform reports it. A dash means that the platform gave no data for this week.",
@@ -382,7 +382,7 @@ TIPS='{
 "Spend per review (est)": "Estimated spend divided by reviews. Lower is better at equal quality. This is the efficiency signal.",
 "Output tokens": "Output tokens the model wrote in the week. At equal work, lower is better: output tokens are the most expensive part of a run.",
 "Idle heartbeats": "The share of scheduled runs that found nothing to do. Higher is better: the gate stops idle runs before they cost tokens. A share near 0 with no reviews means something starts work on every run.",
-"Wake-ups": "Count of scheduled runs that started a session. Each wake-up costs tokens. At equal work, lower is better: many wake-ups for few items means runs start for too little work.",
+"Wake-ups": "Count of runs that found work. Each wake-up costs tokens. At equal work, lower is better: many wake-ups for few items means runs start for too little work.",
 "Stalled runs": "Count of runs that stopped before the end and were done again. Lower is better: each stalled run is wasted spend.",
 "Error events": "Count of error events in the agent logs. Lower is better.",
 "awaiting_label backlog": "Count of reviewed PRs that wait for a re-review request. Lower is better. A large backlog means the team does not ask for re-reviews."
@@ -563,7 +563,7 @@ CHARTS="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
     + figure($rows; "Wasted reviews & idle heartbeats (%)"; "Runs redone after a stall, and the idle share of heartbeats.";
              [{key:"stalled_ratio", scale:100, color:"var(--c2)", name:"stalled runs"},
               {key:"idle_ratio", scale:100, color:"var(--c1)", name:"idle heartbeats"}])
-    + figure($rows; "Wake-ups by work"; "Runs that started a session, and the runs that carried each kind of work. One run can carry more than one kind.";
+    + figure($rows; "Wake-ups by work"; "Runs that found work, and the runs that carried each kind of work. One run can carry more than one kind.";
              [{key:"wakeups", scale:1, color:"var(--c1)", name:"all wake-ups"},
               {key:"wake_reviews", scale:1, color:"var(--c2)", name:"reviews"},
               {key:"wake_mentions", scale:1, color:"var(--c3)", name:"mention replies"},

@@ -186,11 +186,12 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     This measures the **gate**, not spend: a ratio near zero with no reviews
     means something re-triggers work every run (runbook.md → **The schedule
     gate**). Spend is measured in task 27, never inferred from this ratio.
-    `stats.wakeups` splits the woken runs by `by_mode` and by the work they
+    `stats.wakeups` counts the preflight passes that found work, the direct
+    session's included, and splits them by `by_mode` and by the work they
     carried (`by_work.<kind>` — `runs` and `items`; one run can carry several
     kinds). A kind whose `runs` grew without matching `items` is a run woken
-    for too little work; name it. `unlabelled` counts runs that name no kind,
-    which the report states once as a floor.
+    for too little work; name it. `unlabelled` counts runs that name no kind
+    (events from before 7.1.0), which the report states once as a floor.
 27. **Spend ground truth** — one `mcp__platform-outbound__get_metrics` call
     (`days: 7`, `granularity: "summary"` — that granularity's totals cover
     every session in the window, which `session`/`call` rows do not: they cap

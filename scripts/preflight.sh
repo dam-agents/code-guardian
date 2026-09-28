@@ -155,7 +155,7 @@ BENCH_LOCK_TTL_MIN=360
 if [ "$MODE" = "survey" ]; then
   survey_out() { # <nothing_to_do bool> <survey_due json | null>
     printf '%s\n' "$NOW_ISO survey nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=survey nothing_to_do=$1"
+    logev info heartbeat "mode=survey nothing_to_do=$1 survey=$([ "$1" = "false" ] && echo 1 || echo 0)"
     jq -n --argjson nothing "$1" --argjson due "$2" \
       --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
       '{mode:"survey", nothing_to_do:$nothing, logs:$logs}
@@ -249,7 +249,7 @@ fi
 if [ "$MODE" = "benchmark" ]; then
   bench_out() { # <nothing_to_do bool> <benchmark_due json | null>
     printf '%s\n' "$NOW_ISO benchmark nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=benchmark nothing_to_do=$1"
+    logev info heartbeat "mode=benchmark nothing_to_do=$1 benchmark=$([ "$1" = "false" ] && echo 1 || echo 0)"
     jq -n --argjson nothing "$1" --argjson due "$2" \
       --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
       '{mode:"benchmark", nothing_to_do:$nothing, logs:$logs}
@@ -766,8 +766,8 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  # the audit's wake-up count reads these keys back (stats.wakeups) — keep them
-  # in sync with its capture
+  # the audit's wake-up count reads these keys back (stats.wakeups); the
+  # audit_wakeups_roundtrip test holds writer and reader together
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
@@ -2079,16 +2079,18 @@ if [ "$MODE" = "audit" ]; then
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
-  # Wake-ups — the gated runs that started a session, from the `heartbeat`
-  # events emit() writes. `by_work.<kind>` counts the runs that carried that
-  # work (`runs`) and its items; one run can carry several kinds. `unlabelled`
-  # counts woken runs that name no kind: events from before the kind keys, or a
-  # mode without them (survey, benchmark), which `by_mode` still counts.
+  # Wake-ups — the preflight passes that found work, from the `heartbeat`
+  # events emit(), survey_out() and bench_out() write: a gated fire that started
+  # a session, or an ungated pass (the direct session, the rerun after a broken
+  # gate). `by_work.<kind>` counts the runs that carried that work (`runs`) and
+  # its items; one run can carry several kinds. `unlabelled` counts woken runs
+  # that name no kind: events from before the kind keys.
   WAKEUPS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","stall","housekeeping"] as $k
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","stall","housekeeping",
+       "survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
         by_work: ([ $k[] as $x
