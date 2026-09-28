@@ -462,31 +462,58 @@ holder_alive() {
 # ----------------------------------------------------------- hunk index ----
 # $DIFF → $CTX/hunks.json: {path: {right:[new-file lines in hunks], left:[old-file lines]}}
 # The same walk writes $CTX/added.tsv (`<path>\t<line>\t<text>` per added line),
-# which `build_risk` greps — one pass over the diff serves both.
+# which `build_risk` greps, $CTX/files.tsv (`<path>\t<added|removed|modified>`),
+# and one slice per file section in $CTX/diff/ with its `<path>\t<slice>` row in
+# $CTX/diff.tsv (docs/review.md step c) — one pass over the diff serves all.
+# Header lines count only before a section's first `@@`: past it every line is
+# hunk content, so a removed `-- comment` or an added `++ b/x` is never a
+# header. git ends a `---`/`+++` path that holds a space with a TAB.
 build_hunks() {
-  local file="" inhunk=0 oldl=0 newl=0 line h old new tsv="$CTX/hunks.tsv" add="$CTX/added.tsv"
-  : > "$tsv"; : > "$add"
-  while IFS= read -r line; do
+  local file="" opath="" npath="" inhunk=0 oldl=0 newl=0 line p h old new k=0 open=0
+  local tsv="$CTX/hunks.tsv" add="$CTX/added.tsv" ft="$CTX/files.tsv" d="$CTX/diff" map="$CTX/diff.tsv"
+  : > "$tsv"; : > "$add"; : > "$ft"; : > "$map"
+  rm -rf "$d"; mkdir -p "$d" 2>/dev/null || d=""
+  section_end() { # the finished section's file row and slice row
+    [ "$open" -eq 1 ] && exec 3>&-; open=0
+    [ -n "$opath" ] && [ -n "$npath" ] || return 0
+    if [ "$npath" = /dev/null ]; then p="$opath"; printf '%s\tremoved\n' "$p" >> "$ft"
+    elif [ "$opath" = /dev/null ]; then p="$npath"; printf '%s\tadded\n' "$p" >> "$ft"
+    else p="$npath"; printf '%s\tmodified\n' "$p" >> "$ft"; fi
+    [ -n "$d" ] && printf '%s\t%s\n' "$p" "$d/$k.diff" >> "$map"
+    return 0
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      ('diff --git '*) file=""; inhunk=0;;
-      ('+++ b/'*) [ "$inhunk" -eq 0 ] && file="${line#+++ b/}";;
-      ('+++ /dev/null') [ "$inhunk" -eq 0 ] && file="";;
+      ('diff --git '*)
+        section_end
+        file=""; opath=""; npath=""; inhunk=0; k=$((k+1))
+        [ -n "$d" ] && exec 3>"$d/$k.diff" && open=1;;
       ('@@ '*)
         inhunk=1
         h="${line#@@ -}"; old="${h%% *}"; new="${h#* +}"; new="${new%% *}"
         oldl="${old%%,*}"; newl="${new%%,*}"
         case "$oldl" in (*[!0-9]*|'') oldl=0;; esac; case "$newl" in (*[!0-9]*|'') newl=0;; esac;;
       (*)
-        [ "$inhunk" -eq 1 ] && [ -n "$file" ] || continue
-        case "$line" in
-          ('\ No newline'*) ;;
-          ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
-                 printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
-          ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
-          (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
-        esac;;
+        if [ "$inhunk" -eq 0 ]; then
+          case "$line" in
+            ('--- /dev/null') opath=/dev/null;;
+            ('--- a/'*) opath="${line#--- a/}"; opath="${opath%"$TAB"}";;
+            ('+++ /dev/null') npath=/dev/null; file="";;
+            ('+++ b/'*) npath="${line#+++ b/}"; npath="${npath%"$TAB"}"; file="$npath";;
+          esac
+        elif [ -n "$file" ]; then
+          case "$line" in
+            ('\ No newline'*) ;;
+            ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
+                   printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
+            ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
+            (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
+          esac
+        fi;;
     esac
+    [ "$open" -eq 1 ] && printf '%s\n' "$line" >&3
   done < "$DIFF"
+  section_end
   jq -R -s 'split("\n") | map(select(length>0) | split("\t"))
     | group_by(.[0]) | map({key: .[0][0], value: {
         right: [.[] | select(.[1]=="R") | .[2] | tonumber],
@@ -494,33 +521,18 @@ build_hunks() {
     || printf '{}\n' > "$CTX/hunks.json"
   rm -f "$tsv"
 }
-# ------------------------------------------------------- diff slices ----
-# $DIFF → $CTX/diff/<k>.diff, one file's section each, and `.diff` on every
-# reviewable entry of $CTX/files.json (docs/review.md step c): the agent reads
-# each file's slice once instead of the whole diff, and the noise classes get
-# no slice at all. $DIFF itself stays whole for the tools.
-build_diff_slices() {
-  local d="$CTX/diff" line k=0 file="" map="$CTX/diff.tsv" open=0
-  rm -rf "$d"; mkdir -p "$d" || return 0
-  : > "$map"
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      ('diff --git '*)
-        [ "$open" -eq 1 ] && exec 3>&-
-        [ -n "$file" ] && printf '%s\t%s\n' "$file" "$d/$k.diff" >> "$map"
-        k=$((k+1)); file=""; exec 3>"$d/$k.diff"; open=1;;
-      ('--- a/'*) [ -z "$file" ] && file="${line#--- a/}";;
-      ('+++ b/'*) file="${line#+++ b/}";;
-    esac
-    [ "$open" -eq 1 ] && printf '%s\n' "$line" >&3
-  done < "$DIFF"
-  [ "$open" -eq 1 ] && exec 3>&-
-  [ -n "$file" ] && printf '%s\t%s\n' "$file" "$d/$k.diff" >> "$map"
-  jq --rawfile m "$map" '
-    ($m | split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]}) | from_entries) as $s
-    | map(if (.class | IN("code","test","docs","config")) and $s[.path] then . + {diff: $s[.path]} else . end)' \
-    "$CTX/files.json" > "$CTX/files.json.tmp" 2>/dev/null \
-    && mv "$CTX/files.json.tmp" "$CTX/files.json" || rm -f "$CTX/files.json.tmp"
+# `.diff` on every reviewable entry of $CTX/files.json — its section of $DIFF,
+# sliced by build_hunks: the agent reads each file's slice once, the noise
+# classes get none, and $DIFF itself stays whole for the tools.
+attach_diff_slices() {
+  local map="$CTX/diff.tsv"
+  if [ -s "$map" ]; then
+    jq --rawfile m "$map" '
+      ($m | split("\n") | map(split("\t") | select(length == 2 and .[1] != "") | {key: .[0], value: .[1]}) | from_entries) as $s
+      | map(if (.class | IN("code","test","docs","config")) and (($s[.path] // "") != "") then . + {diff: $s[.path]} else . end)' \
+      "$CTX/files.json" > "$CTX/files.json.tmp" 2>/dev/null \
+      && mv "$CTX/files.json.tmp" "$CTX/files.json" || rm -f "$CTX/files.json.tmp"
+  fi
   rm -f "$map"
 }
 
@@ -700,23 +712,18 @@ cmd_prepare() {
   # --- diff + hunk index + files ---
   gh pr diff "$N" --repo "$REPO" > "$DIFF" 2>/dev/null || { : > "$DIFF"; logev warn gh_api "PR #$N: diff fetch did not respond"; }
   build_hunks
-  # the file list with its status from the diff headers: `--- /dev/null` is an
-  # added file, `+++ /dev/null` a deleted one (absent from the clone, listed as
-  # `removed` and routed to no skill), anything else modified
-  grep -E '^(--- |\+\+\+ )' "$DIFF" | paste -d "$TAB" - - \
-    | sed -nE "s#^--- (/dev/null|a/.*)${TAB}\+\+\+ (/dev/null|b/(.*))\$#\1${TAB}\2#p" \
-    | while IFS="$TAB" read -r old new; do
-        case "$new" in
-          (/dev/null) printf '%s\tremoved\n' "${old#a/}";;
-          (*) [ "$old" = /dev/null ] && printf '%s\tadded\n' "${new#b/}" || printf '%s\tmodified\n' "${new#b/}";;
-        esac
-      done | sort -u | jq -R 'split("\t") | {path:.[0], status:.[1]}' | jq -s . > "$CTX/files.raw.json"
+  # the file list with its status from the diff headers (build_hunks):
+  # `--- /dev/null` is an added file, `+++ /dev/null` a deleted one (absent
+  # from the clone, listed as `removed` and routed to no skill), anything else
+  # modified
+  sort -u "$CTX/files.tsv" | jq -R 'split("\t") | {path:.[0], status:.[1]}' | jq -s . > "$CTX/files.raw.json"
+  rm -f "$CTX/files.tsv"
   local slice
   slice="$(bash "$SCRIPT_DIR/profile.sh" slice "$CTX/files.raw.json" 2>/dev/null)"
   { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
     || slice="$(jq -c '{files: map(. + {class:"code"}), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$CTX/files.raw.json")"
   printf '%s' "$slice" | jq '.files' > "$CTX/files.json"
-  build_diff_slices
+  attach_diff_slices
   printf '%s' "$slice" | jq '{profile_slice, structure_changed, history_slice, memory_due, noise_count}' > "$CTX/slice.json"
   rm -f "$CTX/files.raw.json"
   build_risk

@@ -203,6 +203,42 @@ grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
 grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
 run_rp abort 1 "reset"
 
+# --- the diff walk: headers are read before a section's first @@ only -----------
+# A path with a space (git ends its ---/+++ line with a TAB), a deleted file, a
+# rename with an edit, a removed SQL comment (the diff line `--- note`) and an
+# added line `++ b/src/beta.ts` (the diff line `+++ b/src/beta.ts`).
+setup diff_walk_headers
+mkdir -p "$FX/docs" "$FX/db"
+printf 'intro\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\n-- note\nselect 2;\n' > "$FX/db/q.sql"
+seq 1 20 > "$FX/src/long.ts"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm more-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" merge -q --no-edit main
+printf 'intro\n++ b/src/beta.ts\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\nselect 2;\n' > "$FX/db/q.sql"
+git -C "$FX" rm -q src/beta.ts
+git -C "$FX" mv src/long.ts src/moved.ts && sed -i.bak 's/^5$/five/' "$FX/src/moved.ts" && rm -f "$FX/src/moved.ts.bak"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm edge
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff -M main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+assert_jq '[.files[] | {(.path): .status}] | add | ."docs/User Guide.md" == "modified" and ."db/q.sql" == "modified" and ."src/beta.ts" == "removed" and ."src/moved.ts" == "modified" and ."src/alpha.ts" == "modified" and ."src/gamma.ts" == "added"' 'every section listed once with its status'
+assert_jq '.files | length == 7' 'no path invented from hunk content'
+assert_jq '[.files[] | select(.class != "lockfile") | .diff | type == "string" and length > 0] | all' 'every reviewable file has a slice path'
+GUIDE="$(jq -r '.files[] | select(.path == "docs/User Guide.md") | .diff' <<<"$OUT")"
+BETA="$(jq -r '.files[] | select(.path == "src/beta.ts") | .diff' <<<"$OUT")"
+head -1 "$GUIDE" 2>/dev/null | grep -qx 'diff --git a/docs/User Guide.md b/docs/User Guide.md' \
+  && grep -qx '+++ b/src/beta.ts' "$GUIDE" && head -1 "$BETA" 2>/dev/null | grep -qx 'diff --git a/src/beta.ts b/src/beta.ts' \
+  && printf 'ok   %s: a header-shaped content line stays in its own slice\n' "$CASE" \
+  || { printf 'FAIL %s: slices wrong (guide=%s beta=%s)\n' "$CASE" "$GUIDE" "$BETA"; FAILED=1; }
+jq -e '."docs/User Guide.md".right == [1,2] and ."db/q.sql".left == [1,2,3] and ."db/q.sql".right == [1,2]' "$(PR_DIR).ctx/hunks.json" >/dev/null \
+  && printf 'ok   %s: the hunk index keys the spaced path without its TAB and counts every content line\n' "$CASE" \
+  || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
+run_rp abort 1 "reset"
+
 # --- prepare gates ---------------------------------------------------------------
 setup prepare_gates
 pr_fx open '[]' "$B1_SHA" true
