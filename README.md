@@ -22,7 +22,7 @@ ticks — cost nothing, and a started run receives the worklist the gate already
 computed instead of recomputing it. Bookkeeping that nobody waits on — prunes,
 self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
-([`docs/runbook.md`](docs/runbook.md) → **The schedule gate**).
+([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**).
 
 **Review heartbeat** — every 5 minutes inside the active window (default
 Mon–Fri 08–21 platform time), hourly in the quiet hours outside it.
@@ -101,9 +101,10 @@ enter it ([`docs/benchmark.md`](docs/benchmark.md)).
 **The definition is split so the always-loaded part stays small.**
 [`CLAUDE.md`](CLAUDE.md) holds only the run types and the rule to read
 [`docs/runbook.md`](docs/runbook.md) once preflight reports work; the runbook
-holds the worklist contract, the run procedures and the hard invariants; every
-other procedure lives in its own `docs/` file, read only when the matching work
-happens. An idle heartbeat loads the bootstrap alone.
+holds the run procedures and the hard invariants; every other procedure lives
+in its own `docs/` file, read only when the matching work happens — a review
+run reads exactly the `read_set` preflight computes for its worklist. An idle
+heartbeat loads nothing.
 
 **The definition is versioned** ([`VERSION`](VERSION) +
 [`CHANGELOG.md`](CHANGELOG.md)). At updates, on demand, and before any
@@ -303,8 +304,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   resolution, run types, and the rule to read the runbook once preflight
   reports work.
 - [`docs/runbook.md`](docs/runbook.md) — the operating manual read only then:
-  worklist contract, run procedures, trust boundary, hard invariants, and the
-  map of `docs/`.
+  run procedures, trust boundary, hard invariants, and the map of `docs/`.
+- [`docs/worklist.md`](docs/worklist.md) — the schedule gate, the entry
+  command and the worklist contract, read by a run without a gated worklist.
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   every run type; detects work, never acts on GitHub.
 - [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one

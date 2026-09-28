@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stall_alert: the 24h stalled-review rate detector — threshold, PR list,
 # once-per-day dedup, window boundary, and the config off switch.
-# Contract: docs/review.md → Stalled-review rate alert.
+# Contract: docs/review-bookkeeping.md → Stalled-review rate alert.
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"

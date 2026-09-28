@@ -63,12 +63,12 @@ below is for the manual fallback and the direct session.
 
 ### Review triggers & delivery
 
-- **`rereview_label`** — the GitHub label a human adds to request a
-  **complete** re-review of the whole PR (default `code-guardian-review`). The
-  other triggers get a delta re-review ([review.md](review.md) →
-  **Re-review output**). First reviews never need it; the agent removes it once
-  the request is served. A trigger is also served when only the PR description
-  changed (review.md → **Description-only re-review**). New commits without a
+- **`rereview_label`** — the GitHub label a human adds to request a **complete**
+  re-review of the whole PR (default `code-guardian-review`). The other triggers
+  get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
+  output**). First reviews never need it; the agent removes it once the request
+  is served. A trigger is also served when only the PR description changed
+  (review-rereview.md → **Description-only re-review**). New commits without a
   trigger flip the tracking row to `awaiting_label`.
 - **`rereview_trigger`** — what requests a re-review: `label` |
   `review-request` (a pending GitHub review request for `bot_login`) | `both`.
@@ -77,13 +77,14 @@ below is for the manual fallback and the direct session.
   one log line. A served review request clears itself when the review posts.
 - **`urgent_label`** — a **human-managed** label marking a PR urgent; the agent
   never adds or removes it. While present, the PR's due reviews jump the queue
-  and run **rapid-first** (review.md → **Urgent PRs**). **Missing = off.** Not
-  a review trigger — it only modifies how an already-due review is delivered.
+  and run **rapid-first** (review-urgent.md → **Urgent PRs**). **Missing =
+  off.** Not a review trigger — it only modifies how an already-due review is
+  delivered.
 - **`review_progress`** — `enabled` | `disabled`. **Missing = `disabled`.**
   Publishes each review's progress as a commit status on the reviewed SHA
   (`context` = `review_marker`): started, in progress with an ETA, terminal
-  outcome (review.md → **Progress signal on GitHub**). Best-effort — a failed
-  write never affects the review.
+  outcome (review-bookkeeping.md → **Progress signal on GitHub**). Best-effort —
+  a failed write never affects the review.
 - **`ci_triage`** — `enabled` | `disabled`. **Missing = `disabled`.** After a
   review posts, a failing check on the reviewed SHA gets one comment naming the
   probable cause and the smallest fix ([ci-triage.md](ci-triage.md)). Reads the
@@ -93,10 +94,10 @@ below is for the manual fallback and the direct session.
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
   ([mentions.md](mentions.md)). Needs `bot_login`.
-- **`stall_alert_threshold`** — stalled reviews (locked, never posted) within
-  24 h that trigger one alert, at most once per UTC day. **Missing = `4`**;
-  `0`/`off` disables; an unparseable value falls back to `4` (review.md →
-  **Stalled-review rate alert**).
+- **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24
+  h that trigger one alert, at most once per UTC day. **Missing = `4`**;
+  `0`/`off` disables; an unparseable value falls back to `4`
+  (review-bookkeeping.md → **Stalled-review rate alert**).
 
 ### Skills, artifacts, watches
 

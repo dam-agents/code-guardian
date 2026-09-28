@@ -104,10 +104,10 @@ step 7 is the gate that catches it.
      for continuity.
 3. Write `manifest.json`, verifying every `line_v1`/`line_v2` against the
    actual trees.
-4. Write `prior-review.md` in the posted-review format (docs/review.md →
-   **Summary body format**, marker at `head_sha_v1`) whose findings-json
-   carries ~70 % of the v1 defects; set `in_prior_review: true` on exactly
-   those manifest entries.
+4. Write `prior-review.md` in the posted-review format (docs/review-mechanics.md
+   → **Summary body format**, marker at `head_sha_v1`) whose findings-json
+   carries ~70 % of the v1 defects; set `in_prior_review: true` on exactly those
+   manifest entries.
 5. Write `pr.json`:
    `{number: 0, title, body, author, head_ref, base_ref, head_sha_v1, head_sha_v2}`
    — synthetic, stable SHAs (`git hash-object --stdin` over a fixture-unique
@@ -276,7 +276,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
 3. **Re-review** — bracket it `"<slug>-rereview"`. Advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out per
-   docs/review.md → **Re-review output** (routing from
+   docs/review-rereview.md → **Re-review output** (routing from
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**
    fresh reviewer subagent — never the one that wrote the first review, so it
    knows only the posted prior review, as in production. Same prompt shape
@@ -299,8 +299,8 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 
 5. Per fixture, the deterministic scores (field meanings in the script header).
    A prediction matches on any of its anchors — its own `file:line` plus every
-   `also` location ([review.md](review.md) → **Summary body format**) — so one
-   sibling-swept finding scores every defect it names:
+   `also` location ([review-mechanics.md](review-mechanics.md) → **Summary body
+   format**) — so one sibling-swept finding scores every defect it names:
 
    ```bash
    bash "$HOME/scripts/benchmark-score.sh" first    "<raw first>"    "$B/manifest.json"

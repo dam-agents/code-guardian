@@ -307,7 +307,7 @@ assert_jq '(.skills["typescript-engineering"].files | length) == 2' 'an unreacha
 run_rp abort 1 "reset"
 
 # a range that leaves the PR's own diff untouched holds base-branch merges only
-# (docs/review.md → Re-review output)
+# (docs/review-rereview.md → Re-review output)
 diff_dg() { { if command -v sha256sum >/dev/null 2>&1; then sha256sum
     elif command -v shasum >/dev/null 2>&1; then shasum -a 256
     else cksum; fi; } < "$SANDBOX/diff.txt" 2>/dev/null | tr -dc '0-9a-f' | cut -c1-12; }
@@ -1030,7 +1030,7 @@ assert_jq '.outcome == "posted"' 'the body that carries the line posts'
 assert_file_contains "$WORK/reviews/pr-1.md" '_Limits: the clone failed' 'the posted body states the limit'
 
 # --- post: the ledger row carries the style and refutation measurements --------
-# docs/review.md → **Review ledger**: the week's noise and style numbers are
+# docs/review-mechanics.md → **Review ledger**: the week's noise and style numbers are
 # read off these two fields, so a posted review must write both.
 setup post_measurements
 pr_fx open '[]'

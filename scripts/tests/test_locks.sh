@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # In-progress lock semantics: fresh lock skips, stale lock takes over — but a
 # lock past the TTL whose holder is still logging is left running.
-# Contract: docs/review.md → Review tracking state, Live holder.
+# Contract: docs/review-mechanics.md → Review tracking state, Live holder.
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"

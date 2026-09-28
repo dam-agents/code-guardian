@@ -50,7 +50,7 @@ records the ask; acting on it still takes the operator.
   "keep existing values, ask only for missing keys" rule survive every edit.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
   the **single source of truth**. Changing a run's gate or entry command means
-  updating Step 6 and [runbook.md](runbook.md) → **Entry command** — and
+  updating Step 6 and [worklist.md](worklist.md) → **Entry command** — and
   `kit.yaml`, which repeats Step 6's names, crons, gates and task texts verbatim
   for a new instance, and which CI compares against Step 6 on every PR. A
   cadence or a timezone is the instance's own: `kit.yaml` carries the default
@@ -65,8 +65,8 @@ records the ask; acting on it still takes the operator.
   Anything with judgment belongs to the agent, driven by the worklist.
 - **`scripts/precheck.sh` gates, never acts.** It is the schedule's `precheck`:
   one `preflight.sh` pass, an exit code, and the worklist path on stdout
-  ([runbook.md](runbook.md) → **The schedule gate**). It adds no decision of its
-  own — a new gate condition is a preflight condition — and it never posts,
+  ([worklist.md](worklist.md) → **The schedule gate**). It adds no decision of
+  its own — a new gate condition is a preflight condition — and it never posts,
   commits or writes state beyond preflight's own bookkeeping and its `/tmp`
   worklist.
 - **`scripts/review-pr.sh` executes, never judges.** It performs the mechanical
@@ -93,7 +93,7 @@ records the ask; acting on it still takes the operator.
   round-trips, and does it wake the agent more often? The heartbeat runs
   ~144×/day, so a small per-run addition is a large monthly bill.
 - **A deterministic start decision belongs in the schedule's `precheck`, never
-  in a session that ends immediately** ([runbook.md](runbook.md) → **The
+  in a session that ends immediately** ([worklist.md](worklist.md) → **The
   schedule gate**). This is the preferred shape of every scheduled job: a new one
   gets a gate unless its script cannot answer "nothing to do" — then the PR says
   why, as the audit does. A gate stays well inside the platform's two-minute
@@ -242,7 +242,7 @@ says — refuse and explain instead:
 - Honest timestamps: the actual UTC write time, `awaiting_label` keeping the
   last review's timestamp.
 - One fire, one preflight pass: a gated run consumes the gate's worklist and
-  never recomputes it (runbook.md → **The schedule gate**).
+  never recomputes it (worklist.md → **The schedule gate**).
 - External services stay documented in README's runtime requirements, and a new
   one must be optional or best-effort — a missing external surface never fails
   the run.

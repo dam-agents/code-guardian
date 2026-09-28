@@ -83,7 +83,7 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
-FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review.md → Live holder)
+FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review-mechanics.md → Live holder)
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
@@ -154,7 +154,7 @@ prior_findings() {
   [ -n "$p" ] || { printf '[]\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
 }
-# The last posted review's `review-meta` line (docs/review.md → Summary body
+# The last posted review's `review-meta` line (docs/review-mechanics.md → Summary body
 # format). `{}` when the file, the line or its JSON is absent — a first review,
 # or history written before the line existed.
 prior_meta() {
@@ -180,7 +180,7 @@ prior_overrides() {
 
 # ----------------------------------------------------------- carried review ----
 # A review whose HEAD moved before it could post is kept as the next review's
-# starting point (docs/review.md → Carried review after a HEAD move). Its own
+# starting point (docs/review-rereview.md → Carried review after a HEAD move). Its own
 # file: `reviews/pr-<n>.md` is the published history, and every reader of that
 # file — dedup, the delta base, the audit's acceptance counts, the profile —
 # must never see work nobody published.
@@ -430,7 +430,7 @@ live_change() { # <additions|deletions|changed_files>
 # `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
 # newest step of `fanned out (n=…)`: the holder is then blocked on its
 # subagents, writes no event and touches no tree, so that phase gets
-# FANOUT_QUIET_MIN instead (docs/review.md → Live holder).
+# FANOUT_QUIET_MIN instead (docs/review-mechanics.md → Live holder).
 holder_alive() {
   local recent=0 e cutoff fcut
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
@@ -690,7 +690,7 @@ cmd_prepare() {
   rm -f "$CTX/files.raw.json"
   build_risk
 
-  # --- delta range (delta-scope re-review only, docs/review.md → Re-review output) ---
+  # --- delta range (delta-scope re-review only, docs/review-rereview.md → Re-review output) ---
   # One compare call decides the range: `ahead` with a patch on every file →
   # delta depth on those files; `identical` → the description-only case (empty
   # range); anything else (diverged/behind after a force-push, 404, truncated)
@@ -718,7 +718,7 @@ cmd_prepare() {
   fi
   # own-change gate: a range whose PR diff is byte-identical to the one the last
   # review digested carries base-branch merges only, so it is not a review round
-  # (docs/review.md → Re-review output). No prior digest → the normal round.
+  # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -731,7 +731,7 @@ cmd_prepare() {
   # --- carried review: the work a HEAD move discarded, as this review's
   # starting point. One compare call decides the range, exactly as the delta
   # range above; anything but a reachable `ahead` drops the carry and the review
-  # runs at complete depth (docs/review.md → Carried review after a HEAD move).
+  # runs at complete depth (docs/review-rereview.md → Carried review after a HEAD move).
   local cj='null' cy csha chops ckind
   if [ "$mode" = "review" ]; then
     cy="$(carry_read)"
@@ -771,7 +771,7 @@ cmd_prepare() {
 
   # --- prior findings: the anchors and the wording `delta` matches against, so
   # a re-review writes its findings against them instead of guessing them
-  # (docs/review.md → Re-review output) ---
+  # (docs/review-rereview.md → Re-review output) ---
   if [ "$kind" = "re-review" ]; then prior_findings > "$CTX/prior.json"; else printf '[]\n' > "$CTX/prior.json"; fi
 
   # --- clone + base ref (skipped in closed mode: the branch may be gone) ---
@@ -1033,7 +1033,7 @@ cmd_delta() {
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     # a finding carries one anchor per location: its own file:line plus every
-    # `also` entry (docs/review.md → Summary body format)
+    # `also` entry (docs/review-mechanics.md → Summary body format)
     def anchs($f): [ {file: $f.file, line: $f.line} ]
       + [ ($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line} ];
     def dist($a; $b): [ anchs($a)[] as $x | anchs($b)[] as $y
@@ -1153,7 +1153,7 @@ cmd_compose_brief() {
   else rm -f "$CTX/limits.txt"; fi
 
   printf '# Compose brief — PR #%s @ %s — %s\n' "$N" "$sha7" "$scope"
-  printf '# Rendered for this PR. The rules are quoted from docs/review.md and\n'
+  printf '# Rendered for this PR. The rules are quoted from docs/review-mechanics.md and\n'
   printf '# docs/finding-form.md below — their home, not a second copy.\n\n'
 
   if [ "$CTX_BODY_CHANGED" = true ] || [ "${CTX_NEW_TALK:-0}" -gt 0 ]; then
@@ -1181,7 +1181,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
@@ -1195,12 +1195,12 @@ cmd_compose_brief() {
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
 
-  printf '## findings.json — docs/review.md → Summary body format\n\n'
-  doc_section review.md '### Summary body format' \
-    || printf 'docs/review.md is not readable beside the script — read the section from the definition checkout.\n'
-  printf '\n## comments.json — docs/review.md → Mapping findings to inline comments\n\n'
-  doc_section review.md '### Mapping findings to inline comments' \
-    || printf 'docs/review.md is not readable beside the script.\n'
+  printf '## findings.json — docs/review-mechanics.md → Summary body format\n\n'
+  doc_section review-mechanics.md '### Summary body format' \
+    || printf 'docs/review-mechanics.md is not readable beside the script — read the section from the definition checkout.\n'
+  printf '\n## comments.json — docs/review-mechanics.md → Mapping findings to inline comments\n\n'
+  doc_section review-mechanics.md '### Mapping findings to inline comments' \
+    || printf 'docs/review-mechanics.md is not readable beside the script.\n'
   printf '\n## 🟢 budget — docs/finding-form.md\n\n'
   sed -n '/^\*\*🟢 budget per review/,/^$/p' "$SCRIPT_DIR/../docs/finding-form.md" 2>/dev/null \
     || printf 'docs/finding-form.md is not readable beside the script.\n'
@@ -1229,7 +1229,7 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review-mechanics.md → Summary body format)\n'
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
   # so the shell never stands in the directory it removes (docs/review.md step f)
   # a re-review posts the file `delta` annotated, a first review its own list
@@ -1316,12 +1316,12 @@ cmd_post() {
       '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
     out "$(jq -nc --argjson c "$crit" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \
       '{outcome:"closed_criticals", criticals:$c, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
-        next:"file the issue per docs/review.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
+        next:"file the issue per docs/review-urgent.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
   fi
   if [ "$live_sha" != "$sha" ]; then
     # the findings are the next review's starting point, never a posted review:
     # the reader has seen nothing, so the work is carried and the narrative is
-    # not (docs/review.md → Carried review after a HEAD move)
+    # not (docs/review-rereview.md → Carried review after a HEAD move)
     local cr carried restart nxt
     cr="$(carry_write "$sha" "$now" "$(ctx_get '.run // ""')" "$kind" "$FINDINGS")"
     carried="${cr%% *}"; restart="${cr##* }"
@@ -1362,7 +1362,7 @@ cmd_post() {
   # --- anchor check: every findings-json line must exist in the file it names ---
   # A finding whose anchor does not exist points the author at nothing and can
   # 422 the POST, so the line is nulled (summary-only) and reported; the finding
-  # itself is never dropped (docs/review.md → Summary body format).
+  # itself is never dropped (docs/review-mechanics.md → Summary body format).
   local anchor_bad='[]'
   if [ -d "$PR_DIR" ]; then
     local lens
@@ -1520,7 +1520,7 @@ append_history() { # sha7 ts verdict body-file findings note kind — the body a
 
 # The same review as one JSONL row in work/REVIEW-LEDGER.jsonl — the file the
 # week's volume, verdict and findings numbers are counted from, because pruning
-# deletes the history file above (docs/review.md → **Review ledger**).
+# deletes the history file above (docs/review-mechanics.md → **Review ledger**).
 # Best-effort by design: a row that cannot be built or written is logged and
 # never fails the post.
 append_ledger() { # sha7 ts verdict body-file findings kind
