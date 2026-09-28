@@ -39,10 +39,11 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
 - A matched pair is `still` when the summaries are similar, or when the
   severity is equal at the same line. Any other matched pair is `ambiguous`
   and carries `suggest` — `still` when the severity matches, else `new` — with
-  its `distance` and `severity_match`. The block and `annotated` apply every
-  `suggest` already.
+  its `index`, `distance` and `severity_match`. The block and `annotated`
+  apply every `suggest` already.
 - **Settle every `ambiguous` pair** before posting: keep its suggestion, or
-  change that entry's `status` in `annotated` and the matching block line.
+  rerun `delta` once with `--settle <index>=<still|new>` for every pair you
+  change. The rerun rebuilds the block, the buckets and `annotated`.
 
 Insert the block between `### Summary` and `### Findings`:
 

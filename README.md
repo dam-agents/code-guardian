@@ -323,9 +323,10 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   skill briefs, the prior findings), `step`, `guard` (the live HEAD re-read at a
   phase boundary, so a commit landing mid-review stops the run before it pays
   for the phases below it), `context`, `sweep`, `collect`, `delta` (fixed/still/new plus the
-  annotated findings), `compose-brief` (this PR's compose contract, with the
+  annotated findings, `--settle` for the ambiguous pairs), `compose-brief` (this PR's compose contract, with the
   conversation refreshed), `rapid`, `post` (Check 2, dedup, inline eligibility,
-  payload, 422 handling, label, history, cleanup) and `abort`. The agent
+  payload, 422 handling, label, history, cleanup), `verify` (the self-check's
+  mechanical lines, local reads only) and `abort`. The agent
   decides what the review says.
 - [`scripts/profile.sh`](scripts/profile.sh) — the project profile: builds and
   refreshes `work/PROFILE.md` from the target repo's default branch

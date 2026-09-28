@@ -65,6 +65,9 @@ c. **Review the diff** — file by file in `files[]` order: classes `code`,
    `sourcemap`, `generated`) carry no `diff`, are not reviewed as code and get
    one `### Summary` line:
    `_<N> generated/lockfile file(s) not reviewed: <paths, or the classes when more than five>._`
+   Read what does not depend on an earlier result in one call: several
+   slices, `context` and `sweep` lookups, `grep` and `sed -n` of the clone go
+   into one Bash command or into parallel tool calls of one response.
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
 d. **Run every configured review skill** per [skills.md](skills.md):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
@@ -411,14 +414,17 @@ code that moved past its override lets the finding surface normally.
 
 Before you declare the run done:
 
+- **Per reviewed PR, mechanical** — chain `&& review-pr.sh verify <n>` onto
+  the PR's `post` or `abort` command. It checks the terminal step, the
+  milestones, `skill_timing`, the row, the history file, the ledger and the
+  cleanup in one call. Every `fail` check names what to repair; `ok` settles
+  those lines.
 - **Per reviewed PR** — one GitHub review carrying the full-SHA marker · Check
   1, Check 2 and the dedup re-check done, the re-review trigger check included
-  · a `post` or `abort` outcome, lock lifecycle correct (aborted re-reviews
-  restored `awaiting_label`, no `in_progress` left) · row refreshed at each
-  milestone · live holder re-checked before the lock write · label removed
-  after a posted review on a labeled PR · skill audit lines complete
-  ([skills.md](skills.md)) · review appended to `reviews/pr-<n>.md` and to the ledger · overrides
-  applied from that PR's file only · context fetched and used, a human
+  · row refreshed at each milestone · live holder re-checked before the lock
+  write · label removed after a posted review on a labeled PR · skill audit
+  lines complete ([skills.md](skills.md)) · overrides applied from that PR's
+  file only · context fetched and used, a human
   dismissal in it recorded as an override before posting · observed insights
   recorded ([preferences.md](preferences.md)) · `memory_due` read before
   reviewing · orientation used for where to look only, `verify_live` rows read
@@ -437,10 +443,7 @@ Before you declare the run done:
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
   never named · skill sections reformatted and merged with no finding lost ·
-  stale approval dismissed when the verdict dropped below APPROVE · clone,
-  copies, diff and state deleted · `review_step` events logged (`locked` →
-  `fanned out (n=<N>)` → `verified` → `composed` → `posted`/`aborted`/`done`)
-  with `skill_timing` · every sentence of the posted prose inside the 20-word
+  stale approval dismissed when the verdict dropped below APPROVE · every sentence of the posted prose inside the 20-word
   bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget

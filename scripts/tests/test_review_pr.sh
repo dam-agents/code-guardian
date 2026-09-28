@@ -433,6 +433,17 @@ jq -e 'any(.[]; .file == "src/gamma.ts" or .file == "src/uses-alpha.ts")' "$A" >
   && { printf 'FAIL %s: a suppressed finding reached the annotated array\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: overrides keep their findings out of the annotated array\n' "$CASE"
 assert_jq '.prior_count == 2' 'the prior count is reported'
+assert_jq '.ambiguous[0].index == 2 and .ambiguous[0].settled == "new"' 'an ambiguous pair names the index --settle takes'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 2=still
+assert_jq '.ambiguous[0].settled == "still" and (.still | length) == 2 and (.new | length) == 0' 'one --settle rerun moves the pair to still'
+assert_jq '.block | contains("🔁 **Still present:** name the constant") and (contains("🆕") | not)' 'the rerun rebuilds the block'
+jq -e 'map(.status) == ["still","still","fixed"]' "$A" >/dev/null \
+  && printf 'ok   %s: the rerun rewrites the annotated statuses\n' "$CASE" \
+  || { printf 'FAIL %s: annotated after --settle wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+run_rp delta 1 "$SANDBOX/cur.json" --settle 0=new
+assert_jq '.outcome == "error" and (.error | contains("no ambiguous pair at index 0"))' 'a --settle on a settled finding is refused'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 2=maybe
+assert_jq '.outcome == "error" and (.error | contains("<index>=still|new"))' 'a --settle value other than still|new is refused'
 # A wrong path is a missing file, not malformed JSON: the error must say so, or the
 # next run reads "not a JSON array" and looks for a parse bug that is not there.
 run_rp delta 1 "$SANDBOX/nope.json"
@@ -526,6 +537,29 @@ grep -q 'review-meta' "$SANDBOX/body.md" && { printf 'FAIL %s: review-meta reach
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
+
+# --- verify: the self-check's mechanical lines after post / abort ----------------
+setup verify_posted
+run_rp verify 1
+assert_jq '.outcome == "not_locked"' 'a PR this run never locked has nothing to verify'
+run_rp prepare 1
+run_rp step 1 "fanned out (n=2)"
+run_rp verify 1
+assert_jq '.outcome == "issues" and (.checks[] | select(.check == "terminal") | .status == "fail" and (.detail | contains("fanned out")))' 'mid-pipeline: no terminal step, the last step named'
+assert_jq '.checks[] | select(.check == "cleanup") | .status == "fail"' 'mid-pipeline: temp paths still there'
+run_rp step 1 verified; run_rp step 1 composed
+printf '### Summary\nx\n\n### Verdict\nCOMMENT — ok\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'posted'
+run_rp verify 1
+assert_jq '[.checks[] | select(.status == "ok") | .check] == ["terminal","milestones","row","history","ledger","cleanup"]' 'a posted review passes terminal, milestones, row, history, ledger and cleanup'
+assert_jq '.outcome == "issues" and ([.checks[] | select(.status == "fail") | .check] == ["skill_timing"])' 'a fan-out with skills and no collect is the one failure'
+setup verify_aborted
+run_rp prepare 1
+run_rp abort 1 "test abort"
+run_rp verify 1
+assert_jq '.outcome == "ok" and ([.checks[].check] == ["terminal","row","cleanup"])' 'an abort verifies the terminal step, the released lock and the cleanup'
 
 # --- post: anchors that are not a line of the file they name are nulled ----------
 setup post_anchor_check
