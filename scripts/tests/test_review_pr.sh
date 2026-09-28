@@ -78,6 +78,13 @@ assert_event 'PR #1 '"${B1_SHA:0:7}"' locked' 'locked event'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' cloned' 'cloned event'
 assert_jq '.files | map(.class) == ["lockfile","code","code"]' 'changed files classified'
 assert_jq '.files | map(.status) == ["modified","modified","added"]' 'file status read from the diff headers'
+# one diff slice per reviewable file, none for noise (docs/review.md step c)
+assert_jq '.files | map(has("diff")) == [false,true,true]' 'a slice per code file, none for the lockfile'
+jq -r '.files[] | select(.diff) | .diff' <<<"$OUT" | while read -r d; do head -1 "$d"; done | grep -c '^diff --git' | grep -qx 2 \
+  && grep -q '^+NEW6 query()$' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && ! grep -q 'gamma' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && printf 'ok   %s: each slice holds its own file section only\n' "$CASE" || { printf 'FAIL %s: slices wrong\n' "$CASE"; FAILED=1; }
+assert_jq '.skills["typescript-engineering"].prompt == "Review skill `typescript-engineering` for PR #1: read `'"$(PR_DIR)"'.ctx/briefs/typescript-engineering.md` and follow it exactly — it holds your whole task."' 'the subagent prompt names skill, PR and brief path'
 assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineering"].status == "run" and (.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"])' 'always + extension routing; the .yaml lockfile is noise and routes nowhere'
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \

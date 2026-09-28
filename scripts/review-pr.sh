@@ -50,7 +50,7 @@
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
-# files.json, pack.json, risk.json, briefs/, prior.json, collect.json,
+# files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
 # limits.txt, findings.annotated.json). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
 # docs/review.md mandates) and the progress status under review_progress.
@@ -494,6 +494,36 @@ build_hunks() {
     || printf '{}\n' > "$CTX/hunks.json"
   rm -f "$tsv"
 }
+# ------------------------------------------------------- diff slices ----
+# $DIFF → $CTX/diff/<k>.diff, one file's section each, and `.diff` on every
+# reviewable entry of $CTX/files.json (docs/review.md step c): the agent reads
+# each file's slice once instead of the whole diff, and the noise classes get
+# no slice at all. $DIFF itself stays whole for the tools.
+build_diff_slices() {
+  local d="$CTX/diff" line k=0 file="" map="$CTX/diff.tsv" open=0
+  rm -rf "$d"; mkdir -p "$d" || return 0
+  : > "$map"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ('diff --git '*)
+        [ "$open" -eq 1 ] && exec 3>&-
+        [ -n "$file" ] && printf '%s\t%s\n' "$file" "$d/$k.diff" >> "$map"
+        k=$((k+1)); file=""; exec 3>"$d/$k.diff"; open=1;;
+      ('--- a/'*) [ -z "$file" ] && file="${line#--- a/}";;
+      ('+++ b/'*) file="${line#+++ b/}";;
+    esac
+    [ "$open" -eq 1 ] && printf '%s\n' "$line" >&3
+  done < "$DIFF"
+  [ "$open" -eq 1 ] && exec 3>&-
+  [ -n "$file" ] && printf '%s\t%s\n' "$file" "$d/$k.diff" >> "$map"
+  jq --rawfile m "$map" '
+    ($m | split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]}) | from_entries) as $s
+    | map(if (.class | IN("code","test","docs","config")) and $s[.path] then . + {diff: $s[.path]} else . end)' \
+    "$CTX/files.json" > "$CTX/files.json.tmp" 2>/dev/null \
+    && mv "$CTX/files.json.tmp" "$CTX/files.json" || rm -f "$CTX/files.json.tmp"
+  rm -f "$map"
+}
+
 in_hunk() { # <path> <line> [RIGHT|LEFT] → 0 when the line is inside this PR's hunks
   jq -e --arg p "$1" --argjson l "$2" --arg s "${3:-RIGHT}" \
     '.[$p] | (if $s == "LEFT" then .left else .right end) | index($l) != null' "$CTX/hunks.json" >/dev/null 2>&1
@@ -686,6 +716,7 @@ cmd_prepare() {
   { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
     || slice="$(jq -c '{files: map(. + {class:"code"}), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$CTX/files.raw.json")"
   printf '%s' "$slice" | jq '.files' > "$CTX/files.json"
+  build_diff_slices
   printf '%s' "$slice" | jq '{profile_slice, structure_changed, history_slice, memory_due, noise_count}' > "$CTX/slice.json"
   rm -f "$CTX/files.raw.json"
   build_risk
@@ -850,8 +881,11 @@ cmd_prepare() {
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi
-    SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg st "$status" --argjson f "$files" --arg b "$brief" --arg c "$copy" \
-      '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end)}}')"
+    # the subagent reads its brief itself: the prompt names the skill and the PR
+    # (the adapter hook derives `skill:<name> done` from them) and the path
+    SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg st "$status" --argjson f "$files" --arg b "$brief" --arg c "$copy" --arg n "$N" \
+      '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end),
+                   prompt:(if $b=="" then null else "Review skill `\($s)` for PR #\($n): read `\($b)` and follow it exactly — it holds your whole task." end)}}')"
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
   if [ "$nrun" -gt 1 ]; then
     mkdir -p "$OUT"

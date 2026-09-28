@@ -57,10 +57,12 @@ b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    (**PR context**); `paths.risk` names the changed files in sensitive areas
    and the added lines that ask for a second look — orientation, never
    evidence ([profile.md](profile.md) → **What it is, and is not**).
-c. **Review the diff** — `$PR_DIR.diff`, file by file in `files[]` order:
-   classes `code`, `test`, `docs`, `config`. The noise classes (`lockfile`,
-   `snapshot`, `build`, `vendored`, `minified`, `sourcemap`, `generated`) are
-   not reviewed as code and get one `### Summary` line:
+c. **Review the diff** — file by file in `files[]` order: classes `code`,
+   `test`, `docs`, `config`. Read each entry's `diff` — that file's own section
+   of `$PR_DIR.diff` — once; the whole diff stays for the tools. The noise
+   classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
+   `sourcemap`, `generated`) carry no `diff`, are not reviewed as code and get
+   one `### Summary` line:
    `_<N> generated/lockfile file(s) not reviewed: <paths, or the classes when more than five>._`
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
 d. **Run every configured review skill** per [skills.md](skills.md):
