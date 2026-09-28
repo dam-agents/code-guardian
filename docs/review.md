@@ -28,8 +28,7 @@ never fatal — preflight re-emits the entry.
 ## Pruning (`prunes_due`)
 
 Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
-candidates are the REVIEWS.md rows and the history files without a row — the
-urgent alert or a PR-local override writes that file before the first review.
+candidates are the REVIEWS.md rows and the history files without a row.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
 `<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
