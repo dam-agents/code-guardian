@@ -766,7 +766,9 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length)"
+  # the audit's wake-up count reads these keys back (stats.wakeups) — keep them
+  # in sync with its capture
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
@@ -2077,6 +2079,26 @@ if [ "$MODE" = "audit" ]; then
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
+  # Wake-ups — the gated runs that started a session, from the `heartbeat`
+  # events emit() writes. `by_work.<kind>` counts the runs that carried that
+  # work (`runs`) and its items; one run can carry several kinds. `unlabelled`
+  # counts woken runs that name no kind: events from before the kind keys, or a
+  # mode without them (survey, benchmark), which `by_mode` still counts.
+  WAKEUPS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
+      | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
+      | select(.nothing_to_do == "false") ] as $w
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","stall","housekeeping"] as $k
+    | { runs: ($w | length),
+        by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
+        by_work: ([ $k[] as $x
+                    | {key: $x,
+                       value: { runs: ([ $w[] | select(((.[$x] // "0") | tonumber) > 0) ] | length),
+                                items: ([ $w[] | (.[$x] // "0") | tonumber ] | add // 0) } } ]
+                  | from_entries),
+        unlabelled: ([ $w[] | select(all($k[] as $x | (.[$x] // "0") | tonumber; . == 0)) ] | length) }' 2>/dev/null)"
+  [ -n "$WAKEUPS_WEEK" ] || WAKEUPS_WEEK='null'
+
   # Artifacts published this week, from the `artifact` outcome events the
   # artifact step writes (docs/artifact.md step 6). Counted per PR, so a
   # repeated log line cannot inflate the figure. The events survive a prune,
@@ -2488,11 +2510,11 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" \
+    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
-      heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
+      heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       project:$proj}')"

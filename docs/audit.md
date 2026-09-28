@@ -186,6 +186,11 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     This measures the **gate**, not spend: a ratio near zero with no reviews
     means something re-triggers work every run (runbook.md → **The schedule
     gate**). Spend is measured in task 27, never inferred from this ratio.
+    `stats.wakeups` splits the woken runs by `by_mode` and by the work they
+    carried (`by_work.<kind>` — `runs` and `items`; one run can carry several
+    kinds). A kind whose `runs` grew without matching `items` is a run woken
+    for too little work; name it. `unlabelled` counts runs that name no kind,
+    which the report states once as a floor.
 27. **Spend ground truth** — one `mcp__platform-outbound__get_metrics` call
     (`days: 7`, `granularity: "summary"` — that granularity's totals cover
     every session in the window, which `session`/`call` rows do not: they cap
@@ -335,6 +340,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Findings sit in: <hot_areas[].dir> <critical>🔴/<warning>🟡, … — top 3 (omit when empty)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
+• Wake-ups: <wakeups.runs> — <kind> <runs>, … per by_work kind with runs > 0 (+<unlabelled> unlabelled — omit when 0; `not measured this week` when wakeups is null)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)

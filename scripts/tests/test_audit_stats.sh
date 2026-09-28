@@ -442,6 +442,30 @@ run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
 
+# --- wake-ups: the gated runs that started a session, by kind of work --------
+new_case audit_wakeups
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev g1 heartbeat "mode=review nothing_to_do=true reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g2 heartbeat "mode=review nothing_to_do=false reviews=2 nudges=0 mentions=1 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g3 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=1 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g4 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=1"
+ev g5 heartbeat "mode=shepherd nothing_to_do=false reviews=0 nudges=3 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+# written before the kind keys existed: counted, but names no kind
+ev g6 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0"
+# outside the 7-day window
+ev g7 heartbeat "mode=review nothing_to_do=false reviews=5 nudges=0 mentions=0" "$(iso_ago 700000)"
+run_preflight audit
+assert_jq '.stats.wakeups.runs == 5' 'woken runs in the window only, idle ticks excluded'
+assert_jq '.stats.wakeups.by_mode == {review: 4, shepherd: 1}' 'wake-ups split by mode'
+assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 2}' 'review runs and items'
+assert_jq '.stats.wakeups.by_work.mentions.runs == 1 and .stats.wakeups.by_work.artifacts.runs == 1' \
+  'a mention reply and an artifact each count as a run'
+assert_jq '.stats.wakeups.by_work.nudges.items == 3 and .stats.wakeups.by_work.housekeeping.runs == 1' \
+  'nudges and bookkeeping-only runs counted'
+assert_jq '.stats.wakeups.unlabelled == 1' 'a legacy event is counted but unlabelled'
+
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions
 base_config
