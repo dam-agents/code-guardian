@@ -16,7 +16,7 @@ file per UTC day), one JSON object per line:
   supports it.
 - **run** — the run identifier: `LOG_RUN_ID` env → harness session id
   (`CLAUDE_CODE_SESSION_ID`) → start time + pid. Groups all lines of one run.
-  **A gated fire carries two of them** ([runbook.md](runbook.md) → **The
+  **A gated fire carries two of them** ([worklist.md](worklist.md) → **The
   schedule gate**): the gate runs outside a session, so its `precheck` line and
   the whole `preflight.sh` pass it drives share one `<timestamp>-<pid>` id, and
   the session that starts from the worklist writes its own lines under the
@@ -81,7 +81,9 @@ function calling the binary directly.
 ## Who writes what
 
 1. **`scripts/preflight.sh`** (automatic) — sources log.sh with
-   `LOG_JOB=<mode>`: one `heartbeat` summary per run, every worklist `log` line
+   `LOG_JOB=<mode>`: one `heartbeat` summary per run (`key=value` pairs, the
+   worklist's item count per kind, which the audit's wake-up count reads —
+   [audit.md](audit.md) task 26), every worklist `log` line
    (`preflight`, info), and the errors it would otherwise swallow —
    unresolvable repo or API-list failures (`preflight`, error), silent GitHub
    API failures at decision sites (`gh_api`, warn), skill install failures
@@ -180,9 +182,9 @@ script-side), keeping at least 14 days:
 - `work/MENTIONS.md` ([mentions.md](mentions.md)) is trimmed to rows younger
   than 14 days — older rows are outside the 7-day scan window and can never be
   re-emitted.
-- `work/REVIEW-LEDGER.jsonl` ([review.md](review.md) → **Review ledger**) is
-  trimmed to rows younger than **180 days** — it outlives the reviewed PR, and
-  the trend backfill reads back over past weeks.
+- `work/REVIEW-LEDGER.jsonl` ([review-mechanics.md](review-mechanics.md) →
+  **Review ledger**) is trimmed to rows younger than **180 days** — it outlives
+  the reviewed PR, and the trend backfill reads back over past weeks.
 - `work/PR-EVENTS.jsonl` ([shepherd.md](shepherd.md) → **PR facts**) is trimmed
   to the same **180 days**, for the same reason.
 - `work/AUDIT.log` is exempt (one line per week).

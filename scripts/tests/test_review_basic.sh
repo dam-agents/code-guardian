@@ -14,6 +14,7 @@ run_preflight review
 assert_jq '.nothing_to_do == false' 'run has work'
 assert_jq '.reviews_due | length == 1' 'exactly one review due'
 assert_jq '.reviews_due[0] | .number == 1 and .kind == "first" and .takeover == false and .urgent == false and .closed == false' 'first review, no flags'
+assert_jq '.read_set == ["docs/review.md","docs/finding-form.md","docs/skills.md","work/MEMORY.md","work/LESSONS.md"]' 'a plain first review reads the core set and no rare-case file'
 
 # --- reviewed at live HEAD, no trigger → nothing ----------------------------
 new_case same_sha_done
@@ -22,6 +23,7 @@ pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 run_preflight review
 assert_jq '.nothing_to_do == true' 'same-SHA dedup holds'
+assert_jq 'has("read_set") == false' 'an idle worklist names no read set'
 
 # --- reviewed at live HEAD + label → trigger cleanup, no review --------------
 new_case label_cleanup
@@ -32,6 +34,7 @@ run_preflight review
 assert_jq '.reviews_due | length == 0' 'no review on same SHA'
 assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].label == true' 'label cleanup due'
 assert_jq '.nothing_to_do == false and has("housekeeping_only") == false' 'a trigger cleanup answers a person: it starts a run at once'
+assert_jq '.read_set == ["docs/review-bookkeeping.md","work/MEMORY.md","work/LESSONS.md"]' 'a cleanup-only run reads bookkeeping, not the review core'
 assert_jq '.reviews_due | length == 0' 'a never-edited description does not manufacture a review'
 
 # --- same SHA, but the description was edited after the review → re-review ----
@@ -88,6 +91,7 @@ run_preflight review
 assert_jq '.reviews_due | length == 1' 'one re-review due'
 assert_jq ".reviews_due[0] | .kind == \"re-review\" and .prior.sha == \"$SHA2\" and .prior.verdict == \"COMMENT\"" 're-review with prior'
 assert_jq '.reviews_due[0].full == true' 'label-triggered re-review is complete'
+assert_jq '.read_set | index("docs/review-rereview.md") != null and index("docs/review-urgent.md") == null' 'a re-review adds the re-review file only'
 
 # --- new commits + review request → delta re-review ---------------------------
 new_case rereview_request_delta

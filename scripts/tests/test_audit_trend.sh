@@ -112,6 +112,37 @@ assert_out_contains 'Spend per week (actual)' 'the report carries the actual-spe
 assert_out_contains '<th class="n" title="Actual spend' 'the report table carries the actual-spend column'
 assert_out_contains '<td class="n">0.08' 'the week row carries the attributed actual'
 
+# --- wake-ups by work reach the index, TRENDS.md and the report --------------
+new_case trend_wakeups
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
+jq '.stats.wakeups = {runs:20, by_mode:{review:18, shepherd:2},
+      by_work:{reviews:{runs:4, items:4}, mentions:{runs:6, items:7}, artifacts:{runs:3, items:3}},
+      unlabelled:0}' "$WORK/audit/last-worklist.json" > "$WORK/audit/wl.json" \
+  && mv "$WORK/audit/wl.json" "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].wakeups == 20 and .[0].wake_reviews == 4
+  and .[0].wake_mentions == 6 and .[0].wake_artifacts == 3' >/dev/null 2>&1 \
+  && printf 'ok   %s: the derived row carries the wake-ups by work\n' "$CASE" \
+  || { printf 'FAIL %s: wake-ups not derived: %s\n' "$CASE" "$OUT"; FAILED=1; }
+assert_file_contains "$WORK/audit/TRENDS.md" '| 20 (4/6/3) |' 'the week row carries the wake-ups'
+OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
+assert_out_contains 'Wake-ups by work' 'the report carries the wake-ups chart'
+assert_out_contains '<th class="n" title="Count of runs that found work' 'the report table explains the wake-ups column'
+
+# a week recorded before the metric renders a dash, never a zero
+new_case trend_wakeups_absent
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].wakeups == null' >/dev/null 2>&1 \
+  && printf 'ok   %s: an unmeasured week has no wake-up count\n' "$CASE" \
+  || { printf 'FAIL %s: wake-ups invented: %s\n' "$CASE" "$OUT"; FAILED=1; }
+
 # --- the week table: newest first, headers aligned and explained ------------
 new_case trend_report_layout
 price_config

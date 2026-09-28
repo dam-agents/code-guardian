@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # review-records.sh — one record per posted review, read from the two places
-# that hold them (docs/review.md → **Review ledger**).
+# that hold them (docs/review-mechanics.md → **Review ledger**).
 #
 #   review_records <reviews dir> <ledger file> [<since ISO>]   # JSONL on stdout
+#   rr_posted <history file>             # true when it holds a posted review
 #
 # Record: {src, pr, ts, sha, kind, verdict, size:{files,additions,deletions} | null,
 #          bullets:{fixed,still},
@@ -18,7 +19,8 @@
 # is gone. Every reader of these numbers comes through here; none parses
 # `## Review at` on its own.
 #
-# Sourced by preflight.sh (audit stats) and audit-trend.sh (backfill). Needs jq.
+# Sourced by preflight.sh (review kind, audit stats), review-pr.sh (review kind)
+# and audit-trend.sh (backfill). Needs jq.
 
 # The `### Summary` audit note, counted per source (docs/review.md → **PR
 # context**): the findings a review settled instead of posting. Input is any
@@ -150,6 +152,14 @@ RR_AGG_JQ='
 # the zero row of RR_AGG_JQ — a week that measured nothing, and the fallback a
 # reader prints when the aggregation itself could not run
 RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+
+# A posted review in a history file is a `## Review at` section or a
+# findings-json line. The file alone is none: the urgent alert, an artifact or a
+# PR-local override creates it before the first review. `kind` is `re-review`
+# only when this holds.
+rr_posted() { # <history file>
+  grep -qE '^## Review at |<!-- findings-json: ' "$1" 2>/dev/null
+}
 
 review_records() { # <reviews dir> <ledger file> [<since ISO>]
   local rdir="${1:-}" ledger="${2:-}" since="${3:-}" f n

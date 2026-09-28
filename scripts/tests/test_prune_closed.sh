@@ -101,6 +101,17 @@ assert_jq '.prunes_due | length == 0' 'prune deferred'
 assert_jq '.reviews_due | length == 1' 'owed full review emitted'
 assert_jq ".reviews_due[0] | .number == 4 and .closed == true and .urgent == true and .kind == \"first\" and .prior.verdict == \"RAPID\" and .head_sha == \"$SHA4\"" 'closed entry shape'
 
+# --- the urgent alert's marker file is no posted review: the owed pass is first --
+new_case closed_rapid_alert_only
+base_config '- urgent_label: urgent' '- slack_notifications: enabled'
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+add_row 4 "$SHA4" "$(iso_ago 5400)" RAPID in_progress
+closed_pr_fx 4 "$SHA4" true
+printf '# PR #4: gone PR\n<!-- urgent-announced: 2026-09-28T10:00:00Z -->\n' > "$WORK/reviews/pr-4.md"
+run_preflight review
+assert_jq '.reviews_due[0] | .number == 4 and .closed == true and .kind == "first" and .full == true' 'an alert-only history file keeps the owed pass a full first review'
+
 # --- a bot author keeps the REST login, `[bot]` suffix included ---------------
 new_case closed_rapid_bot_author
 base_config

@@ -37,6 +37,7 @@ run_preflight review
 assert_jq '.nothing_to_do == false' 'mention alone wakes the run'
 assert_jq '.mentions_due | length == 1' 'exactly one mention due'
 assert_jq '.mentions_due[0] | .comment_id == 101 and .number == 7 and .thread == "conversation" and .author == "alice" and .in_reply_to == null' 'entry fields'
+assert_jq '.read_set == ["docs/review.md","docs/mentions.md","work/MEMORY.md","work/LESSONS.md"]' 'a mention-only run reads review.md for the reply style, not the review core'
 
 # --- ledger row → deduped ------------------------------------------------------
 new_case mention_deduped

@@ -104,10 +104,10 @@ step 7 is the gate that catches it.
      for continuity.
 3. Write `manifest.json`, verifying every `line_v1`/`line_v2` against the
    actual trees.
-4. Write `prior-review.md` in the posted-review format (docs/review.md →
-   **Summary body format**, marker at `head_sha_v1`) whose findings-json
-   carries ~70 % of the v1 defects; set `in_prior_review: true` on exactly
-   those manifest entries.
+4. Write `prior-review.md` in the posted-review format (docs/review-mechanics.md
+   → **Summary body format**, marker at `head_sha_v1`) whose findings-json
+   carries ~70 % of the v1 defects; set `in_prior_review: true` on exactly those
+   manifest entries.
 5. Write `pr.json`:
    `{number: 0, title, body, author, head_ref, base_ref, head_sha_v1, head_sha_v2}`
    — synthetic, stable SHAs (`git hash-object --stdin` over a fixture-unique
@@ -261,10 +261,13 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
    routing list = `git -C "$PR_DIR" diff --name-only main..pr`; briefs rendered
    by you from `scripts/templates/skill-brief.md`, because no live PR means no
-   `review-pr.sh` helper applies). Then spawn **one fresh reviewer subagent**
-   whose prompt says: perform docs/review.md steps c–d without `review-pr.sh`
-   (verify against `$PR_DIR` directly), reading `work/MEMORY.md` +
-   `work/LESSONS.md`, with diff = `diff-v1.patch`, PR context = `pr.json`,
+   `review-pr.sh` helper applies; each subagent's prompt is the one line
+   `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
+   **one fresh reviewer subagent** whose prompt says: perform docs/review.md
+   steps c–d without `review-pr.sh` (verify against `$PR_DIR` directly, read the
+   diff file whole — there are no per-file slices), reading `work/MEMORY.md` +
+   `work/LESSONS.md` and docs/review-mechanics.md → **Summary body format** for
+   the findings-json, with diff = `diff-v1.patch`, PR context = `pr.json`,
    working tree = `$PR_DIR` on base branch `main`, skill outputs =
    `$PR_DIR.out`, marker SHA = `head_sha_v1`. It composes the **first-review
    Output format** with its findings-json, writes it verbatim to
@@ -276,11 +279,12 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
 3. **Re-review** — bracket it `"<slug>-rereview"`. Advance the tree to v2
    (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out per
-   docs/review.md → **Re-review output** (routing from
+   docs/review-rereview.md → **Re-review output** (routing from
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**
    fresh reviewer subagent — never the one that wrote the first review, so it
-   knows only the posted prior review, as in production. Same prompt shape
-   with `prior-review.md` as the prior review, diff =
+   knows only the posted prior review, as in production. Same prompt shape,
+   plus docs/review-rereview.md for the delta scope and output, with
+   `prior-review.md` as the prior review, diff =
    `git -C "$PR_DIR" diff main..pr`, scope = delta (request-equivalent
    trigger), and changes-since-prior = `diff-v1-v2.patch`, which stands in for
    the compare call (prior HEAD = `pr~1`, range `ahead`), so no compare call is
@@ -299,8 +303,8 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 
 5. Per fixture, the deterministic scores (field meanings in the script header).
    A prediction matches on any of its anchors — its own `file:line` plus every
-   `also` location ([review.md](review.md) → **Summary body format**) — so one
-   sibling-swept finding scores every defect it names:
+   `also` location ([review-mechanics.md](review-mechanics.md) → **Summary body
+   format**) — so one sibling-swept finding scores every defect it names:
 
    ```bash
    bash "$HOME/scripts/benchmark-score.sh" first    "<raw first>"    "$B/manifest.json"
