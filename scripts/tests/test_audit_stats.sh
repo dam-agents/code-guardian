@@ -442,6 +442,53 @@ run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
 
+# --- wake-ups: the preflight passes that found work, by kind of work ---------
+new_case audit_wakeups
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev g1 heartbeat "mode=review nothing_to_do=true reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g2 heartbeat "mode=review nothing_to_do=false reviews=2 nudges=0 mentions=1 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g3 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=1 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g4 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=1"
+ev g5 heartbeat "mode=shepherd nothing_to_do=false reviews=0 nudges=3 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+# written before the kind keys existed: counted, but names no kind
+ev g6 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0"
+# outside the 7-day window
+ev g7 heartbeat "mode=review nothing_to_do=false reviews=5 nudges=0 mentions=0" "$(iso_ago 700000)"
+run_preflight audit
+assert_jq '.stats.wakeups.runs == 5' 'woken runs in the window only, idle ticks excluded'
+assert_jq '.stats.wakeups.by_mode == {review: 4, shepherd: 1}' 'wake-ups split by mode'
+assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 2}' 'review runs and items'
+assert_jq '.stats.wakeups.by_work.mentions.runs == 1 and .stats.wakeups.by_work.artifacts.runs == 1' \
+  'a mention reply and an artifact each count as a run'
+assert_jq '.stats.wakeups.by_work.nudges.items == 3 and .stats.wakeups.by_work.housekeeping.runs == 1' \
+  'nudges and bookkeeping-only runs counted'
+assert_jq '.stats.wakeups.unlabelled == 1' 'a legacy event is counted but unlabelled'
+
+# the heartbeats preflight itself writes, read back by the audit: every kind the
+# audit counts is a key some writer emits, and no current writer is unlabelled
+new_case audit_wakeups_roundtrip
+base_config '- survey: enabled' '- benchmark: enabled'
+mkdir -p "$WORK/survey"
+jq -n '{modules:[{path:"src/api",name:"api"}], noise:[], history:{dirs:[]}}' > "$WORK/PROFILE.json"
+run_preflight survey
+run_preflight benchmark
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+run_preflight audit
+assert_jq '.stats.wakeups.by_mode == {survey: 1, benchmark: 1, review: 1}' 'each pass with work is a wake-up'
+assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 1}
+  and .stats.wakeups.by_work.survey.runs == 1 and .stats.wakeups.by_work.benchmark.runs == 1' \
+  'each pass counts under its own kind'
+assert_jq '.stats.wakeups.unlabelled == 0' 'no current writer is unlabelled'
+missing="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_work | keys')" '
+  [ .[] | select(.event == "heartbeat") | .msg ] as $m
+  | [ $k[] as $x | select(any($m[]; test("(^| )" + $x + "=[0-9]+( |$)")) | not) | $x ] | join(", ")' \
+  "$WORK"/logs/events-*.jsonl 2>/dev/null)" || missing="(the query failed)"
+[ -z "$missing" ] && printf 'ok   %s: every kind the audit reads is a key a heartbeat writes\n' "$CASE" \
+  || { printf 'FAIL %s: kinds no heartbeat writes: %s\n' "$CASE" "$missing"; FAILED=1; }
+
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions
 base_config

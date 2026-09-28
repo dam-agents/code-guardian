@@ -4,7 +4,7 @@
 # Runs once at the end of ONBOARDING (Step 7, after the sentinel is written)
 # and checks that onboarding produced what it promises: the definition
 # checkout at $HOME and the work/ state files, with the STRUCTURE the
-# templates define (ONBOARDING Steps 3b/4, docs/review.md → Tracking format).
+# templates define (ONBOARDING Steps 3b/4, docs/review-mechanics.md → Review tracking state).
 # Shape only — required files, required keys, enum values, table headers,
 # row formats; the data inside is never judged. The goal: every deployed
 # instance looks the same apart from its configuration values.
@@ -111,7 +111,7 @@ fi
 
 # The schedule gate — every scheduled run but the audit starts with it, so a
 # missing or unparsable file sends the whole cadence through its "gate broke"
-# path (docs/runbook.md → **The schedule gate**). Structure only: the gate is
+# path (docs/worklist.md → **The schedule gate**). Structure only: the gate is
 # never executed here, because one fire is one preflight pass and the live
 # section below already spends it.
 GATE="$SCRIPT_DIR/precheck.sh"
@@ -374,7 +374,7 @@ EOF
     fi
   fi
 
-  # --- REVIEWS.md: header + row format (docs/review.md → Tracking format)
+  # --- REVIEWS.md: header + row format (docs/review-mechanics.md → Review tracking state)
   if [ ! -f "$WORK/REVIEWS.md" ]; then
     fail reviews "work/REVIEWS.md missing" "create the header from the ONBOARDING Step 3b template, then reconstruct rows per Step 5"
   else
@@ -397,7 +397,7 @@ EOF
       ok reviews-rows "all rows match the tracking format"
     else
       fail reviews-rows "malformed row(s):$BAD_ROWS" \
-        "rewrite each as '| <number> | <full 40-hex sha> | <YYYY-MM-DDTHH:MM:SSZ> | <verdict> | done|awaiting_label|in_progress |' (docs/review.md → Tracking format)"
+        "rewrite each as '| <number> | <full 40-hex sha> | <YYYY-MM-DDTHH:MM:SSZ> | <verdict> | done|awaiting_label|in_progress |' (docs/review-mechanics.md → Review tracking state)"
     fi
   fi
 
@@ -584,7 +584,7 @@ EOF
     PF_ERR="$(printf '%s' "$PF" | jq -r '.error // empty' 2>/dev/null)"
     if ! printf '%s' "$PF" | jq -e 'has("nothing_to_do")' >/dev/null 2>&1; then
       fail live-preflight "preflight.sh review produced no valid worklist JSON" \
-        "run 'bash \"\$HOME/scripts/preflight.sh\" review' and fix what it reports (docs/runbook.md → The pre-flight contract)"
+        "run 'bash \"\$HOME/scripts/preflight.sh\" review' and fix what it reports (docs/worklist.md → The pre-flight contract)"
     elif [ -n "$PF_ERR" ]; then
       fail live-preflight "preflight.sh review reported: $PF_ERR" \
         "resolve the reported cause, then re-run with --live"

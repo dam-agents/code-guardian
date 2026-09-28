@@ -29,6 +29,7 @@ run_preflight review
 assert_jq '(.ci_failures_due | length) == 1' 'one triage due'
 assert_jq '.ci_failures_due[0] | .number == 1 and .sha == "'"$SHA"'" and .checks == ["build"]' 'entry names the PR, SHA and check'
 assert_jq '.nothing_to_do == false' 'a due triage is work'
+assert_jq '.read_set == ["docs/review.md","docs/ci-triage.md","work/MEMORY.md","work/LESSONS.md"]' 'a triage-only run reads review.md for the comment style'
 assert_jq '.config.ci_triage == "enabled"' 'the resolved key travels in the config object'
 
 # --- still running → nothing --------------------------------------------------

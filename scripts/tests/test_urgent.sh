@@ -24,6 +24,7 @@ assert_jq '.reviews_due | length == 3' 'three reviews due'
 assert_jq '.reviews_due[0] | .number == 2 and .urgent == true' 'urgent PR ordered first'
 assert_jq '[.reviews_due[1,2].number] == [1,3]' 'non-urgent keep stable order'
 assert_jq '.urgent_alerts_due | length == 0' 'no alert while Slack disabled'
+assert_jq '.read_set | index("docs/review-urgent.md") != null' 'an urgent entry adds the urgent file'
 
 # --- Slack enabled → alert due once ------------------------------------------
 new_case urgent_alert

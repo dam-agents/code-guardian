@@ -28,7 +28,7 @@
 # recomputing the decisions.
 #
 # `audit` has no gate: preflight's audit mode always reports work, so the weekly
-# audit keeps the in-session entry command (docs/runbook.md → **The schedule
+# audit keeps the in-session entry command (docs/worklist.md → **The schedule
 # gate**).
 
 set -u
@@ -51,7 +51,7 @@ case "$MODE" in
     printf 'precheck: audit is not gated — its worklist always carries work. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
   '')
-    printf 'precheck: no mode given (use review|shepherd|benchmark|survey). The schedule gate names its mode — docs/runbook.md → **The schedule gate**.\n'
+    printf 'precheck: no mode given (use review|shepherd|benchmark|survey). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'
     exit 2;;
   *)
     printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey).\n' "$MODE"
@@ -84,7 +84,7 @@ fi
 
 if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/dev/null 2>&1; then
   logev error precheck "$MODE gate: preflight printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
-  printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist (exit %s)%s. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+  printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist (exit %s)%s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
   exit 2
 fi
@@ -93,7 +93,7 @@ PRE_ERR="$(printf '%s' "$JSON" | jq -r '.error // empty | tostring')"
 if [ -n "$PRE_ERR" ]; then
   PRE_ERR="$(log_redact "$(printf '%s' "$PRE_ERR" | cut -c1-400)")"
   logev error precheck "$MODE gate: preflight could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
-  printf 'precheck (%s): scripts/preflight.sh could not decide (exit %s): %s. Read docs/runbook.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+  printf 'precheck (%s): scripts/preflight.sh could not decide (exit %s): %s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PRE_RC" "$PRE_ERR"
   exit 2
 fi

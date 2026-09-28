@@ -114,7 +114,7 @@ case "$tool" in
         ;;
     esac
     # locked / done / aborted — the REVIEWS.md row write itself. The row
-    # literal in the command (docs/review.md → Review tracking state) carries
+    # literal in the command (docs/review-mechanics.md → Review tracking state) carries
     # PR, SHA and status, so the milestone is recoverable from the payload:
     # the first in_progress write is `locked`, every later one a lock refresh,
     # `done` is terminal, and releasing a lock this run took (awaiting_label

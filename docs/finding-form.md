@@ -55,9 +55,9 @@ counted in `### Summary`, `_N suggestion(s) dropped under the 🟢 budget._`, so
 a section that reported 🟢 never reads as clean.
 
 **One finding carries every location.** A finding merged by the sibling sweep
-([review.md](review.md) → **Sibling sweep**) names each location in its text
-and lists them all in `also` ([review.md](review.md) → **Summary body
-format**), so one entry never reads as one site.
+([review.md](review.md) → **Sibling sweep**) names each location in its text and
+lists them all in `also` ([review-mechanics.md](review-mechanics.md) → **Summary
+body format**), so one entry never reads as one site.
 
 **A Fix stated for a class names every member of the class.** A **Fix:** that
 reads as a rule — *every*, *each*, *all* — carries the complete location list

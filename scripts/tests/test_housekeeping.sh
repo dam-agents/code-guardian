@@ -2,7 +2,7 @@
 # Housekeeping deferral: bookkeeping that nobody waits on never starts a
 # session by itself. It rides along with the next run that has work of its own,
 # and forces a `housekeeping_only` run past the wait or the item count.
-# Contract: docs/runbook.md → The schedule gate.
+# Contract: docs/worklist.md → The schedule gate.
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"
@@ -53,6 +53,7 @@ assert_jq '.housekeeping_only == true' 'and says the run carries bookkeeping alo
 assert_jq '.prunes_due | length == 1' 'with the pending item in it'
 assert_jq '.logs | any(contains("housekeeping batch"))' 'the batch is logged'
 assert_jq 'has("config") and has("memory")' 'a housekeeping run still gets the resolved config'
+assert_jq '.read_set == ["docs/review-bookkeeping.md"]' 'a housekeeping run reads the bookkeeping file alone'
 
 # --- ten pending items force the run whatever the wait says ------------------
 new_case hk_batch_by_count
@@ -78,6 +79,7 @@ assert_jq '(.reviews_due | length) == 1 and (.prunes_due | length) == 1' 'both a
 assert_jq '.nothing_to_do == false' 'the review starts the run'
 assert_jq 'has("housekeeping_only") == false' 'a run with real work is not a housekeeping run'
 assert_jq '.logs | any(contains("ride along"))' 'the free ride is logged'
+assert_jq '.read_set | index("docs/review.md") != null and index("docs/review-bookkeeping.md") != null' 'the review core and the bookkeeping file are both read'
 
 # --- nothing pending clears the wait -----------------------------------------
 new_case hk_marker_cleared

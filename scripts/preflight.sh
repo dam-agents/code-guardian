@@ -36,7 +36,7 @@
 #                             resets) is deferred until it has waited or
 #                             a run with other work carries it, and the run it
 #                             does start carries `housekeeping_only: true`
-#                             (docs/runbook.md -> The schedule gate)
+#                             (docs/worklist.md -> The schedule gate)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder + merge-conflict flag already
 #                             computed; the agent applies each row_update right
@@ -158,7 +158,7 @@ BENCH_LOCK_TTL_MIN=360
 if [ "$MODE" = "survey" ]; then
   survey_out() { # <nothing_to_do bool> <survey_due json | null>
     printf '%s\n' "$NOW_ISO survey nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=survey nothing_to_do=$1"
+    logev info heartbeat "mode=survey nothing_to_do=$1 survey=$([ "$1" = "false" ] && echo 1 || echo 0)"
     jq -n --argjson nothing "$1" --argjson due "$2" \
       --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
       '{mode:"survey", nothing_to_do:$nothing, logs:$logs}
@@ -252,7 +252,7 @@ fi
 if [ "$MODE" = "benchmark" ]; then
   bench_out() { # <nothing_to_do bool> <benchmark_due json | null>
     printf '%s\n' "$NOW_ISO benchmark nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=benchmark nothing_to_do=$1"
+    logev info heartbeat "mode=benchmark nothing_to_do=$1 benchmark=$([ "$1" = "false" ] && echo 1 || echo 0)"
     jq -n --argjson nothing "$1" --argjson due "$2" \
       --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
       '{mode:"benchmark", nothing_to_do:$nothing, logs:$logs}
@@ -337,7 +337,7 @@ fi
 # and any later event from that run proves it alive. Falls back to the newest
 # event of any run touching this PR when the run id can't be pinned. Prints the
 # holder's run id (8 chars) + minutes since its last event, or nothing when no
-# evidence of life is found. docs/review.md → **Live holder**.
+# evidence of life is found. docs/review-mechanics.md → **Live holder**.
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
   local n="$1" lock_ts="$2" cutoff_epoch cutoff fcut_epoch fcut
   cutoff_epoch=$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))
@@ -360,7 +360,7 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
             else [ $since[] | select(.msg | contains($n)) ] end ) as $ev
         | ( $ev | last ) as $l
         # a holder waiting on its subagents logs nothing, so the fan-out gets its
-        # own window (docs/review.md → Live holder)
+        # own window (docs/review-mechanics.md → Live holder)
         | ( ($l.msg // "") | test("fanned out") ) as $fan
         | ( if $fan then $fcut else $cut end ) as $c
         | ((($now - (($l.ts[0:19] + "Z") | fromdateiso8601)) / 60) | floor) as $mins
@@ -405,13 +405,13 @@ esac
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
 # in-progress lock TTL: minutes after which a lock is *candidate* for takeover.
-# Calibrated above the review pipeline's p95 (docs/review.md → Review tracking
+# Calibrated above the review pipeline's p95 (docs/review-mechanics.md → Review tracking
 # state) — a value under it hands live reviews to a second job.
 LOCK_TTL_MIN=50
 MENTION_PAGES=3                       # comment pages the mention scan follows (docs/mentions.md)
 # a holder that logged anything within this window is alive whatever its lock age
 # says. Must exceed the longest gap a healthy review shows between events —
-# measured at 16.7 min over real runs (docs/review.md → Live holder)
+# measured at 16.7 min over real runs (docs/review-mechanics.md → Live holder)
 HOLDER_QUIET_MIN=20
 # the skill fan-out is the one phase that is structurally silent: the holder is
 # blocked on its subagents and logs nothing until `verified`. Its own window,
@@ -437,7 +437,7 @@ if [ "$CI_TRIAGE" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
   log_warn "lib/ci-rollup.sh unreadable — CI failure triage disabled this run"
 fi
 CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
-# Housekeeping deferral (docs/runbook.md → **The schedule gate**): bookkeeping
+# Housekeeping deferral (docs/worklist.md → **The schedule gate**): bookkeeping
 # alone never starts a session immediately — it rides along with the next run
 # that has work of its own, and forces a run of its own only past this wait or
 # this many pending items. The count caps both the batch and the per-row state
@@ -769,7 +769,9 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length)"
+  # the audit's wake-up count reads these keys back (stats.wakeups); the
+  # audit_wakeups_roundtrip test holds writer and reader together
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
@@ -778,15 +780,41 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+    "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
      + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
-     + (if $profile == null then {} else {profile:$profile} end)'
+     + (if $profile == null then {} else {profile:$profile} end)
+     | if .mode == "review" and (.nothing_to_do | not) then . + {read_set: read_set} else . end'
 }
+
+# The files a review-mode run reads before acting (docs/runbook.md → Review
+# run, step 2): the core per due key, the rare cases only when an entry needs
+# them. A mention reply and a CI triage comment write outward prose, so they
+# read review.md for its style rules and PR-context calls. A file the run needs
+# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
+# trigger, not here.
+READ_SET_JQ='def read_set:
+  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
+    (if [.reviews_due, .mentions_due, .ci_failures_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
+    + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
+    + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
+       then ["docs/review-urgent.md"] else [] end)
+    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
+          or .stall_alert != null
+       then ["docs/review-bookkeeping.md"] else [] end)
+    + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
+          and ((.config.watch_rules // []) | length) > 0
+       then ["docs/watches.md"] else [] end)
+    + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
+    + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
+    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    + ["work/MEMORY.md", "work/LESSONS.md"]
+  end;'
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
@@ -913,7 +941,7 @@ if [ "$MODE" = "review" ]; then
         elif alive="$(holder_alive "$n" "$row_ts")" && [ -n "$alive" ]; then
           # Past the TTL but demonstrably still working: the holder finishes and
           # posts (fastest delivery, no work thrown away). Taking over here is
-          # what destroys a complete fan-out. docs/review.md → **Live holder**.
+          # what destroys a complete fan-out. docs/review-mechanics.md → **Live holder**.
           log "PR #$n: lock past TTL (${age}m) but holder $alive — left running"
         else
           kind="first"; rr_posted "$WORK/reviews/pr-$n.md" && kind="re-review"
@@ -1036,7 +1064,7 @@ if [ "$MODE" = "review" ]; then
   # ------------------------------------------------- progress-signal ETA ----
   # `eta_seconds` per due review: the median wall-clock of recent completed
   # reviews, paired per (run, PR) from the `locked`/`done` review_step events
-  # (docs/review.md → Progress signal on GitHub). Local files only, one jq
+  # (docs/review-bookkeeping.md → Progress signal on GitHub). Local files only, one jq
   # process, and only when a review is due — idle heartbeats pay nothing.
   if [ "$PROGRESS" = "enabled" ] && [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
     ETA_FILES=()
@@ -2080,6 +2108,28 @@ if [ "$MODE" = "audit" ]; then
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
 
+  # Wake-ups — the preflight passes that found work, from the `heartbeat`
+  # events emit(), survey_out() and bench_out() write: a gated fire that started
+  # a session, or an ungated pass (the direct session, the rerun after a broken
+  # gate). `by_work.<kind>` counts the runs that carried that work (`runs`) and
+  # its items; one run can carry several kinds. `unlabelled` counts woken runs
+  # that name no kind: events from before the kind keys.
+  WAKEUPS_WEEK="$(ev_jsonl | jq -rs --arg s "$SINCE_ISO" '
+    [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
+      | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
+      | select(.nothing_to_do == "false") ] as $w
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","stall","housekeeping",
+       "survey","benchmark"] as $k
+    | { runs: ($w | length),
+        by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
+        by_work: ([ $k[] as $x
+                    | {key: $x,
+                       value: { runs: ([ $w[] | select(((.[$x] // "0") | tonumber) > 0) ] | length),
+                                items: ([ $w[] | (.[$x] // "0") | tonumber ] | add // 0) } } ]
+                  | from_entries),
+        unlabelled: ([ $w[] | select(all($k[] as $x | (.[$x] // "0") | tonumber; . == 0)) ] | length) }' 2>/dev/null)"
+  [ -n "$WAKEUPS_WEEK" ] || WAKEUPS_WEEK='null'
+
   # Artifacts published this week, from the `artifact` outcome events the
   # artifact step writes (docs/artifact.md step 6). Counted per PR, so a
   # repeated log line cannot inflate the figure. The events survive a prune,
@@ -2244,7 +2294,7 @@ if [ "$MODE" = "audit" ]; then
   # (lib/review-records.sh): the append-only ledger, unioned with the history
   # files still on disk. Counting the files alone measured "reviews on the PRs
   # that are still open" — pruning deletes a merged PR's file, and with it the
-  # week it was reviewed in (docs/review.md → **Review ledger**).
+  # week it was reviewed in (docs/review-mechanics.md → **Review ledger**).
   if [ "$RR_LIB" -eq 1 ]; then
     REVIEWS_AGG="$(review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" | jq -sc "$RR_AGG_JQ" 2>/dev/null)"
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
@@ -2291,11 +2341,11 @@ if [ "$MODE" = "audit" ]; then
   # the week is counted twice, from two independent sources: reviews from the
   # ledger, durations from `review_step` events. They must stay comparable — a
   # ledger that stopped being appended to, or lost rows, shows up here instead
-  # of as a metric that quietly shrinks (docs/review.md → **Review ledger**).
+  # of as a metric that quietly shrinks (docs/review-mechanics.md → **Review ledger**).
   rv_n="$(printf '%s' "$REVIEWS_AGG" | jq -r '.reviews.total // 0')"
   dur_n="$(printf '%s' "$REVIEW_DUR" | jq -r '.n // 0')"
   if [ "${dur_n:-0}" -ge 10 ] && [ $(( ${rv_n:-0} * 2 )) -lt "$dur_n" ]; then
-    check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review.md → Review ledger)"
+    check review_ledger warn "$rv_n review(s) on record against $dur_n completed review run(s) in the log — treat stats.reviews and stats.findings as a floor (docs/review-mechanics.md → Review ledger)"
   else
     check review_ledger ok "$rv_n review(s) on record, $dur_n completed review run(s) in the log"
   fi
@@ -2491,11 +2541,11 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" \
+    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
-      heartbeats:{total:$hb, idle:$idle}, nudges:{prs_nudged:($np|length), prs:$np},
+      heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       project:$proj}')"

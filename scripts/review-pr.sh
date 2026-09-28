@@ -24,9 +24,12 @@
 #                                          every hit in the clone, for a claim sweep
 #   collect <n>                            skill outputs → audit lines, form
 #                                          warnings, skill_timing event
-#   delta <n> <findings.json>              fixed / still / new against the prior
+#   delta <n> <findings.json> [--settle <i>=still|new]…
+#                                          fixed / still / new against the prior
 #                                          findings-json, PR-local overrides applied,
-#                                          and the annotated array `post` takes
+#                                          and the annotated array `post` takes;
+#                                          --settle overrides an ambiguous pair's
+#                                          suggestion by its `index`
 #   compose-brief <n>                      this PR's compose contract: the body
 #                                          skeleton, the format rules from docs/,
 #                                          its overrides and memory rules, and the
@@ -42,6 +45,11 @@
 #                                          whether it is terminal, which checks
 #                                          failed, and a file of evidence per
 #                                          failing check (docs/ci-triage.md)
+#   verify <n>                             after the PR's last command: the
+#                                          self-check's mechanical lines of its
+#                                          last lock cycle — terminal step,
+#                                          milestones, skill_timing, row, history,
+#                                          ledger, cleanup — local reads only
 #   abort <n> <reason…>                    release the lock per kind, clean up
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
@@ -50,7 +58,7 @@
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
-# files.json, pack.json, risk.json, briefs/, prior.json, collect.json,
+# files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
 # limits.txt, findings.annotated.json). GitHub writes happen only in `rapid` and
 # `post` (the review the agent wrote, the label removal and approval dismissal
 # docs/review.md mandates) and the progress status under review_progress.
@@ -65,8 +73,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#   abort /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|abort) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -83,7 +91,7 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
 LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
-FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review.md → Live holder)
+FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review-mechanics.md → Live holder)
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
@@ -154,7 +162,7 @@ prior_findings() {
   [ -n "$p" ] || { printf '[]\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
 }
-# The last posted review's `review-meta` line (docs/review.md → Summary body
+# The last posted review's `review-meta` line (docs/review-mechanics.md → Summary body
 # format). `{}` when the file, the line or its JSON is absent — a first review,
 # or history written before the line existed.
 prior_meta() {
@@ -180,7 +188,7 @@ prior_overrides() {
 
 # ----------------------------------------------------------- carried review ----
 # A review whose HEAD moved before it could post is kept as the next review's
-# starting point (docs/review.md → Carried review after a HEAD move). Its own
+# starting point (docs/review-rereview.md → Carried review after a HEAD move). Its own
 # file: `reviews/pr-<n>.md` is the published history, and every reader of that
 # file — dedup, the delta base, the audit's acceptance counts, the profile —
 # must never see work nobody published.
@@ -273,7 +281,10 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
 }
 
 # ---------------------------------------------------------------- cleanup ----
-cleanup() { rm -rf "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"; }
+# every temp path of this PR's review: `cleanup` deletes them, `verify` checks
+# that none is left
+tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"); }
+cleanup() { tmp_paths; rm -rf "${TMP_PATHS[@]}"; }
 
 # release the lock per kind (docs/review.md → Error handling): a first review
 # deletes the row; a re-review restores the prior row as it was — `done` for a
@@ -430,7 +441,7 @@ live_change() { # <additions|deletions|changed_files>
 # `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
 # newest step of `fanned out (n=…)`: the holder is then blocked on its
 # subagents, writes no event and touches no tree, so that phase gets
-# FANOUT_QUIET_MIN instead (docs/review.md → Live holder).
+# FANOUT_QUIET_MIN instead (docs/review-mechanics.md → Live holder).
 holder_alive() {
   local recent=0 e cutoff fcut
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
@@ -462,31 +473,58 @@ holder_alive() {
 # ----------------------------------------------------------- hunk index ----
 # $DIFF → $CTX/hunks.json: {path: {right:[new-file lines in hunks], left:[old-file lines]}}
 # The same walk writes $CTX/added.tsv (`<path>\t<line>\t<text>` per added line),
-# which `build_risk` greps — one pass over the diff serves both.
+# which `build_risk` greps, $CTX/files.tsv (`<path>\t<added|removed|modified>`),
+# and one slice per file section in $CTX/diff/ with its `<path>\t<slice>` row in
+# $CTX/diff.tsv (docs/review.md step c) — one pass over the diff serves all.
+# Header lines count only before a section's first `@@`: past it every line is
+# hunk content, so a removed `-- comment` or an added `++ b/x` is never a
+# header. git ends a `---`/`+++` path that holds a space with a TAB.
 build_hunks() {
-  local file="" inhunk=0 oldl=0 newl=0 line h old new tsv="$CTX/hunks.tsv" add="$CTX/added.tsv"
-  : > "$tsv"; : > "$add"
-  while IFS= read -r line; do
+  local file="" opath="" npath="" inhunk=0 oldl=0 newl=0 line p h old new k=0 open=0
+  local tsv="$CTX/hunks.tsv" add="$CTX/added.tsv" ft="$CTX/files.tsv" d="$CTX/diff" map="$CTX/diff.tsv"
+  : > "$tsv"; : > "$add"; : > "$ft"; : > "$map"
+  rm -rf "$d"; mkdir -p "$d" 2>/dev/null || d=""
+  section_end() { # the finished section's file row and slice row
+    [ "$open" -eq 1 ] && exec 3>&-; open=0
+    [ -n "$opath" ] && [ -n "$npath" ] || return 0
+    if [ "$npath" = /dev/null ]; then p="$opath"; printf '%s\tremoved\n' "$p" >> "$ft"
+    elif [ "$opath" = /dev/null ]; then p="$npath"; printf '%s\tadded\n' "$p" >> "$ft"
+    else p="$npath"; printf '%s\tmodified\n' "$p" >> "$ft"; fi
+    [ -n "$d" ] && printf '%s\t%s\n' "$p" "$d/$k.diff" >> "$map"
+    return 0
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      ('diff --git '*) file=""; inhunk=0;;
-      ('+++ b/'*) [ "$inhunk" -eq 0 ] && file="${line#+++ b/}";;
-      ('+++ /dev/null') [ "$inhunk" -eq 0 ] && file="";;
+      ('diff --git '*)
+        section_end
+        file=""; opath=""; npath=""; inhunk=0; k=$((k+1))
+        [ -n "$d" ] && exec 3>"$d/$k.diff" && open=1;;
       ('@@ '*)
         inhunk=1
         h="${line#@@ -}"; old="${h%% *}"; new="${h#* +}"; new="${new%% *}"
         oldl="${old%%,*}"; newl="${new%%,*}"
         case "$oldl" in (*[!0-9]*|'') oldl=0;; esac; case "$newl" in (*[!0-9]*|'') newl=0;; esac;;
       (*)
-        [ "$inhunk" -eq 1 ] && [ -n "$file" ] || continue
-        case "$line" in
-          ('\ No newline'*) ;;
-          ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
-                 printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
-          ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
-          (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
-        esac;;
+        if [ "$inhunk" -eq 0 ]; then
+          case "$line" in
+            ('--- /dev/null') opath=/dev/null;;
+            ('--- a/'*) opath="${line#--- a/}"; opath="${opath%"$TAB"}";;
+            ('+++ /dev/null') npath=/dev/null; file="";;
+            ('+++ b/'*) npath="${line#+++ b/}"; npath="${npath%"$TAB"}"; file="$npath";;
+          esac
+        elif [ -n "$file" ]; then
+          case "$line" in
+            ('\ No newline'*) ;;
+            ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
+                   printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
+            ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
+            (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
+          esac
+        fi;;
     esac
+    [ "$open" -eq 1 ] && printf '%s\n' "$line" >&3
   done < "$DIFF"
+  section_end
   jq -R -s 'split("\n") | map(select(length>0) | split("\t"))
     | group_by(.[0]) | map({key: .[0][0], value: {
         right: [.[] | select(.[1]=="R") | .[2] | tonumber],
@@ -494,6 +532,21 @@ build_hunks() {
     || printf '{}\n' > "$CTX/hunks.json"
   rm -f "$tsv"
 }
+# `.diff` on every reviewable entry of $CTX/files.json — its section of $DIFF,
+# sliced by build_hunks: the agent reads each file's slice once, the noise
+# classes get none, and $DIFF itself stays whole for the tools.
+attach_diff_slices() {
+  local map="$CTX/diff.tsv"
+  if [ -s "$map" ]; then
+    jq --rawfile m "$map" '
+      ($m | split("\n") | map(split("\t") | select(length == 2 and .[1] != "") | {key: .[0], value: .[1]}) | from_entries) as $s
+      | map(if (.class | IN("code","test","docs","config")) and (($s[.path] // "") != "") then . + {diff: $s[.path]} else . end)' \
+      "$CTX/files.json" > "$CTX/files.json.tmp" 2>/dev/null \
+      && mv "$CTX/files.json.tmp" "$CTX/files.json" || rm -f "$CTX/files.json.tmp"
+  fi
+  rm -f "$map"
+}
+
 in_hunk() { # <path> <line> [RIGHT|LEFT] → 0 when the line is inside this PR's hunks
   jq -e --arg p "$1" --argjson l "$2" --arg s "${3:-RIGHT}" \
     '.[$p] | (if $s == "LEFT" then .left else .right end) | index($l) != null' "$CTX/hunks.json" >/dev/null 2>&1
@@ -670,27 +723,23 @@ cmd_prepare() {
   # --- diff + hunk index + files ---
   gh pr diff "$N" --repo "$REPO" > "$DIFF" 2>/dev/null || { : > "$DIFF"; logev warn gh_api "PR #$N: diff fetch did not respond"; }
   build_hunks
-  # the file list with its status from the diff headers: `--- /dev/null` is an
-  # added file, `+++ /dev/null` a deleted one (absent from the clone, listed as
-  # `removed` and routed to no skill), anything else modified
-  grep -E '^(--- |\+\+\+ )' "$DIFF" | paste -d "$TAB" - - \
-    | sed -nE "s#^--- (/dev/null|a/.*)${TAB}\+\+\+ (/dev/null|b/(.*))\$#\1${TAB}\2#p" \
-    | while IFS="$TAB" read -r old new; do
-        case "$new" in
-          (/dev/null) printf '%s\tremoved\n' "${old#a/}";;
-          (*) [ "$old" = /dev/null ] && printf '%s\tadded\n' "${new#b/}" || printf '%s\tmodified\n' "${new#b/}";;
-        esac
-      done | sort -u | jq -R 'split("\t") | {path:.[0], status:.[1]}' | jq -s . > "$CTX/files.raw.json"
+  # the file list with its status from the diff headers (build_hunks):
+  # `--- /dev/null` is an added file, `+++ /dev/null` a deleted one (absent
+  # from the clone, listed as `removed` and routed to no skill), anything else
+  # modified
+  sort -u "$CTX/files.tsv" | jq -R 'split("\t") | {path:.[0], status:.[1]}' | jq -s . > "$CTX/files.raw.json"
+  rm -f "$CTX/files.tsv"
   local slice
   slice="$(bash "$SCRIPT_DIR/profile.sh" slice "$CTX/files.raw.json" 2>/dev/null)"
   { printf '%s' "$slice" | jq -e 'has("files")' >/dev/null 2>&1; } \
     || slice="$(jq -c '{files: map(. + {class:"code"}), noise_count:0, profile_slice:[], structure_changed:[], history_slice:[], memory_due:[]}' "$CTX/files.raw.json")"
   printf '%s' "$slice" | jq '.files' > "$CTX/files.json"
+  attach_diff_slices
   printf '%s' "$slice" | jq '{profile_slice, structure_changed, history_slice, memory_due, noise_count}' > "$CTX/slice.json"
   rm -f "$CTX/files.raw.json"
   build_risk
 
-  # --- delta range (delta-scope re-review only, docs/review.md → Re-review output) ---
+  # --- delta range (delta-scope re-review only, docs/review-rereview.md → Re-review output) ---
   # One compare call decides the range: `ahead` with a patch on every file →
   # delta depth on those files; `identical` → the description-only case (empty
   # range); anything else (diverged/behind after a force-push, 404, truncated)
@@ -718,7 +767,8 @@ cmd_prepare() {
   fi
   # own-change gate: a range whose PR diff is byte-identical to the one the last
   # review digested carries base-branch merges only, so it is not a review round
-  # (docs/review.md → Re-review output). No prior digest → the normal round.
+  # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
+  # `verify` reads the event's `— base merges only` suffix: steps c and d skipped.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -731,7 +781,7 @@ cmd_prepare() {
   # --- carried review: the work a HEAD move discarded, as this review's
   # starting point. One compare call decides the range, exactly as the delta
   # range above; anything but a reachable `ahead` drops the carry and the review
-  # runs at complete depth (docs/review.md → Carried review after a HEAD move).
+  # runs at complete depth (docs/review-rereview.md → Carried review after a HEAD move).
   local cj='null' cy csha chops ckind
   if [ "$mode" = "review" ]; then
     cy="$(carry_read)"
@@ -771,7 +821,7 @@ cmd_prepare() {
 
   # --- prior findings: the anchors and the wording `delta` matches against, so
   # a re-review writes its findings against them instead of guessing them
-  # (docs/review.md → Re-review output) ---
+  # (docs/review-rereview.md → Re-review output) ---
   if [ "$kind" = "re-review" ]; then prior_findings > "$CTX/prior.json"; else printf '[]\n' > "$CTX/prior.json"; fi
 
   # --- clone + base ref (skipped in closed mode: the branch may be gone) ---
@@ -850,8 +900,11 @@ cmd_prepare() {
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi
-    SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg st "$status" --argjson f "$files" --arg b "$brief" --arg c "$copy" \
-      '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end)}}')"
+    # the subagent reads its brief itself: the prompt names the skill and the PR
+    # (the adapter hook derives `skill:<name> done` from them) and the path
+    SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg st "$status" --argjson f "$files" --arg b "$brief" --arg c "$copy" --arg n "$N" \
+      '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end),
+                   prompt:(if $b=="" then null else "Review skill `\($s)` for PR #\($n): read `\($b)` and follow it exactly — it holds your whole task." end)}}')"
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
   if [ "$nrun" -gt 1 ]; then
     mkdir -p "$OUT"
@@ -1014,13 +1067,30 @@ cmd_collect() {
 # any other matched pair is `ambiguous` and carries the `suggest` the block and
 # the annotated array already apply. An open prior that no `still` finding
 # matched is `fixed`; an unmatched current is `new`. PR-local overrides suppress
-# by file:line (±2) or symbol. Always writes the annotated array — the agent's
+# by file:line (±2) or symbol. `--settle <i>=still|new` replaces the suggestion
+# of the ambiguous pair whose current finding is at index <i> of the agent's
+# array, so one rerun settles every pair in block, buckets and annotated alike.
+# Always writes the annotated array — the agent's
 # own findings with `status` filled in, plus the `fixed` carryovers — so `post`
 # takes a file the agent never has to rewrite.
 cmd_delta() {
   need_ctx
-  local cur="${1:-}"
-  [ -n "$cur" ] || fail "usage: delta <n> <findings.json>"
+  local cur="${1:-}" settle='{}' kv k v
+  [ -n "$cur" ] || fail "usage: delta <n> <findings.json> [--settle <i>=still|new]…"
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--settle) kv="${2:-}"; shift 2 || shift
+        # split at the first `=`, then check each side whole: the index is
+        # decimal digits only, the value exactly still or new
+        k="${kv%%=*}"; v="${kv#*=}"
+        case "$k" in (''|*[!0-9]*) fail "--settle takes <index>=still|new, not '$kv'";; esac
+        case "$v" in (still|new) ;; (*) fail "--settle takes <index>=still|new, not '$kv'";; esac
+        # the key the classification looks up: `02` settles index 2
+        settle="$(printf '%s' "$settle" | jq -c --arg k "$((10#$k))" --arg v "$v" '.[$k] = $v')";;
+      (*) fail "unknown delta argument '$1'";;
+    esac
+  done
   # The findings file is the agent's own output, not a prepare artifact: name the
   # missing path so a wrong one is not read as malformed JSON.
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
@@ -1029,11 +1099,11 @@ cmd_delta() {
   local prior overrides ann="$CTX/findings.annotated.json"
   prior="$(prior_findings)"; overrides="$(prior_overrides)"
   local j
-  j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" '
+  j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" --argjson s "$settle" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     # a finding carries one anchor per location: its own file:line plus every
-    # `also` entry (docs/review.md → Summary body format)
+    # `also` entry (docs/review-mechanics.md → Summary body format)
     def anchs($f): [ {file: $f.file, line: $f.line} ]
       + [ ($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line} ];
     def dist($a; $b): [ anchs($a)[] as $x | anchs($b)[] as $y
@@ -1055,7 +1125,7 @@ cmd_delta() {
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
     # one classification per current finding, in the order the agent wrote them
-    | [ $cur[] | . as $y
+    | [ $cur | to_entries[] | .key as $i | .value as $y
         | [ $open[] | select(near($y; .; 3)) ] as $m
         | (if ($m | length) == 0 then {f: $y, cls: "new", prior: null}
            else ($m | map(select(similar(.summary; $y.summary))) | first) as $sim
@@ -1068,12 +1138,16 @@ cmd_delta() {
                    end
                end
            end)
-        | . + {settled: (.suggest // .cls), hits: ovr_hits(.f)} ] as $cl
+        | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)} ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
+    # --settle takes the indexes `ambiguous[]` lists: reported pairs only
+    | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
+    | if ($bad | length) > 0 then {outcome: "error", step: "delta",
+        error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")} else .
     # over every classification, suppressed included: an override hides a
     # finding from the review, it does not fix the defect, so the prior it
     # matches is neither `fixed` nor announced as such
-    | [ $cl[] | select(.settled == "still") | .prior ] as $kept
+    | [ $cl[] | select(.settled == "still" or ((.hits | length) > 0 and .prior != null)) | .prior ] as $kept
     | [ $open[] | . as $x | select([ $kept[] | select(. == $x) ] | length == 0) ] as $gone
     | { still: [ $rep[] | select(.settled == "still")
                  | .f + {prior_line: .prior.line} + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
@@ -1081,7 +1155,7 @@ cmd_delta() {
                  | .f + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
         fixed: $gone,
         ambiguous: [ $rep[] | select(.cls == "ambiguous")
-                     | {current: .f, prior: .prior, suggest: .suggest,
+                     | {index: .index, current: .f, prior: .prior, suggest: .suggest, settled: .settled,
                         severity_match: (.f.severity == .prior.severity), distance: dist(.f; .prior)} ],
         suppressed: [ $cl[] | select((.hits | length) > 0) | .f + {override: .hits[0]} ],
         annotated: ([ $rep[] | .f + {status: .settled} ]
@@ -1090,8 +1164,9 @@ cmd_delta() {
         + [ .fixed[] | "- ✅ **Fixed:** \(.summary) (\(anchor(.)))" ]
         + [ .still[] | "- 🔁 **Still present:** \(.summary) (\(anchor(.)))" ]
         + [ .new[]   | "- 🆕 **New:** \(.summary) (\(anchor(.)))" ] | join("\n") )
-    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o}')"
+    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o} end')"
   { printf '%s' "$j" | jq -e 'type == "object"' >/dev/null 2>&1; } || fail "the delta classification did not produce JSON"
+  [ "$(printf '%s' "$j" | jq -r .outcome)" = error ] && fail "$(printf '%s' "$j" | jq -r .error)"
   printf '%s' "$j" | jq '.annotated' > "$ann.tmp" 2>/dev/null && mv "$ann.tmp" "$ann" \
     || { rm -f "$ann.tmp"; fail "the annotated findings could not be written to $ann"; }
   j="$(printf '%s' "$j" | jq -c --arg a "$ann" '.annotated = $a')"
@@ -1153,7 +1228,7 @@ cmd_compose_brief() {
   else rm -f "$CTX/limits.txt"; fi
 
   printf '# Compose brief — PR #%s @ %s — %s\n' "$N" "$sha7" "$scope"
-  printf '# Rendered for this PR. The rules are quoted from docs/review.md and\n'
+  printf '# Rendered for this PR. The rules are quoted from docs/review-mechanics.md and\n'
   printf '# docs/finding-form.md below — their home, not a second copy.\n\n'
 
   if [ "$CTX_BODY_CHANGED" = true ] || [ "${CTX_NEW_TALK:-0}" -gt 0 ]; then
@@ -1181,7 +1256,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
@@ -1195,12 +1270,12 @@ cmd_compose_brief() {
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
 
-  printf '## findings.json — docs/review.md → Summary body format\n\n'
-  doc_section review.md '### Summary body format' \
-    || printf 'docs/review.md is not readable beside the script — read the section from the definition checkout.\n'
-  printf '\n## comments.json — docs/review.md → Mapping findings to inline comments\n\n'
-  doc_section review.md '### Mapping findings to inline comments' \
-    || printf 'docs/review.md is not readable beside the script.\n'
+  printf '## findings.json — docs/review-mechanics.md → Summary body format\n\n'
+  doc_section review-mechanics.md '### Summary body format' \
+    || printf 'docs/review-mechanics.md is not readable beside the script — read the section from the definition checkout.\n'
+  printf '\n## comments.json — docs/review-mechanics.md → Mapping findings to inline comments\n\n'
+  doc_section review-mechanics.md '### Mapping findings to inline comments' \
+    || printf 'docs/review-mechanics.md is not readable beside the script.\n'
   printf '\n## 🟢 budget — docs/finding-form.md\n\n'
   sed -n '/^\*\*🟢 budget per review/,/^$/p' "$SCRIPT_DIR/../docs/finding-form.md" 2>/dev/null \
     || printf 'docs/finding-form.md is not readable beside the script.\n'
@@ -1209,7 +1284,7 @@ cmd_compose_brief() {
   if [ "$kind" = "re-review" ]; then
     printf -- '- prior findings: `%s` (%s still open) — write this round against their anchors and wording\n' \
       "$CTX/prior.json" "$(jq '[.[] | select(.status != "fixed")] | length' "$CTX/prior.json" 2>/dev/null || printf 0)"
-    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle each `ambiguous` pair there, then post that file\n' \
+    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle the `ambiguous` pairs you change in one rerun with `--settle <index>=still|new`, then post that file\n' \
       "$N" "$CTX" "$CTX/findings.annotated.json"
   else
     if jq -e '.reachable' "$CTX/carry.json" >/dev/null 2>&1; then
@@ -1229,7 +1304,7 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review.md → Summary body format)\n'
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review-mechanics.md → Summary body format)\n'
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
   # so the shell never stands in the directory it removes (docs/review.md step f)
   # a re-review posts the file `delta` annotated, a first review its own list
@@ -1316,12 +1391,12 @@ cmd_post() {
       '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
     out "$(jq -nc --argjson c "$crit" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \
       '{outcome:"closed_criticals", criticals:$c, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
-        next:"file the issue per docs/review.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
+        next:"file the issue per docs/review-urgent.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
   fi
   if [ "$live_sha" != "$sha" ]; then
     # the findings are the next review's starting point, never a posted review:
     # the reader has seen nothing, so the work is carried and the narrative is
-    # not (docs/review.md → Carried review after a HEAD move)
+    # not (docs/review-rereview.md → Carried review after a HEAD move)
     local cr carried restart nxt
     cr="$(carry_write "$sha" "$now" "$(ctx_get '.run // ""')" "$kind" "$FINDINGS")"
     carried="${cr%% *}"; restart="${cr##* }"
@@ -1362,7 +1437,7 @@ cmd_post() {
   # --- anchor check: every findings-json line must exist in the file it names ---
   # A finding whose anchor does not exist points the author at nothing and can
   # 422 the POST, so the line is nulled (summary-only) and reported; the finding
-  # itself is never dropped (docs/review.md → Summary body format).
+  # itself is never dropped (docs/review-mechanics.md → Summary body format).
   local anchor_bad='[]'
   if [ -d "$PR_DIR" ]; then
     local lens
@@ -1520,7 +1595,7 @@ append_history() { # sha7 ts verdict body-file findings note kind — the body a
 
 # The same review as one JSONL row in work/REVIEW-LEDGER.jsonl — the file the
 # week's volume, verdict and findings numbers are counted from, because pruning
-# deletes the history file above (docs/review.md → **Review ledger**).
+# deletes the history file above (docs/review-mechanics.md → **Review ledger**).
 # Best-effort by design: a row that cannot be built or written is logged and
 # never fails the post.
 append_ledger() { # sha7 ts verdict body-file findings kind
@@ -1550,6 +1625,98 @@ append_ledger() { # sha7 ts verdict body-file findings kind
                   | { status: (.status // "unknown"), severity: (.severity // "unknown") } ] }' 2>/dev/null)"
   [ -n "$row" ] && printf '%s\n' "$row" >> "$LEDGER" 2>/dev/null \
     || logev warn review_ledger "PR #$N: the ledger row for the review at $1 was not written"
+}
+
+# ================================================================== verify ====
+# The mechanical lines of the review-run self-check (docs/review.md → Review-run
+# self-check) for one PR's last lock cycle — from this run's last `locked` step
+# to the end of the log — after the PR's last command, in one call: local reads
+# only — this run's events, REVIEWS.md, the history file, the ledger and the
+# temp paths. No GitHub call, no write. The lines that need judgment stay the
+# agent's.
+cmd_verify() {
+  local run="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  [ -n "$run" ] || fail "no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID), so this run's events cannot be told apart — check the terminal step, milestones, skill_timing, row, history, ledger and cleanup by hand"
+  local cy checks="" term sha7 lts miss fanout collected row st rsha rts hts left="" f
+  chk() { checks="$checks$1$TAB$2$TAB$3
+"; }
+  # one tolerant pass over every retained events file, as holder_alive reads
+  # them — a torn line is skipped, never the end of the read
+  cy="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
+    | jq -sc --arg run "$run" --arg pr "$N" '
+      [ .[] | select(.run == $run and (.event | IN("review_step", "skill_timing", "skill_run", "review_pr")))
+        | . as $e | (($e.msg // "") | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
+        | select($c.pr == $pr)
+        | { event: $e.event, ts: (($e.ts // "") | sub("\\.[0-9]+Z$"; "Z")),
+            sha: ((($c.rest | capture("^(?<s>[0-9a-f]{7,40})( |$)")) | .s) // ""),
+            step: ($c.rest | sub("^[0-9a-f]{7,40}( +|$)"; "")) } ] as $ev
+      | ([ $ev | to_entries[] | select(.value.event == "review_step" and .value.step == "locked") | .key ] | last) as $i
+      | if $i == null then null else
+          $ev[$i:] as $cy
+          | [ $cy[] | select(.event == "review_step") | .step ] as $steps
+          # prepare logs `… — base merges only` for a range that leaves the PR
+          # diff untouched: steps c and d are skipped (docs/review-rereview.md)
+          | any($cy[]; .event == "review_pr" and (.step | endswith("base merges only"))) as $base
+          | { lock_ts: $ev[$i].ts,
+              last: ([ $cy[] | select(.event == "review_step") ] | last),
+              missing: [ ((if $base then [] else ["fanned out (n=", "verified"] end) + ["composed"])[] as $m
+                         | select(any($steps[]; startswith($m)) | not) | $m ],
+              fanout: any($steps[]; test("^fanned out \\(n=[1-9]")),
+              collected: any($cy[]; .event == "skill_timing" or .event == "skill_run") }
+        end' 2>/dev/null)"
+  [ -n "$cy" ] || fail "the events log in $LOG_DIR could not be read"
+  [ "$cy" != null ] || out "$(jq -nc --arg pr "$N" '{outcome:"not_locked", detail:("this run took no lock on PR #" + $pr + " — nothing to verify")}')"
+  { read -r term; read -r sha7; read -r lts; read -r miss; read -r fanout; read -r collected; } \
+    < <(printf '%s' "$cy" | jq -r '.last.step, .last.sha, .lock_ts, (.missing | join(", ")), .fanout, .collected')
+  case "$term" in
+    (done) chk terminal ok "done at $sha7";;
+    (aborted*) chk terminal ok "$term";;
+    (*) chk terminal fail "no terminal step after the lock — last step: ${term:-none}; run post or abort";;
+  esac
+  if [ "$term" = done ]; then
+    [ -z "$miss" ] && chk milestones ok "every milestone of the cycle logged" \
+      || chk milestones fail "missing review_step: $miss"
+    if [ "$fanout" = true ]; then
+      [ "$collected" = true ] && chk skill_timing ok "collect ran after the fan-out" \
+        || chk skill_timing fail "no skill_timing or skill_run event after the fan-out — collect did not run before the post; report the missing skill audit lines in chat"
+    fi
+  fi
+  row="$(row_for)"; st="$(row_field "$row" 6)"; rsha="$(row_field "$row" 3)"; rts="$(row_field "$row" 4)"
+  case "$term" in
+    (done|"aborted duplicate"*)
+      # a post, or a duplicate self-healed from the remote marker: done at this SHA
+      if [ "$st" = done ] && [ -n "$sha7" ] && [ "${rsha#"$sha7"}" != "$rsha" ]; then chk row ok "done at $sha7"
+      else chk row fail "REVIEWS.md row is '${st:-absent}' at '${rsha:0:7}', want done at $sha7"; fi;;
+    (aborted*)
+      # a released lock deletes the row or restores the prior one, which is
+      # older than this lock (docs/review.md → Error handling)
+      case "$st" in
+        ('') chk row ok "absent — the lock was released";;
+        (in_progress) chk row fail "REVIEWS.md row still in_progress — release the lock per docs/review.md → Error handling";;
+        (done|awaiting_label)
+          if [[ "$rts" < "$lts" ]]; then chk row ok "$st — the prior row restored"
+          else chk row fail "REVIEWS.md row '$st' at $rts is not older than the lock at $lts — a released lock restores the prior row or deletes it"; fi;;
+        (*) chk row fail "REVIEWS.md row status '$st' — a released lock restores done or awaiting_label, or deletes the row";;
+      esac;;
+    (*) [ "$st" = in_progress ] && chk row fail "REVIEWS.md row still in_progress — the lock is held; run post or abort" \
+          || chk row ok "${st:-absent}";;
+  esac
+  if [ "$term" = done ]; then
+    # this cycle's post, not an older review at the same SHA: its timestamp is
+    # at or after the lock
+    hts="$(sed -n "s/^## Review at $sha7 — \([^ ]*\) — .*/\1/p" "$WORK/reviews/pr-$N.md" 2>/dev/null | tail -1)"
+    [ -n "$hts" ] && ! [[ "$hts" < "$lts" ]] && chk history ok "reviews/pr-$N.md at $hts" \
+      || chk history fail "no '## Review at $sha7' section of this cycle in reviews/pr-$N.md"
+    grep -F "\"sha\":\"$sha7\"" "$LEDGER" 2>/dev/null \
+      | jq -e -R --argjson pr "$N" --arg l "$lts" 'fromjson? // empty | select(.pr == $pr and .ts >= $l)' >/dev/null 2>&1 \
+      && chk ledger ok "row at $sha7" || chk ledger fail "no ledger row of this cycle for PR #$N at $sha7"
+  fi
+  tmp_paths
+  for f in "${TMP_PATHS[@]}"; do [ -e "$f" ] && left="$left ${f##*/}"; done
+  [ -z "$left" ] && chk cleanup ok "no temp paths left" || chk cleanup fail "left behind:$left"
+  out "$(printf '%s' "$checks" | jq -Rsc '[ split("\n")[] | select(length > 0) | split("\t")
+      | {check: .[0], status: .[1], detail: (.[2:] | join("\t"))} ]
+    | {outcome: (if any(.[]; .status == "fail") then "issues" else "ok" end), checks: .}')"
 }
 
 # =================================================================== abort ====
@@ -1611,6 +1778,6 @@ case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
-  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";;
+  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
   (abort) cmd_abort "$@";;
 esac

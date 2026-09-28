@@ -78,6 +78,13 @@ assert_event 'PR #1 '"${B1_SHA:0:7}"' locked' 'locked event'
 assert_event 'PR #1 '"${B1_SHA:0:7}"' cloned' 'cloned event'
 assert_jq '.files | map(.class) == ["lockfile","code","code"]' 'changed files classified'
 assert_jq '.files | map(.status) == ["modified","modified","added"]' 'file status read from the diff headers'
+# one diff slice per reviewable file, none for noise (docs/review.md step c)
+assert_jq '.files | map(has("diff")) == [false,true,true]' 'a slice per code file, none for the lockfile'
+jq -r '.files[] | select(.diff) | .diff' <<<"$OUT" | while read -r d; do head -1 "$d"; done | grep -c '^diff --git' | grep -qx 2 \
+  && grep -q '^+NEW6 query()$' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && ! grep -q 'gamma' "$(jq -r '.files[] | select(.path=="src/alpha.ts") | .diff' <<<"$OUT")" \
+  && printf 'ok   %s: each slice holds its own file section only\n' "$CASE" || { printf 'FAIL %s: slices wrong\n' "$CASE"; FAILED=1; }
+assert_jq '.skills["typescript-engineering"].prompt == "Review skill `typescript-engineering` for PR #1: read `'"$(PR_DIR)"'.ctx/briefs/typescript-engineering.md` and follow it exactly — it holds your whole task."' 'the subagent prompt names skill, PR and brief path'
 assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineering"].status == "run" and (.skills["typescript-engineering"].files == ["src/alpha.ts","src/gamma.ts"])' 'always + extension routing; the .yaml lockfile is noise and routes nowhere'
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
@@ -196,6 +203,42 @@ grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
 grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
 run_rp abort 1 "reset"
 
+# --- the diff walk: headers are read before a section's first @@ only -----------
+# A path with a space (git ends its ---/+++ line with a TAB), a deleted file, a
+# rename with an edit, a removed SQL comment (the diff line `--- note`) and an
+# added line `++ b/src/beta.ts` (the diff line `+++ b/src/beta.ts`).
+setup diff_walk_headers
+mkdir -p "$FX/docs" "$FX/db"
+printf 'intro\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\n-- note\nselect 2;\n' > "$FX/db/q.sql"
+seq 1 20 > "$FX/src/long.ts"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm more-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" merge -q --no-edit main
+printf 'intro\n++ b/src/beta.ts\n' > "$FX/docs/User Guide.md"
+printf 'select 1;\nselect 2;\n' > "$FX/db/q.sql"
+git -C "$FX" rm -q src/beta.ts
+git -C "$FX" mv src/long.ts src/moved.ts && sed -i.bak 's/^5$/five/' "$FX/src/moved.ts" && rm -f "$FX/src/moved.ts.bak"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm edge
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff -M main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+assert_jq '[.files[] | {(.path): .status}] | add | ."docs/User Guide.md" == "modified" and ."db/q.sql" == "modified" and ."src/beta.ts" == "removed" and ."src/moved.ts" == "modified" and ."src/alpha.ts" == "modified" and ."src/gamma.ts" == "added"' 'every section listed once with its status'
+assert_jq '.files | length == 7' 'no path invented from hunk content'
+assert_jq '[.files[] | select(.class != "lockfile") | .diff | type == "string" and length > 0] | all' 'every reviewable file has a slice path'
+GUIDE="$(jq -r '.files[] | select(.path == "docs/User Guide.md") | .diff' <<<"$OUT")"
+BETA="$(jq -r '.files[] | select(.path == "src/beta.ts") | .diff' <<<"$OUT")"
+head -1 "$GUIDE" 2>/dev/null | grep -qx 'diff --git a/docs/User Guide.md b/docs/User Guide.md' \
+  && grep -qx '+++ b/src/beta.ts' "$GUIDE" && head -1 "$BETA" 2>/dev/null | grep -qx 'diff --git a/src/beta.ts b/src/beta.ts' \
+  && printf 'ok   %s: a header-shaped content line stays in its own slice\n' "$CASE" \
+  || { printf 'FAIL %s: slices wrong (guide=%s beta=%s)\n' "$CASE" "$GUIDE" "$BETA"; FAILED=1; }
+jq -e '."docs/User Guide.md".right == [1,2] and ."db/q.sql".left == [1,2,3] and ."db/q.sql".right == [1,2]' "$(PR_DIR).ctx/hunks.json" >/dev/null \
+  && printf 'ok   %s: the hunk index keys the spaced path without its TAB and counts every content line\n' "$CASE" \
+  || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
+run_rp abort 1 "reset"
+
 # --- prepare gates ---------------------------------------------------------------
 setup prepare_gates
 pr_fx open '[]' "$B1_SHA" true
@@ -307,7 +350,7 @@ assert_jq '(.skills["typescript-engineering"].files | length) == 2' 'an unreacha
 run_rp abort 1 "reset"
 
 # a range that leaves the PR's own diff untouched holds base-branch merges only
-# (docs/review.md → Re-review output)
+# (docs/review-rereview.md → Re-review output)
 diff_dg() { { if command -v sha256sum >/dev/null 2>&1; then sha256sum
     elif command -v shasum >/dev/null 2>&1; then shasum -a 256
     else cksum; fi; } < "$SANDBOX/diff.txt" 2>/dev/null | tr -dc '0-9a-f' | cut -c1-12; }
@@ -325,7 +368,14 @@ add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '[]'; ahead_fx
 run_rp prepare 1 --on-demand
 assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as base merges only'
-run_rp abort 1 "reset"
+# steps c and d are skipped, so `composed` is the one milestone verify asks for
+run_rp step 1 composed
+printf '### Summary\n%s\n\n### Verdict\nCOMMENT — ok\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)" > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the base-merges-only round posts'
+run_rp verify 1
+assert_jq '.checks[] | select(.check == "milestones") | .status == "ok"' 'a base-merges-only round needs no fan-out or verified milestone'
 
 setup delta_own_change_moved
 PRIOR="1111111111111111111111111111111111111111"
@@ -390,6 +440,21 @@ jq -e 'any(.[]; .file == "src/gamma.ts" or .file == "src/uses-alpha.ts")' "$A" >
   && { printf 'FAIL %s: a suppressed finding reached the annotated array\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: overrides keep their findings out of the annotated array\n' "$CASE"
 assert_jq '.prior_count == 2' 'the prior count is reported'
+assert_jq '.ambiguous[0].index == 2 and .ambiguous[0].settled == "new"' 'an ambiguous pair names the index --settle takes'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 2=still
+assert_jq '.ambiguous[0].settled == "still" and (.still | length) == 2 and (.new | length) == 0' 'one --settle rerun moves the pair to still'
+assert_jq '.block | contains("🔁 **Still present:** name the constant") and (contains("🆕") | not)' 'the rerun rebuilds the block'
+jq -e 'map(.status) == ["still","still","fixed"]' "$A" >/dev/null \
+  && printf 'ok   %s: the rerun rewrites the annotated statuses\n' "$CASE" \
+  || { printf 'FAIL %s: annotated after --settle wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+run_rp delta 1 "$SANDBOX/cur.json" --settle 0=new
+assert_jq '.outcome == "error" and (.error | contains("no ambiguous pair at index 0"))' 'a --settle on a settled finding is refused'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 2=maybe
+assert_jq '.outcome == "error" and (.error | contains("<index>=still|new"))' 'a --settle value other than still|new is refused'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 2==still
+assert_jq '.outcome == "error" and (.error | contains("<index>=still|new"))' 'a --settle value with a second = is refused'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 02=still
+assert_jq '.outcome == "ok" and .ambiguous[0].settled == "still" and (.new | length) == 0' 'a --settle index with a leading zero settles that index'
 # A wrong path is a missing file, not malformed JSON: the error must say so, or the
 # next run reads "not a JSON array" and looks for a parse bug that is not there.
 run_rp delta 1 "$SANDBOX/nope.json"
@@ -427,6 +492,12 @@ assert_jq '.suppressed | length == 1' 'the override suppresses this round report
 assert_jq '.fixed == []' 'the prior it matches is never announced as fixed'
 assert_jq '.still == [] and .new == []' 'a suppressed finding is in no reported bucket'
 assert_jq '.block == "### Changes since last review"' 'the block says nothing about it'
+# a suppressed near miss: not offered for settling, and its prior stays open
+printf '[{"status":"new","severity":"suggestion","file":"src/gamma.ts","line":2,"inline":false,"summary":"unchecked error return","fix":null}]' > "$SANDBOX/cur-sup-amb.json"
+run_rp delta 1 "$SANDBOX/cur-sup-amb.json"
+assert_jq '(.suppressed | length) == 1 and .ambiguous == [] and .fixed == []' 'a suppressed ambiguous pair is not listed and fixes nothing'
+run_rp delta 1 "$SANDBOX/cur-sup-amb.json" --settle 0=new
+assert_jq '.outcome == "error" and (.error | contains("no ambiguous pair at index 0"))' 'a --settle on a suppressed pair is refused'
 run_rp abort 1 "reset"
 
 # --- delta: a merged finding matches on any of its `also` anchors ----------------
@@ -484,6 +555,50 @@ assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
 
+# --- verify: the self-check's mechanical lines after post / abort ----------------
+setup verify_posted
+run_rp verify 1
+assert_jq '.outcome == "not_locked"' 'a PR this run never locked has nothing to verify'
+OUT="$(env -u CLAUDE_CODE_SESSION_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
+       PATH="$T_DIR/bin:$PATH" bash "$RP" verify 1 2>/dev/null)"
+assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'without a run id verify refuses, never not_locked'
+# an earlier lock cycle of this run: its collect does not count for the next one
+run_rp prepare 1; run_rp step 1 "fanned out (n=2)"; run_rp collect 1; run_rp abort 1 "restart"
+run_rp prepare 1
+run_rp step 1 "fanned out (n=2)"
+run_rp verify 1
+assert_jq '.outcome == "issues" and (.checks[] | select(.check == "terminal") | .status == "fail" and (.detail | contains("fanned out")))' 'mid-pipeline: no terminal step, the last step named'
+assert_jq '.checks[] | select(.check == "cleanup") | .status == "fail"' 'mid-pipeline: temp paths still there'
+run_rp step 1 verified; run_rp step 1 composed
+printf '### Summary\nx\n\n### Verdict\nCOMMENT — ok\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'posted'
+# a torn line in an older events file is skipped, never the end of the read
+printf '{"ts":"2000-01-01T00:00:00Z","run":"x","ms\n' > "$WORK/logs/events-2000-01-01.jsonl"
+run_rp verify 1
+assert_jq '[.checks[] | select(.status == "ok") | .check] == ["terminal","milestones","row","history","ledger","cleanup"]' 'a posted review passes terminal, milestones, row, history, ledger and cleanup'
+assert_jq '.outcome == "issues" and ([.checks[] | select(.status == "fail") | .check] == ["skill_timing"])' 'a fan-out without collect in its own lock cycle is the one failure'
+setup verify_collected
+run_rp prepare 1
+run_rp step 1 "fanned out (n=2)"
+run_rp collect 1
+assert_jq '.skills | map(.status) == ["skill-errored","skill-errored"]' 'every skill errored'
+run_rp step 1 verified; run_rp step 1 composed
+printf '### Summary\nx\n\n### Verdict\nCOMMENT — ok\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":80,"html_url":"https://example.test/r/80","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+run_rp verify 1
+assert_jq '.outcome == "ok" and (.checks[] | select(.check == "skill_timing") | .status == "ok")' 'a collect whose skills all errored still counts as run'
+setup verify_aborted
+run_rp prepare 1
+run_rp abort 1 "test abort"
+run_rp verify 1
+assert_jq '.outcome == "ok" and ([.checks[].check] == ["terminal","row","cleanup"])' 'an abort verifies the terminal step, the released lock and the cleanup'
+add_row 1 "$B1_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" - awaiting_label
+run_rp verify 1
+assert_jq '.outcome == "issues" and (.checks[] | select(.check == "row") | .status == "fail" and (.detail | contains("not older than the lock")))' 'a row written after the lock is no released lock'
+
 # --- post: anchors that are not a line of the file they name are nulled ----------
 setup post_anchor_check
 run_rp prepare 1
@@ -513,6 +628,8 @@ assert_jq '.outcome == "aborted" and (.reason | contains("HEAD moved"))' 'moved 
 assert_file_contains "$WORK/REVIEWS.md" '| 1 | 0000000000000000000000000000000000000000 | .* | COMMENT | awaiting_label |' 'awaiting_label restored from the prior'
 assert_event 'aborted HEAD moved' 'abort event with reason'
 grep -q 'reviews -X POST' "$SANDBOX/gh.log" && { printf 'FAIL %s: a review was posted despite the moved HEAD\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing posted\n' "$CASE"
+run_rp verify 1
+assert_jq '.outcome == "ok" and (.checks[] | select(.check == "row") | .detail | contains("prior row restored"))' 'verify accepts the restored prior row of an aborted re-review'
 
 # --- post: a marker already on GitHub → duplicate, row self-healed ----------------
 setup post_duplicate
@@ -613,6 +730,13 @@ printf '{"id":81,"html_url":"https://example.test/r/81","state":"COMMENTED"}' | 
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted" and .review_id == 81' 'the older marker at this SHA is the prior, not a duplicate'
 [ "$(grep -c '^## Review at' "$WORK/reviews/pr-1.md")" -eq 2 ] && printf 'ok   %s: second review appended\n' "$CASE" || { printf 'FAIL %s: history count\n' "$CASE"; FAILED=1; }
+run_rp verify 1
+assert_jq '[.checks[] | select(.check == "history" or .check == "ledger") | .status] == ["ok","ok"]' 'verify finds this cycle'"'"'s history section and ledger row'
+# only the prior review at this SHA left: it predates the lock
+printf '# PR #1: alpha PR\n\n## Review at %s — 2026-09-02T10:00:00Z — COMMENT\n\nx\n' "${B1_SHA:0:7}" > "$WORK/reviews/pr-1.md"
+printf '{"src":"ledger","pr":1,"ts":"2026-09-02T10:00:00Z","sha":"%s"}\n' "${B1_SHA:0:7}" > "$WORK/REVIEW-LEDGER.jsonl"
+run_rp verify 1
+assert_jq '[.checks[] | select(.check == "history" or .check == "ledger") | .status] == ["fail","fail"]' 'the prior review at the same SHA does not stand in for this cycle'
 
 # --- takeover of a dead run's lock: no usable prior, abort deletes the row ---------
 setup takeover_case
@@ -1047,7 +1171,7 @@ assert_jq '.outcome == "posted"' 'the body that carries the line posts'
 assert_file_contains "$WORK/reviews/pr-1.md" '_Limits: the clone failed' 'the posted body states the limit'
 
 # --- post: the ledger row carries the style and refutation measurements --------
-# docs/review.md → **Review ledger**: the week's noise and style numbers are
+# docs/review-mechanics.md → **Review ledger**: the week's noise and style numbers are
 # read off these two fields, so a posted review must write both.
 setup post_measurements
 pr_fx open '[]'

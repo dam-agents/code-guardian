@@ -50,8 +50,9 @@ correct output.
   the base branch. The changed-file list is the reviewed scope's: the diff at
   the fresh `headRefOid`, or the files changed since a reachable range —
   `prepare`'s `files[]` intersected with `delta.files[]` on a delta re-review
-  ([review.md](review.md) → **Re-review output**) or with `carry.files[]` on a
-  carried first review ([review.md](review.md) → **Carried review after a HEAD
+  ([review-rereview.md](review-rereview.md) → **Re-review output**) or with
+  `carry.files[]` on a carried first review
+  ([review-rereview.md](review-rereview.md) → **Carried review after a HEAD
   move**). The `code`, `test`, `docs` and `config` classes route; the noise
   classes and deleted files do not ([profile.md](profile.md) → **In the
   worklist**).
@@ -71,8 +72,10 @@ brief. Every skill's arguments are fixed at that point — a subagent never
 derives its own file list.
 
 **Then fan out: one subagent per skill with status `run`, all launched in a
-single message** so they run concurrently. Each prompt is the contents of its
-brief file (`paths.briefs/<skill>.md`), rendered by `prepare` from
+single message** so they run concurrently. Each prompt is that skill's
+`skills.<skill>.prompt` verbatim — one line naming the skill, the PR and its
+brief file (`paths.briefs/<skill>.md`), which the subagent reads itself.
+`prepare` renders the brief from
 [`scripts/templates/skill-brief.md`](../scripts/templates/skill-brief.md). The
 brief carries:
 
@@ -111,9 +114,11 @@ per-skill duration ([logging.md](logging.md) → **Reading skill timings**).
 
 **Then collect in table order**, whatever order the subagents finished in: each
 file's findings become that skill's `### <section>`, merged across sources per
-[review.md](review.md) → **Merging findings across sources**. A section is
-never posted unread, and no finding is lost on the way in. On re-reviews the
-section is condensed per [review.md](review.md) → **Re-review output**.
+[review.md](review.md) → **Merging findings across sources**. Read each
+output file once; the subagent's reply carries only the path and the count. A
+section is never posted unread, and no finding is lost on the way in. On re-reviews the
+section is condensed per [review-rereview.md](review-rereview.md) → **Re-review
+output**.
 
 **Severity is graded by the review, not by the skill.** Every blocking skill
 finding passes the same verification and the same severity bar as your own
