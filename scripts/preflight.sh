@@ -788,11 +788,14 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
 
 # The files a review-mode run reads before acting (docs/runbook.md → Review
 # run, step 2): the core per due key, the rare cases only when an entry needs
-# them. A file the run needs later — a `carry`, a `closed_*` post, an on-demand
-# ask — is read on that trigger, not here.
+# them. A mention reply and a CI triage comment write outward prose, so they
+# read review.md for its style rules and PR-context calls. A file the run needs
+# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
+# trigger, not here.
 READ_SET_JQ='def read_set:
   if .housekeeping_only then ["docs/review-bookkeeping.md"] else
-    (if (.reviews_due | length) > 0 then ["docs/review.md", "docs/finding-form.md", "docs/skills.md"] else [] end)
+    (if [.reviews_due, .mentions_due, .ci_failures_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
     + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
        then ["docs/review-urgent.md"] else [] end)

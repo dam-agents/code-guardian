@@ -1,11 +1,12 @@
 # Reviewing a PR
 
-Read this file when the worklist's `read_set` names it — `reviews_due`
-non-empty — or before an on-demand review. Preflight decided; you act.
-`scripts/review-pr.sh` performs the mechanical steps, and its two
-HEAD-freshness checks plus the pre-post dedup re-check guard the window between
-preflight and post time. The cases a first review rarely meets have their own
-files, read on their trigger: [review-rereview.md](review-rereview.md),
+Read this file when the worklist's `read_set` names it — `reviews_due`,
+`mentions_due` or `ci_failures_due` non-empty — or before an on-demand review.
+Preflight decided; you act. `scripts/review-pr.sh` performs the mechanical
+steps, and its two HEAD-freshness checks plus the pre-post dedup re-check guard
+the window between preflight and post time. The cases a first review rarely
+meets have their own files, read on their trigger:
+[review-rereview.md](review-rereview.md),
 [review-urgent.md](review-urgent.md),
 [review-bookkeeping.md](review-bookkeeping.md),
 [review-on-demand.md](review-on-demand.md) and
@@ -451,7 +452,6 @@ Before you declare the run done:
   that ended on a failing check answered post-then-marker
   ([ci-triage.md](ci-triage.md)).
 - **`review_progress: enabled`** — every locked PR on a terminal `success`
-  status; `status_resets_due` closed out and their rows deleted.
+  status.
 - **Every `reviews_due` PR reached a terminal state** — the run never ended
-  mid-pipeline, for example after a skill report; all errors logged; no
-  unexpanded repo placeholder in any output.
+  mid-pipeline, for example after a skill report.

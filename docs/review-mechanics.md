@@ -4,7 +4,9 @@ What `scripts/review-pr.sh` does for you: the posted payload, the tracking
 rows, the history file and the ledger. `compose-brief` prints the two sections
 step e needs (**Summary body format**, **Mapping findings to inline comments**).
 Read the whole file in the manual fallback, or to write a history-file section
-yourself.
+yourself; under `review_progress: enabled` the manual fallback also writes the
+status rows of [review-bookkeeping.md](review-bookkeeping.md) → **Progress
+signal on GitHub**.
 
 ## Posting the GitHub review
 

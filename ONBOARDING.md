@@ -378,13 +378,14 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      `label`.
    - **`urgent_label`** — an optional, human-managed label that makes a PR's
      due reviews jump the queue and arrive rapid-first, plus one Slack alert
-     under `slack_notifications: enabled` (`docs/review.md` → **Urgent PRs**).
-     Default off (omit the key). A named label is validated or created like the
-     re-review label.
+     under `slack_notifications: enabled` (`docs/review-urgent.md` → **Urgent
+     PRs**). Default off (omit the key). A named label is validated or created
+     like the re-review label.
    - **`review_progress`** — whether a review's progress shows on the PR as a
-     commit status (`docs/review.md` → **Progress signal on GitHub**). Mention
-     that the status is always `success` when it finishes, so it never blocks a
-     merge, and that its name in the checks list is the `review_marker`.
+     commit status (`docs/review-bookkeeping.md` → **Progress signal on
+     GitHub**). Mention that the status is always `success` when it finishes,
+     so it never blocks a merge, and that its name in the checks list is the
+     `review_marker`.
      Default `disabled`; write the key only on a yes.
    - **`ci_triage`** — whether a failing check on a reviewed commit gets one
      comment naming the probable cause and the smallest fix
@@ -585,7 +586,7 @@ Independent schedules — the shepherd one only under
 schedules survive restarts and are visible to the operator.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
-decides whether a fire starts a session at all (`docs/runbook.md` → **The
+decides whether a fire starts a session at all (`docs/worklist.md` → **The
 schedule gate**); the audit is ungated because its worklist always carries work.
 
 **Reconcile with what is registered; never create blindly.** Start with
@@ -727,7 +728,7 @@ with the verification result (the `PASS` line plus any warnings):
      **`<bot_login>`**'s review on GitHub (with `rereview_trigger`
      `review-request`/`both`), or asks for it in the connected Slack channel or
      in a comment @-mentioning **`<bot_login>`**. The last two are delta-only
-     (`docs/review.md` → **On-demand review**).
+     (`docs/review-on-demand.md` → **On-demand review**).
    - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
      jump the queue, rapid-preliminary-first.
    - Assigning **`<bot_login>`** to a PR requests a visual artifact, when

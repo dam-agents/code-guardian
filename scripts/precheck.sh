@@ -28,7 +28,7 @@
 # recomputing the decisions.
 #
 # `audit` has no gate: preflight's audit mode always reports work, so the weekly
-# audit keeps the in-session entry command (docs/runbook.md → **The schedule
+# audit keeps the in-session entry command (docs/worklist.md → **The schedule
 # gate**).
 
 set -u

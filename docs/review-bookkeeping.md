@@ -123,6 +123,7 @@ triage; record a recurring cause as an operational lesson
 ## Self-check
 
 - **Bookkeeping** — every `selfheals_due` / `label_cleanups_due` /
-  `prunes_due` / `status_resets_due` entry executed and logged.
+  `prunes_due` / `status_resets_due` entry executed and logged; every status
+  reset on its terminal `success` row, its REVIEWS.md row deleted.
 - **`stall_alert`** — reported, DM'd under Slack, `stall_alert_sent` logged, no
   state "repaired".

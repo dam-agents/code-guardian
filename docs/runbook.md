@@ -72,7 +72,9 @@ still valid at post time*.
    `closed_*` outcome, [review-on-demand.md](review-on-demand.md) when a
    mention asks for a review. **With `housekeeping_only`** the set is
    [review-bookkeeping.md](review-bookkeeping.md) alone: go straight to step 4,
-   then steps 10 and 11. Configuration comes from the worklist's `config`
+   then steps 10 and 11. No `read_set` (the manual fallback) → read the
+   **Where** file of every due key in [worklist.md](worklist.md) → **The
+   pre-flight contract**. Configuration comes from the worklist's `config`
    object, the repository map from each entry's `profile_slice` and
    `work/PROFILE.md` ([profile.md](profile.md)).
 3. Send every `urgent_alerts_due` alert **first** — marker write immediately
@@ -98,7 +100,9 @@ still valid at post time*.
    in response.
 10. Walk the self-check of every file this run read that has one — the
     review-run self-check at the end of [review.md](review.md), and the
-    **Self-check** section of each other file in `read_set`.
+    **Self-check** section of each other file in `read_set` — then confirm
+    every error logged and no unexpanded repo placeholder in any output
+    (**Hard invariants**).
 11. **Back up `work/`** as the very last action —
     `bash "$HOME/scripts/work-backup.sh" persist`, a no-op without `work_repo`
     ([persistence.md](persistence.md)). This also persists preflight's
@@ -295,7 +299,7 @@ triage and the 14-day retention cleanup already happened inside preflight
 | File | Read when |
 | --- | --- |
 | [worklist.md](worklist.md) | A run with no worklist from the gate (the audit, the direct session, a broken gate), a preflight with no JSON, or an operator ask about the gate — the schedule gate, the entry command, the worklist keys, runtime configuration |
-| [review.md](review.md) | `read_set` names it (`reviews_due` non-empty), or an on-demand review — per-PR sequence, PR context, criteria, first-review output, merging, guards, overrides, errors, self-check |
+| [review.md](review.md) | `read_set` names it (`reviews_due`, `mentions_due` or `ci_failures_due` non-empty), or an on-demand review — per-PR sequence, PR context, criteria, first-review output, merging, guards, overrides, errors, self-check |
 | [review-rereview.md](review-rereview.md) | `read_set` names it (a re-review is due), or `prepare` returns a `carry` — re-review output, delta scope, carried reviews, stale-approval dismissal |
 | [review-urgent.md](review-urgent.md) | `read_set` names it (an `urgent` or `closed` entry, `urgent_alerts_due`), or `post` returns `closed_*` — rapid-first delivery, the closed-PR issue |
 | [review-bookkeeping.md](review-bookkeeping.md) | `read_set` names it (self-heals, label cleanups, prunes, status resets, `stall_alert`) — the only file of a `housekeeping_only` run |
