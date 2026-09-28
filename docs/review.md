@@ -27,7 +27,9 @@ never fatal — preflight re-emits the entry.
 
 ## Pruning (`prunes_due`)
 
-Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED.
+Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
+candidates are the REVIEWS.md rows and the history files without a row — the
+urgent alert or a PR-local override writes that file before the first review.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
 `<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
@@ -39,7 +41,8 @@ deletes it.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
    work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
    (**Review ledger**).
-3. Delete the PR's REVIEWS.md row, and its `work/SHEPHERD.md` row when present.
+3. Delete the PR's REVIEWS.md row when present, and its `work/SHEPHERD.md` row
+   when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
 ## Per-PR review sequence (`reviews_due`)

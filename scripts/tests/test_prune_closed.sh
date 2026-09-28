@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Prune detection: verified CLOSED/MERGED rows prune (with artifact ids); a
-# closed PR whose row is a RAPID in_progress lock defers the prune and emits a
-# closed:true review entry (the owed full review — docs/review.md).
+# Prune detection: verified CLOSED/MERGED rows prune (with artifact ids), and so
+# do history files without a row; a closed PR whose row is a RAPID in_progress
+# lock defers the prune and emits a closed:true review entry (the owed full
+# review — docs/review.md).
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"
@@ -27,6 +28,27 @@ run_preflight review
 assert_jq '.prunes_due | length == 1' 'one prune due'
 assert_jq '.prunes_due[0] | .number == 5 and .state == "CLOSED" and .dam_id == "dam_1" and (has("gist_id") | not)' 'prune carries artifact ids'
 assert_jq '.reviews_due | length == 0' 'nothing to review'
+
+# --- a history file without a row: the alert marker of a PR closed before review --
+new_case prune_file_without_row
+base_config '- urgent_label: urgent' '- slack_notifications: enabled'
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+closed_pr_fx 5 "$SHA5" false
+printf '# PR #5: gone PR\n<!-- urgent-announced: 2026-09-28T10:00:00Z -->\n' > "$WORK/reviews/pr-5.md"
+printf '# PR #1: still open\n' > "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '.prunes_due | length == 1 and .[0].number == 5 and .[0].state == "CLOSED" and .[0].dam_id == null' 'a history file without a row prunes once its PR is closed'
+assert_jq '.reviews_due | length == 0' 'a closed PR without a row owes no review'
+
+# --- a history file without a row for an open PR stays -----------------------
+new_case keep_file_without_row_open
+base_config
+{ pr_json 1 "still open" '[]' "$SHA1"; pr_json 2 "draft PR" '[]' "$SHA5" | jq '.draft = true'; } | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+printf '# PR #2: draft PR\n\n## PR-local overrides\n\n- [2026-09-28 from user] Ignore: x\n' > "$WORK/reviews/pr-2.md"
+run_preflight review
+assert_jq '.prunes_due | length == 0' 'the history file of an open PR is no prune candidate'
 
 # --- RAPID lock + merged PR → closed review entry instead of prune ------------
 new_case closed_rapid_defers_prune

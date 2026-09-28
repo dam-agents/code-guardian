@@ -571,6 +571,16 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
 row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
+# prune candidates: every row in row order, then every history file without a
+# row — the urgent alert or a PR-local override writes the file before the
+# first review, so a PR that closes before `prepare` leaves a file no row prunes
+prune_candidates() {
+  local f
+  reviews_rows | cut -d'|' -f2 | tr -d ' '
+  for f in "$WORK"/reviews/pr-*.md; do
+    f="${f##*/pr-}"; f="${f%.md}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
+  done | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-') | sort -un
+}
 
 # stale-clone sweep: clones a dead session never removed (live-run cleanup is
 # the review pipeline's, docs/review.md). Reclaim only entries past the lock TTL
@@ -831,10 +841,10 @@ if [ "$MODE" = "review" ]; then
   # --- prune detection (verified per PR; the agent executes the prune) ---
   PRUNE_STATES="$PF_TMP/prune-states.jsonl"; : > "$PRUNE_STATES"
   if [ "$OPEN_COUNT" -gt 0 ]; then
-    prune_states $(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
+    prune_states $(prune_candidates | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
       > "$PRUNE_STATES"
   fi
-  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
+  for n in $(prune_candidates); do
     if open_numbers | grep -qx "$n"; then
       # Open, but absent from the non-draft set = turned draft. A draft is never
       # reviewed, so a lock on it is abandoned work: the agent closes out its
@@ -852,7 +862,7 @@ if [ "$MODE" = "review" ]; then
       fi
       continue
     fi
-    if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
+    if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows or history files exist — prune detection skipped (anomaly)"; break; fi
     PJ="$(jq -c --argjson n "$n" 'select(.n == $n) | .pj' "$PRUNE_STATES" 2>/dev/null | head -1)"
     [ -n "$PJ" ] || PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
     state="$(printf '%s' "$PJ" | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end' 2>/dev/null)"
