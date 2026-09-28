@@ -3,9 +3,9 @@
 This repository is an **agent definition**, not an application. Read
 **[`CLAUDE.md`](CLAUDE.md)** first, under any harness: it names the run types
 and the one rule every run with work follows — read
-**[`docs/runbook.md`](docs/runbook.md)** for the pre-flight entry command, the
-worklist contract, the run procedures, the trust boundary and the hard
-invariants.
+**[`docs/runbook.md`](docs/runbook.md)** for the run procedures, the trust
+boundary and the hard invariants; the pre-flight entry command and the worklist
+contract are in [`docs/worklist.md`](docs/worklist.md).
 
 Reading order for a run:
 

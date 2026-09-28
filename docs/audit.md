@@ -91,7 +91,7 @@ skipped task is an incomplete audit — a task that is impossible this week
    - **Gates:** every Step 6 schedule except this audit carries
      `spec.precheck` = `bash "$HOME/scripts/precheck.sh" <its mode>`. A missing
      or wrong one → **warn**: that job wakes the model on idle ticks
-     (runbook.md → **The schedule gate**). A `precheck` on the audit → **warn**
+     (worklist.md → **The schedule gate**). A `precheck` on the audit → **warn**
      too; the audit is ungated by design.
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
      temporary monitor is theirs to watch — report an unrecognised schedule as
@@ -114,7 +114,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 10. **Re-review scope matches the trigger** — `### Changes since last review`
     present; delta re-reviews keep Findings = 🆕 only with one-line carryovers
     and no repeated `✅ Looks good`; label-triggered ones list all current
-    findings ([review.md](review.md) → **Re-review output**).
+    findings ([review-rereview.md](review-rereview.md) → **Re-review output**).
 11. **Memory compliance** — MEMORY.md Custom Rules and Ignore List respected;
     nothing from the Ignore List flagged.
 12. **Overrides respected** — no finding dismissed in that PR's
@@ -157,8 +157,9 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 ### G. Trends & anomalies (compute, then judge)
 
 `stats.reviews` and `stats.findings` count the week from the review ledger
-([review.md](review.md) → **Review ledger**), `reviews.prs` the PRs behind
-them; a `review_ledger` warn makes them a floor, not a measurement.
+([review-mechanics.md](review-mechanics.md) → **Review ledger**), `reviews.prs`
+the PRs behind them; a `review_ledger` warn makes them a floor, not a
+measurement.
 
 22. **Time-to-first-review** — for this week's first reviews, the median time
     from PR ready to review posted (PR `createdAt`/ready timestamp via one
@@ -184,7 +185,7 @@ them; a `review_ledger` warn makes them a floor, not a measurement.
     signal.
 26. **Idle-tick pulse** — the idle-heartbeat ratio from `stats` (idle/total).
     This measures the **gate**, not spend: a ratio near zero with no reviews
-    means something re-triggers work every run (runbook.md → **The schedule
+    means something re-triggers work every run (worklist.md → **The schedule
     gate**). Spend is measured in task 27, never inferred from this ratio.
     `stats.wakeups` counts the preflight passes that found work, the direct
     session's included, and splits them by `by_mode` and by the work they

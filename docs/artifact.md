@@ -90,5 +90,10 @@ erroring → log and stop this PR. A missing DAM surface never fails the run.
    ```
 
 The saved HTML is persisted `work/` state. It and the DAM artifact are
-deleted by the prune step when the PR closes ([review.md](review.md) →
-**Pruning**).
+deleted by the prune step when the PR closes
+([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
+
+## Self-check
+
+- Redacted before the first publish, published to the DAM Artifact Library,
+  one comment with the link, marker recorded.

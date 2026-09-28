@@ -22,7 +22,7 @@ ticks — cost nothing, and a started run receives the worklist the gate already
 computed instead of recomputing it. Bookkeeping that nobody waits on — prunes,
 self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
-([`docs/runbook.md`](docs/runbook.md) → **The schedule gate**).
+([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**).
 
 **Review heartbeat** — every 5 minutes inside the active window (default
 Mon–Fri 08–21 platform time), hourly in the quiet hours outside it.
@@ -101,9 +101,10 @@ enter it ([`docs/benchmark.md`](docs/benchmark.md)).
 **The definition is split so the always-loaded part stays small.**
 [`CLAUDE.md`](CLAUDE.md) holds only the run types and the rule to read
 [`docs/runbook.md`](docs/runbook.md) once preflight reports work; the runbook
-holds the worklist contract, the run procedures and the hard invariants; every
-other procedure lives in its own `docs/` file, read only when the matching work
-happens. An idle heartbeat loads the bootstrap alone.
+holds the run procedures and the hard invariants; every other procedure lives
+in its own `docs/` file, read only when the matching work happens — a review
+run reads exactly the `read_set` preflight computes for its worklist. An idle
+heartbeat loads nothing.
 
 **The definition is versioned** ([`VERSION`](VERSION) +
 [`CHANGELOG.md`](CHANGELOG.md)). At updates, on demand, and before any
@@ -175,10 +176,10 @@ the agent; it flips the flag, and builds the roster on first enable.
 Independently of this opt-in, **anyone** in the connected channel — or in a
 GitHub comment @-mentioning the bot — can ask the agent to review a specific
 PR, equivalent to adding the re-review label, including restarting a stuck
-review (`docs/review.md` → **On-demand review**). Any other change request from
-a channel is declined and automatically filed as a tracking issue on the
-definition repo, with the link in the reply (`docs/runbook.md` → **Instruction
-sources & trust boundary**).
+review (`docs/review-on-demand.md` → **On-demand review**). Any other change
+request from a channel is declined and automatically filed as a tracking issue
+on the definition repo, with the link in the reply (`docs/runbook.md` →
+**Instruction sources & trust boundary**).
 
 ## Configuration
 
@@ -206,8 +207,8 @@ what it can and asking for the rest. Per-key semantics are in
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`) | How re-reviews are requested: `label`, `review-request` (needs the bot as a collaborator), or `both`. A served review request clears itself. |
-| `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first, and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review.md` → **Urgent PRs**). |
-| `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a commit status on the reviewed SHA (`docs/review.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
+| `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first, and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review-urgent.md` → **Urgent PRs**). |
+| `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a commit status on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
 | `project_profile` | defaulted to `enabled` | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
@@ -303,8 +304,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   resolution, run types, and the rule to read the runbook once preflight
   reports work.
 - [`docs/runbook.md`](docs/runbook.md) — the operating manual read only then:
-  worklist contract, run procedures, trust boundary, hard invariants, and the
-  map of `docs/`.
+  run procedures, trust boundary, hard invariants, and the map of `docs/`.
+- [`docs/worklist.md`](docs/worklist.md) — the schedule gate, the entry
+  command and the worklist contract, read by a run without a gated worklist.
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
   every run type; detects work, never acts on GitHub.
 - [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one
@@ -321,9 +323,10 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   skill briefs, the prior findings), `step`, `guard` (the live HEAD re-read at a
   phase boundary, so a commit landing mid-review stops the run before it pays
   for the phases below it), `context`, `sweep`, `collect`, `delta` (fixed/still/new plus the
-  annotated findings), `compose-brief` (this PR's compose contract, with the
+  annotated findings, `--settle` for the ambiguous pairs), `compose-brief` (this PR's compose contract, with the
   conversation refreshed), `rapid`, `post` (Check 2, dedup, inline eligibility,
-  payload, 422 handling, label, history, cleanup) and `abort`. The agent
+  payload, 422 handling, label, history, cleanup), `verify` (the self-check's
+  mechanical lines, local reads only) and `abort`. The agent
   decides what the review says.
 - [`scripts/profile.sh`](scripts/profile.sh) — the project profile: builds and
   refreshes `work/PROFILE.md` from the target repo's default branch
