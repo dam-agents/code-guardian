@@ -81,7 +81,9 @@ function calling the binary directly.
 ## Who writes what
 
 1. **`scripts/preflight.sh`** (automatic) — sources log.sh with
-   `LOG_JOB=<mode>`: one `heartbeat` summary per run, every worklist `log` line
+   `LOG_JOB=<mode>`: one `heartbeat` summary per run (`key=value` pairs, the
+   worklist's item count per kind, which the audit's wake-up count reads —
+   [audit.md](audit.md) task 26), every worklist `log` line
    (`preflight`, info), and the errors it would otherwise swallow —
    unresolvable repo or API-list failures (`preflight`, error), silent GitHub
    API failures at decision sites (`gh_api`, warn), skill install failures

@@ -64,7 +64,7 @@ write, and it never touches state outside `work/audit/`.
 | Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog, artifacts published | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label`, `stats.artifacts` |
 | Quality | verdict split, findings raised by severity, findings per review, acceptance ratio, 👍/👎 | `stats.findings`, `stats.reactions` |
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
-| Cost | heartbeats and idle share, tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.tokens`, the price table, extras |
+| Cost | heartbeats and idle share, wake-ups by work (reviews / mention replies / artifacts), tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.wakeups`, `stats.tokens`, the price table, extras |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts | `stats.stalls`, `stats.log_events`, `checks[]` |
 | Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
 
@@ -107,9 +107,9 @@ reads the ledger and the history files through `scripts/lib/review-records.sh`,
 which parses each `findings-json` as the one line
 [review-mechanics.md](review-mechanics.md) → **Summary body format** writes, so
 that shape and this parser change together. Everything measured from the event
-log (time, tokens, cost, heartbeats, stalls) has a 14-day retention and stays
-absent. A week already on record is never overwritten, so the command is safe to
-repeat.
+log (time, tokens, cost, heartbeats, wake-ups, stalls) has a 14-day retention
+and stays absent. A week already on record is never overwritten, so the command
+is safe to repeat.
 
 ## Reading it
 
