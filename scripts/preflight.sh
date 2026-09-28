@@ -574,6 +574,16 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
 row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
+# prune candidates: every row in row order, then every history file without a
+# row — the urgent alert, an override or a CI triage marker writes the file
+# before the first review, and a draft's status reset deletes the row
+prune_candidates() {
+  local f
+  reviews_rows | cut -d'|' -f2 | tr -d ' '
+  for f in "$WORK"/reviews/pr-*.md; do
+    f="${f##*/pr-}"; f="${f%.md}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
+  done | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-') | sort -un
+}
 
 # stale-clone sweep: clones a dead session never removed (live-run cleanup is
 # the review pipeline's, docs/review.md). Reclaim only entries past the lock TTL
@@ -862,10 +872,10 @@ if [ "$MODE" = "review" ]; then
   # --- prune detection (verified per PR; the agent executes the prune) ---
   PRUNE_STATES="$PF_TMP/prune-states.jsonl"; : > "$PRUNE_STATES"
   if [ "$OPEN_COUNT" -gt 0 ]; then
-    prune_states $(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
+    prune_states $(prune_candidates | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
       > "$PRUNE_STATES"
   fi
-  for n in $(reviews_rows | cut -d'|' -f2 | tr -d ' '); do
+  for n in $(prune_candidates); do
     if open_numbers | grep -qx "$n"; then
       # Open, but absent from the non-draft set = turned draft. A draft is never
       # reviewed, so a lock on it is abandoned work: the agent closes out its
@@ -883,9 +893,14 @@ if [ "$MODE" = "review" ]; then
       fi
       continue
     fi
-    if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows exist — prune detection skipped (anomaly)"; break; fi
+    if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows or history files exist — prune detection skipped (anomaly)"; break; fi
     PJ="$(jq -c --argjson n "$n" 'select(.n == $n) | .pj' "$PRUNE_STATES" 2>/dev/null | head -1)"
     [ -n "$PJ" ] || PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
+    # a number with no pull request (a history file named for an issue): no
+    # state to verify, no prune — the audit's orphan_history check reports it
+    if printf '%s' "$PJ" | jq -e '.message? == "Not Found"' >/dev/null 2>&1; then
+      log "PR #$n: no pull request with this number — prune skipped"; continue
+    fi
     state="$(printf '%s' "$PJ" | jq -r 'if .merged then "MERGED" else (.state|ascii_upcase) end' 2>/dev/null)"
     [ -z "$state" ] && logev warn gh_api "PR #$n: state check did not respond — prune skipped this run"
     case "$state" in
@@ -1841,13 +1856,16 @@ if [ "$MODE" = "audit" ]; then
   elif [ -n "$unread" ]; then check closed_rows warn "close time unreadable (API) for rows of non-open PRs: $unread$pend_note"
   else check closed_rows ok "every row maps to an open PR$pend_note"; fi
 
+  # an open PR keeps its file without a row (the urgent alert before the first
+  # review, a draft's override); a non-open one is a prune that did not happen
   orphan_files=0
   for f in "$WORK"/reviews/pr-*.md; do
     [ -f "$f" ] || continue
     n="${f##*/pr-}"; n="${n%.md}"
-    [ -n "$(row_for "$n")" ] || orphan_files=$((orphan_files+1))
+    [ -n "$(row_for "$n")" ] && continue
+    open_numbers | grep -qx "$n" || orphan_files=$((orphan_files+1))
   done
-  [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row" || check orphan_history ok "history files all match rows"
+  [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row or an open PR" || check orphan_history ok "every history file has a row or an open PR"
 
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
