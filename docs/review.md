@@ -415,10 +415,12 @@ code that moved past its override lets the finding surface normally.
 Before you declare the run done:
 
 - **Per reviewed PR, mechanical** — chain `&& review-pr.sh verify <n>` onto
-  the PR's `post` or `abort` command. It checks the terminal step, the
-  milestones, `skill_timing`, the row, the history file, the ledger and the
-  cleanup in one call. Every `fail` check names what to repair; `ok` settles
-  those lines.
+  the PR's last `review-pr.sh` command: `post`, `abort`, or the one that
+  returned `head_moved`. It checks the last lock cycle's terminal step,
+  milestones, `skill_timing`, row, history file, ledger and cleanup in one
+  call. `ok` settles those lines; every `fail` check of `issues` names what to
+  repair; `not_locked` means this run took no lock on the PR; `error` names the
+  lines to check by hand.
 - **Per reviewed PR** — one GitHub review carrying the full-SHA marker · Check
   1, Check 2 and the dedup re-check done, the re-review trigger check included
   · row refreshed at each milestone · live holder re-checked before the lock

@@ -45,8 +45,9 @@
 #                                          whether it is terminal, which checks
 #                                          failed, and a file of evidence per
 #                                          failing check (docs/ci-triage.md)
-#   verify <n>                             after post/abort: the self-check's
-#                                          mechanical lines — terminal step,
+#   verify <n>                             after the PR's last command: the
+#                                          self-check's mechanical lines of its
+#                                          last lock cycle — terminal step,
 #                                          milestones, skill_timing, row, history,
 #                                          ledger, cleanup — local reads only
 #   abort <n> <reason…>                    release the lock per kind, clean up
@@ -280,7 +281,10 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
 }
 
 # ---------------------------------------------------------------- cleanup ----
-cleanup() { rm -rf "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"; }
+# every temp path of this PR's review: `cleanup` deletes them, `verify` checks
+# that none is left
+tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"); }
+cleanup() { tmp_paths; rm -rf "${TMP_PATHS[@]}"; }
 
 # release the lock per kind (docs/review.md → Error handling): a first review
 # deletes the row; a re-review restores the prior row as it was — `done` for a
@@ -764,6 +768,7 @@ cmd_prepare() {
   # own-change gate: a range whose PR diff is byte-identical to the one the last
   # review digested carries base-branch merges only, so it is not a review round
   # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
+  # `verify` reads the event's `— base merges only` suffix: steps c and d skipped.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -1070,15 +1075,19 @@ cmd_collect() {
 # takes a file the agent never has to rewrite.
 cmd_delta() {
   need_ctx
-  local cur="${1:-}" settle='{}' kv
+  local cur="${1:-}" settle='{}' kv k v
   [ -n "$cur" ] || fail "usage: delta <n> <findings.json> [--settle <i>=still|new]…"
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
       (--settle) kv="${2:-}"; shift 2 || shift
-        case "$kv" in ([0-9]*=still|[0-9]*=new) ;; (*) fail "--settle takes <index>=still|new, not '$kv'";; esac
-        case "${kv%%=*}" in (*[!0-9]*) fail "--settle takes <index>=still|new, not '$kv'";; esac
-        settle="$(printf '%s' "$settle" | jq -c --arg k "${kv%%=*}" --arg v "${kv#*=}" '.[$k] = $v')";;
+        # split at the first `=`, then check each side whole: the index is
+        # decimal digits only, the value exactly still or new
+        k="${kv%%=*}"; v="${kv#*=}"
+        case "$k" in (''|*[!0-9]*) fail "--settle takes <index>=still|new, not '$kv'";; esac
+        case "$v" in (still|new) ;; (*) fail "--settle takes <index>=still|new, not '$kv'";; esac
+        # the key the classification looks up: `02` settles index 2
+        settle="$(printf '%s' "$settle" | jq -c --arg k "$((10#$k))" --arg v "$v" '.[$k] = $v')";;
       (*) fail "unknown delta argument '$1'";;
     esac
   done
@@ -1130,14 +1139,15 @@ cmd_delta() {
                end
            end)
         | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)} ] as $cl
-    | ([ $s | keys[] | tonumber ] - [ $cl[] | select(.cls == "ambiguous") | .index ]) as $bad
+    | [ $cl[] | select((.hits | length) == 0) ] as $rep
+    # --settle takes the indexes `ambiguous[]` lists: reported pairs only
+    | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
     | if ($bad | length) > 0 then {outcome: "error", step: "delta",
         error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")} else .
-    | [ $cl[] | select((.hits | length) == 0) ] as $rep
     # over every classification, suppressed included: an override hides a
     # finding from the review, it does not fix the defect, so the prior it
     # matches is neither `fixed` nor announced as such
-    | [ $cl[] | select(.settled == "still") | .prior ] as $kept
+    | [ $cl[] | select(.settled == "still" or ((.hits | length) > 0 and .prior != null)) | .prior ] as $kept
     | [ $open[] | . as $x | select([ $kept[] | select(. == $x) ] | length == 0) ] as $gone
     | { still: [ $rep[] | select(.settled == "still")
                  | .f + {prior_line: .prior.line} + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
@@ -1619,54 +1629,94 @@ append_ledger() { # sha7 ts verdict body-file findings kind
 
 # ================================================================== verify ====
 # The mechanical lines of the review-run self-check (docs/review.md → Review-run
-# self-check) for one PR, after its `post` or `abort`, in one call: local reads
+# self-check) for one PR's last lock cycle — from this run's last `locked` step
+# to the end of the log — after the PR's last command, in one call: local reads
 # only — this run's events, REVIEWS.md, the history file, the ledger and the
 # temp paths. No GitHub call, no write. The lines that need judgment stay the
 # agent's.
 cmd_verify() {
-  local checks='[]' files=() f raw cycle ln last term sha7="" row st want miss="" m left=""
-  chk() { checks="$(printf '%s' "$checks" | jq -c --arg c "$1" --arg s "$2" --arg d "$3" '. + [{check:$c, status:$s, detail:$d}]')"; }
-  for f in "$LOG_DIR"/events-*.jsonl; do [ -f "$f" ] && files+=("$f"); done
-  # this run's review_step lines for this PR, "<sha?> <step>" as logged
-  raw=""
-  [ "${#files[@]}" -gt 0 ] && raw="$(jq -r --arg run "$LOG_RUN" --arg pr "$N" '
-    select(.run == $run and .event == "review_step") | .msg
-    | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$") | select(.pr == $pr) | .rest' "${files[@]}" 2>/dev/null)"
-  # the last lock cycle: from the last bare `locked` to the end
-  ln="$(printf '%s\n' "$raw" | sed -E 's/^[0-9a-f]{7,40} +//' | grep -n '^locked$' | tail -1 | cut -d: -f1)"
-  [ -n "$ln" ] || out "$(jq -nc --arg pr "$N" '{outcome:"not_locked", detail:("this run never locked PR #" + $pr + " — nothing to verify")}')"
-  cycle="$(printf '%s\n' "$raw" | tail -n +"$ln")"
-  last="$(printf '%s\n' "$cycle" | grep -v '^$' | tail -1)"
-  term="$(printf '%s' "$last" | sed -E 's/^[0-9a-f]{7,40} +//')"
+  local run="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  [ -n "$run" ] || fail "no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID), so this run's events cannot be told apart — check the terminal step, milestones, skill_timing, row, history, ledger and cleanup by hand"
+  local cy checks="" term sha7 lts miss fanout collected row st rsha rts hts left="" f
+  chk() { checks="$checks$1$TAB$2$TAB$3
+"; }
+  # one tolerant pass over every retained events file, as holder_alive reads
+  # them — a torn line is skipped, never the end of the read
+  cy="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
+    | jq -sc --arg run "$run" --arg pr "$N" '
+      [ .[] | select(.run == $run and (.event | IN("review_step", "skill_timing", "skill_run", "review_pr")))
+        | . as $e | (($e.msg // "") | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
+        | select($c.pr == $pr)
+        | { event: $e.event, ts: (($e.ts // "") | sub("\\.[0-9]+Z$"; "Z")),
+            sha: ((($c.rest | capture("^(?<s>[0-9a-f]{7,40})( |$)")) | .s) // ""),
+            step: ($c.rest | sub("^[0-9a-f]{7,40}( +|$)"; "")) } ] as $ev
+      | ([ $ev | to_entries[] | select(.value.event == "review_step" and .value.step == "locked") | .key ] | last) as $i
+      | if $i == null then null else
+          $ev[$i:] as $cy
+          | [ $cy[] | select(.event == "review_step") | .step ] as $steps
+          # prepare logs `… — base merges only` for a range that leaves the PR
+          # diff untouched: steps c and d are skipped (docs/review-rereview.md)
+          | any($cy[]; .event == "review_pr" and (.step | endswith("base merges only"))) as $base
+          | { lock_ts: $ev[$i].ts,
+              last: ([ $cy[] | select(.event == "review_step") ] | last),
+              missing: [ ((if $base then [] else ["fanned out (n=", "verified"] end) + ["composed"])[] as $m
+                         | select(any($steps[]; startswith($m)) | not) | $m ],
+              fanout: any($steps[]; test("^fanned out \\(n=[1-9]")),
+              collected: any($cy[]; .event == "skill_timing" or .event == "skill_run") }
+        end' 2>/dev/null)"
+  [ -n "$cy" ] || fail "the events log in $LOG_DIR could not be read"
+  [ "$cy" != null ] || out "$(jq -nc --arg pr "$N" '{outcome:"not_locked", detail:("this run took no lock on PR #" + $pr + " — nothing to verify")}')"
+  { read -r term; read -r sha7; read -r lts; read -r miss; read -r fanout; read -r collected; } \
+    < <(printf '%s' "$cy" | jq -r '.last.step, .last.sha, .lock_ts, (.missing | join(", ")), .fanout, .collected')
   case "$term" in
-    (done) sha7="$(printf '%s' "$last" | cut -d' ' -f1)"; chk terminal ok "done at $sha7";;
+    (done) chk terminal ok "done at $sha7";;
     (aborted*) chk terminal ok "$term";;
     (*) chk terminal fail "no terminal step after the lock — last step: ${term:-none}; run post or abort";;
   esac
-  steps() { printf '%s\n' "$cycle" | sed -E 's/^[0-9a-f]{7,40} +//'; }
   if [ "$term" = done ]; then
-    for m in 'fanned out (n=' verified composed; do steps | grep -qF -- "$m" || miss="$miss, $m"; done
-    [ -z "$miss" ] && chk milestones ok "fanned out, verified, composed" \
-      || chk milestones fail "missing review_step: ${miss#, }"
-    if steps | grep -qE '^fanned out \(n=[1-9]'; then
-      jq -e --arg run "$LOG_RUN" --arg p "PR #$N " 'select(.run == $run and .event == "skill_timing" and (.msg | startswith($p)))' \
-        "${files[@]}" >/dev/null 2>&1 && chk skill_timing ok "logged" || chk skill_timing fail "no skill_timing event — run collect after the fan-out"
+    [ -z "$miss" ] && chk milestones ok "every milestone of the cycle logged" \
+      || chk milestones fail "missing review_step: $miss"
+    if [ "$fanout" = true ]; then
+      [ "$collected" = true ] && chk skill_timing ok "collect ran after the fan-out" \
+        || chk skill_timing fail "no skill_timing or skill_run event after the fan-out — collect did not run before the post; report the missing skill audit lines in chat"
     fi
   fi
-  row="$(row_for)"; st="$(row_field "$row" 6)"
+  row="$(row_for)"; st="$(row_field "$row" 6)"; rsha="$(row_field "$row" 3)"; rts="$(row_field "$row" 4)"
+  case "$term" in
+    (done|"aborted duplicate"*)
+      # a post, or a duplicate self-healed from the remote marker: done at this SHA
+      if [ "$st" = done ] && [ -n "$sha7" ] && [ "${rsha#"$sha7"}" != "$rsha" ]; then chk row ok "done at $sha7"
+      else chk row fail "REVIEWS.md row is '${st:-absent}' at '${rsha:0:7}', want done at $sha7"; fi;;
+    (aborted*)
+      # a released lock deletes the row or restores the prior one, which is
+      # older than this lock (docs/review.md → Error handling)
+      case "$st" in
+        ('') chk row ok "absent — the lock was released";;
+        (in_progress) chk row fail "REVIEWS.md row still in_progress — release the lock per docs/review.md → Error handling";;
+        (done|awaiting_label)
+          if [[ "$rts" < "$lts" ]]; then chk row ok "$st — the prior row restored"
+          else chk row fail "REVIEWS.md row '$st' at $rts is not older than the lock at $lts — a released lock restores the prior row or deletes it"; fi;;
+        (*) chk row fail "REVIEWS.md row status '$st' — a released lock restores done or awaiting_label, or deletes the row";;
+      esac;;
+    (*) [ "$st" = in_progress ] && chk row fail "REVIEWS.md row still in_progress — the lock is held; run post or abort" \
+          || chk row ok "${st:-absent}";;
+  esac
   if [ "$term" = done ]; then
-    case "$(row_field "$row" 3)" in ("$sha7"*) want=ok;; (*) want=fail;; esac
-    [ "$st" = done ] && [ "$want" = ok ] && chk row ok "done at $sha7" || chk row fail "REVIEWS.md row is '${st:-absent}' at '$(row_field "$row" 3 | cut -c1-7)', want done at $sha7"
-    grep -q "^## Review at $sha7 " "$WORK/reviews/pr-$N.md" 2>/dev/null && chk history ok "reviews/pr-$N.md" \
-      || chk history fail "no '## Review at $sha7' section in reviews/pr-$N.md"
-    grep -qE "\"pr\":$N,.*\"sha\":\"$sha7\"" "$LEDGER" 2>/dev/null && chk ledger ok "row at $sha7" \
-      || chk ledger fail "no ledger row for PR #$N at $sha7"
-  else
-    [ "$st" = in_progress ] && chk row fail "REVIEWS.md row still in_progress — the lock was not released" || chk row ok "${st:-absent}"
+    # this cycle's post, not an older review at the same SHA: its timestamp is
+    # at or after the lock
+    hts="$(sed -n "s/^## Review at $sha7 — \([^ ]*\) — .*/\1/p" "$WORK/reviews/pr-$N.md" 2>/dev/null | tail -1)"
+    [ -n "$hts" ] && ! [[ "$hts" < "$lts" ]] && chk history ok "reviews/pr-$N.md at $hts" \
+      || chk history fail "no '## Review at $sha7' section of this cycle in reviews/pr-$N.md"
+    grep -F "\"sha\":\"$sha7\"" "$LEDGER" 2>/dev/null \
+      | jq -e -R --argjson pr "$N" --arg l "$lts" 'fromjson? // empty | select(.pr == $pr and .ts >= $l)' >/dev/null 2>&1 \
+      && chk ledger ok "row at $sha7" || chk ledger fail "no ledger row of this cycle for PR #$N at $sha7"
   fi
-  for f in "$PR_DIR" "$OUT" "$DIFF" "$CTX" "$PAYLOAD" "$PR_DIR".s-*; do [ -e "$f" ] && left="$left ${f##*/}"; done
+  tmp_paths
+  for f in "${TMP_PATHS[@]}"; do [ -e "$f" ] && left="$left ${f##*/}"; done
   [ -z "$left" ] && chk cleanup ok "no temp paths left" || chk cleanup fail "left behind:$left"
-  out "$(printf '%s' "$checks" | jq -c '{outcome:(if any(.[]; .status == "fail") then "issues" else "ok" end), checks:.}')"
+  out "$(printf '%s' "$checks" | jq -Rsc '[ split("\n")[] | select(length > 0) | split("\t")
+      | {check: .[0], status: .[1], detail: (.[2:] | join("\t"))} ]
+    | {outcome: (if any(.[]; .status == "fail") then "issues" else "ok" end), checks: .}')"
 }
 
 # =================================================================== abort ====
