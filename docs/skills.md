@@ -72,8 +72,10 @@ brief. Every skill's arguments are fixed at that point — a subagent never
 derives its own file list.
 
 **Then fan out: one subagent per skill with status `run`, all launched in a
-single message** so they run concurrently. Each prompt is the contents of its
-brief file (`paths.briefs/<skill>.md`), rendered by `prepare` from
+single message** so they run concurrently. Each prompt is that skill's
+`skills.<skill>.prompt` verbatim — one line naming the skill, the PR and its
+brief file (`paths.briefs/<skill>.md`), which the subagent reads itself.
+`prepare` renders the brief from
 [`scripts/templates/skill-brief.md`](../scripts/templates/skill-brief.md). The
 brief carries:
 
@@ -112,8 +114,9 @@ per-skill duration ([logging.md](logging.md) → **Reading skill timings**).
 
 **Then collect in table order**, whatever order the subagents finished in: each
 file's findings become that skill's `### <section>`, merged across sources per
-[review.md](review.md) → **Merging findings across sources**. A section is
-never posted unread, and no finding is lost on the way in. On re-reviews the
+[review.md](review.md) → **Merging findings across sources**. Read each
+output file once; the subagent's reply carries only the path and the count. A
+section is never posted unread, and no finding is lost on the way in. On re-reviews the
 section is condensed per [review-rereview.md](review-rereview.md) → **Re-review
 output**.
 
