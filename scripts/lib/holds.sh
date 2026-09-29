@@ -5,9 +5,10 @@
 #   hold_live <n>              0 + why = held by a live run; 1 = no hold;
 #                              2 + its timestamp = a dead hold, removed here
 #   hold_acquire <n> <run>     0 = this run holds it; 1 + why = another live run does
-#   hold_release <n> <run>     removes the hold when <run> owns it
+#   hold_release <n> <run>     0 = removed the hold <run> owns; 1 = it owns none
 #
-# A hold is `work/.holds.lock/<n>`: its creation time, then the owning run id.
+# A hold is `work/.holds.lock/<n>`: its creation time, then the owning run id,
+# written in full before it is linked into place.
 # The owner is alive while it logs — an event within HOLDER_QUIET_MIN, or
 # FANOUT_QUIET_MIN when its newest event is the skill fan-out, the windows of a
 # review lock's live holder (docs/review-mechanics.md → Live holder).
@@ -34,9 +35,9 @@ hold_run_alive() { # <run-id> <since-ts> -> "last event <ts>" when alive
 }
 
 hold_live() { # <n>
-  local f="$HOLD_DIR/$1" ts run alive
-  [ -f "$f" ] || return 1
-  ts="$(sed -n 1p "$f")"; run="$(sed -n 2p "$f")"
+  local f="$HOLD_DIR/$1" held ts run alive
+  held="$(cat "$f" 2>/dev/null)" || return 1
+  ts="$(printf '%s\n' "$held" | sed -n 1p)"; run="$(printf '%s\n' "$held" | sed -n 2p)"
   # a hold younger than a minute may not have its owner's first event yet
   if [ $(( NOW_EPOCH - $(iso2epoch "$ts") )) -lt 60 ]; then
     echo "held by run ${run:0:8}, taken at $ts"; return 0
@@ -44,22 +45,28 @@ hold_live() { # <n>
   if [ -n "$run" ] && alive="$(hold_run_alive "$run" "$ts")" && [ -n "$alive" ]; then
     echo "held by run ${run:0:8}, $alive"; return 0
   fi
+  # remove only the hold judged dead: a run that took it over meanwhile wrote a
+  # new one, which is judged again
+  [ "$(cat "$f" 2>/dev/null)" = "$held" ] || { hold_live "$1"; return; }
   rm -f "$f"; echo "$ts"; return 2
 }
 
 hold_acquire() { # <n> <run>
-  local f="$HOLD_DIR/$1" why try
-  mkdir -p "$HOLD_DIR" 2>/dev/null || return 1
+  local f="$HOLD_DIR/$1" tmp why try
+  mkdir -p "$HOLD_DIR" 2>/dev/null || { echo "the hold directory could not be made"; return 1; }
+  tmp="$HOLD_DIR/.$1.$$.tmp"
+  printf '%s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" > "$tmp" 2>/dev/null \
+    || { rm -f "$tmp"; echo "the hold could not be written"; return 1; }
   for try in 1 2; do
-    # noclobber: of two runs creating the same hold, exactly one succeeds
-    ( set -C; printf '%s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" > "$f" ) 2>/dev/null && return 0
-    [ "$(sed -n 2p "$f" 2>/dev/null)" = "$2" ] && return 0
-    why="$(hold_live "$1")" && { echo "$why"; return 1; }
+    # ln of the complete file: of two runs creating the same hold, exactly one
+    # succeeds, and no reader sees it half written
+    ln "$tmp" "$f" 2>/dev/null && { rm -f "$tmp"; return 0; }
+    [ "$(sed -n 2p "$f" 2>/dev/null)" = "$2" ] && { rm -f "$tmp"; return 0; }
+    why="$(hold_live "$1")" && { rm -f "$tmp"; echo "$why"; return 1; }
   done
-  echo "the hold could not be taken"; return 1
+  rm -f "$tmp"; echo "the hold could not be taken"; return 1
 }
 
-hold_release() { # <n> <run>
+hold_release() { # <n> <run> -> 0 = released, 1 = <run> held nothing
   [ "$(sed -n 2p "$HOLD_DIR/$1" 2>/dev/null)" = "$2" ] && rm -f "$HOLD_DIR/$1"
-  return 0
 }

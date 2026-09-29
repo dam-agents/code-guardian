@@ -1797,8 +1797,11 @@ cmd_hold() {
 }
 
 cmd_release() {
-  hold_release "$N" "${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
-  logev info hold "PR #$N: released"
+  if hold_release "$N" "${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"; then
+    logev info hold "PR #$N: released"
+  else
+    logev info hold "PR #$N: release — this run held nothing"
+  fi
   out '{"outcome":"released"}'
 }
 

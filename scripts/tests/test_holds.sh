@@ -98,6 +98,18 @@ run_rp run-bbbbbbbb release 7
 assert_hold_run 7 run-aaaaaaaa 'a run cannot release a hold it does not own'
 run_rp run-aaaaaaaa release 7
 assert_hold_run 7 - 'the owner releases it'
+left="$(ls -A "$WORK/.holds.lock")"
+[ "$left" = 8 ] && printf 'ok   %s: %s\n' "$CASE" 'no temporary hold file is left' \
+  || { printf 'FAIL %s: %s (have: %s)\n' "$CASE" 'no temporary hold file is left' "$left"; FAILED=1; }
+
+# --- review-pr.sh: an older hold whose run still logs is refused --------------
+new_case hold_refused_live_owner
+base_config
+hold 7 3000 run-aaaaaaaa
+run_event 300 run-aaaaaaaa
+run_rp run-bbbbbbbb hold 7
+assert_jq '.outcome == "held_elsewhere" and (.why | contains("last event"))' 'a live holder past its first minute keeps the PR'
+assert_hold_run 7 run-aaaaaaaa 'the hold is unchanged'
 
 # --- review-pr.sh: a dead hold is taken over ----------------------------------
 new_case hold_takeover_dead
