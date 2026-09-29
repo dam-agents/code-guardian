@@ -154,7 +154,8 @@ adapter active, duty 4 above extends to logging tool failures manually.
 - `enforce-review-completion.sh` — `Stop` target: refuses a stop that would
   leave a PR locked without a terminal `review_step`, logging a
   `review_incomplete` warn per block ([review.md](review.md) → **Completion
-  enforcement**).
+  enforcement**); a stop it lets through releases the run's own PR holds
+  ([worklist.md](worklist.md) → **PR holds**).
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). On another harness it prints a

@@ -89,6 +89,7 @@ CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" >/dev/null 2>&1 || CI_LIB=0
 # review-records.sh is optional: unreadable, every takeover and owed closed-PR
 # pass reads as a first review (full scope) and the audit counts no reviews.
 RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; rr_posted() { return 1; }; }
+HOLDS_LIB=1; . "$SCRIPT_DIR/lib/holds.sh" >/dev/null 2>&1 || HOLDS_LIB=0
 LOG_JOB="$MODE"
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 # log.sh sources lib/toolpath.sh; stub it when either file was unavailable
@@ -367,6 +368,24 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
         | if $l and $l.ts >= $c
           then "\($l.run[0:8]) \(if $fan then "in the skill fan-out, last event" else "active" end) \($mins)m ago"
           else empty end' 2>/dev/null
+}
+
+# Drop the reviews and mentions of every PR another live run holds
+# (lib/holds.sh); the first run after its release serves them. Sets
+# REVIEWS_DUE / MENTIONS_DUE.
+apply_holds() {
+  local n why
+  [ "$HOLDS_LIB" = 1 ] && [ -d "$HOLD_DIR" ] || return 0
+  for n in $(printf '%s\n%s' "$REVIEWS_DUE" "$MENTIONS_DUE" | jq -rs 'map(.[].number) | unique | .[]'); do
+    why="$(hold_live "$n")"
+    case $? in
+      1) continue;;
+      2) log "#$n: hold from $why released — its run is quiet"; continue;;
+    esac
+    REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson n "$n" 'map(select(.number != $n))')"
+    MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson n "$n" 'map(select(.number != $n))')"
+    log "#$n: $why — its reviews and mentions are left to that run"
+  done
 }
 
 # ---------------------------------------------------------------- config ----
@@ -1447,6 +1466,7 @@ if [ "$MODE" = "review" ]; then
     fi
   fi
 
+  apply_holds
   emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
 fi

@@ -68,7 +68,7 @@ entry's inventory ([profile.md](profile.md)).
 
 Its only local writes are bookkeeping: the REVIEWS.md `done → awaiting_label`
 flip, shepherd-ledger bookkeeping for rows with no nudge due, the housekeeping
-batch's wait marker (`work/.housekeeping-since`), log lines
+batch's wait marker (`work/.housekeeping-since`), dead PR holds removed, log lines
 (`HEARTBEAT.log`, `SHEPHERD.log`, structured events per
 [logging.md](logging.md)), the skill cache, the project profile
 (`work/PROFILE.{json,md}` and its `/tmp` mirror), and the audit-mode cleanups
@@ -101,7 +101,7 @@ changes", then end the run the same way.
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
 | `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review-urgent.md → **Urgent PRs** |
-| `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the review loop** | [mentions.md](mentions.md) + [review.md](review.md) |
+| `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md) |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` | [benchmark.md](benchmark.md) |
@@ -116,6 +116,16 @@ changes", then end the run the same way.
 
 Script missing or failing (non-JSON output) → log it and do the equivalent work
 manually per the `docs/` files; never silently skip a heartbeat.
+
+**PR holds** — a run holds only the PR it works on, and does that PR's
+mentions and review in one hold (`work/.holds.lock/<n>`, taken and given back
+by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh)).
+Preflight drops the `reviews_due` and `mentions_due` entries of a PR another
+live run holds, and logs why; the first run after the release serves them. A
+hold whose run is quiet by the **Live holder** windows
+([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
+hook releases the holds a finished run still owns ([logging.md](logging.md) →
+**Harness adapters**).
 
 ## Runtime configuration: `work/CONFIG.md`
 
