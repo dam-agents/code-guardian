@@ -146,11 +146,11 @@ consecutive timestamps give per-step durations.
   filename and `msg` shape are a contract ([logging.md](logging.md) →
   **The shape is a contract**).
 
-**Lock heartbeat.** Before each of steps c, d, e and f,
-`review-pr.sh step <n> "<what comes next>"` rewrites the PR's REVIEWS.md row
+**Lock heartbeat.** Before each of steps d, e and f,
+`review-pr.sh step <n> "<milestone>"` rewrites the PR's REVIEWS.md row
 with the **current** UTC time (same fields, status stays `in_progress`) and
-logs `locked (refresh, …)`; step d's two milestones are `step` calls too, and
-the refresh before step f is `composed`. The timestamp is the age preflight
+logs `locked (refresh, …)`: `fanned out (n=<N>)` before step d, `verified`
+before step e and `composed` before step f. The timestamp is the age preflight
 measures and the event is the liveness signal it reads
 ([review-mechanics.md](review-mechanics.md) → **Live holder**), so a
 review that refreshes never crosses the TTL.

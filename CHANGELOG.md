@@ -11,6 +11,24 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 7.4.0 — 2026-09-29
+
+**Upgrade:** GitHub mentions are handled from repository owners, members and
+collaborators only (`docs/config.md` → `mention_authors`, missing =
+`collaborators`); an account that GitHub does not show as one gets one
+permission lookup, so a private organization member with access is still
+answered. Handling every account is an opt-in: ask the operator once
+whether mentions from other accounts should keep being answered; a yes adds the
+key — idempotent, and it writes nothing that is already there:
+
+```bash
+C=/home/agent/work/CONFIG.md
+grep -q '^- mention_authors:' "$C" || printf -- '- mention_authors: anyone\n' >> "$C"
+bash "$HOME/scripts/verify-onboarding.sh"
+```
+
+A no, or no answer, writes nothing. Docs and scripts are re-read per run.
+
 ## 7.3.2 — 2026-09-28
 
 **Upgrade:** Nothing — docs and scripts are re-read per run.

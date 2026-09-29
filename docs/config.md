@@ -94,6 +94,16 @@ below is for the manual fallback and the direct session.
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
   ([mentions.md](mentions.md)). Needs `bot_login`.
+- **`mention_authors`** — whose GitHub mentions are handled: `collaborators`
+  (the comment's `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`)
+  | `anyone`. **Missing = `collaborators`**; any other value reads as
+  `collaborators`. GitHub reads a private organization member as
+  `CONTRIBUTOR` or `NONE` when the token cannot see the membership, so an
+  author the association leaves out gets one
+  `repos/<repo>/collaborators/<login>/permission` GET per run: `triage` or more
+  admits, `read` admits on a private repository only. Preflight emits the
+  mentions the set admits and logs the count it left out
+  ([mentions.md](mentions.md)).
 - **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24
   h that trigger one alert, at most once per UTC day. **Missing = `4`**;
   `0`/`off` disables; an unparseable value falls back to `4`
@@ -181,13 +191,14 @@ below is for the manual fallback and the direct session.
   is a quiet hour. Inside the window the heartbeat runs every
   `review_interval_active` minutes (**missing = `5`**), in quiet hours every
   `review_interval_quiet` minutes (**missing = `60`**). Both intervals are
-  divisors of 60, so `*/N` fires at an even spacing all hour. The active
-  default is 5 to stay under the harness prompt-cache TTL: consecutive idle
-  ticks then re-read the cached prefix instead of paying to write it again,
-  which makes the faster cadence cheaper than a slower one that always misses
-  the cache. These four keys are the **source of truth for the registered cron
-  schedules** (ONBOARDING Step 6a) and for the audit's cadence check; an edited
-  key takes effect once the schedules are re-registered.
+  divisors of 60, so `*/N` fires at an even spacing all hour. An interval
+  bounds how long a new PR or a trigger waits for its run; a tick with no work
+  costs one pre-flight pass and no model call ([worklist.md](worklist.md) →
+  **The schedule gate**), so the interval is a latency choice, and the quiet
+  one is what a night or weekend PR waits. These four keys are the **source of
+  truth for the registered cron schedules** (ONBOARDING Step 6a) and for the
+  audit's cadence check; an edited key takes effect once the schedules are
+  re-registered.
 - **`log_level`** — `info` (default) | `debug`. Verbosity of
   `work/logs/events-*.jsonl` ([logging.md](logging.md)); `debug` additionally
   records successful external tool calls. Diagnostic only, never gating

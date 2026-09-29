@@ -397,6 +397,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      questions answered, review feedback recorded to memory, review requests
      served (`docs/mentions.md`). Default `enabled`; write the key only for
      `disabled`.
+   - **`mention_authors`** — whose mentions are handled: `collaborators`
+     (repository owners, members and collaborators) | `anyone`. Default
+     `collaborators`; write the key only for `anyone`.
    - **`project_profile`** — the generated map of the reviewed repository that
      every review and skill subagent starts from, kept current by a structural
      fingerprint (`docs/profile.md`). Default `enabled`; write the key only for
@@ -458,7 +461,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
-    > When is this repo actively worked on? During those hours I check for new PRs every 5 minutes; outside them (nights, weekends) I drop to once an hour, which is where most of the idle cost lives. Default: **Mon–Fri, 08–21 (platform timezone)**. Answer `24/7` and I keep the 5-minute cadence around the clock.
+    > When is this repo actively worked on? During those hours I check for new PRs every 5 minutes; outside them (nights, weekends) I check once an hour, so a PR opened at night waits up to an hour; a check that finds nothing starts no session. Default: **Mon–Fri, 08–21 (platform timezone)**. Answer `24/7` and I keep the 5-minute cadence around the clock.
 
     Write all four keys explicitly, even at the default, because the audit
     compares the registered crons against them. Validate before writing: both
@@ -487,6 +490,7 @@ Final shape:
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
+- mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
 - slack_notifications: enabled         # or: disabled
@@ -582,8 +586,9 @@ skipped.
 
 Independent schedules — the shepherd one only under
 `slack_notifications: enabled`, the benchmark one only under
-`benchmark: enabled`. Never use an in-process cron tool — only platform
-schedules survive restarts and are visible to the operator.
+`benchmark: enabled`, the survey one only under `survey: enabled`. Never use
+an in-process cron tool — only platform schedules survive restarts and are
+visible to the operator.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
@@ -608,7 +613,7 @@ Delete the ones the configuration rules out: the quiet-hour and off-day
 heartbeats under a 24/7 cadence, and a sweep whose name no longer matches its
 cadence shorthand.
 
-**6a — Review heartbeat.** Registers the cadence of Step 4 item 11 as **one to
+**6a — Review heartbeat.** Registers the cadence of Step 4 item 13 as **one to
 three** schedules: one for the active window, plus a quiet-hour schedule for
 each part of the week that window leaves uncovered. All are
 `sessionMode: fresh` and carry the **same** `task` text; the cadence is their
@@ -668,7 +673,7 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 
 Cadence note: the nudge rules are hour-granular (24 h age gate, 20 h cooldown,
 2-day escalation), so an hourly work-hours sweep loses nothing versus a
-continuous one — it only stops burning tokens at night and on weekends.
+continuous one — it only saves the pre-flight passes at night and on weekends.
 
 ## Step 7 — Record the version, write the sentinel, verify, report
 

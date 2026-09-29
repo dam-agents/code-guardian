@@ -53,7 +53,7 @@ base_config() { # [extra lines…]
 # one open-PR object for the pulls?state=open fixture
 pr_json() { # <number> <title> <labels-json> <sha> [author]
   jq -n --argjson n "$1" --arg t "$2" --argjson l "$3" --arg sha "$4" --arg a "${5:-alice}" \
-    '{number:$n, title:$t, draft:false, user:{login:$a},
+    '{number:$n, title:$t, draft:false, user:{login:$a}, author_association:"MEMBER",
       head:{sha:$sha, ref:("b"+($n|tostring))}, base:{ref:"main"},
       created_at:"2026-07-01T00:00:00Z", labels:$l, assignees:[],
       requested_reviewers:[], html_url:("https://example.test/pr/"+($n|tostring))}'

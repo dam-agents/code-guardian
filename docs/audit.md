@@ -71,8 +71,9 @@ skipped task is an incomplete audit — a task that is impossible this week
    schedules — `…-review-active` plus the `…-review-quiet` /
    `…-review-offdays` ones the cadence keys call for), the shepherd sweep
    (under `slack_notifications: enabled`), the monthly benchmark (under
-   `benchmark: enabled`) and this audit job all exist and are **enabled**, with
-   crons matching ONBOARDING Step 6. Missing or disabled → **fail**.
+   `benchmark: enabled`), the weekly survey (under `survey: enabled`) and this
+   audit job all exist and are **enabled**, with crons matching ONBOARDING
+   Step 6. Missing or disabled → **fail**.
    - **Each must also be firing, not merely enabled.** Per entry,
      `status.lastRun` within 1.5× the interval of **its own cron**, measured
      from that cron's last firing opportunity rather than from now, and
@@ -352,7 +353,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
-• <tag> <rule/insight in one line>   ← per task-33 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
+• <tag> <rule/insight in one line>   ← per task-34 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing
 
 *Checks*
 🔴 <id> — <detail>          ← every fail (script + tasks above)
@@ -373,5 +374,5 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail" or "error", which next week's log grep would flag), then back up
   `work/` ([persistence.md](persistence.md)). No state repairs beyond tasks
-  33–35, and no GitHub writes except the task-3 tracking issue and the trend
+  34–36, and no GitHub writes except the task-3 tracking issue and the trend
   artifact's own publish.

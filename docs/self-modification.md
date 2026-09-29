@@ -77,9 +77,10 @@ records the ask; acting on it still takes the operator.
   same holds for any script that acts on GitHub for the agent
   (`work-backup.sh persist`).
 - **CLAUDE.md stays a bootstrap** — repo resolution, the run types, the
-  read-the-runbook rule. The worklist contract, run procedures and hard
-  invariants live in [runbook.md](runbook.md), every other procedure in its own
-  `docs/` file, read on demand. A new doc gets its row in runbook.md →
+  read-the-runbook rule. The run procedures and hard invariants live in
+  [runbook.md](runbook.md), the schedule gate and the worklist contract in
+  [worklist.md](worklist.md), every other procedure in its own `docs/` file,
+  read on demand. A new doc gets its row in runbook.md →
   **Map of `docs/`**; a moved section leaves no stale references behind (grep
   for the old heading).
 - New definition files must be added to the `.gitignore` **allowlist** and to

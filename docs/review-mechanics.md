@@ -81,7 +81,7 @@ every consumer keeps the behavior it had without the line.
    `line` in the new file (`side: "RIGHT"`; `"LEFT"` + old line for deleted
    code); multi-line adds `start_line`, both ends in one hunk. A finding with
    `also` locations takes one comment per location, so each site carries the
-   fix; the cap and priority of 4 count them all.
+   fix, and every one of them counts toward the cap and the priority of rule 4.
 2. Outside every hunk, or no precise line → summary-only. `post` checks each
    comment against the hunk index and moves the ineligible ones under
    `### Findings not anchorable inline`, because otherwise the whole POST 422s.
