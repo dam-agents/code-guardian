@@ -124,6 +124,22 @@ run_rp run-bbbbbbbb hold 7
 assert_jq '.outcome == "held_by_you"' 'a quiet holder loses the PR'
 assert_hold_run 7 run-bbbbbbbb 'the new run owns the hold'
 
+# --- review-pr.sh: the next hold gives back the one before ---------------------
+new_case hold_next_releases_previous
+base_config
+run_rp run-aaaaaaaa hold 7
+run_rp run-bbbbbbbb hold 9
+run_rp run-aaaaaaaa hold 8
+assert_jq '.outcome == "held_by_you"' 'the next PR is taken'
+assert_hold_run 7 - 'the previous hold is given back without a release'
+assert_hold_run 9 run-bbbbbbbb 'the hold of another run is kept'
+run_rp run-aaaaaaaa hold 9
+assert_jq '.outcome == "held_elsewhere"' 'a PR another run holds is refused'
+assert_hold_run 8 - 'a refused hold also gives back the one before'
+if cat "$WORK"/logs/events-*.jsonl 2>/dev/null | grep -q 'PR #7: released — this run moves on to PR #8'; then
+  printf 'ok   %s: %s\n' "$CASE" 'the release is logged'
+else printf 'FAIL %s: %s\n' "$CASE" 'the release is logged'; FAILED=1; fi
+
 # --- review-pr.sh: without a run id the PR is worked unheld --------------------
 new_case hold_no_run_id
 base_config

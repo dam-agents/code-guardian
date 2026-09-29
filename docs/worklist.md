@@ -119,7 +119,9 @@ manually per the `docs/` files; never silently skip a heartbeat.
 
 **PR holds** — a run holds only the PR it works on, and does that PR's
 mentions and review in one hold (`work/.holds.lock/<n>`, taken and given back
-by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh)).
+by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh));
+`hold <n>` also gives back every other hold of the run, so a run holds at most
+one PR.
 Preflight drops the `reviews_due` and `mentions_due` entries of a PR another
 live run holds, and logs why; the first run after the release serves them. A
 hold whose run is quiet by the **Live holder** windows

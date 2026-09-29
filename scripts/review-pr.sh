@@ -53,7 +53,8 @@
 #   abort <n> <reason…>                    release the lock per kind, clean up
 #   hold <n>                               take the PR hold for this run: the
 #                                          run's mentions and review of the PR
-#                                          come after it (docs/worklist.md →
+#                                          come after it; the run's other holds
+#                                          are given back (docs/worklist.md →
 #                                          PR holds)
 #   release <n>                            give the PR hold back
 #
@@ -1783,11 +1784,14 @@ cmd_abort() {
 # ==================================================================== hold ====
 # The event after the hold write is the owner's first sign of life.
 cmd_hold() {
-  local why me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  local why m me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
   if [ -z "$me" ]; then   # no stable run id: nothing could prove the owner alive
     logev warn hold "PR #$N: no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID) — worked without a hold"
     out '{"outcome":"held_by_you","note":"no run id — the PR is not held"}'
   fi
+  for m in $(hold_release_others "$N" "$me"); do
+    logev info hold "PR #$m: released — this run moves on to PR #$N"
+  done
   if why="$(hold_acquire "$N" "$me")"; then
     logev info hold "PR #$N: held by this run"
     out '{"outcome":"held_by_you"}'

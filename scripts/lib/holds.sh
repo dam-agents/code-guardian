@@ -6,6 +6,8 @@
 #                              2 + its timestamp = a dead hold, removed here
 #   hold_acquire <n> <run>     0 = this run holds it; 1 + why = another live run does
 #   hold_release <n> <run>     0 = removed the hold <run> owns; 1 = it owns none
+#   hold_release_others <n> <run>
+#                              removes every other hold <run> owns, prints their numbers
 #
 # A hold is `work/.holds.lock/<n>`: its creation time, then the owning run id,
 # written in full before it is linked into place.
@@ -69,4 +71,14 @@ hold_acquire() { # <n> <run>
 
 hold_release() { # <n> <run> -> 0 = released, 1 = <run> held nothing
   [ "$(sed -n 2p "$HOLD_DIR/$1" 2>/dev/null)" = "$2" ] && rm -f "$HOLD_DIR/$1"
+}
+
+# A run holds one PR at a time: taking the next one gives back the one before,
+# also when its `release` was left out.
+hold_release_others() { # <n> <run> -> one released PR number per line
+  local f
+  for f in "$HOLD_DIR"/*; do
+    [ -f "$f" ] && [ "${f##*/}" != "$1" ] && [ "$(sed -n 2p "$f" 2>/dev/null)" = "$2" ] || continue
+    rm -f "$f" && printf '%s\n' "${f##*/}"
+  done
 }
