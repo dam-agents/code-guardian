@@ -157,11 +157,12 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   death; `takeover: false` only means its snapshot saw no lock, and that
   snapshot can predate your arrival by minutes. `prepare` re-checks first: the
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
-  `HOLDER_QUIET_MIN`, or when another run's **newest** `review_step` on it is
-  non-terminal ([review.md](review.md) → **Completion enforcement**) and inside
-  its window — `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
+  `HOLDER_QUIET_MIN`, or when another run with a `locked` step on it, at any
+  age, has a **newest** `review_step` on it that is non-terminal
+  ([review.md](review.md) → **Completion enforcement**) and inside its window —
+  `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
   `fanned out (n=…)`. A run that ended releases the PR at once, however many
-  milestones it logged first. Then it stands down — `outcome: stand_down`,
+  milestones it logged first; a run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
   nothing touched, `holder alive at Check 1 — stood down` logged — and you take
   the next PR. An older tree with no such event is a dead run's leftover and is
   reclaimed; the lock write comes after this check. Standing down protects a

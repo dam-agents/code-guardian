@@ -439,11 +439,13 @@ live_change() { # <additions|deletions|changed_files>
 
 # ------------------------------------------------------------ live holder ----
 # Another run owns this PR when a tree or diff of its exists AND shows life —
-# a recent mtime, or a foreign run whose newest `review_step` on this PR is
-# non-terminal and inside its quiet window. Liveness is decided per run on that
-# newest step, so the milestones a run logged on the way never outlive its own
-# terminal one. The step is matched the way the `Stop` hook matches it — the
-# `PR #<n>` prefix and the optional sha token stripped, then
+# a recent mtime, or a foreign run that locked this PR and whose newest
+# `review_step` on it is non-terminal and inside its quiet window. A `locked…`
+# step on the PR, at any age, makes a run a holder: a taker that stood down
+# holds nothing, whatever it logged. Liveness is decided per run
+# on that newest step, so the milestones a run logged on the way never outlive
+# its own terminal one. The step is matched the way the `Stop` hook matches it —
+# the `PR #<n>` prefix and the optional sha token stripped, then
 # `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done` and
 # `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
 # newest step of `fanned out (n=…)`: the holder is then blocked on its
@@ -463,12 +465,14 @@ holder_alive() {
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
     foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
       | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
-          '([$cut, $fcut] | min) as $scan
-           | [ .[] | select(.ts >= $scan and (.msg|startswith($n)) and .run != $me
-                            and .event == "review_step") ]
+          'def stepof: .msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
+           ([$cut, $fcut] | min) as $scan
+           | [ .[] | select((.msg|startswith($n)) and .run != $me and .event == "review_step") ] as $pr
+           | ([ $pr[] | select(stepof | test("^locked( |$)")) | .run ] | unique) as $held
+           | [ $pr[] | select(.ts >= $scan and (.run | IN($held[]))) ]
            | group_by(.run)
            | map( (sort_by(.ts) | last) as $l
-                  | ($l.msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "")) as $step
+                  | ($l | stepof) as $step
                   | select(($step | test("^(done|aborted|posted)( |$)")) | not)
                   | select($l.ts >= (if ($step | test("fanned out")) then $fcut else $cut end)) )
            | length' 2>/dev/null)"

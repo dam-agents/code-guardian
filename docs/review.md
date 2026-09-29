@@ -142,8 +142,9 @@ consecutive timestamps give per-step durations.
   . "$HOME/scripts/log.sh" && LOG_JOB=review logev info review_step "PR #<n> <sha-short> <step>"
   ```
 
-- Log a step you are unsure about — duplicates are harmless, a missing event is
-  invisible to the `Stop` hook and reads as a review that never finished. The
+- Log steps only for a PR this run locked, and there log a step you are unsure
+  about — duplicates are harmless, a missing event is invisible to the `Stop`
+  hook and reads as a review that never finished. The
   filename and `msg` shape are a contract ([logging.md](logging.md) →
   **The shape is a contract**).
 
