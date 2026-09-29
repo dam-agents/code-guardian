@@ -270,7 +270,8 @@ touch -t 202001010000 "$(PR_DIR)"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'an old tree with no events is reclaimed'
 run_rp abort 1 "reset"
-# another run's events: a terminal step is not life, a mid-pipeline step is
+# another run's events: a terminal step is not life, a mid-pipeline step of a
+# run that locked the PR is
 foreign_step() { # <msg> — a review_step by a different run, now
   mkdir -p "$WORK/logs"
   jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg m "$1" \
@@ -280,7 +281,7 @@ foreign_step "PR #1 abc1234 done"; foreign_step "PR #1 abc1234 posted COMMENT"; 
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'another run finishing this PR minutes ago does not hold it'
 run_rp abort 1 "reset"
-foreign_step "PR #1 abc1234 fanned out (n=2)"
+foreign_step "PR #1 abc1234 locked"; foreign_step "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'another run mid-pipeline on this PR holds it'
 # liveness is that run's NEWEST step, not the presence of a non-terminal one:
@@ -303,35 +304,44 @@ foreign_step_ago() { # <secs-ago> <msg>
     '{ts:$ts, run:"other-run", job:"review", level:"info", event:"review_step", msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
 }
 setup prepare_holder_fanout
+foreign_step_ago 2700 "PR #1 abc1234 locked"
 foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'a 40m fan-out silence still holds the PR'
 setup prepare_holder_fanout_expired
+foreign_step_ago 4500 "PR #1 abc1234 locked"
 foreign_step_ago 4200 "PR #1 abc1234 fanned out (n=2)"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'past the fan-out window the PR is free'
 run_rp abort 1 "reset"
 setup prepare_holder_fanout_over
+foreign_step_ago 2700 "PR #1 abc1234 locked"
 foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
 foreign_step_ago 1800 "PR #1 abc1234 verified"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'silence after verified is death again'
 run_rp abort 1 "reset"
-# a stand-down is not a liveness signal: the taker that stood down holds
-# nothing, so its own step may never hold the PR for the next taker — a chain
-# of them keeps a dead holder alive and starves the PR while the schedule fires
+# only a run that locked the PR holds it: a taker that stood down holds nothing,
+# whatever step text it logged — a chain of them would keep a dead holder alive
+# and starve the PR while the schedule fires
 run_step_ago() { # <run> <secs-ago> <msg>
   mkdir -p "$WORK/logs"
   jq -nc --arg ts "$(iso_ago "$2")" --arg r "$1" --arg m "$3" \
     '{ts:$ts, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
 }
 setup prepare_holder_standdown_chain
+run_step_ago dead-holder 4500 "PR #1 abc1234 locked"
 run_step_ago dead-holder 4200 "PR #1 abc1234 fanned out (n=2)"
 run_step_ago taker-a 900 "PR #1 abc1234 stand_down (live holder)"
-run_step_ago taker-b 300 "PR #1 abc1234 stand_down (live holder)"
+run_step_ago taker-b 300 "PR #1 abc1234 stood down (live holder)"
 run_rp prepare 1
-assert_jq '.outcome == "ready"' 'a chain of stand-downs does not hold the PR'
+assert_jq '.outcome == "ready"' 'a chain of stand-downs does not hold the PR, whatever their text'
 run_rp abort 1 "reset"
+setup prepare_holder_old_lock
+run_step_ago holder 4500 "PR #1 abc1234 locked"
+run_step_ago holder 300 "PR #1 skill:doc-drift done"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'a lock older than the scan window still names the holder'
 
 # --- delta range: extension skills route from the changes since the prior review ---
 setup delta_routing
