@@ -48,9 +48,13 @@ pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
 ic_comment 101 "@test-bot please re-review" 1 | ic_fx
 hold 1 3000 run-aaaaaaaa
 run_event 300 run-aaaaaaaa
-run_preflight review
+GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight review
 assert_jq '.nothing_to_do == true' 'the held PR starts no run'
 assert_jq '.logs | any(contains("#1: held by run run-aaaa") and contains("left to that run"))' 'the skip names the holder'
+assert_jq '[.logs[] | select(contains("left to that run"))] | length == 1' 'the PR is judged once for its review and its mention'
+if grep -q 'pulls/1/files' "$SANDBOX/calls.log" 2>/dev/null; then
+  printf 'FAIL %s: %s\n' "$CASE" 'the held PR costs no file-list call'; FAILED=1
+else printf 'ok   %s: %s\n' "$CASE" 'the held PR costs no file-list call'; fi
 
 # --- preflight: only the held PR is left out -----------------------------------
 new_case hold_other_pr_served

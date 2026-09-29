@@ -370,22 +370,31 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
           else empty end' 2>/dev/null
 }
 
-# Drop the reviews and mentions of every PR another live run holds
-# (lib/holds.sh); the first run after its release serves them. Sets
-# REVIEWS_DUE / MENTIONS_DUE.
-apply_holds() {
-  local n why
+# Drop the entries of every PR another live run holds (lib/holds.sh); the first
+# run after its release serves them. `reviews` runs before the review entries
+# cost API calls and skill installs, `mentions` after the mention scan; each PR
+# is judged and logged once (HOLDS_JUDGED). Sets REVIEWS_DUE or MENTIONS_DUE.
+HOLDS_JUDGED=" "
+apply_holds() { # reviews|mentions
+  local var n why rc held=""
+  case "$1" in (reviews) var=REVIEWS_DUE;; (mentions) var=MENTIONS_DUE;; (*) return 0;; esac
   [ "$HOLDS_LIB" = 1 ] && [ -d "$HOLD_DIR" ] || return 0
-  for n in $(printf '%s\n%s' "$REVIEWS_DUE" "$MENTIONS_DUE" | jq -rs 'map(.[].number) | unique | .[]'); do
-    why="$(hold_live "$n")"
-    case $? in
-      1) continue;;
-      2) log "#$n: hold from $why released — its run is quiet"; continue;;
+  for n in $(printf '%s' "${!var}" | jq -r 'map(.number) | unique | .[]'); do
+    case "$HOLDS_JUDGED" in
+      (*" $n:held "*) held="$held $n"; continue;;
+      (*" $n:free "*) continue;;
     esac
-    REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson n "$n" 'map(select(.number != $n))')"
-    MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson n "$n" 'map(select(.number != $n))')"
-    log "#$n: $why — its reviews and mentions are left to that run"
+    why="$(hold_live "$n")"; rc=$?
+    case $rc in
+      0) log "#$n: $why — its reviews and mentions are left to that run"
+         HOLDS_JUDGED="$HOLDS_JUDGED$n:held "; held="$held $n";;
+      2) log "#$n: hold from $why released — its run is quiet"; HOLDS_JUDGED="$HOLDS_JUDGED$n:free ";;
+      *) HOLDS_JUDGED="$HOLDS_JUDGED$n:free ";;
+    esac
   done
+  [ -n "$held" ] || return 0
+  printf -v "$var" '%s' "$(printf '%s' "${!var}" | jq --arg h "$held" \
+    '($h | split(" ") | map(select(length > 0) | tonumber)) as $h | map(select(.number | IN($h[]) | not))')"
 }
 
 # ---------------------------------------------------------------- config ----
@@ -1095,6 +1104,8 @@ if [ "$MODE" = "review" ]; then
 
   # urgent entries first (stable sort — non-urgent keep their order)
   REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq 'sort_by(if .urgent then 0 else 1 end)')"
+  # a PR another run holds costs nothing below (docs/worklist.md → PR holds)
+  apply_holds reviews
 
   # ------------------------------------------------- progress-signal ETA ----
   # `eta_seconds` per due review: the median wall-clock of recent completed
@@ -1466,7 +1477,7 @@ if [ "$MODE" = "review" ]; then
     fi
   fi
 
-  apply_holds
+  apply_holds mentions
   emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
 fi
