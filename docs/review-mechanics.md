@@ -167,6 +167,10 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   reclaimed; the lock write comes after this check. Standing down protects a
   finished fan-out, which the reclaim's `rm -rf` would destroy
   ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
+- **A stand-down is never a liveness signal.** A `stand_down` step counts as
+  terminal for the run that logged it, so a chain of takers cannot keep a dead
+  holder alive for each other and starve the PR. Do not log a step for a PR
+  this run did not lock.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 

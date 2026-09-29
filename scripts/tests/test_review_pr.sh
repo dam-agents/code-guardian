@@ -317,6 +317,21 @@ foreign_step_ago 1800 "PR #1 abc1234 verified"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'silence after verified is death again'
 run_rp abort 1 "reset"
+# a stand-down is not a liveness signal: the taker that stood down holds
+# nothing, so its own step may never hold the PR for the next taker — a chain
+# of them keeps a dead holder alive and starves the PR while the schedule fires
+run_step_ago() { # <run> <secs-ago> <msg>
+  mkdir -p "$WORK/logs"
+  jq -nc --arg ts "$(iso_ago "$2")" --arg r "$1" --arg m "$3" \
+    '{ts:$ts, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+setup prepare_holder_standdown_chain
+run_step_ago dead-holder 4200 "PR #1 abc1234 fanned out (n=2)"
+run_step_ago taker-a 900 "PR #1 abc1234 stand_down (live holder)"
+run_step_ago taker-b 300 "PR #1 abc1234 stand_down (live holder)"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'a chain of stand-downs does not hold the PR'
+run_rp abort 1 "reset"
 
 # --- delta range: extension skills route from the changes since the prior review ---
 setup delta_routing

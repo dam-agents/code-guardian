@@ -444,8 +444,10 @@ live_change() { # <additions|deletions|changed_files>
 # newest step, so the milestones a run logged on the way never outlive its own
 # terminal one. The step is matched the way the `Stop` hook matches it — the
 # `PR #<n>` prefix and the optional sha token stripped, then
-# `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done` and
-# `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
+# `^(done|aborted|posted|stand_down)( |$)` — which keeps `skill:<name> done` and
+# `rapid posted` non-terminal. `stand_down` is terminal here and nowhere else: a
+# run that stood down holds nothing, so its own step may never make the next
+# taker stand down in turn. The window is HOLDER_QUIET_MIN, except for a
 # newest step of `fanned out (n=…)`: the holder is then blocked on its
 # subagents, writes no event and touches no tree, so that phase gets
 # FANOUT_QUIET_MIN instead (docs/review-mechanics.md → Live holder).
@@ -469,7 +471,7 @@ holder_alive() {
            | group_by(.run)
            | map( (sort_by(.ts) | last) as $l
                   | ($l.msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "")) as $step
-                  | select(($step | test("^(done|aborted|posted)( |$)")) | not)
+                  | select(($step | test("^(done|aborted|posted|stand_down)( |$)")) | not)
                   | select($l.ts >= (if ($step | test("fanned out")) then $fcut else $cut end)) )
            | length' 2>/dev/null)"
     foreign="${foreign:-0}"
