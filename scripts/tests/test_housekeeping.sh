@@ -104,7 +104,7 @@ add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
 merged_pr_fx 5 "$SHA5"
 MS="$(printf '%sT00:00:00Z' "$(date -u -d "@$(( $(date -u +%s) - 7*86400 ))" +%Y-%m-%d 2>/dev/null \
      || date -u -r "$(( $(date -u +%s) - 7*86400 ))" +%Y-%m-%d)")"
-jq -n '[{id:101, user:{login:"alice", type:"User"}, body:"@test-bot what about the retry?",
+jq -n '[{id:101, user:{login:"alice", type:"User"}, author_association:"MEMBER", body:"@test-bot what about the retry?",
          created_at:"2026-08-07T09:00:00Z", html_url:"https://example.test/c/101",
          issue_url:"https://api.github.com/repos/acme/widgets/issues/1"}]' \
   | fx "api repos/$TEST_REPO/issues/comments?since=$MS&per_page=100&sort=created&direction=desc&page=1"

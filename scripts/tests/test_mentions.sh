@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mention detection: @-mention pickup, ledger dedup, bot-thread replies,
-# human-thread replies ignored, Bot-type authors ignored, config off switch.
+# human-thread replies ignored, Bot-type authors ignored, config off switch,
+# the author-association gate (mention_authors).
 . "$(dirname "$0")/helpers.sh"
 
 # scan window start — MUST mirror preflight.sh (7 days back, day-rounded)
@@ -10,15 +11,16 @@ msince() {
 }
 MS="$(msince)"
 
+# ASSOC (default MEMBER) is the author_association the comment carries
 ic_comment() { # <id> <author> <type> <body> <issue-number>
-  jq -n --argjson id "$1" --arg a "$2" --arg t "$3" --arg b "$4" --argjson n "$5" \
-    '{id:$id, user:{login:$a, type:$t}, body:$b,
+  jq -n --argjson id "$1" --arg a "$2" --arg t "$3" --arg b "$4" --argjson n "$5" --arg assoc "${ASSOC:-MEMBER}" \
+    '{id:$id, user:{login:$a, type:$t}, author_association:$assoc, body:$b,
       created_at:"2026-08-07T09:00:00Z", html_url:("https://example.test/c/"+($id|tostring)),
       issue_url:("https://api.github.com/repos/acme/widgets/issues/"+($n|tostring))}'
 }
 rc_comment() { # <id> <author> <type> <body> <pr-number> <in_reply_to|null>
-  jq -n --argjson id "$1" --arg a "$2" --arg t "$3" --arg b "$4" --argjson n "$5" --argjson r "$6" \
-    '{id:$id, user:{login:$a, type:$t}, body:$b, in_reply_to_id:$r,
+  jq -n --argjson id "$1" --arg a "$2" --arg t "$3" --arg b "$4" --argjson n "$5" --argjson r "$6" --arg assoc "${ASSOC:-MEMBER}" \
+    '{id:$id, user:{login:$a, type:$t}, author_association:$assoc, body:$b, in_reply_to_id:$r,
       created_at:"2026-08-07T09:05:00Z", html_url:("https://example.test/rc/"+($id|tostring)),
       pull_request_url:("https://api.github.com/repos/acme/widgets/pulls/"+($n|tostring))}'
 }
@@ -155,5 +157,43 @@ fx_fail "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=creat
 run_preflight review
 assert_jq '.mentions_due | length == 1' 'the surface that answered still yields its mention'
 assert_out_contains 'review-comment surface did not answer' 'the silent surface is logged, never read as quiet'
+
+# --- mention_authors: an account outside the set is counted, never emitted ------
+# author_association is what GitHub states about the commenter; the default set
+# is OWNER, MEMBER and COLLABORATOR, so a stranger's mention wakes nothing, and
+# a stranger's reply in a bot thread is counted the same way.
+new_case mention_outsider_left_out
+base_config
+{ ASSOC=NONE ic_comment 101 stranger User "@test-bot please review this now" 7
+  ic_comment 102 alice User "@test-bot ping" 7; } | ic_fx
+{ rc_comment 200 test-bot User "🟡 **Warning:** unchecked null" 9 null
+  ASSOC=CONTRIBUTOR rc_comment 201 drifter User "not intentional at all" 9 200; } | rc_fx
+run_preflight review
+assert_jq '.mentions_due | length == 1' 'only the member mention is due'
+assert_jq '.mentions_due[0].comment_id == 102' 'the member mention is the one emitted'
+assert_jq '.mentions_due[0] | has("admitted") | not' 'the gate flag stays out of the entry'
+assert_jq '.config.mention_authors == "collaborators"' 'the default set is resolved into config'
+assert_out_contains '2 mention(s) by accounts outside mention_authors (collaborators) left out' 'the left-out count is logged'
+
+# --- mention_authors: anyone → every human account is handled ------------------
+new_case mention_authors_anyone
+base_config '- mention_authors: anyone'
+{ ASSOC=NONE ic_comment 101 stranger User "@test-bot please review this now" 7
+  ic_comment 102 alice User "@test-bot ping" 7; } | ic_fx
+run_preflight review
+assert_jq '.mentions_due | length == 2' 'both mentions are due'
+assert_jq '.config.mention_authors == "anyone"' 'the key is resolved into config'
+assert_jq '.logs | any(test("outside mention_authors")) | not' 'nothing is left out'
+
+# --- outsiders alone wake no run; an unknown value reads as the default --------
+new_case mention_outsider_alone
+base_config '- mention_authors: everybody'
+ASSOC=FIRST_TIME_CONTRIBUTOR ic_comment 101 stranger User "@test-bot hi" 7 | ic_fx
+pr_json 4 "desc PR" '[]' "1111111111111111111111111111111111111111" \
+  | jq '.author_association = "NONE" | .body = "@test-bot review please"' | open_prs_fx
+add_row 4 "1111111111111111111111111111111111111111" "$(iso_ago 3600)" APPROVE done
+run_preflight review
+assert_jq '.nothing_to_do == true' 'outsider mentions start no session'
+assert_out_contains '2 mention(s) by accounts outside mention_authors (collaborators) left out' 'an unknown value falls back to the default set'
 
 finish

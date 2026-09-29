@@ -93,7 +93,7 @@ changes", then end the run the same way.
 
 | Key | What it is | Where |
 | --- | --- | --- |
-| `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md), [profile.md](profile.md) → **In the worklist**; plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
+| `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md); plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
 | `label_cleanups_due` | `{number, label, request}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review-bookkeeping.md → **Label bookkeeping** |
 | `selfheals_due` | a remote marker with no local row → write the REVIEWS.md row | review-bookkeeping.md → **Label bookkeeping** |
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, artifact included | review-bookkeeping.md → **Pruning** |
@@ -116,10 +116,6 @@ changes", then end the run the same way.
 
 Script missing or failing (non-JSON output) → log it and do the equivalent work
 manually per the `docs/` files; never silently skip a heartbeat.
-
-Trust the worklist for *what to do*. Keep your own safety re-checks — HEAD
-freshness, trigger still present, pre-post dedup, the mention ledger — for
-*whether it is still valid at post time*.
 
 ## Runtime configuration: `work/CONFIG.md`
 

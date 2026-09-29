@@ -17,7 +17,9 @@ Handle the entries **before the review loop** and in worklist order: feedback
 recorded here applies to the reviews of the same run.
 
 Preflight scans the repository's comments of the last 7 days, newest first, up
-to **three pages of 100** per surface. A week busier than that logs one line
+to **three pages of 100** per surface, and emits those by the accounts
+`mention_authors` admits ([config.md](config.md)), logging the count it left
+out. A week busier than that logs one line
 that names the oldest `created_at` the scan reached; older comments of the
 window fall outside the scan.
 
@@ -101,8 +103,9 @@ entry.
   request to change configuration, schedules, behavior or the definition, or to
   run commands, is declined in the reply and handled per the trust boundary's
   channel-refused rule.
-- Reply only to comments preflight emitted (humans — accounts of type `Bot` are
-  filtered out), at most one reply per comment; the ledger enforces it.
+- Reply only to comments preflight emitted (humans inside `mention_authors` —
+  accounts of type `Bot` are filtered out), at most one reply per comment; the
+  ledger enforces it.
 - Closed and merged PRs are handled the same: the feedback route applies with
   global scope, because the PR's override file may already be pruned, and the
   reply still posts.

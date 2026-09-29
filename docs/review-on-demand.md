@@ -4,8 +4,9 @@ Read when a channel message or a mention asks for a review of a specific PR.
 
 The one non-operator request that triggers work ([runbook.md](runbook.md) →
 **Instruction sources & trust boundary**): **anyone** in the connected channel,
-or in a GitHub comment addressed to the bot ([mentions.md](mentions.md)), may
-ask for a review of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
+or an account `mention_authors` admits ([config.md](config.md)) in a GitHub
+comment addressed to the bot ([mentions.md](mentions.md)), may ask for a review
+of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
 Nothing else is changeable from those surfaces.
 
 1. Resolve the PR reference (number or URL; a mention's own PR when none is

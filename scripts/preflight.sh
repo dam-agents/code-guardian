@@ -465,7 +465,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
@@ -478,6 +478,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, mention_replies:(if $mr=="" then "enabled" else $mr end),
+   mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr,
@@ -1234,6 +1235,10 @@ if [ "$MODE" = "review" ]; then
     log "bot_login missing — mention handling disabled this run"
     MENTION_REPLIES="disabled"
   fi
+  # whose mentions are handled (docs/config.md → mention_authors): the comment's
+  # author_association against the set; any other value is the default
+  MENTION_AUTHORS="$(cfg mention_authors)"
+  [ "$MENTION_AUTHORS" = "anyone" ] || MENTION_AUTHORS="collaborators"
   if [ "$MENTION_REPLIES" = "enabled" ]; then
     MSINCE="$(date -u -d "@$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null \
               || date -u -r "$((NOW_EPOCH - 7*86400))" +%Y-%m-%d 2>/dev/null)T00:00:00Z"
@@ -1297,14 +1302,15 @@ if [ "$MODE" = "review" ]; then
       && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)), back to $(scan_floor "$RC_TMP"); older comments in the window are not scanned"
     MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
     CAND_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-cand.XXXXXX")"
-    jq -nc --slurpfile ic "$IC_TMP" --slurpfile rc "$RC_TMP" --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+    jq -nc --slurpfile ic "$IC_TMP" --slurpfile rc "$RC_TMP" --arg re "$MRE" --arg bot "$BOT_LOGIN" --arg ma "$MENTION_AUTHORS" '
+      def admitted: ($ma == "anyone") or ((.author_association // "") | IN("OWNER", "MEMBER", "COLLABORATOR"));
       [ $ic[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
               | select((.body // "") | test($re))
               | {comment_id: .id, thread: "conversation",
                  number: (.issue_url | capture("/(?<n>[0-9]+)$").n | tonumber),
                  author: (.user.login // "ghost"), created_at,
                  body: ((.body // "") | .[0:1500]), url: .html_url,
-                 in_reply_to: null, mentioned: true} ]
+                 in_reply_to: null, mentioned: true, admitted: admitted} ]
       + [ $rc[] | select((.user.login // "") != $bot and ((.user.type // "User") != "Bot"))
                 | select(((.body // "") | test($re)) or (.in_reply_to_id != null))
                 | {comment_id: .id, thread: "inline",
@@ -1312,20 +1318,21 @@ if [ "$MODE" = "review" ]; then
                    author: (.user.login // "ghost"), created_at,
                    body: ((.body // "") | .[0:1500]), url: .html_url,
                    in_reply_to: .in_reply_to_id,
-                   mentioned: ((.body // "") | test($re))} ]
+                   mentioned: ((.body // "") | test($re)), admitted: admitted} ]
       | .[]' 2>/dev/null > "$CAND_TMP"
     # PR descriptions: an @-mention in the body of any open PR (drafts
     # included; zero extra API calls — the open-PR list already carries the
     # bodies). One handling per PR: ledger key "body-<n>".
     # Appended as JSONL to the same file, for the same argv reason as the pages:
     # a busy window's candidate set is itself well past 128 KiB.
-    printf '%s' "$OPEN_JSON" | jq -c --arg re "$MRE" --arg bot "$BOT_LOGIN" '
+    printf '%s' "$OPEN_JSON" | jq -c --arg re "$MRE" --arg bot "$BOT_LOGIN" --arg ma "$MENTION_AUTHORS" '
       .[] | select(((.user.login // "") != $bot) and ((.user.type // "User") != "Bot"))
           | select((.body // "") | test($re))
           | {comment_id: ("body-" + (.number|tostring)), thread: "body",
              number, author: (.user.login // "ghost"), created_at,
              body: ((.body // "") | .[0:1500]), url: .html_url,
-             in_reply_to: null}' 2>/dev/null >> "$CAND_TMP"
+             in_reply_to: null,
+             admitted: (($ma == "anyone") or ((.author_association // "") | IN("OWNER", "MEMBER", "COLLABORATOR")))}' 2>/dev/null >> "$CAND_TMP"
     CAND="$(jq -sc 'sort_by(.created_at)' "$CAND_TMP" 2>/dev/null)"
     # an empty candidate set is also what a quiet week produces, so the failure
     # that makes one must be said out loud
@@ -1333,6 +1340,7 @@ if [ "$MODE" = "review" ]; then
       log_warn "mention scan: the candidate set did not parse — no mention is handled this run"
       CAND='[]'
     fi
+    left_out=0
     while IFS= read -r c; do
       [ -z "$c" ] && continue
       cid="$(printf '%s' "$c" | jq -r '.comment_id')"
@@ -1345,9 +1353,16 @@ if [ "$MODE" = "review" ]; then
         [ -z "$root_author" ] && root_author="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null | jq -r '.user.login // empty')"
         [ "$root_author" = "$BOT_LOGIN" ] || continue
       fi
-      MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned)')" '. + [$e]')"
+      # an author outside mention_authors is counted, never emitted
+      if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ]; then
+        left_out=$((left_out + 1)); continue
+      fi
+      MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned, .admitted)')" '. + [$e]')"
       log "#$(printf '%s' "$c" | jq -r '.number'): mention $cid by $(printf '%s' "$c" | jq -r '.author') — handling due"
     done < <(printf '%s' "$CAND" | jq -c '.[]')
+    if [ "$left_out" -gt 0 ]; then
+      log "mention scan: $left_out mention(s) by accounts outside mention_authors ($MENTION_AUTHORS) left out"
+    fi
     # after the loop: the inline root-author lookup reads the review-comment batch
     rm -f "$IC_TMP" "$RC_TMP" "$CAND_TMP"
   fi

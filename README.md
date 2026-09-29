@@ -9,7 +9,7 @@ review (the **PR Shepherd** role).
 
 ## How it works
 
-Four independent schedules exist, and **all start with the deterministic
+Five kinds of scheduled run exist, and **all start with the deterministic
 pre-flight script** [`scripts/preflight.sh`](scripts/preflight.sh). The script
 only *detects*: it makes no GitHub writes and computes the run's worklist. With
 work, the agent performs all of it per the [`docs/`](docs/) procedures.
@@ -148,7 +148,8 @@ That is a complete initialization. The agent checks out its own definition,
 wires up `work/`, walks you through a short configuration dialog (bot name,
 review marker, skills repo, Slack — each value lands in `work/CONFIG.md`),
 registers the schedules (the review heartbeat on its two cadences, the Friday
-audit, plus the hourly shepherd sweep when Slack is enabled), and marks itself
+audit, plus the hourly shepherd sweep, the monthly benchmark and the weekly
+survey when their keys are enabled), and marks itself
 onboarded so it never repeats the process.
 
 ### Slack notifications (optional, chosen at onboarding)
@@ -173,10 +174,11 @@ Shepherd reviewer nudging.
 The decision is stored in `work/CONFIG.md` and can be changed later by telling
 the agent; it flips the flag, and builds the roster on first enable.
 
-Independently of this opt-in, **anyone** in the connected channel — or in a
-GitHub comment @-mentioning the bot — can ask the agent to review a specific
-PR, equivalent to adding the re-review label, including restarting a stuck
-review (`docs/review-on-demand.md` → **On-demand review**). Any other change
+Independently of this opt-in, **anyone** in the connected channel — or, in a
+GitHub comment @-mentioning the bot, an account `mention_authors` admits — can
+ask the agent to review a specific PR, equivalent to adding the re-review
+label, including restarting a stuck review (`docs/review-on-demand.md` →
+**On-demand review**). Any other change
 request from a channel is declined and automatically filed as a tracking issue
 on the definition repo, with the link in the reply (`docs/runbook.md` →
 **Instruction sources & trust boundary**).
@@ -211,6 +213,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a commit status on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
+| `mention_authors` | defaulted to `collaborators` | Whose GitHub mentions are handled: repository owners, members and collaborators, or `anyone` (`docs/config.md`). |
 | `project_profile` | defaulted to `enabled` | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
 | `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
@@ -224,7 +227,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
-| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. The active interval defaults to 5 minutes to stay under the harness prompt-cache TTL, so back-to-back idle ticks re-read the cached prefix instead of rewriting it; quiet hours drop to hourly, where most idle spend sits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
+| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the stalled-review alert. |
@@ -352,12 +355,18 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   over REST, and `--verify` checks the work against it before the push; the
   next review round stays the caller's to start.
 - [`docs/`](docs/) — the procedures, read on demand:
-  [`review.md`](docs/review.md), [`finding-form.md`](docs/finding-form.md),
+  [`review.md`](docs/review.md), [`review-rereview.md`](docs/review-rereview.md),
+  [`review-urgent.md`](docs/review-urgent.md),
+  [`review-bookkeeping.md`](docs/review-bookkeeping.md),
+  [`review-on-demand.md`](docs/review-on-demand.md),
+  [`review-mechanics.md`](docs/review-mechanics.md),
+  [`finding-form.md`](docs/finding-form.md),
   [`skills.md`](docs/skills.md), [`profile.md`](docs/profile.md),
   [`config.md`](docs/config.md), [`mentions.md`](docs/mentions.md),
   [`watches.md`](docs/watches.md), [`artifact.md`](docs/artifact.md),
-  [`shepherd.md`](docs/shepherd.md), [`audit.md`](docs/audit.md),
-  [`trends.md`](docs/trends.md), [`benchmark.md`](docs/benchmark.md),
+  [`ci-triage.md`](docs/ci-triage.md), [`shepherd.md`](docs/shepherd.md),
+  [`audit.md`](docs/audit.md), [`trends.md`](docs/trends.md),
+  [`survey.md`](docs/survey.md), [`benchmark.md`](docs/benchmark.md),
   [`preferences.md`](docs/preferences.md),
   [`persistence.md`](docs/persistence.md), [`logging.md`](docs/logging.md),
   [`self-modification.md`](docs/self-modification.md).
