@@ -1340,6 +1340,25 @@ if [ "$MODE" = "review" ]; then
       log_warn "mention scan: the candidate set did not parse — no mention is handled this run"
       CAND='[]'
     fi
+    # author_association reads a private organization member as CONTRIBUTOR or
+    # NONE when the token cannot see the membership (the default visibility),
+    # so an author it leaves out gets one permission GET per run: triage or
+    # more admits; read admits on a private repository only
+    ACCESS_CACHE="|"; REPO_PRIVATE=""
+    mention_author_has_access() { # <login>
+      case "$ACCESS_CACHE" in *"|$1=y|"*) return 0;; *"|$1=n|"*) return 1;; esac
+      local p r=n
+      p="$(gh api "repos/$REPO/collaborators/$1/permission" 2>/dev/null \
+           | jq -r '.role_name // .permission // empty' 2>/dev/null)"
+      case "$p" in
+        admin|maintain|write|triage) r=y;;
+        read)
+          [ -n "$REPO_PRIVATE" ] || REPO_PRIVATE="$(gh api "repos/$REPO" 2>/dev/null | jq -r '.private // false' 2>/dev/null)"
+          [ "$REPO_PRIVATE" = "true" ] && r=y;;
+      esac
+      ACCESS_CACHE="$ACCESS_CACHE$1=$r|"
+      [ "$r" = y ]
+    }
     left_out=0
     while IFS= read -r c; do
       [ -z "$c" ] && continue
@@ -1354,7 +1373,8 @@ if [ "$MODE" = "review" ]; then
         [ "$root_author" = "$BOT_LOGIN" ] || continue
       fi
       # an author outside mention_authors is counted, never emitted
-      if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ]; then
+      if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ] \
+         && ! mention_author_has_access "$(printf '%s' "$c" | jq -r '.author')"; then
         left_out=$((left_out + 1)); continue
       fi
       MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned, .admitted)')" '. + [$e]')"

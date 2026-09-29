@@ -196,4 +196,26 @@ run_preflight review
 assert_jq '.nothing_to_do == true' 'outsider mentions start no session'
 assert_out_contains '2 mention(s) by accounts outside mention_authors (collaborators) left out' 'an unknown value falls back to the default set'
 
+# --- a private org member reads as CONTRIBUTOR: the permission GET admits ------
+# triage or more admits anywhere; read admits on a private repository only
+new_case mention_private_member_admitted
+base_config
+{ ASSOC=CONTRIBUTOR ic_comment 101 hidden User "@test-bot ping" 7
+  ASSOC=NONE ic_comment 102 reader User "@test-bot ping" 7
+  ASSOC=NONE ic_comment 103 stranger User "@test-bot ping" 7; } | ic_fx
+printf '{"permission":"write","role_name":"write"}' | fx "api repos/$TEST_REPO/collaborators/hidden/permission"
+printf '{"permission":"read","role_name":"read"}' | fx "api repos/$TEST_REPO/collaborators/reader/permission"
+printf '{"private":true}' | fx "api repos/$TEST_REPO"
+run_preflight review
+assert_jq '[.mentions_due[].comment_id] == [101, 102]' 'write, and read on a private repository, are admitted'
+assert_out_contains '1 mention(s) by accounts outside mention_authors (collaborators) left out' 'an account without access stays out'
+
+new_case mention_public_reader_left_out
+base_config
+ASSOC=NONE ic_comment 102 reader User "@test-bot ping" 7 | ic_fx
+printf '{"permission":"read","role_name":"read"}' | fx "api repos/$TEST_REPO/collaborators/reader/permission"
+printf '{"private":false}' | fx "api repos/$TEST_REPO"
+run_preflight review
+assert_jq '.mentions_due | length == 0' 'read on a public repository is every account'
+
 finish

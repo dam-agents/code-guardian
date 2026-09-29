@@ -97,8 +97,13 @@ below is for the manual fallback and the direct session.
 - **`mention_authors`** — whose GitHub mentions are handled: `collaborators`
   (the comment's `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`)
   | `anyone`. **Missing = `collaborators`**; any other value reads as
-  `collaborators`. Preflight emits the mentions the set admits and logs the
-  count it left out ([mentions.md](mentions.md)).
+  `collaborators`. GitHub reads a private organization member as
+  `CONTRIBUTOR` or `NONE` when the token cannot see the membership, so an
+  author the association leaves out gets one
+  `repos/<repo>/collaborators/<login>/permission` GET per run: `triage` or more
+  admits, `read` admits on a private repository only. Preflight emits the
+  mentions the set admits and logs the count it left out
+  ([mentions.md](mentions.md)).
 - **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24
   h that trigger one alert, at most once per UTC day. **Missing = `4`**;
   `0`/`off` disables; an unparseable value falls back to `4`

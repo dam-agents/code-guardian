@@ -15,7 +15,9 @@ they are released history and stay as written.
 
 **Upgrade:** GitHub mentions are handled from repository owners, members and
 collaborators only (`docs/config.md` → `mention_authors`, missing =
-`collaborators`). Handling every account is an opt-in: ask the operator once
+`collaborators`); an account that GitHub does not show as one gets one
+permission lookup, so a private organization member with access is still
+answered. Handling every account is an opt-in: ask the operator once
 whether mentions from other accounts should keep being answered; a yes adds the
 key — idempotent, and it writes nothing that is already there:
 
