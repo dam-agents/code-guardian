@@ -25,7 +25,8 @@ Entry: `{number, head_sha, head_ref, title, author, kind, takeover, prior,
 urgent, closed}`, plus `eta_seconds` under `review_progress: enabled`. `kind`
 is `first` or `re-review`; `prior` holds the last review's
 `{sha, ts, verdict}`. Keep the worklist order — urgent entries come first.
-Finish one PR before the next.
+Finish one PR, inside its hold, before the next ([runbook.md](runbook.md) →
+**Review run**, step 5).
 
 a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
    `review_progress: enabled`, `--on-demand` for an on-demand review). Check 1
@@ -460,3 +461,4 @@ Before you declare the run done:
   status.
 - **Every `reviews_due` PR reached a terminal state** — the run never ended
   mid-pipeline, for example after a skill report.
+- **Every PR hold this run took is released** (`review-pr.sh release <n>`).

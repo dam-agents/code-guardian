@@ -40,6 +40,17 @@ export LOG_RUN_ID="$sid"
 . "$(cd "$(dirname "$0")/../.." && pwd)/log.sh"
 [ -f "$LOG_WORK/CONFIG.md" ] || exit 0   # not a deployed instance
 
+# A stop that goes through gives back the PR holds this run still owns
+# (docs/worklist.md → PR holds); a blocked stop keeps them — the run goes on.
+release_own_holds() {
+  local f
+  for f in "$LOG_WORK/.holds.lock"/*; do
+    [ -f "$f" ] && [ "$(sed -n 2p "$f" 2>/dev/null)" = "$sid" ] || continue
+    rm -f "$f" && logev info hold "PR #${f##*/}: released at stop"
+  done
+}
+trap release_own_holds EXIT
+
 # Every retained events file, not a computed today/yesterday pair: the run-id
 # filter below is what selects this run, and a step written to a differently
 # named file (a hand-rolled fallback that guessed `events-2026-08.jsonl`) was
@@ -147,4 +158,5 @@ kind and logs \`aborted <reason>\`. Do not stop with a lock left \`in_progress\`
 EOF
 fi
 } >&2
+trap - EXIT
 exit 2

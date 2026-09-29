@@ -163,4 +163,23 @@ step r1 "PR #10 abc1234 locked"
 run_hook r1
 assert_rc 0 'no CONFIG.md → hook stays out of the way'
 
+# --- a stop that goes through gives back this run's PR holds -------------------
+# another run's hold stays; a blocked stop keeps the run's own (docs/worklist.md
+# → PR holds)
+holds_of() { ls "$WORK/.holds.lock" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
+hook_case stop_releases_holds
+mkdir -p "$WORK/.holds.lock"
+printf '2026-07-31T10:00:00Z\nr1\n' > "$WORK/.holds.lock/10"
+printf '2026-07-31T10:00:00Z\nr2\n' > "$WORK/.holds.lock/11"
+step r1 "PR #10 abc1234 locked"
+run_hook r1
+assert_rc 2 'the mid-pipeline stop is blocked'
+[ "$(holds_of)" = "10 11" ] && printf 'ok   %s: %s\n' "$CASE" 'a blocked stop keeps the holds' \
+  || { printf 'FAIL %s: %s (have: %s)\n' "$CASE" 'a blocked stop keeps the holds' "$(holds_of)"; FAILED=1; }
+step r1 "PR #10 abc1234 done"
+run_hook r1
+assert_rc 0 'the finished run stops'
+[ "$(holds_of)" = "11" ] && printf 'ok   %s: %s\n' "$CASE" 'only the stopping run'"'"'s hold is released' \
+  || { printf 'FAIL %s: %s (have: %s)\n' "$CASE" 'only the stopping run'"'"'s hold is released' "$(holds_of)"; FAILED=1; }
+
 finish

@@ -13,8 +13,9 @@ thread a bot comment started:
  "body": "<first 1500 chars>", "url": "<html_url>", "in_reply_to": null}
 ```
 
-Handle the entries **before the review loop** and in worklist order: feedback
-recorded here applies to the reviews of the same run.
+Handle a PR's entries inside its hold, in worklist order and **before its
+review** ([runbook.md](runbook.md) → **Review run**, step 5): feedback recorded
+here applies to that review.
 
 Preflight scans the repository's comments of the last 7 days, newest first, up
 to **three pages of 100** per surface, and emits those by the accounts
@@ -112,7 +113,7 @@ entry.
 
 ## Self-check
 
-- Handled before the review loop; ledger row immediately after each entry's
+- Handled inside the PR's hold, before its review; ledger row immediately after each entry's
   actions; every entry terminal (`feedback + reply` / `answer` / `review` /
   `no-action` / `send-failed`) with its `mention_handled` event; every explicit
   correction stored and named in the reply.

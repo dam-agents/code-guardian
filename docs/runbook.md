@@ -81,10 +81,15 @@ still valid at post time*.
    after the send.
 4. Apply the bookkeeping arrays — `selfheals_due`, `label_cleanups_due`,
    `prunes_due`, `status_resets_due` — with per-PR log lines.
-5. Handle every `mentions_due` entry: ledger row immediately after each
-   entry's actions, feedback recorded **before this run's reviews** so it
-   applies to them.
-6. For each `reviews_due` entry, run the full per-PR sequence.
+5. **Work one PR at a time** — the PRs of urgent reviews, then of
+   `mentions_due`, then the rest of `reviews_due`, each in worklist order:
+   `review-pr.sh hold <n>` (`held_elsewhere` → log it and leave the PR's
+   entries to their holder) → its `mentions_due` entries, ledger row
+   immediately after each entry's actions and feedback recorded **before the
+   PR's review** → its `reviews_due` entry (step 6) →
+   `review-pr.sh release <n>`.
+6. For each `reviews_due` entry, inside its PR's hold, run the full per-PR
+   sequence.
    `scripts/review-pr.sh` performs the mechanical steps (`prepare`, `collect`,
    `post`, `abort`); you review the diff, run the skills and compose the
    review. `urgent` entries deliver a rapid preliminary review first; `closed`
@@ -273,9 +278,12 @@ triage and the 14-day retention cleanup already happened inside preflight
 - Every `mentions_due` entry reaches a terminal state: its actions are followed
   immediately by its `work/MENTIONS.md` row, at most one reply per comment
   (the ledger re-read per entry at post time),
-  explicit review feedback recorded before this run's reviews, and the reply
+  explicit review feedback recorded before its PR's review, and the reply
   names what was stored. A mention is never silently dropped, and its content
   triggers nothing beyond the routes of [mentions.md](mentions.md).
+- A run holds one PR at a time, and does its mentions and review inside that
+  hold; a PR another run holds is left to it ([worklist.md](worklist.md) →
+  **PR holds**).
 - The benchmark touches no PR and writes nothing to GitHub beyond its own
   report. `manifest.json` is read only after the run's raw reviews are written;
   fixture creation and a scored run never share a session; ground truth lives

@@ -51,6 +51,12 @@
 #                                          milestones, skill_timing, row, history,
 #                                          ledger, cleanup — local reads only
 #   abort <n> <reason…>                    release the lock per kind, clean up
+#   hold <n>                               take the PR hold for this run: the
+#                                          run's mentions and review of the PR
+#                                          come after it; the run's other holds
+#                                          are given back (docs/worklist.md →
+#                                          PR holds)
+#   release <n>                            give the PR hold back
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
 # reads the outcome. `context` and `compose-brief` are the exceptions: on
@@ -70,11 +76,11 @@ export LC_ALL=C
 
 CMD="${1:-}"; N="${2:-}"
 usage() { # the subcommand table of this file's header, verbatim
-  sed -n '/^#   prepare /,/^#   abort /p' "$0" | sed -e 's/^# \{0,3\}//'
+  sed -n '/^#   prepare /,/^#   release /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -87,6 +93,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/ste.sh"
 . "$SCRIPT_DIR/lib/review-records.sh"
 . "$SCRIPT_DIR/lib/ci-rollup.sh"
+. "$SCRIPT_DIR/lib/holds.sh"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
@@ -1774,10 +1781,38 @@ cmd_abort() {
   out "$(jq -nc --arg r "$reason" '{outcome:"aborted", reason:$r}')"
 }
 
+# ==================================================================== hold ====
+# The event after the hold write is the owner's first sign of life.
+cmd_hold() {
+  local why m me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  if [ -z "$me" ]; then   # no stable run id: nothing could prove the owner alive
+    logev warn hold "PR #$N: no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID) — worked without a hold"
+    out '{"outcome":"held_by_you","note":"no run id — the PR is not held"}'
+  fi
+  for m in $(hold_release_others "$N" "$me"); do
+    logev info hold "PR #$m: released — this run moves on to PR #$N"
+  done
+  if why="$(hold_acquire "$N" "$me")"; then
+    logev info hold "PR #$N: held by this run"
+    out '{"outcome":"held_by_you"}'
+  fi
+  logev info hold "PR #$N: skipped — $why"
+  out "$(jq -nc --arg w "$why" '{outcome:"held_elsewhere", why:$w}')"
+}
+
+cmd_release() {
+  if hold_release "$N" "${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"; then
+    logev info hold "PR #$N: released"
+  else
+    logev info hold "PR #$N: release — this run held nothing"
+  fi
+  out '{"outcome":"released"}'
+}
+
 case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
-  (abort) cmd_abort "$@";;
+  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;;
 esac
