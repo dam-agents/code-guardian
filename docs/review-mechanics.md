@@ -49,8 +49,8 @@ right above the marker, in every posted full review. Per finding: `status`
 `also` (the sibling-sweep locations of the same finding, `[{file, line}]`;
 omitted when there is one), `late` (`true` on a `new` finding that was already
 present at the prior reviewed SHA, [review-rereview.md](review-rereview.md) →
-**Re-review output**; omitted otherwise), `inline`, `summary` (≤ ~10 words), `fix` (the
-**Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical`
+**Re-review output**; omitted otherwise), `inline`, `summary` (≤ ~10 words),
+`fix` (the **Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical`
 and `warning` are the blocking set, so this line is the machine-readable
 approval bar the next re-review checks against. Every anchor is a real line of
 the file it names — `post` nulls one that is not and reports it. Keep the JSON

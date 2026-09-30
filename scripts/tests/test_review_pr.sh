@@ -566,11 +566,11 @@ PRIOR="1111111111111111111111111111111111111111"
 late_history "$PRIOR"
 add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '["cg-rereview"]'
-jq -n '{status:"ahead", files:[{filename:"src/alpha.ts", patch:"@@ -4,3 +4,4 @@\n a\n+b\n c\n d"}, {filename:"docs/a.md", patch:"@@ -1 +1 @@\n-x\n+y"}]}' \
+jq -n '{status:"ahead", files:[{filename:"src/alpha.ts", patch:"@@ -4,3 +4,4 @@\n a\n+b @@ -30,2 +30,2 @@\n c\n d"}, {filename:"docs/a.md", patch:"@@ -1 +1 @@\n-x\n+y"}]}' \
   | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
 run_rp prepare 1
 jq -e '.known == true and .files["src/alpha.ts"] == [[4,7]] and .files["docs/a.md"] == [[1,1]]' "$(PR_DIR).ctx/age.json" >/dev/null \
-  && printf 'ok   %s: a complete re-review still ages its findings against the range\n' "$CASE" \
+  && printf 'ok   %s: a complete re-review still ages its findings against the range, hunk headers only at a line start\n' "$CASE" \
   || { printf 'FAIL %s: age.json wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/age.json")"; FAILED=1; }
 printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"},{"status":"new","severity":"critical","file":"src/beta.ts","line":1,"inline":true,"summary":"capability outside the policy","fix":"drop the capability"},{"status":"new","severity":"warning","file":"src/beta.ts","line":9,"also":[{"file":"src/alpha.ts","line":4}],"inline":true,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"suggestion","file":"src/delta.ts","line":null,"inline":false,"summary":"name the constant","fix":null}]' > "$SANDBOX/cur-late.json"
 run_rp delta 1 "$SANDBOX/cur-late.json"
@@ -588,7 +588,9 @@ jq -e '.[1] | has("late") | not' "$A" >/dev/null \
   && printf 'ok   %s: a cleared finding carries no late flag\n' "$CASE" \
   || { printf 'FAIL %s: --fresh left the flag: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
 run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 7
-assert_jq '.outcome == "error" and (.error | contains("no new finding at index 7"))' 'a --fresh on an index that is not a new finding is refused'
+assert_jq '.outcome == "error" and (.error | contains("no late finding at index 7"))' 'a --fresh on an index that is not a finding is refused'
+run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 0
+assert_jq '.outcome == "error" and (.error | contains("no late finding at index 0"))' 'a --fresh on a new finding that is not late is refused'
 run_rp delta 1 "$SANDBOX/cur-late.json" --fresh x
 assert_jq '.outcome == "error" and (.error | contains("--fresh takes a finding index"))' 'a --fresh value that is not an index is refused'
 run_rp abort 1 "reset"

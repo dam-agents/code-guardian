@@ -455,7 +455,8 @@ Before you declare the run done:
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
   never named · every structured-block finding block-swept · every `late`
-  finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`) · skill sections reformatted and merged with no finding lost ·
+  finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`) ·
+  skill sections reformatted and merged with no finding lost ·
   stale approval dismissed when the verdict dropped below APPROVE · every sentence of the posted prose inside the 20-word
   bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in

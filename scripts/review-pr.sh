@@ -771,7 +771,7 @@ cmd_prepare() {
           elif (.status // "") == "ahead" and ($f | length) < 300
                and ([ $f[] | select(.patch == null) ] | length) == 0
           then {base:$b, known:true, files:([ $f[] | {key: .filename, value:
-                 [ .patch | scan("@@ -[0-9]+(?:,[0-9]+)? \\+([0-9]+)(?:,([0-9]+))? @@")
+                 [ .patch | scan("(?m)^@@ -[0-9]+(?:,[0-9]+)? \\+([0-9]+)(?:,([0-9]+))? @@")
                    | (.[0] | tonumber) as $s | ((.[1] // "1") | tonumber) as $n
                    | [$s, $s + ([$n, 1] | max) - 1] ]} ] | from_entries)}
           else {base:$b, known:false, files:{}} end' 2>/dev/null)"
@@ -1187,15 +1187,17 @@ cmd_delta() {
                end
            end)
         | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)}
-        | . + {late: (.settled == "new" and late(.f; $i))} ] as $cl
+        # `aged`: late before any --fresh, the set --fresh may name
+        | . + {aged: (.settled == "new" and late(.f; -1))}
+        | . + {late: (.aged and late(.f; $i))} ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
     # --settle takes the indexes `ambiguous[]` lists: reported pairs only
     | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
-    | ($fr - [ $rep[] | select(.settled == "new") | .index ]) as $badf
+    | ($fr - [ $rep[] | select(.aged) | .index ]) as $badf
     | if ($bad | length) > 0 then {outcome: "error", step: "delta",
         error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")}
       elif ($badf | length) > 0 then {outcome: "error", step: "delta",
-        error: ("--fresh names no new finding at index " + ($badf | map(tostring) | join(", ")) + " — clear only a `late[].index` value")} else .
+        error: ("--fresh names no late finding at index " + ($badf | map(tostring) | join(", ")) + " — clear only a `late[].index` value")} else .
     # over every classification, suppressed included: an override hides a
     # finding from the review, it does not fix the defect, so the prior it
     # matches is neither `fixed` nor announced as such
