@@ -697,14 +697,14 @@ pr_fx closed
 printf '### Summary\nx\n' > "$SANDBOX/body.md"
 printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":false,"summary":"w","fix":"f"}]' > "$SANDBOX/findings.json"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "closed_discarded"' 'no criticals → discarded'
+assert_jq '.outcome == "closed_discarded" and .scope == "critical"' 'no criticals → discarded'
 grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: lock left after closed discard\n' "$CASE"; FAILED=1; } || printf 'ok   %s: lock released\n' "$CASE"
 pr_fx open
 run_rp prepare 1
 pr_fx closed
 printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":false,"summary":"c","fix":"f"}]' > "$SANDBOX/findings.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "closed_criticals" and (.criticals | length == 1) and .existing_issue == null and (.issue_marker | contains(":issue headRefOid="))' 'criticals reported for the issue'
+assert_jq '.outcome == "closed_findings" and .scope == "critical" and (.findings | length == 1) and .existing_issue == null and (.issue_marker | contains(":issue headRefOid=")) and (.issue_title | contains("closed PR #1"))' 'criticals reported for the issue'
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --closed-issue 9
 assert_jq '.outcome == "closed_filed" and .issue == 9' 'finalized against the issue'
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | REQUEST_CHANGES | done |" 'done row after the issue'
@@ -716,15 +716,56 @@ pr_fx open '["urgent"]'
 run_rp prepare 1
 assert_jq '.urgent == true' 'urgent flagged'
 printf '### Critical findings\n- 🔴 **Critical:** q (`src/alpha.ts:6`)\n' > "$SANDBOX/rapid.md"
-printf '{"id":70,"html_url":"https://example.test/r/70","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp rapid 1 --body "$SANDBOX/rapid.md"
-assert_jq '.outcome == "posted" and .phase == "rapid" and .review_id == 70' 'rapid preliminary posted'
+assert_jq '.outcome == "error"' 'a rapid post without a verdict is refused'
+# a rapid approval of an earlier HEAD stands; a human approval is never touched
+printf '[{"id":60,"state":"APPROVED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=0000000000000000000000000000000000000000 -->"},{"id":61,"state":"APPROVED","user":{"login":"bob"},"body":"lgtm"}]' | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+printf '{"id":70,"html_url":"https://example.test/r/70","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
+run_rp rapid 1 --verdict REQUEST_CHANGES --body "$SANDBOX/rapid.md"
+assert_jq '.outcome == "posted" and .phase == "rapid" and .verdict == "REQUEST_CHANGES" and .review_id == 70' 'rapid preliminary posted'
+jq -se 'last | .event == "REQUEST_CHANGES"' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the rapid payload carries its verdict\n' "$CASE" || { printf 'FAIL %s: rapid payload event wrong\n' "$CASE"; FAILED=1; }
+assert_jq '.dismissed_approval == 60' 'a critical at the new HEAD revokes the earlier rapid approval'
+assert_call 'reviews/60/dismissals -X PUT' 'dismissal call issued'
+grep -q 'reviews/61/dismissals' "$SANDBOX/gh.log" && { printf 'FAIL %s: a human approval was dismissed\n' "$CASE"; FAILED=1; } || printf 'ok   %s: a human approval stays\n' "$CASE"
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | RAPID | in_progress |" 'RAPID lock row'
 assert_event 'rapid posted' 'rapid event'
-printf '[{"id":70,"state":"COMMENTED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
-run_rp rapid 1 --body "$SANDBOX/rapid.md"
+printf '[{"id":70,"state":"CHANGES_REQUESTED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+run_rp rapid 1 --verdict REQUEST_CHANGES --body "$SANDBOX/rapid.md"
 assert_jq '.outcome == "already_posted"' 'rapid dedup by its own marker'
 run_rp abort 1 "reset"
+
+# --- rapid approval, then a full review below APPROVE revokes it -------------------
+setup rapid_approve '- urgent_label: urgent'
+pr_fx open '["urgent"]'
+run_rp prepare 1
+printf '### Critical findings\n_None found at rapid-review depth._\n' > "$SANDBOX/rapid.md"
+printf '{"id":72,"html_url":"https://example.test/r/72","state":"APPROVED"}' | fx "$(POST_SLUG)"
+run_rp rapid 1 --verdict APPROVE --body "$SANDBOX/rapid.md"
+assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .dismissed_approval == null' 'rapid approval posted'
+jq -se 'last | .event == "APPROVE"' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the rapid payload approves\n' "$CASE" || { printf 'FAIL %s: rapid payload event wrong\n' "$CASE"; FAILED=1; }
+grep -q 'dismissals' "$SANDBOX/gh.log" && { printf 'FAIL %s: a rapid approval dismissed something\n' "$CASE"; FAILED=1; } || printf 'ok   %s: a rapid approval dismisses nothing\n' "$CASE"
+printf '[{"id":72,"state":"APPROVED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":false,"summary":"w","fix":"f"}]' > "$SANDBOX/findings.json"
+printf '{"id":73,"html_url":"https://example.test/r/73","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .dismissed_approval == 72' 'a first review below APPROVE revokes the rapid approval'
+assert_call 'reviews/72/dismissals -X PUT' 'dismissal call issued'
+
+# --- merged on a rapid approval: warnings are filed with the criticals ------------
+setup rapid_merged '- urgent_label: urgent'
+pr_fx open '["urgent"]'
+run_rp prepare 1
+printf '[{"id":72,"state":"APPROVED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+pr_fx merged '["urgent"]'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":false,"summary":"w","fix":"f"},{"status":"new","severity":"suggestion","file":"src/alpha.ts","line":7,"inline":false,"summary":"s","fix":"f"}]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "closed_findings" and .scope == "blocking" and (.findings | map(.severity) == ["warning"]) and (.issue_title | contains("rapid approval"))' 'the warning is filed, the suggestion is not'
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --closed-issue 12
+assert_jq '.outcome == "closed_filed" and .issue == 12' 'finalized against the issue'
 
 # --- on-demand: no trigger needed at prepare or post; same-SHA ask is a skip ------
 setup ondemand_case

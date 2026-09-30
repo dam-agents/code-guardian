@@ -76,7 +76,7 @@ line — GitHub truncates past 140 characters.
 | --- | --- | --- | --- |
 | `prepare` — lock written | `pending` | `queued <HH:MM>Z · fetching diff and clone<eta>` | — |
 | `prepare` — clone finished | `pending` | `reviewing since <HH:MM>Z · diff + <k> skill(s)<eta>` | — |
-| Urgent phase 1 — rapid posted | `pending` | `rapid preliminary review posted · full review running` | the rapid review |
+| Urgent phase 1 — rapid posted | `pending` | `rapid review: approved · full review running` (or `changes requested`) | the rapid review |
 | `post` — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
 | `post` / `abort` — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
 | PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
