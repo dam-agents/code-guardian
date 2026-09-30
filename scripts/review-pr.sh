@@ -34,7 +34,8 @@
 #                                          skeleton, the format rules from docs/,
 #                                          its overrides and memory rules, and the
 #                                          context refreshed at compose time
-#   rapid <n> --body <file>                urgent phase 1: the rapid preliminary post
+#   rapid <n> --verdict <V> --body <file>  urgent phase 1: the rapid preliminary post
+#                                          (APPROVE | REQUEST_CHANGES)
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
 #                                [--meta <file>] [--closed-issue <id>]
 #                                          Check 2 + dedup re-check, inline
@@ -1328,13 +1329,14 @@ cmd_compose_brief() {
 # =================================================================== rapid ====
 cmd_rapid() {
   need_ctx
-  local body=""; while [ $# -gt 0 ]; do case "$1" in (--body) body="${2:-}"; shift 2;; (*) shift;; esac; done
-  [ -f "$body" ] || fail "usage: rapid <n> --body <file>"
+  local body="" verdict=""; while [ $# -gt 0 ]; do case "$1" in (--body) body="${2:-}"; shift 2;; (--verdict) verdict="${2:-}"; shift 2;; (*) shift;; esac; done
+  [ -f "$body" ] || fail "usage: rapid <n> --verdict APPROVE|REQUEST_CHANGES --body <file>"
+  case "$verdict" in (APPROVE|REQUEST_CHANGES) ;; (*) fail "--verdict must be APPROVE | REQUEST_CHANGES";; esac
   local sha; sha="$(ctx_get '.head_sha')"
   local m="<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" r
   r="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m))] | length' 2>/dev/null)"
   [ "${r:-0}" -gt 0 ] && out "$(jq -nc '{outcome:"already_posted", phase:"rapid"}')"
-  { cat "$body"; printf '\n\n%s\n' "$m"; } | jq -Rs --arg sha "$sha" '{commit_id:$sha, event:"COMMENT", body:.}' > "$PAYLOAD"
+  { cat "$body"; printf '\n\n%s\n' "$m"; } | jq -Rs --arg sha "$sha" --arg v "$verdict" '{commit_id:$sha, event:$v, body:.}' > "$PAYLOAD"
   local resp
   resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)" \
     || { sleep 1; resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)"; } \
@@ -1343,8 +1345,32 @@ cmd_rapid() {
   write_row "$sha" "$(now_iso)" RAPID in_progress
   jq '.rapid_posted = true' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
   logstep "${sha:0:7} rapid posted"
-  progress pending "rapid preliminary review posted · full review running" "$(printf '%s' "$resp" | jq -r '.html_url // empty')"
-  out "$(printf '%s' "$resp" | jq -c '{outcome:"posted", phase:"rapid", review_id:.id, url:.html_url}')"
+  logev info review_pr "PR #$N: rapid review posted $verdict at ${sha:0:7}"
+  # a critical at this HEAD revokes a rapid approval of an earlier HEAD
+  local dismissed=null rid; rid="$(printf '%s' "$resp" | jq -r '.id // empty')"
+  [ "$verdict" = "APPROVE" ] || dismissed="$(dismiss_approvals "${rid:-0}" "${sha:0:7}" "$verdict" rapid)"
+  local ptxt="rapid review: approved · full review running"
+  [ "$verdict" = "APPROVE" ] || ptxt="rapid review: changes requested · full review running"
+  progress pending "$ptxt" "$(printf '%s' "$resp" | jq -r '.html_url // empty')"
+  out "$(printf '%s' "$resp" | jq -c --arg v "$verdict" --argjson d "${dismissed:-null}" '{outcome:"posted", phase:"rapid", verdict:$v, review_id:.id, url:.html_url, dismissed_approval:$d}')"
+}
+
+# dismiss_approvals <own-review-id> <sha7> <verdict> <review|rapid> → the last
+# dismissed id, or `null`. Every standing APPROVED review of the agent — its
+# login, its review marker or its rapid marker, never a human's — except the
+# one just posted; a failed dismissal is logged, not fatal.
+dismiss_approvals() {
+  local ids aid last=null what="review"; [ "$4" = "rapid" ] && what="rapid review"
+  ids="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" \
+      --arg m "<!-- $REVIEW_MARKER headRefOid=" --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=" --argjson me "$1" \
+      '.[] | select(.id != $me and .state == "APPROVED" and ((($b != "") and ((.user.login // "") == $b)) or ((.body // "") | contains($m)) or ((.body // "") | contains($mr)))) | .id' 2>/dev/null)"
+  for aid in $ids; do
+    if gh api "repos/$REPO/pulls/$N/reviews/$aid/dismissals" -X PUT -f event=DISMISS \
+         -f message="Superseded by $BOT_NAME $what at $2 — verdict is now $3." >/dev/null 2>&1; then
+      last="$aid"; logev info review_pr "PR #$N: dismissed stale approval $aid (APPROVE → $3)"
+    else logev warn dismiss "PR #$N: dismissing stale approval $aid did not succeed"; fi
+  done
+  printf '%s' "$last"
 }
 
 # ==================================================================== post ====
@@ -1378,30 +1404,42 @@ cmd_post() {
   state="$(printf '%s' "$PJ" | jq -r .state)"; draft="$(printf '%s' "$PJ" | jq -r .draft)"; live_sha="$(printf '%s' "$PJ" | jq -r .head_sha)"
   labels="$(printf '%s' "$PJ" | jq -c .labels)"; requested="$(printf '%s' "$PJ" | jq -c .requested)"
 
-  # closed at post time → no review; criticals become an issue (docs/review.md)
+  # closed at post time → no review; the findings become an issue
+  # (docs/review-urgent.md → PR closed mid-review). A merge on a standing rapid
+  # approval at this HEAD merged on critical checks alone: then warnings are
+  # filed too.
   if [ "$state" != "open" ] || [ "$(ctx_get '.mode')" = "closed" ]; then
     rm -f "$CARRY"      # the PR is gone: nothing will start from this work
-    local crit; crit="$(jq -c '[ .[] | select(.severity == "critical" and .status != "fixed") ]' "$FINDINGS")"
+    local scope=critical sevs='["critical"]' ra=0
+    if [ "$(printf '%s' "$PJ" | jq -r .merged)" = "true" ]; then
+      ra="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" \
+        '[.[] | select(.state == "APPROVED" and ((.body // "") | contains($mr)))] | length' 2>/dev/null)"
+    fi
+    [ "${ra:-0}" -gt 0 ] && { scope=blocking; sevs='["critical","warning"]'; }
+    local found cnt; found="$(jq -c --argjson s "$sevs" '[ .[] | select((.severity as $v | $s | index($v)) and .status != "fixed") ]' "$FINDINGS")"
+    cnt="$(printf '%s' "$found" | jq length)"
     if [ -n "$CLOSED_ISSUE" ]; then
       append_history "$sha7" "$now" "$VERDICT" "$BODY" "$FINDINGS" "_Delivered as issue #$CLOSED_ISSUE — PR closed before posting._" "$kind"
       write_row "$sha" "$now" "$VERDICT" done
-      progress success "PR closed · $(printf '%s' "$crit" | jq length) critical finding(s) in issue #$CLOSED_ISSUE"
+      progress success "PR closed · $cnt $scope finding(s) in issue #$CLOSED_ISSUE"
       logstep "$sha7 done"
-      logev info review_pr "PR #$N: closed mid-review — $(printf '%s' "$crit" | jq length) critical finding(s) filed as issue #$CLOSED_ISSUE"
+      logev info review_pr "PR #$N: closed mid-review — $cnt $scope finding(s) filed as issue #$CLOSED_ISSUE"
       cleanup
       out "$(jq -nc --arg i "$CLOSED_ISSUE" '{outcome:"closed_filed", issue:($i|tonumber)}')"
     fi
-    if [ "$(printf '%s' "$crit" | jq length)" -eq 0 ]; then
-      release_lock "closed mid-review — discarded (no critical findings)"; cleanup
-      out "$(jq -nc '{outcome:"closed_discarded"}')"
+    if [ "$cnt" -eq 0 ]; then
+      release_lock "closed mid-review — discarded (no $scope findings)"; cleanup
+      out "$(jq -nc --arg s "$scope" '{outcome:"closed_discarded", scope:$s}')"
     fi
     # the bot's own issues, every page — the marker is in one of them or in none
-    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing q="state=all&per_page=100"
+    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing q="state=all&per_page=100" it
     [ -n "$BOT_LOGIN" ] && q="$q&creator=$BOT_LOGIN"
     existing="$(gh api --paginate "repos/$REPO/issues?$q" 2>/dev/null | jq -s --arg m "$im" \
       '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
-    out "$(jq -nc --argjson c "$crit" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \
-      '{outcome:"closed_criticals", criticals:$c, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
+    it="Critical findings from review of closed PR #$N"
+    [ "$scope" = "blocking" ] && it="Blocking findings from review of PR #$N after its rapid approval"
+    out "$(jq -nc --argjson f "$found" --arg s "$scope" --arg t "$it" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \
+      '{outcome:"closed_findings", scope:$s, findings:$f, issue_title:$t, issue_marker:$m, existing_issue:(if $e=="" then null else ($e|tonumber) end), author:$a,
         next:"file the issue per docs/review-urgent.md → PR closed mid-review (or reuse existing_issue), then rerun post with --closed-issue <id>"}')"
   fi
   if [ "$live_sha" != "$sha" ]; then
@@ -1561,17 +1599,7 @@ cmd_post() {
     if gh api -X DELETE "repos/$REPO/issues/$N/labels/$REREVIEW_LABEL" >/dev/null 2>&1; then label_removed=true
     else logev warn label_remove "PR #$N: removing $REREVIEW_LABEL did not succeed"; fi
   fi
-  if [ "$kind" = "re-review" ] && [ "$VERDICT" != "APPROVE" ]; then
-    local aid
-    aid="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER headRefOid=" --argjson me "${rid:-0}" \
-      '[.[] | select(.id != $me and .state == "APPROVED" and (((.user.login // "") == $b) or ((.body // "") | contains($m))))] | last | .id // empty' 2>/dev/null)"
-    if [ -n "$aid" ]; then
-      if gh api "repos/$REPO/pulls/$N/reviews/$aid/dismissals" -X PUT -f event=DISMISS \
-           -f message="Superseded by $BOT_NAME re-review at $sha7 — verdict is now $VERDICT." >/dev/null 2>&1; then
-        dismissed="$aid"; logev info review_pr "PR #$N: dismissed stale approval $aid (APPROVE → $VERDICT)"
-      else logev warn dismiss "PR #$N: dismissing stale approval $aid did not succeed"; fi
-    fi
-  fi
+  [ "$VERDICT" = "APPROVE" ] || dismissed="$(dismiss_approvals "${rid:-0}" "$sha7" "$VERDICT" review)"
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"

@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.0.0 — 2026-09-30
+
+**Upgrade:** `urgent_label` changes meaning: an urgent PR whose rapid pass
+finds no 🔴 now gets an approval that can unblock its merge, and the full
+review dismisses it when its verdict is below `APPROVE`
+(`docs/review-urgent.md` → **Urgent PRs**). When `work/CONFIG.md` sets
+`urgent_label`, tell the operator this once in chat before the next urgent
+review; to keep the old delivery, the operator removes the key. Nothing else
+changes — docs and scripts are re-read per run.
+
 ## 7.5.1 — 2026-09-29
 
 **Upgrade:** Nothing — docs are re-read per run.

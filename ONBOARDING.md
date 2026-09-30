@@ -377,7 +377,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      collaborator) | `both`. Write the key only when the answer differs from
      `label`.
    - **`urgent_label`** — an optional, human-managed label that makes a PR's
-     due reviews jump the queue and arrive rapid-first, plus one Slack alert
+     due reviews jump the queue and arrive rapid-first — a rapid pass without a
+     critical finding approves the PR — plus one Slack alert
      under `slack_notifications: enabled` (`docs/review-urgent.md` → **Urgent
      PRs**). Default off (omit the key). A named label is validated or created
      like the re-review label.
@@ -735,7 +736,8 @@ with the verification result (the `PASS` line plus any warnings):
      in a comment @-mentioning **`<bot_login>`**. The last two are delta-only
      (`docs/review-on-demand.md` → **On-demand review**).
    - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
-     jump the queue, rapid-preliminary-first.
+     jump the queue, rapid-preliminary-first: without a critical finding the
+     rapid pass approves, and the full review can cancel that approval.
    - Assigning **`<bot_login>`** to a PR requests a visual artifact, when
      configured.
    - Feedback and dismissals are given by saying so in chat (global →
