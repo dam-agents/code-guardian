@@ -170,17 +170,19 @@ compare call and reports it as `carry`:
   mid-review. Pruning deletes it with the rest of the PR's state
   ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
 
-## Revoking a stale approval on re-review
+## Revoking a stale approval
 
-On a re-review whose verdict is **not** `APPROVE`, `post` finds the agent's
-most recent `APPROVED` review — its own login or the marker, never a human's —
-and dismisses it after the new review posts:
+When a review's verdict is **not** `APPROVE` — a first review or a re-review
+from `post`, or a rapid `REQUEST_CHANGES` ([review-urgent.md](review-urgent.md)
+→ **Urgent PRs**) — the script dismisses every standing `APPROVED` review of the
+agent on the PR (its own login, its review marker or its rapid marker, never a
+human's) after the new review posts:
 
 ```bash
 gh api "repos/$REPO/pulls/<n>/reviews/<id>/dismissals" -X PUT -f event="DISMISS" \
-  -f message="Superseded by $BOT_NAME re-review at <new-sha> — verdict is now <new-verdict>."
+  -f message="Superseded by $BOT_NAME review at <new-sha> — verdict is now <new-verdict>."
 ```
 
-It logs `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)`
-(`dismissed_approval` in its outcome). A new `APPROVE` leaves the approval in
-place. A failed dismissal is logged, not fatal.
+It logs `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)` per
+dismissal (`dismissed_approval`, the last id, in its outcome). A new `APPROVE`
+leaves the approvals in place. A failed dismissal is logged, not fatal.

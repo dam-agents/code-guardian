@@ -100,7 +100,7 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
    posts the payload ([review-mechanics.md](review-mechanics.md) → **Posting
    the GitHub review**), removes
-   `$REREVIEW_LABEL`, dismisses a stale approval, appends the body to
+   `$REREVIEW_LABEL`, dismisses stale approvals, appends the body to
    `reviews/pr-<n>.md`, writes the `done` row and terminal status, logs
    `posted <verdict>` and `done`, and deletes clone, copies, diff and state —
    exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,

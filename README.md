@@ -36,7 +36,8 @@ PR what is due:
 - Same-HEAD PRs are skipped via `work/REVIEWS.md` plus the remote dedup-marker
   check, with self-heal. Closed and merged PRs are verified per PR and queued
   for pruning. PRs carrying the optional `urgent_label` jump the queue and get
-  a rapid preliminary review before the full one.
+  a rapid, criticals-only review that approves when it finds no critical,
+  before the full one.
 - The agent then follows [`docs/review.md`](docs/review.md) +
   [`docs/skills.md`](docs/skills.md): context and diff, clone, every configured
   review skill, HEAD freshness re-verified right before posting, one GitHub
@@ -209,7 +210,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`) | How re-reviews are requested: `label`, `review-request` (needs the bot as a collaborator), or `both`. A served review request clears itself. |
-| `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first, and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review-urgent.md` → **Urgent PRs**). |
+| `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first (a rapid pass without a critical finding approves), and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review-urgent.md` → **Urgent PRs**). |
 | `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a commit status on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
 | `mention_replies` | defaulted to `enabled` | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |

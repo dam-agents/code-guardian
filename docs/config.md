@@ -77,7 +77,8 @@ below is for the manual fallback and the direct session.
   one log line. A served review request clears itself when the review posts.
 - **`urgent_label`** — a **human-managed** label marking a PR urgent; the agent
   never adds or removes it. While present, the PR's due reviews jump the queue
-  and run **rapid-first** (review-urgent.md → **Urgent PRs**). **Missing =
+  and run **rapid-first**: a rapid pass without a 🔴 finding approves the PR
+  before the full review (review-urgent.md → **Urgent PRs**). **Missing =
   off.** Not a review trigger — it only modifies how an already-due review is
   delivered.
 - **`review_progress`** — `enabled` | `disabled`. **Missing = `disabled`.**
