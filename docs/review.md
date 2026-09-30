@@ -264,7 +264,15 @@ so one fix round closes the class, and carry those locations in the finding's
 An occurrence in untouched code is a
 pre-existing problem ([finding-form.md](finding-form.md)). On a delta
 re-review both passes cover only the files changed since the prior review, the
-claim sweep excepted.
+claim and block sweeps excepted.
+
+**Block sweep** — same pass. A finding that checks one field of a structured
+block — a container security context, a resource spec, a permission set, a
+schema entry — against a constraint in another file checks **every field of
+that block** against the same constraint. Read the constraint file in the
+clone, in the diff or outside it: a cluster policy, a chart value, a schema.
+Report the conflicting fields as **one** finding, each extra field in `also`.
+The block sweep covers the whole block the finding names, on every scope.
 
 **Claim sweep** — for a finding whose class is *an in-tree statement about X is
 false or incomplete*, the siblings sit outside the diff by construction, so the
@@ -446,7 +454,8 @@ Before you declare the run done:
   every phase guard run and every `head_moved` honoured — restarted once, else
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
-  never named · skill sections reformatted and merged with no finding lost ·
+  never named · every structured-block finding block-swept · every `late`
+  finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`) · skill sections reformatted and merged with no finding lost ·
   stale approval dismissed when the verdict dropped below APPROVE · every sentence of the posted prose inside the 20-word
   bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in

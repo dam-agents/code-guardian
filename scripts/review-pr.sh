@@ -24,12 +24,13 @@
 #                                          every hit in the clone, for a claim sweep
 #   collect <n>                            skill outputs → audit lines, form
 #                                          warnings, skill_timing event
-#   delta <n> <findings.json> [--settle <i>=still|new]…
+#   delta <n> <findings.json> [--settle <i>=still|new]… [--fresh <i>]…
 #                                          fixed / still / new against the prior
 #                                          findings-json, PR-local overrides applied,
 #                                          and the annotated array `post` takes;
 #                                          --settle overrides an ambiguous pair's
-#                                          suggestion by its `index`
+#                                          suggestion by its `index`; --fresh clears
+#                                          a `late` new finding by its `index`
 #   compose-brief <n>                      this PR's compose contract: the body
 #                                          skeleton, the format rules from docs/,
 #                                          its overrides and memory rules, and the
@@ -755,12 +756,33 @@ cmd_prepare() {
   # delta depth on those files; `identical` → the description-only case (empty
   # range); anything else (diverged/behind after a force-push, 404, truncated)
   # → the range is unreachable and the review runs at complete depth.
-  local dbase="" dj='null'
-  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$full" = "false" ]; then
+  # The same call ages this round's findings on every re-review, complete ones
+  # included (`age.json`, docs/review-rereview.md → Re-review output): the new-side
+  # line span of each hunk per file, `known: false` where the range is not whole.
+  local dbase="" dj='null' aj='null' cmp=""
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ]; then
     dbase="$(grep -o "<!-- $REVIEW_MARKER headRefOid=[0-9a-f]\{40\} -->" "$WORK/reviews/pr-$N.md" 2>/dev/null \
       | tail -1 | sed -e "s/^<!-- $REVIEW_MARKER headRefOid=//" -e 's/ -->$//')"
     if printf '%s' "$dbase" | grep -qE '^[0-9a-f]{40}$' && [ "$dbase" != "$sha" ]; then
-      local cmp; cmp="$(gh_get "repos/$REPO/compare/$dbase...$sha")"
+      cmp="$(gh_get "repos/$REPO/compare/$dbase...$sha")"
+      aj="$(printf '%s' "$cmp" | jq -c --arg b "$dbase" '
+        (.files // []) as $f
+        | if (.status // "") == "identical" then {base:$b, known:true, files:{}}
+          elif (.status // "") == "ahead" and ($f | length) < 300
+               and ([ $f[] | select(.patch == null) ] | length) == 0
+          then {base:$b, known:true, files:([ $f[] | {key: .filename, value:
+                 [ .patch | scan("@@ -[0-9]+(?:,[0-9]+)? \\+([0-9]+)(?:,([0-9]+))? @@")
+                   | (.[0] | tonumber) as $s | ((.[1] // "1") | tonumber) as $n
+                   | [$s, $s + ([$n, 1] | max) - 1] ]} ] | from_entries)}
+          else {base:$b, known:false, files:{}} end' 2>/dev/null)"
+      [ -n "$aj" ] || aj="$(jq -nc --arg b "$dbase" '{base:$b, known:false, files:{}}')"
+    elif [ "$dbase" = "$sha" ]; then
+      aj="$(jq -nc --arg b "$dbase" '{base:$b, known:true, files:{}}')"
+    fi
+  fi
+  printf '%s\n' "$aj" > "$CTX/age.json"
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$full" = "false" ]; then
+    if printf '%s' "$dbase" | grep -qE '^[0-9a-f]{40}$' && [ "$dbase" != "$sha" ]; then
       dj="$(printf '%s' "$cmp" | jq -c --arg b "$dbase" '
         (.files // []) as $f
         | (.status // "") as $st
@@ -1081,13 +1103,16 @@ cmd_collect() {
 # by file:line (±2) or symbol. `--settle <i>=still|new` replaces the suggestion
 # of the ambiguous pair whose current finding is at index <i> of the agent's
 # array, so one rerun settles every pair in block, buckets and annotated alike.
+# A `new` finding with no anchor in a hunk of the range since the prior review
+# (`age.json`) was already there at the prior SHA: it is `late`, and
+# `--fresh <i>` clears that for a defect the range causes from elsewhere.
 # Always writes the annotated array — the agent's
 # own findings with `status` filled in, plus the `fixed` carryovers — so `post`
 # takes a file the agent never has to rewrite.
 cmd_delta() {
   need_ctx
-  local cur="${1:-}" settle='{}' kv k v
-  [ -n "$cur" ] || fail "usage: delta <n> <findings.json> [--settle <i>=still|new]…"
+  local cur="${1:-}" settle='{}' fresh='[]' kv k v
+  [ -n "$cur" ] || fail "usage: delta <n> <findings.json> [--settle <i>=still|new]… [--fresh <i>]…"
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1099,6 +1124,9 @@ cmd_delta() {
         case "$v" in (still|new) ;; (*) fail "--settle takes <index>=still|new, not '$kv'";; esac
         # the key the classification looks up: `02` settles index 2
         settle="$(printf '%s' "$settle" | jq -c --arg k "$((10#$k))" --arg v "$v" '.[$k] = $v')";;
+      (--fresh) k="${2:-}"; shift 2 || shift
+        case "$k" in (''|*[!0-9]*) fail "--fresh takes a finding index, not '$k'";; esac
+        fresh="$(printf '%s' "$fresh" | jq -c --argjson k "$((10#$k))" '. + [$k] | unique')";;
       (*) fail "unknown delta argument '$1'";;
     esac
   done
@@ -1107,10 +1135,13 @@ cmd_delta() {
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
   head_guard delta "$cur"
-  local prior overrides ann="$CTX/findings.annotated.json"
+  local prior overrides age ann="$CTX/findings.annotated.json"
   prior="$(prior_findings)"; overrides="$(prior_overrides)"
+  age="$(jq -c 'if type == "object" and .known == true then . else null end' "$CTX/age.json" 2>/dev/null)"
+  [ -n "$age" ] || age='null'
   local j
-  j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" --argjson s "$settle" '
+  j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" --argjson s "$settle" \
+    --argjson a "$age" --argjson fr "$fresh" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     # a finding carries one anchor per location: its own file:line plus every
@@ -1133,6 +1164,12 @@ cmd_delta() {
               and ([ range(-2; 3) ] | any(. as $d | $line | contains("`" + $a.file + ":" + (($a.line + $d)|tostring) + "`")))))
             or (($line | contains("`" + $file + "`")) and any($syms[]; . as $s | $line | contains("`" + $s + "`")))) ];
     def anchor($f): "`" + ($f.file // "-") + ":" + (($f.line // "-") | tostring) + "`";
+    # an anchor is in the range when its file changed there and its line sits
+    # in a hunk (a `line: null` anchor: the file changed); no whole range → not late
+    def in_range($x): ($a.files[$x.file // ""] // null) as $h
+      | $h != null and ($x.line == null or any($h[]; .[0] <= $x.line and $x.line <= .[1]));
+    def late($f; $i): $a != null and ([ $fr[] | select(. == $i) ] | length == 0)
+      and ([ anchs($f)[] | select(in_range(.)) ] | length == 0);
     ($c[0]) as $cur
     | [ $p[] | select(.status != "fixed") ] as $open
     # one classification per current finding, in the order the agent wrote them
@@ -1149,12 +1186,16 @@ cmd_delta() {
                    end
                end
            end)
-        | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)} ] as $cl
+        | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)}
+        | . + {late: (.settled == "new" and late(.f; $i))} ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
     # --settle takes the indexes `ambiguous[]` lists: reported pairs only
     | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
+    | ($fr - [ $rep[] | select(.settled == "new") | .index ]) as $badf
     | if ($bad | length) > 0 then {outcome: "error", step: "delta",
-        error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")} else .
+        error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")}
+      elif ($badf | length) > 0 then {outcome: "error", step: "delta",
+        error: ("--fresh names no new finding at index " + ($badf | map(tostring) | join(", ")) + " — clear only a `late[].index` value")} else .
     # over every classification, suppressed included: an override hides a
     # finding from the review, it does not fix the defect, so the prior it
     # matches is neither `fixed` nor announced as such
@@ -1163,26 +1204,31 @@ cmd_delta() {
     | { still: [ $rep[] | select(.settled == "still")
                  | .f + {prior_line: .prior.line} + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
         new:   [ $rep[] | select(.settled == "new")
-                 | .f + (if .cls == "ambiguous" then {ambiguous: true} else {} end) ],
+                 | (.f | del(.late)) + (if .cls == "ambiguous" then {ambiguous: true} else {} end)
+                      + (if .late then {late: true} else {} end) ],
+        late:  [ $rep[] | select(.late) | {index: .index, file: .f.file, line: .f.line, summary: .f.summary} ],
         fixed: $gone,
         ambiguous: [ $rep[] | select(.cls == "ambiguous")
                      | {index: .index, current: .f, prior: .prior, suggest: .suggest, settled: .settled,
                         severity_match: (.f.severity == .prior.severity), distance: dist(.f; .prior)} ],
         suppressed: [ $cl[] | select((.hits | length) > 0) | .f + {override: .hits[0]} ],
-        annotated: ([ $rep[] | .f + {status: .settled} ]
+        annotated: ([ $rep[] | .late as $l | .f + {status: .settled} | del(.late)
+                      + (if $l then {late: true} else {} end) ]
                     + [ $gone[] | . + {status: "fixed", fix: null, inline: false} ]) }
     | .block = ( ["### Changes since last review"]
         + [ .fixed[] | "- ✅ **Fixed:** \(.summary) (\(anchor(.)))" ]
         + [ .still[] | "- 🔁 **Still present:** \(.summary) (\(anchor(.)))" ]
-        + [ .new[]   | "- 🆕 **New:** \(.summary) (\(anchor(.)))" ] | join("\n") )
-    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o} end')"
+        + [ .new[] | select(.late | not) | "- 🆕 **New:** \(.summary) (\(anchor(.)))" ]
+        + [ .new[] | select(.late) | "- 🔎 **Missed earlier:** \(.summary) (\(anchor(.))) — present at `\($a.base[0:7])`" ]
+        | join("\n") )
+    | . + {outcome:"ok", prior_count: ($p|length), overrides: $o, age_known: ($a != null)} end')"
   { printf '%s' "$j" | jq -e 'type == "object"' >/dev/null 2>&1; } || fail "the delta classification did not produce JSON"
   [ "$(printf '%s' "$j" | jq -r .outcome)" = error ] && fail "$(printf '%s' "$j" | jq -r .error)"
   printf '%s' "$j" | jq '.annotated' > "$ann.tmp" 2>/dev/null && mv "$ann.tmp" "$ann" \
     || { rm -f "$ann.tmp"; fail "the annotated findings could not be written to $ann"; }
   j="$(printf '%s' "$j" | jq -c --arg a "$ann" '.annotated = $a')"
   logstep "$(ctx_get '.head_sha' | cut -c1-7) delta settled ($(printf '%s' "$j" \
-    | jq -r '"still=\(.still|length), new=\(.new|length), fixed=\(.fixed|length), ambiguous=\(.ambiguous|length)"'))"
+    | jq -r '"still=\(.still|length), new=\(.new|length), fixed=\(.fixed|length), ambiguous=\(.ambiguous|length), late=\(.late|length)"'))"
   out "$j"
 }
 
@@ -1271,7 +1317,7 @@ cmd_compose_brief() {
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
-    printf '<only 🆕 New findings; `_No new findings at this HEAD._` when there are none>\n\n'
+    printf '<only 🆕 New and 🔎 Missed earlier findings; `_No new findings at this HEAD._` when there are none>\n\n'
   else
     printf '<every current finding, per docs/finding-form.md>\n\n'
   fi
@@ -1295,7 +1341,7 @@ cmd_compose_brief() {
   if [ "$kind" = "re-review" ]; then
     printf -- '- prior findings: `%s` (%s still open) — write this round against their anchors and wording\n' \
       "$CTX/prior.json" "$(jq '[.[] | select(.status != "fixed")] | length' "$CTX/prior.json" 2>/dev/null || printf 0)"
-    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle the `ambiguous` pairs you change in one rerun with `--settle <index>=still|new`, then post that file\n' \
+    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle the `ambiguous` pairs you change in one rerun with `--settle <index>=still|new`, clear a `late` finding the range causes from elsewhere with `--fresh <index>`, then post that file\n' \
       "$N" "$CTX" "$CTX/findings.annotated.json"
   else
     if jq -e '.reachable' "$CTX/carry.json" >/dev/null 2>&1; then
@@ -1633,7 +1679,8 @@ append_ledger() { # sha7 ts verdict body-file findings kind
       bullets: { fixed: $fx, still: $sp }, suppressed: $sup, ste: $ste,
       findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
                   | select(type == "object")
-                  | { status: (.status // "unknown"), severity: (.severity // "unknown") } ] }' 2>/dev/null)"
+                  | { status: (.status // "unknown"), severity: (.severity // "unknown") }
+                    + (if .late == true then {late: true} else {} end) ] }' 2>/dev/null)"
   [ -n "$row" ] && printf '%s\n' "$row" >> "$LEDGER" 2>/dev/null \
     || logev warn review_ledger "PR #$N: the ledger row for the review at $1 was not written"
 }

@@ -452,7 +452,7 @@ assert_jq '.ambiguous | length == 1 and .[0].current.summary == "name the consta
 assert_jq '.suppressed | length == 2 and (map(.file) | sort) == ["src/gamma.ts","src/uses-alpha.ts"]' 'overrides suppress by file:line and by the backticked symbol'
 assert_jq '.block | contains("✅ **Fixed:** dead export") and contains("🔁 **Still present:** unbounded query") and contains("🆕 **New:** name the constant")' 'the block carries every bucket, the suggestion included'
 assert_jq '.annotated == "'"$(PR_DIR)"'.ctx/findings.annotated.json"' 'delta names the annotated findings file'
-assert_event 'delta settled (still=1, new=1, fixed=1, ambiguous=1)' 'the delta round is a measurable milestone'
+assert_event 'delta settled (still=1, new=1, fixed=1, ambiguous=1, late=0)' 'the delta round is a measurable milestone'
 A="$(PR_DIR).ctx/findings.annotated.json"
 assert_file_contains "$A" '"status": "still"' 'the annotated array carries the still status'
 jq -e 'map(.status) == ["still","new","fixed"] and (map(.file) == ["src/alpha.ts","src/alpha.ts","src/beta.ts"])' "$A" >/dev/null \
@@ -545,6 +545,65 @@ printf '[{"status":"still","severity":"critical","file":"src/beta.ts","line":1,"
 run_rp delta 1 "$SANDBOX/cur-also.json"
 assert_jq '.still | length == 1 and .[0].file == "src/beta.ts"' 'a prior `also` anchor matches the current primary anchor'
 assert_jq '.fixed == [] and .new == []' 'one class at a second location is neither fixed nor new'
+run_rp abort 1 "reset"
+
+# --- delta: a new finding outside the range since the prior review is late ------
+late_history() { # <marker-sha>
+  cat > "$WORK/reviews/pr-1.md" <<EOF
+# PR #1: alpha PR
+
+## Review at ${1:0:7} — $(iso_ago 7200) — COMMENT
+
+x
+<!-- findings-json: [{"status":"new","severity":"warning","file":"src/gamma.ts","line":40,"inline":true,"summary":"stale header","fix":"drop it"}] -->
+<!-- cg:review headRefOid=$1 -->
+
+---
+EOF
+}
+setup delta_late
+PRIOR="1111111111111111111111111111111111111111"
+late_history "$PRIOR"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+jq -n '{status:"ahead", files:[{filename:"src/alpha.ts", patch:"@@ -4,3 +4,4 @@\n a\n+b\n c\n d"}, {filename:"docs/a.md", patch:"@@ -1 +1 @@\n-x\n+y"}]}' \
+  | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
+run_rp prepare 1
+jq -e '.known == true and .files["src/alpha.ts"] == [[4,7]] and .files["docs/a.md"] == [[1,1]]' "$(PR_DIR).ctx/age.json" >/dev/null \
+  && printf 'ok   %s: a complete re-review still ages its findings against the range\n' "$CASE" \
+  || { printf 'FAIL %s: age.json wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/age.json")"; FAILED=1; }
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"},{"status":"new","severity":"critical","file":"src/beta.ts","line":1,"inline":true,"summary":"capability outside the policy","fix":"drop the capability"},{"status":"new","severity":"warning","file":"src/beta.ts","line":9,"also":[{"file":"src/alpha.ts","line":4}],"inline":true,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"suggestion","file":"src/delta.ts","line":null,"inline":false,"summary":"name the constant","fix":null}]' > "$SANDBOX/cur-late.json"
+run_rp delta 1 "$SANDBOX/cur-late.json"
+assert_jq '(.new | length) == 4 and (.late | map(.index)) == [1,3] and .age_known == true' 'a finding with no anchor in the range is late, any anchor in a hunk keeps it new'
+assert_jq '.block | contains("🆕 **New:** unbounded query") and contains("🔎 **Missed earlier:** capability outside the policy (`src/beta.ts:1`) — present at `1111111`") and (contains("🆕 **New:** capability") | not)' 'the block names a late finding as missed earlier, with the prior SHA'
+assert_jq '.fixed | length == 1' 'a prior the round no longer reports is fixed as before'
+assert_event 'late=2)' 'the delta event counts the late findings'
+A="$(PR_DIR).ctx/findings.annotated.json"
+jq -e 'map(.status) == ["new","new","new","new","fixed"] and map(.late // false) == [false,true,false,true,false]' "$A" >/dev/null \
+  && printf 'ok   %s: annotated keeps status new and flags the late ones\n' "$CASE" \
+  || { printf 'FAIL %s: annotated wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 1
+assert_jq '(.late | map(.index)) == [3] and (.block | contains("🆕 **New:** capability outside the policy"))' '--fresh clears a late finding the range causes from elsewhere'
+jq -e '.[1] | has("late") | not' "$A" >/dev/null \
+  && printf 'ok   %s: a cleared finding carries no late flag\n' "$CASE" \
+  || { printf 'FAIL %s: --fresh left the flag: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 7
+assert_jq '.outcome == "error" and (.error | contains("no new finding at index 7"))' 'a --fresh on an index that is not a new finding is refused'
+run_rp delta 1 "$SANDBOX/cur-late.json" --fresh x
+assert_jq '.outcome == "error" and (.error | contains("--fresh takes a finding index"))' 'a --fresh value that is not an index is refused'
+run_rp abort 1 "reset"
+
+# a range that is not whole (force-pushed away) cannot age a finding: nothing is late
+setup delta_late_unknown
+PRIOR="1111111111111111111111111111111111111111"
+late_history "$PRIOR"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+jq -n '{status:"diverged", files:[]}' | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
+run_rp prepare 1
+printf '[{"status":"new","severity":"critical","file":"src/beta.ts","line":1,"inline":true,"summary":"capability outside the policy","fix":"drop the capability"}]' > "$SANDBOX/cur-late2.json"
+run_rp delta 1 "$SANDBOX/cur-late2.json"
+assert_jq '.late == [] and .age_known == false and (.block | contains("🔎") | not)' 'an unknown range keeps every unmatched finding new'
 run_rp abort 1 "reset"
 
 # --- post: success path with an eligible and an ineligible inline comment --------

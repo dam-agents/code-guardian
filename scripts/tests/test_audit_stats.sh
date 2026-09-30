@@ -584,10 +584,11 @@ cat > "$WORK/reviews/pr-1.md" <<EOF
 
 ### Changes since last review
 - ✅ **Fixed:** null check added (\`a.ts:1\`)
-<!-- findings-json: [{"status":"fixed","severity":"critical","file":"a.ts","line":1,"summary":"x","fix":null},{"status":"new","severity":"warning","file":"b.ts","line":4,"summary":"x","fix":"y"}] -->
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"a.ts","line":1,"summary":"x","fix":null},{"status":"new","severity":"warning","file":"b.ts","line":4,"late":true,"summary":"x","fix":"y"}] -->
 EOF
 run_preflight audit
 assert_jq '.stats.findings.new == 3' 'every status:new finding of the window counted'
+assert_jq '.stats.findings.late == 1' 'a new finding an earlier round missed is counted late'
 assert_jq '.stats.findings.new_by_severity.critical == 1 and .stats.findings.new_by_severity.warning == 1
            and .stats.findings.new_by_severity.suggestion == 1' 'raised findings split by severity'
 assert_jq '.stats.findings.fixed == 1' 'the acceptance counters stay as they were'
