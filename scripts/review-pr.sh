@@ -1405,13 +1405,16 @@ cmd_post() {
   labels="$(printf '%s' "$PJ" | jq -c .labels)"; requested="$(printf '%s' "$PJ" | jq -c .requested)"
 
   # closed at post time → no review; the findings become an issue
-  # (docs/review-urgent.md → PR closed mid-review). A standing rapid approval
-  # let the PR merge on critical checks alone: then warnings are filed too.
+  # (docs/review-urgent.md → PR closed mid-review). A merge on a standing rapid
+  # approval at this HEAD merged on critical checks alone: then warnings are
+  # filed too.
   if [ "$state" != "open" ] || [ "$(ctx_get '.mode')" = "closed" ]; then
     rm -f "$CARRY"      # the PR is gone: nothing will start from this work
-    local scope=critical sevs='["critical"]' ra
-    ra="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=" \
-      '[.[] | select(.state == "APPROVED" and ((.body // "") | contains($mr)))] | length' 2>/dev/null)"
+    local scope=critical sevs='["critical"]' ra=0
+    if [ "$(printf '%s' "$PJ" | jq -r .merged)" = "true" ]; then
+      ra="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" \
+        '[.[] | select(.state == "APPROVED" and ((.body // "") | contains($mr)))] | length' 2>/dev/null)"
+    fi
     [ "${ra:-0}" -gt 0 ] && { scope=blocking; sevs='["critical","warning"]'; }
     local found cnt; found="$(jq -c --argjson s "$sevs" '[ .[] | select((.severity as $v | $s | index($v)) and .status != "fixed") ]' "$FINDINGS")"
     cnt="$(printf '%s' "$found" | jq length)"

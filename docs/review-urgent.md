@@ -30,9 +30,11 @@ lacks an `urgent-announced` marker, only under
 orientation and skills. Optimize for delivery speed.
 
 1. Review the diff only (`$PR_DIR.diff`; on a re-review prefer the range since
-   the prior review) for **🔴 Critical findings only**. The verdict is
-   `APPROVE` when there is none, `REQUEST_CHANGES` otherwise — 🟡 and the check
-   rollup never hold the rapid verdict.
+   the prior review) for **🔴 Critical findings only**. On a re-review, a 🔴
+   of the prior review (its `findings-json` in `reviews/pr-<n>.md`) or of
+   `prepare`'s `carry` that the range does not fix counts too and is listed.
+   The verdict is `APPROVE` when there is none, `REQUEST_CHANGES` otherwise —
+   🟡 and the check rollup never hold the rapid verdict.
 2. Write `rapid.md`, body only, no inline comments:
 
    ```
@@ -68,9 +70,9 @@ skip phase 1.
 ## PR closed mid-review — findings become an issue
 
 Applies to **every** review. `post` finding the PR `CLOSED`/`MERGED` at Check 2
-posts no review. Its `scope` is `blocking` (🔴 and 🟡) when the PR carries a
-standing rapid approval — it merged on critical checks alone — and `critical`
-(🔴) otherwise. The outcome says what is left:
+posts no review. Its `scope` is `blocking` (🔴 and 🟡) when the PR merged and
+carries a standing rapid approval at the reviewed HEAD — it merged on critical
+checks alone — and `critical` (🔴) otherwise. The outcome says what is left:
 
 - **`closed_discarded`** — no finding in `scope`. The lock is released as on a
   Check 2 abort; log `PR #<n>: closed mid-review — discarded (no <scope>

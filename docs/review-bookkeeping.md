@@ -79,7 +79,7 @@ line — GitHub truncates past 140 characters.
 | Urgent phase 1 — rapid posted | `pending` | `rapid review: approved · full review running` (or `changes requested`) | the rapid review |
 | `post` — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
 | `post` / `abort` — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
-| PR closed mid-review | `success` | `PR closed · <n> critical finding(s) in issue #<i>` | the issue |
+| PR closed mid-review | `success` | `PR closed · <n> <scope> finding(s) in issue #<i>` | the issue |
 | `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
 
 - `<eta>` is ` · usually ~<N> min` from `eta_seconds` — whole minutes, minimum

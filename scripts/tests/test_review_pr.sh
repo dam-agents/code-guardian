@@ -767,6 +767,23 @@ assert_jq '.outcome == "closed_findings" and .scope == "blocking" and (.findings
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --closed-issue 12
 assert_jq '.outcome == "closed_filed" and .issue == 12' 'finalized against the issue'
 
+# --- closed without a merge, or a rapid approval of an older HEAD: criticals only ---
+setup rapid_closed '- urgent_label: urgent'
+pr_fx open '["urgent"]'
+run_rp prepare 1
+printf '[{"id":72,"state":"APPROVED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+pr_fx closed '["urgent"]'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":false,"summary":"w","fix":"f"}]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "closed_discarded" and .scope == "critical"' 'a PR closed without a merge files no warning'
+pr_fx open '["urgent"]'
+run_rp prepare 1
+printf '[{"id":71,"state":"APPROVED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=0000000000000000000000000000000000000000 -->"}]' | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+pr_fx merged '["urgent"]'
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "closed_discarded" and .scope == "critical"' 'a rapid approval of an older HEAD files no warning'
+
 # --- on-demand: no trigger needed at prepare or post; same-SHA ask is a skip ------
 setup ondemand_case
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
