@@ -9,7 +9,7 @@
 #          bullets:{fixed,still},
 #          suppressed:{overrides,context,decisions,total} | null,
 #          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
-#          findings:[{status,severity}] | null}
+#          findings:[{status,severity,late?}] | null}
 #
 # `work/REVIEW-LEDGER.jsonl` is append-only and outlives the reviewed PR; the
 # `reviews/pr-<n>.md` history files carry the same sections but only while the
@@ -70,7 +70,8 @@ split("\n")
                           | if type == "array"
                             then [ .[] | select(type == "object")
                                    | { status: (.status // "unknown"),
-                                       severity: (.severity // "unknown") } ]
+                                       severity: (.severity // "unknown") }
+                                     + (if .late == true then {late: true} else {} end) ]
                             else null end)
     else . end)
 | (.secs + (if .cur then [.cur] else [] end))
@@ -104,7 +105,8 @@ RR_MERGE_JQ='
 # only breakdown available without a new field; a review written before
 # `findings-json` is outside `json_reviews` and outside the split.
 # `new`/`new_by_severity` count the findings the week *raised*, the volume
-# metric the trend artifact tracks beside the acceptance ratio (docs/trends.md).
+# metric the trend artifact tracks beside the acceptance ratio (docs/trends.md);
+# `late` counts the raised ones an earlier round had missed.
 RR_AGG_JQ='
 { reviews: { total: length,
              first: ([.[] | select(.kind == "first")] | length),
@@ -119,6 +121,7 @@ RR_AGG_JQ='
         still_present: ([.[] | .bullets.still] | add // 0),
         json_reviews: ($r | length),
         new: ([$e[] | select(.status == "new")] | length),
+        late: ([$e[] | select(.status == "new" and .late == true)] | length),
         new_by_severity: ([$e[] | select(.status == "new")]
                           | group_by(.severity // "unknown")
                           | map({ key: (.[0].severity // "unknown"), value: length }) | from_entries),
@@ -151,7 +154,7 @@ RR_AGG_JQ='
 
 # the zero row of RR_AGG_JQ — a week that measured nothing, and the fallback a
 # reader prints when the aggregation itself could not run
-RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
 
 # A posted review in a history file is a `## Review at` section or a
 # findings-json line. The file alone is none: the urgent alert, an artifact or a

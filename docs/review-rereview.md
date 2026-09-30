@@ -12,8 +12,8 @@ The trigger sets the scope:
   first-review format with `### Changes since last review` inserted.
   `### Findings` lists **all current findings** in full, new and still-present;
   `✅ Fixed` stay one-liners in the block. Inline comments map only `🆕 New`
-  findings; skill sections post in full. `findings-json` carries
-  `new`/`still`/`fixed` as found.
+  and `🔎 Missed earlier` findings; skill sections post in full.
+  `findings-json` carries `new`/`still`/`fixed` as found, `late` included.
 - **Review request / on-demand ask → delta re-review** (`full: false`): the
   delta only, per the conciseness rules below.
 
@@ -44,6 +44,19 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
 - **Settle every `ambiguous` pair** before posting: keep its suggestion, or
   rerun `delta` once with `--settle <index>=<still|new>` for every pair you
   change. The rerun rebuilds the block, the buckets and `annotated`.
+- **A `new` finding is aged by the range, not by the prior review.** `prepare`
+  writes `age.json` from the compare call — the new-side hunk spans per file
+  between the prior marker SHA and HEAD — on every re-review, complete ones
+  included. A `new` finding with no anchor in a hunk of that range was already
+  there at the prior SHA: `delta` lists it in `late[]`, sets `late: true` on
+  it, and the block names it `🔎 Missed earlier`. Its description in
+  `### Findings` starts with one sentence that says so, for example `This code
+  was present at <prior short-sha>; the previous review did not report it.`
+  A range that is not whole (`age_known: false`) ages nothing.
+- **A defect the range causes from another file is new.** When a range change
+  outside every anchor makes the finding true — a new caller, a changed
+  default — rerun `delta` with `--fresh <index>` for that finding, in the same
+  rerun as any `--settle`.
 
 Insert the block between `### Summary` and `### Findings`:
 
@@ -54,6 +67,7 @@ Previous HEAD: <short-sha> (<timestamp>) — verdict <PREV_VERDICT>[ — unreach
 - ✅ **Fixed:** <one-liner> (`file:line`)
 - 🔁 **Still present:** <one-liner> (`file:line`)
 - 🆕 **New:** <description> (`file:line`)
+- 🔎 **Missed earlier:** <description> (`file:line`) — present at `<prior short-sha>`
 ```
 
 Delta-scope depth ([review.md](review.md) steps c–d):
@@ -102,9 +116,9 @@ Delta-scope conciseness (all channels):
 
 - Only non-empty buckets, every entry a **single line**. Never re-expand a
   carryover's description, rationale, **Fix:** or suggestion.
-- `### Findings` lists **only `🆕 New` findings**, inline-carried ones as
-  one-liners. No `✅ Looks good` on re-reviews, ever. Nothing new → the section
-  body is `_No new findings at this HEAD._`
+- `### Findings` lists **only `🆕 New` and `🔎 Missed earlier` findings**,
+  inline-carried ones as one-liners. No `✅ Looks good` on re-reviews, ever.
+  Nothing new → the section body is `_No new findings at this HEAD._`
 - The **Verdict weighs all current findings** — new, still-present and skill
   findings alike: an unfixed 🔴 keeps `REQUEST_CHANGES` even as a one-liner.
 - Skill sections condense the same way: unchanged findings collapse into `🔁 <N>

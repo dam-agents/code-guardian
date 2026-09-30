@@ -234,7 +234,11 @@ measurement.
     `findings-json` carries, over `json_reviews` reviews. A severity whose
     ratio is far below the others is the finding class to reconsider — record
     it per [preferences.md](preferences.md). `new` and `new_by_severity` count
-    what the week **raised**, the volume that ratio is judged against.
+    what the week **raised**, the volume that ratio is judged against. `late`
+    counts the raised findings an earlier round had missed (`🔎 Missed
+    earlier`); a rising share means rounds read too narrow — flag it. A
+    `late` finding in a file that a delta-scope round did not read is
+    expected: delta scope reads the changed files only.
 29. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
     `by_cause` (`pod_restart` / `hard_kill` / `terminated`),

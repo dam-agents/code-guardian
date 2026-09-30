@@ -11,6 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.1.0 — 2026-09-30
+
+**Upgrade:** Nothing — docs are re-read per run. History written before this
+version carries no `late` flag and counts as not late.
+
 ## 8.0.0 — 2026-09-30
 
 **Upgrade:** `urgent_label` changes meaning: an urgent PR whose rapid pass
