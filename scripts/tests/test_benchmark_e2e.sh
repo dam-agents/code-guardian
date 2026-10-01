@@ -383,7 +383,7 @@ assert_jq '.tokens == null' 'tokens is null when no snapshot exists, never estim
 # assemble the results file in the documented shape and validate it
 jq -n --argjson ph "$PHASE_JSON" '{
   ts: "2026-09-01T06:00:00Z", trigger: "scheduled", model: "test-model",
-  definition_version: "3.12.0", judge: "off",
+  effort: "medium", definition_version: "3.12.0", judge: "off",
   fixtures: {"ts-cart": {
     first:    {f1: 0.8, precision: 0.667, recall: 0.667, recall_critical: 1,
                severity_accuracy: 1, fp: [{}], length: {words_total: 120},
@@ -408,6 +408,7 @@ OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'FAIL fixtures_shape' 'an array-shaped fixtures map is rejected'
 assert_out_contains 'FAIL trigger' 'a trigger outside the enum is rejected'
 assert_out_contains 'FAIL judge_key' 'the drifted judge key is rejected'
+assert_out_contains 'FAIL fields.*effort' 'a run without its effort is rejected'
 assert_out_contains 'rc=1' 'the run would stop before writing history'
 # estimated/absent timings are caught too
 jq -n '{ts: "2026-09-01T06:00:00Z", trigger: "manual", model: "m",
