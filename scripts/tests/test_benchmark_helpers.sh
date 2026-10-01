@@ -105,7 +105,10 @@ EOF2
 OUT="$(bash "$REPORT" "$SANDBOX/bench")"
 assert_out_contains 'title="[^"]*reasoning effort[^"]*">effort</th>' 'effort column carries its help text'
 assert_out_contains '<td>model-a</td><td>low</td>' 'recorded effort rendered beside the model'
-assert_out_contains '<td class=n>200</td>' 'a run at a new effort carries no delta against an unrecorded-effort run'
+row="$(printf '%s' "$OUT" | grep '<td>3.15.0</td>')"
+if printf '%s' "$row" | grep -q '<td class=n>200</td>' && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a run at a new effort carries no delta against an unrecorded-effort run\n' "$CASE"
+else printf 'FAIL %s: the low-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 cat > "$SANDBOX/bench/results/20261001T060000Z.json" <<'EOF2'
 {"ts":"2026-10-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"low","definition_version":"3.16.0",
  "fixtures":{"ts-api":{"first":{"f1":0.5,"precision":0.6,"recall":0.4,"severity_accuracy":0.8,"fp":[],"seconds":150,"tokens":null},
@@ -115,7 +118,15 @@ OUT="$(bash "$REPORT" "$SANDBOX/bench")"
 assert_out_contains '250 <span class="d down">▲+50</span>' 'same model and effort: the delta compares against the previous low-effort run'
 OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
 assert_jq '.[3].effort == "low" and .[0].effort == null' 'index mode carries effort per run'
-rm -f "$SANDBOX/bench/results/20260901T060000Z.json" "$SANDBOX/bench/results/20261001T060000Z.json"
+# two runs at effort "unknown" never compare: the effort is not known to match
+sed -i.bak 's/"effort":"low"/"effort":"unknown"/' "$SANDBOX/bench/results/20260901T060000Z.json" \
+  "$SANDBOX/bench/results/20261001T060000Z.json"
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+row="$(printf '%s' "$OUT" | grep '<td>3.16.0</td>')"
+if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a run at effort unknown carries no delta, even against another unknown run\n' "$CASE"
+else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
 
 new_case report_index_mode
 seed_results
@@ -204,12 +215,16 @@ new_case reviewer_brief_placeholders_documented
 # every placeholder of the reviewer brief has its documented value, so the
 # rendered prompt never ships a literal {{...}}
 TPL="$REPO_ROOT/scripts/templates/reviewer-brief.md"
-missing=""
+missing=""; stray=""
+DOC="$(tr '\n' ' ' < "$REPO_ROOT/docs/benchmark.md" | tr -s ' ')"
 for ph in $(grep -o '{{[A-Z_]*}}' "$TPL" | sort -u); do
-  grep -qF "\`$ph\`" "$REPO_ROOT/docs/benchmark.md" || missing="$missing $ph"
+  printf '%s' "$DOC" | grep -qF "\`$ph\` = " || missing="$missing $ph"
 done
-if [ -n "$(grep -o '{{[A-Z_]*}}' "$TPL")" ] && [ -z "$missing" ]; then
-  printf 'ok   %s: every reviewer-brief placeholder is documented in benchmark.md\n' "$CASE"
-else printf 'FAIL %s: undocumented placeholders:%s\n' "$CASE" "$missing"; FAILED=1; fi
+for ph in $(grep -o '{{[A-Z_]*}}' "$REPO_ROOT/docs/benchmark.md" | sort -u); do
+  grep -qF "$ph" "$TPL" || stray="$stray $ph"
+done
+if [ -n "$(grep -o '{{[A-Z_]*}}' "$TPL")" ] && [ -z "$missing" ] && [ -z "$stray" ]; then
+  printf 'ok   %s: every reviewer-brief placeholder has its value in benchmark.md, and no other\n' "$CASE"
+else printf 'FAIL %s: placeholders without a value:%s; not in the template:%s\n' "$CASE" "$missing" "$stray"; FAILED=1; fi
 
 finish

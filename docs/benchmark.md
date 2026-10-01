@@ -265,13 +265,16 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
    **one fresh reviewer subagent**, without a model or effort override, whose
    prompt is [`scripts/templates/reviewer-brief.md`](../scripts/templates/reviewer-brief.md)
-   rendered verbatim — nothing added, nothing cut: `{{NONCE}}`, `{{SLUG}}`,
-   `{{PHASE}}` = `first`, `{{DIFF}}` = `` `diff-v1.patch` ``, `{{PR_JSON}}` =
-   `pr.json`, `{{WORKDIR}}` = `$PR_DIR`, `{{SKILLS_OUT}}` = `$PR_DIR.out`,
-   `{{HEAD_SHA}}` = `head_sha_v1`, `{{REREVIEW_BLOCK}}` empty, `{{OUTPUT}}` =
-   `first-review **Output format**`, `{{OUT_FILE}}` =
-   `results/raw/<ts>-<slug>-first.md`. The orchestrator never reads the body,
-   so a count the subagent does not return is a count nobody records. Never
+   rendered verbatim — nothing added, nothing cut. Each value is substituted
+   expanded: absolute paths, the SHA itself. `{{NONCE}}` = the printed
+   `$NONCE`, `{{SLUG}}` = `<slug>`, `{{PHASE}}` = `first`, `{{DIFF}}` =
+   `` `$B/diff-v1.patch` ``, `{{PR_JSON}}` = `$B/pr.json`, `{{WORKDIR}}` =
+   `$PR_DIR`, `{{SKILLS_OUT}}` = `$PR_DIR.out`, `{{HEAD_SHA}}` = `head_sha_v1`
+   of `$B/pr.json`, `{{REREVIEW_BLOCK}}` = empty, `{{OUTPUT}}` = `first-review
+   **Output format**`, `{{OUT_FILE}}` =
+   `$HOME/work/benchmark/results/raw/<ts>-<slug>-first.md`. The orchestrator
+   never reads the body, so a count the subagent does not return is a count
+   nobody records. Never
    pass it `manifest.json`, past results, or anything ground-truth-adjacent.
    Archive the skill outputs beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
@@ -282,10 +285,11 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    fresh reviewer subagent — never the one that wrote the first review, so it
    knows only the posted prior review, as in production. Same template, with
    `{{PHASE}}` = `rereview`, `{{DIFF}}` = `` `git -C "$PR_DIR" diff main..pr` ``,
-   `{{HEAD_SHA}}` = `head_sha_v2`, `{{OUTPUT}}` = `delta re-review
-   (findings-json with new/still/fixed)`, `{{OUT_FILE}}` =
-   `results/raw/<ts>-<slug>-rereview.md`, and `{{REREVIEW_BLOCK}}` = this line:
-   ``- Re-review: follow docs/review-rereview.md; prior review = `prior-review.md`; scope = delta (request-equivalent trigger); changes-since-prior = `diff-v1-v2.patch`, which stands in for the compare call (prior HEAD = `pr~1`, range `ahead`) — make no compare call.``
+   `{{HEAD_SHA}}` = `head_sha_v2` of `$B/pr.json`, `{{OUTPUT}}` = `delta
+   re-review`, `{{OUT_FILE}}` =
+   `$HOME/work/benchmark/results/raw/<ts>-<slug>-rereview.md`, and
+   `{{REREVIEW_BLOCK}}` = this line, paths expanded the same way:
+   ``- Re-review: follow docs/review-rereview.md; prior review = `$B/prior-review.md`; scope = delta (request-equivalent trigger); findings-json with `new`/`still`/`fixed`; changes-since-prior = `$B/diff-v1-v2.patch`, which stands in for the compare call (prior HEAD = `pr~1`, range `ahead`) — make no compare call.``
    Archive its skill outputs the same way.
 4. Record per task the `seconds` and `tokens` the phase helper printed,
    verbatim, plus `suppressed` from the reviewer subagent (0 when none). A
@@ -410,7 +414,8 @@ session ran at, read from the harness (`CLAUDE_EFFORT` on Claude Code), else
 the full provenance — definition version, model id, effort, harness version —
 and the report shows what changed in the definition between tested versions.
 Deltas compare runs of the same model **and** effort; a run without `effort`
-matches only another run without it.
+matches only another run without it, and a run at effort `unknown` gets no
+delta — report it as `effort unknown`.
 
 ### `RESULTS.md`
 

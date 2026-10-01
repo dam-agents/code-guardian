@@ -32,7 +32,8 @@
 # signal for quality, speed, and cost (a cross-model or cross-effort delta
 # conflates that change with everything else; the table itself is the
 # cross-configuration comparison). A run without `effort` (written before it
-# was recorded) compares only with another run without it.
+# was recorded) compares only with another run without it; a run at effort
+# "unknown" gets no delta.
 #
 # The `est $` column prices each run's summed token counters with the
 # operator-maintained `## Benchmark model prices` table in work/CONFIG.md
@@ -161,7 +162,7 @@ TIPS='{
 "run": "Date and time (UTC) of the benchmark run. One row is one full replay of the fixture set. Not a score.",
 "trigger": "Why the run started: scheduled (the monthly tick), manual (the operator asked) or trial (a test of a branch). Only scheduled runs make the regular baseline. Not a score.",
 "model": "The exact model that did the reviews. Compare rows of the same model to see what a definition change did. A different model moves almost every number.",
-"effort": "The reasoning effort the reviews ran at. Lower effort means less thought per review, and it moves recall and tokens as much as a model change. Compare rows of the same effort; a dash means the run did not record it.",
+"effort": "The reasoning effort the reviews ran at. Lower effort means less thought per review, and it moves recall and tokens as much as a model change. Compare rows of the same effort; a dash means the run did not record it, and unknown means the harness did not expose it — such a row gets no delta.",
 "version": "The agent definition version under test. If a number moves between two versions, the table of definition changes below shows what changed.",
 "harness": "The version of the software that runs the agent. A change here can move speed and token counts without any change of the definition.",
 "fixtures": "How many test projects the run scored. More is more stable. A run with fewer fixtures than its neighbours is not fully comparable.",
@@ -211,8 +212,10 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
   # deltas compare against the previous run of the SAME model and effort — a
   # cross-model or cross-effort delta would conflate that change with the
-  # regression being watched
-  | ([$all[0:$i][] | select(.model == $r.model and .effort == $r.effort)] | last) as $prev
+  # regression being watched; an "unknown" effort matches nothing
+  | (if $r.effort == "unknown" then null
+     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort)] | last
+     end) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
   | ($r | run_secs) as $sec
