@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.2.0 — 2026-10-01
+
+**Upgrade:** Nothing — docs are re-read per run. Benchmark results written
+before this version carry no `effort`; the report compares them only with each
+other.
+
 ## 8.1.1 — 2026-10-01
 
 **Upgrade:** Nothing — the change is inside the bundled `review-remediation`

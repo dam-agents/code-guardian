@@ -6,7 +6,7 @@
 #   benchmark-report.sh <work/benchmark dir>
 #
 # Reads every scored run in <dir>/results/*.json and prints the complete
-# comparison: an all-runs table (per run: model, definition version, averaged
+# comparison: an all-runs table (per run: model, effort, definition version, averaged
 # headline scores across fixtures, total wall-clock seconds and output
 # tokens), then one trend table per fixture. Deterministic — the same inputs
 # render the same page; the benchmark run republishes it after every run, so
@@ -28,9 +28,12 @@
 # "judge" column is the LLM-judged view: all judge dimensions averaged on
 # their own 1–5 scale, reported beside the index, never mixed into it. The
 # all-runs table also prints the delta against the previous run OF THE SAME
-# MODEL for index, seconds, output tokens, and cost — the regression signal
-# for quality, speed, and cost (a cross-model delta conflates the model change
-# with everything else; the table itself is the cross-model comparison).
+# MODEL AND EFFORT for index, seconds, output tokens, and cost — the regression
+# signal for quality, speed, and cost (a cross-model or cross-effort delta
+# conflates that change with everything else; the table itself is the
+# cross-configuration comparison). A run without `effort` (written before it
+# was recorded) compares only with another run without it; a run at effort
+# "unknown" gets no delta.
 #
 # The `est $` column prices each run's summed token counters with the
 # operator-maintained `## Benchmark model prices` table in work/CONFIG.md
@@ -133,7 +136,7 @@ JQ_COMMON='
   # finding_accuracy alone: a run whose true positives matched the manifest by
   # position rather than by mechanism reads high on f1 and low here
   def fixture_find_acc: (.first.judge.finding_accuracy // null);
-  # delta vs the previous same-model run. The arrow duplicates the sign so the
+  # delta vs the previous same-model, same-effort run. The arrow duplicates the sign so the
   # direction never rests on color alone; $g flips which direction is "good"
   # (1 = higher is better, -1 = lower is better, as for seconds/tokens/cost).
   def delta($c; $p; $g): if $c == null or $p == null then ""
@@ -159,6 +162,7 @@ TIPS='{
 "run": "Date and time (UTC) of the benchmark run. One row is one full replay of the fixture set. Not a score.",
 "trigger": "Why the run started: scheduled (the monthly tick), manual (the operator asked) or trial (a test of a branch). Only scheduled runs make the regular baseline. Not a score.",
 "model": "The exact model that did the reviews. Compare rows of the same model to see what a definition change did. A different model moves almost every number.",
+"effort": "The reasoning effort the reviews ran at. Lower effort means less thought per review, and it moves recall and tokens as much as a model change. Compare rows of the same effort; a dash means the run did not record it, and unknown means the harness did not expose it — such a row gets no delta.",
 "version": "The agent definition version under test. If a number moves between two versions, the table of definition changes below shows what changed.",
 "harness": "The version of the software that runs the agent. A change here can move speed and token counts without any change of the definition.",
 "fixtures": "How many test projects the run scored. More is more stable. A run with fewer fixtures than its neighbours is not fully comparable.",
@@ -197,7 +201,7 @@ JQ_TH='
 
 if [ "$OUT_MODE" = "index" ]; then
   printf '%s' "$ALL" | jq --argjson prices "$PRICES" "$JQ_COMMON"'
-    [.[] | {ts, trigger, model, definition_version,
+    [.[] | {ts, trigger, model, effort, definition_version,
             index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
             cost_usd: run_cost,
             fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
@@ -206,16 +210,20 @@ fi
 
 ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
-  # deltas compare against the previous run of the SAME model — a cross-model
-  # delta would conflate the model change with the regression being watched
-  | ([$all[0:$i][] | select(.model == $r.model)] | last) as $prev
+  # deltas compare against the previous run of the SAME model and effort — a
+  # cross-model or cross-effort delta would conflate that change with the
+  # regression being watched; an "unknown" effort matches nothing
+  | (if $r.effort == "unknown" then null
+     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort)] | last
+     end) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
   | ($r | run_secs) as $sec
   | ($r | run_out_tokens) as $tok
   | ($r | run_cost) as $cost
   | "<tr><td>\($r.ts | fmt | @html)</td><td>\($r.trigger // "—" | @html)</td>"
-    + "<td>\($r.model // "—" | @html)</td><td>\($r.definition_version // "—" | @html)</td>"
+    + "<td>\($r.model // "—" | @html)</td><td>\($r.effort // "—" | @html)</td>"
+    + "<td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
     + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
@@ -238,7 +246,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
   | "<h2>\($s | @html)</h2>\n<div class=scroll>\n<table>\n<tr>"
-    + ([ "run", "model", "index", "judge", "find-acc", "f1", "prec", "rec",
+    + ([ "run", "model", "effort", "index", "judge", "find-acc", "f1", "prec", "rec",
          "hard", "sev", "fp", "words", "fixed", "new", "churn", "false-fixed",
          "late", "sec", "out-tok" ] | map(th(.)) | add)
     + "</tr>\n"
@@ -246,6 +254,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
         | (.fixtures[$s]) as $f
         | ($f | fixture_index) as $fi
         | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
+          + "<td>\(.effort // "—" | @html)</td>"
           + "<td class=\"n idx\"><b>\($fi | fmt)</b>\($fi | bar)</td>"
           + ($f | fixture_judge | ncell)
           + ($f | fixture_find_acc | ncell)
@@ -280,7 +289,7 @@ VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
     end')"
 
 HEAD_ALL="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
-  [ "run", "trigger", "model", "version", "harness", "fixtures", "index",
+  [ "run", "trigger", "model", "effort", "version", "harness", "fixtures", "index",
     "avg f1", "avg sev", "avg fixed", "avg new", "circles", "FPs", "judge",
     "find-acc", "sec", "out-tok", "est $" ] | map(th(.)) | add')"
 
@@ -376,9 +385,9 @@ li{margin:.1rem 0}
 read what that column measures, which direction is better, and what a bad value
 costs. A "—" is data that was not measured, never a zero. The bar under each
 index is that same 0–1 value; unbounded columns get no bar. Deltas (▲▼) compare
-against the previous run of the <b>same model</b> — green means moved the good
-way for that column, so ▼ on sec/tokens/cost is green. Cross-model comparison is
-the table itself. The index is deterministic — computed from scorer output only,
+against the previous run of the <b>same model and effort</b> — green means moved
+the good way for that column, so ▼ on sec/tokens/cost is green. Comparison
+across models or efforts is the table itself. The index is deterministic — computed from scorer output only,
 judge scores never enter it. Click a header to sort, type to filter, page long
 histories. Full semantics: docs/benchmark.md.</p>
 <h2>All runs</h2>

@@ -93,6 +93,41 @@ if [ "$model_b_cost" = "0" ]; then
 else printf 'FAIL %s: model-b row must carry no $ cost\n' "$CASE"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/20260901T060000Z.json" "$SANDBOX/bench-config.md"
 
+new_case report_delta_needs_same_effort
+seed_results
+# model-a again, but at a recorded effort: run 1 (no effort) is no baseline for
+# it; a fourth run at the same effort compares against the third
+cat > "$SANDBOX/bench/results/20260901T060000Z.json" <<'EOF2'
+{"ts":"2026-09-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"low","definition_version":"3.15.0",
+ "fixtures":{"ts-api":{"first":{"f1":0.5,"precision":0.6,"recall":0.4,"severity_accuracy":0.8,"fp":[],"seconds":100,"tokens":null},
+   "rereview":{"fixed_recall":0.5,"still_recall":0.5,"new_recall":0.5,"false_fixed":0,"churn":0,"late_finds":0,"seconds":100,"tokens":null}}}}
+EOF2
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains 'title="[^"]*reasoning effort[^"]*">effort</th>' 'effort column carries its help text'
+assert_out_contains '<td>model-a</td><td>low</td>' 'recorded effort rendered beside the model'
+row="$(printf '%s' "$OUT" | grep '<td>3.15.0</td>')"
+if printf '%s' "$row" | grep -q '<td class=n>200</td>' && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a run at a new effort carries no delta against an unrecorded-effort run\n' "$CASE"
+else printf 'FAIL %s: the low-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+cat > "$SANDBOX/bench/results/20261001T060000Z.json" <<'EOF2'
+{"ts":"2026-10-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"low","definition_version":"3.16.0",
+ "fixtures":{"ts-api":{"first":{"f1":0.5,"precision":0.6,"recall":0.4,"severity_accuracy":0.8,"fp":[],"seconds":150,"tokens":null},
+   "rereview":{"fixed_recall":0.5,"still_recall":0.5,"new_recall":0.5,"false_fixed":0,"churn":0,"late_finds":0,"seconds":100,"tokens":null}}}}
+EOF2
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains '250 <span class="d down">▲+50</span>' 'same model and effort: the delta compares against the previous low-effort run'
+OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
+assert_jq '.[3].effort == "low" and .[0].effort == null' 'index mode carries effort per run'
+# two runs at effort "unknown" never compare: the effort is not known to match
+sed -i.bak 's/"effort":"low"/"effort":"unknown"/' "$SANDBOX/bench/results/20260901T060000Z.json" \
+  "$SANDBOX/bench/results/20261001T060000Z.json"
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+row="$(printf '%s' "$OUT" | grep '<td>3.16.0</td>')"
+if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a run at effort unknown carries no delta, even against another unknown run\n' "$CASE"
+else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
+
 new_case report_index_mode
 seed_results
 OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
@@ -165,12 +200,31 @@ mkdir -p "$FAKE_HOME/.claude/skills/.cache" "$FAKE_HOME/work"
 printf 'abcdef0123456789abcdef0123456789abcdef01' > "$FAKE_HOME/.claude/skills/.cache/doc-drift.sha"
 printf '# mem\n' > "$FAKE_HOME/work/MEMORY.md"
 printf '9.9.9\n' > "$FAKE_HOME/VERSION"
-OUT="$(HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+OUT="$(HOME="$FAKE_HOME" env -u CLAUDE_EFFORT bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.definition_version == "9.9.9"' 'checked-out VERSION read'
 assert_jq '.prev_version == "3.12.0"' 'prev version from the newest results file'
 assert_jq '.skill_sources["doc-drift"] == "abcdef012345"' 'skill cache SHAs shortened to 12 chars'
 assert_jq '.memory_sha != null' 'memory hash recorded'
 assert_jq '.changes_since_prev == []' 'no git history degrades to an empty change list'
 assert_jq '.definition_ref.branch == null' 'no git checkout degrades definition_ref to nulls'
+assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never null'
+OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.effort == "medium"' 'harness effort recorded'
+
+new_case reviewer_brief_placeholders_documented
+# every placeholder of the reviewer brief has its documented value, so the
+# rendered prompt never ships a literal {{...}}
+TPL="$REPO_ROOT/scripts/templates/reviewer-brief.md"
+missing=""; stray=""
+DOC="$(tr '\n' ' ' < "$REPO_ROOT/docs/benchmark.md" | tr -s ' ')"
+for ph in $(grep -o '{{[A-Z_]*}}' "$TPL" | sort -u); do
+  printf '%s' "$DOC" | grep -qF "\`$ph\` = " || missing="$missing $ph"
+done
+for ph in $(grep -o '{{[A-Z_]*}}' "$REPO_ROOT/docs/benchmark.md" | sort -u); do
+  grep -qF "$ph" "$TPL" || stray="$stray $ph"
+done
+if [ -n "$(grep -o '{{[A-Z_]*}}' "$TPL")" ] && [ -z "$missing" ] && [ -z "$stray" ]; then
+  printf 'ok   %s: every reviewer-brief placeholder has its value in benchmark.md, and no other\n' "$CASE"
+else printf 'FAIL %s: placeholders without a value:%s; not in the template:%s\n' "$CASE" "$missing" "$stray"; FAILED=1; fi
 
 finish

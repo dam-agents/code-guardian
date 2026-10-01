@@ -263,17 +263,18 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    by you from `scripts/templates/skill-brief.md`, because no live PR means no
    `review-pr.sh` helper applies; each subagent's prompt is the one line
    `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
-   **one fresh reviewer subagent** whose prompt says: perform docs/review.md
-   steps c–d without `review-pr.sh` (verify against `$PR_DIR` directly, read the
-   diff file whole — there are no per-file slices), reading `work/MEMORY.md` +
-   `work/LESSONS.md` and docs/review-mechanics.md → **Summary body format** for
-   the findings-json, with diff = `diff-v1.patch`, PR context = `pr.json`,
-   working tree = `$PR_DIR` on base branch `main`, skill outputs =
-   `$PR_DIR.out`, marker SHA = `head_sha_v1`. It composes the **first-review
-   Output format** with its findings-json, writes it verbatim to
-   `results/raw/<ts>-<slug>-first.md`, and returns only the path, the finding
-   counts and its `suppressed` count (step 4) — the orchestrator never reads
-   the body, so a count it does not return is a count nobody records. Never
+   **one fresh reviewer subagent**, without a model or effort override, whose
+   prompt is [`scripts/templates/reviewer-brief.md`](../scripts/templates/reviewer-brief.md)
+   rendered verbatim — nothing added, nothing cut. Each value is substituted
+   expanded: absolute paths, the SHA itself. `{{NONCE}}` = the printed
+   `$NONCE`, `{{SLUG}}` = `<slug>`, `{{PHASE}}` = `first`, `{{DIFF}}` =
+   `` `$B/diff-v1.patch` ``, `{{PR_JSON}}` = `$B/pr.json`, `{{WORKDIR}}` =
+   `$PR_DIR`, `{{SKILLS_OUT}}` = `$PR_DIR.out`, `{{HEAD_SHA}}` = `head_sha_v1`
+   of `$B/pr.json`, `{{REREVIEW_BLOCK}}` = empty, `{{OUTPUT}}` = `first-review
+   **Output format**`, `{{OUT_FILE}}` =
+   `$HOME/work/benchmark/results/raw/<ts>-<slug>-first.md`. The orchestrator
+   never reads the body, so a count the subagent does not return is a count
+   nobody records. Never
    pass it `manifest.json`, past results, or anything ground-truth-adjacent.
    Archive the skill outputs beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
@@ -282,22 +283,18 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    docs/review-rereview.md → **Re-review output** (routing from
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**
    fresh reviewer subagent — never the one that wrote the first review, so it
-   knows only the posted prior review, as in production. Same prompt shape,
-   plus docs/review-rereview.md for the delta scope and output, with
-   `prior-review.md` as the prior review, diff =
-   `git -C "$PR_DIR" diff main..pr`, scope = delta (request-equivalent
-   trigger), and changes-since-prior = `diff-v1-v2.patch`, which stands in for
-   the compare call (prior HEAD = `pr~1`, range `ahead`), so no compare call is
-   made. It composes the delta re-review (marker at `head_sha_v2`,
-   findings-json with `new`/`still`/`fixed`) into
-   `results/raw/<ts>-<slug>-rereview.md` and archives its skill outputs the
-   same way.
+   knows only the posted prior review, as in production. Same template, with
+   `{{PHASE}}` = `rereview`, `{{DIFF}}` = `` `git -C "$PR_DIR" diff main..pr` ``,
+   `{{HEAD_SHA}}` = `head_sha_v2` of `$B/pr.json`, `{{OUTPUT}}` = `delta
+   re-review`, `{{OUT_FILE}}` =
+   `$HOME/work/benchmark/results/raw/<ts>-<slug>-rereview.md`, and
+   `{{REREVIEW_BLOCK}}` = this line, paths expanded the same way:
+   ``- Re-review: follow docs/review-rereview.md; prior review = `$B/prior-review.md`; scope = delta (request-equivalent trigger); findings-json with `new`/`still`/`fixed`; changes-since-prior = `$B/diff-v1-v2.patch`, which stands in for the compare call (prior HEAD = `pr~1`, range `ahead`) — make no compare call.``
+   Archive its skill outputs the same way.
 4. Record per task the `seconds` and `tokens` the phase helper printed,
    verbatim, plus `suppressed` from the reviewer subagent (0 when none). A
    memory preference that suppresses a seeded defect is a scoring confound, and
-   this field makes it visible. A preference scoped to the target repository is
-   **not applied** to fixtures; a finding withheld under one counts into
-   `suppressed` the same way.
+   this field makes it visible.
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
@@ -332,7 +329,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    a low `find-acc` marks true positives matched by position, not by mechanism.
 7. Assemble `results/<ts>.json` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
-   `harness_version`, `memory_sha`, `skill_sources`, `definition_ref`) come
+   `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
    from one deterministic call — merge its object in verbatim and add what only
    the session knows (`model`, `trigger`, `judge`, `judge_model_used`):
 
@@ -367,7 +364,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 
    A failed publish is logged; the local `report.html` is current regardless.
 10. Report to the chat UI: the run's **quality index** with its delta against
-    the previous run **of the same model** — read both from
+    the previous run **of the same model and effort** — read both from
     `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
     (one JSON row per run with `cost_usd`; the weights and the price lookup
     live only in that script) — per-fixture headline scores, run totals
@@ -380,7 +377,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
     needs a previous run of the same `ste.v`, and reads "baseline" without
     one — any
     skill with no fixture coverage, any **saturated fixture** (`f1 = 1.0` in
-    this and the same model's previous run — recommend a harder sibling), and
+    this and the previous run of the same model and effort — recommend a harder sibling), and
     the report URL when published. First run of a model: "baseline".
 11. Clean up every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
     `.s-*` variants), your phase-state directory, your nonce cache
@@ -395,7 +392,8 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 {"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
  "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
  "definition_version": "...", "prev_version": "...", "changes_since_prev": [],
- "harness_version": "...", "memory_sha": "...", "skill_sources": {},
+ "harness_version": "...", "effort": "<low|medium|high|xhigh|max|unknown>",
+ "memory_sha": "...", "skill_sources": {},
  "definition_ref": {"branch": "...", "sha": "..."},
  "fixtures": {
    "<slug>": {
@@ -410,9 +408,14 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 ```
 
 `model` is the **exact model id** of the session as the harness names it; when
-unavailable, write `unknown` and log it. Every run therefore pins the full
-provenance triple — definition version, model id, harness version — and the
-report shows what changed in the definition between tested versions.
+unavailable, write `unknown` and log it. `effort` is the reasoning effort the
+session ran at, read from the harness (`CLAUDE_EFFORT` on Claude Code), else
+`unknown`; reviewer and skill subagents run without an effort override. Every run therefore pins
+the full provenance — definition version, model id, effort, harness version —
+and the report shows what changed in the definition between tested versions.
+Deltas compare runs of the same model **and** effort; a run without `effort`
+matches only another run without it, and a run at effort `unknown` gets no
+delta — report it as `effort unknown`.
 
 ### `RESULTS.md`
 
@@ -438,12 +441,12 @@ configuration. Operator-triggered only — a scheduled run is never segmented.
 
 - **One identity across segments.** Segment 1 takes the run's `TS` + `trigger`
   and creates the ledger `$HOME/work/benchmark/.run-notes-<TS>.md`, recording
-  the adopted definition version and, per measured fixture, the phase helper's
+  the adopted definition version and the effort and, per measured fixture, the phase helper's
   `seconds`/`tokens`/`suppressed` verbatim. The ledger is the single source of
   truth for what is done; raw reviews and skill archives are written per
   segment exactly as in a single-session run.
-- **Each segment**: verify the adopted definition version still matches the
-  ledger (drift → stop and report; never mix versions inside one run), take the
+- **Each segment**: verify the adopted definition version and the effort still
+  match the ledger (drift → stop and report; never mix them inside one run), take the
   run lock, run Phase 1 for exactly **one** unmeasured fixture (skill
   install/refresh included, its own printed nonce), append the fixture's
   numbers to the ledger, clean the segment's `/tmp` trees, phase state and

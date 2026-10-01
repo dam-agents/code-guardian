@@ -28,7 +28,7 @@
 #
 # results mode — the shape the report and the monthly gate consume:
 #   json            parses as an object
-#   fields          ts / trigger / model / definition_version present
+#   fields          ts / trigger / model / effort / definition_version present
 #   trigger         one of scheduled | manual | trial
 #   fixtures_shape  fixtures is an OBJECT keyed by slug, never an array
 #                   (an array renders its sections as 0,1,2… and breaks the
@@ -169,11 +169,11 @@ validate_results() { # <file>
     || { fail json "not a JSON object: $f; fix: assemble it per docs/benchmark.md → results/<ts>.json"; return; }
   ok json "parses as a JSON object"
 
-  bad="$(jq -r '[["ts",.ts],["trigger",.trigger],["model",.model],
+  bad="$(jq -r '[["ts",.ts],["trigger",.trigger],["model",.model],["effort",.effort],
                  ["definition_version",.definition_version]]
                 | [.[] | select(.[1] == null or .[1] == "") | .[0]] | join(",")' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail fields "missing/empty: $bad; fix: docs/benchmark.md → results/<ts>.json" \
-                || ok fields "ts, trigger, model, definition_version present"
+                || ok fields "ts, trigger, model, effort, definition_version present"
 
   bad="$(jq -r 'if (.trigger | IN("scheduled","manual","trial")) then "" else (.trigger // "null") end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail trigger "unknown trigger '$bad'; fix: use scheduled | manual | trial — the monthly gate reads scheduled only" \
