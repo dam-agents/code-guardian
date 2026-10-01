@@ -126,6 +126,10 @@ run_wl acme/widgets seven
 assert_jq '.outcome == "error" and (.error | contains("pr-number"))' 'a non-numeric PR number is an error'
 run_wl acme/widgets
 assert_jq '.outcome == "error" and (.error | contains("usage"))' 'a missing argument is an error'
+run_wl acme/widgets 7 --reviewer
+assert_jq '.outcome == "error" and (.error | contains("--reviewer needs a value"))' 'a trailing --reviewer without a value is an error, not a hang'
+run_wl acme/widgets 7 --verify --worklist
+assert_jq '.outcome == "error" and (.error | contains("--worklist needs a value"))' 'a trailing --worklist without a value is an error, not a hang'
 
 # --- the PR's own comment thread, the reviewer's own posts dropped -------------
 new_case worklist_comments
