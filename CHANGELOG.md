@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.1.1 — 2026-10-01
+
+**Upgrade:** Nothing — the change is inside the bundled `review-remediation`
+skill. An agent that already has it installed mirrors
+`.agents/skills/review-remediation/` from `definition_repo` again to pick the
+fix up.
+
 ## 8.1.0 — 2026-09-30
 
 **Upgrade:** Nothing — docs are re-read per run. History written before this
