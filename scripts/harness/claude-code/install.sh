@@ -3,7 +3,9 @@
 # ~/.claude/settings.json (idempotent; contract: docs/logging.md → Harness
 # adapters): log-tool-event.sh on PostToolUseFailure + PostToolUse,
 # log-review-step.sh on PostToolUse (Bash|Task), log-session-tokens.sh on
-# SessionEnd, enforce-review-completion.sh on Stop.
+# SessionEnd, enforce-review-completion.sh on Stop. It also keeps the
+# auto-mode classifier rules for the agent's documented writes
+# (autoMode.environment / autoMode.allow, entries tagged [code-guardian]).
 # On any other harness it prints a notice and exits 0 — the agent then logs
 # tool failures manually per docs/logging.md. Newly registered hooks take
 # effect from the next session.
@@ -26,19 +28,50 @@ chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$ADAPTER_DIR/../../log.sh" 2>/d
 mkdir -p "$(dirname "$SETTINGS")"
 [ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 
+# auto-mode classifier rules: the classifier blocks an issue on a repo other
+# than the target and an upload of a local file unless it knows both are the
+# agent's documented work (docs/logging.md → Harness adapters). The slugs come
+# from work/CONFIG.md; the definition repo falls back to $HOME's origin, so
+# Step 1b works before the config exists.
+HOME_DIR="${HOME:-/home/agent}"
+CONFIG="$HOME_DIR/work/CONFIG.md"
+cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
+DEF="$(cfg definition_repo)"
+[ -n "$DEF" ] || DEF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
+  | sed -e 's#^git@\([^:]*\):#\1/#' -e 's#^[a-z]*://##' -e 's#^[^@/]*@##' -e 's#\.git$##')"
+case "$DEF" in (github.com/*) DEF="${DEF#github.com/}";; esac
+TARGET="$(cfg github_repo)"
+AM_ENV="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '[
+  "[code-guardian] This is an unattended code review agent. It reviews pull requests on \(if $r == "" then "the github_repo of \($h)/work/CONFIG.md" else $r end)\(if $d == "" then "" else ", and its own definition repository is \($d)" end).",
+  "[code-guardian] The DAM Artifact Library is a publish surface the operator configured. Its create_artifact_upload_url tool returns a presigned upload URL for one file."]')"
+AM_ALLOW="$(jq -nc --arg d "$DEF" --arg h "$HOME_DIR" '
+  (if $d == "" then [] else
+    ["[code-guardian] Opening a tracking issue on \($d) with gh issue create: the weekly audit and the channel-refused rule file them there."] end)
+  + ["[code-guardian] Uploading a file under \($h)/work/audit/ or \($h)/work/reviews/pr-artifacts/ with curl -X PUT --data-binary to the URL that create_artifact_upload_url returned in the same session."]')"
+[ -n "$DEF" ] || echo "definition repo unresolved — tracking-issue rule left out; re-run once work/CONFIG.md has definition_repo"
+
 if jq -e --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
-    '([.hooks.PostToolUseFailure[]?.hooks[]?, .hooks.PostToolUse[]?.hooks[]?]
+      --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" \
+    '[(.autoMode.environment // [])[], (.autoMode.allow // [])[]
+      | select(type == "string" and startswith("[code-guardian]"))] == ($e + $a)
+     and ([.hooks.PostToolUseFailure[]?.hooks[]?, .hooks.PostToolUse[]?.hooks[]?]
       | map(select(.command == $c)) | length == 2)
      and ([.hooks.SessionEnd[]?.hooks[]?] | map(select(.command == $t)) | length == 1)
      and ([.hooks.Stop[]?.hooks[]?] | map(select(.command == $f)) | length == 1)
      and ([.hooks.PostToolUse[]?.hooks[]?] | map(select(.command == $s)) | length == 1)' \
     "$SETTINGS" >/dev/null 2>&1; then
-  echo "hooks already installed ($SETTINGS)"
+  echo "hooks and auto-mode rules already installed ($SETTINGS)"
   exit 0
 fi
 
 tmp="$(mktemp)"
-if jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" '
+if jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
+      --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" '
+    # own entries are replaced, the operator'"'"'s kept; a new list keeps the
+    # built-in rules through "$defaults"
+    def am($k; $new): .autoMode[$k] = (((.autoMode[$k] // ["$defaults"])
+        | map(select(type != "string" or (startswith("[code-guardian]") | not)))) + $new);
+    .autoMode //= {} | am("environment"; $e) | am("allow"; $a) |
     .hooks //= {} |
     .hooks.PostToolUseFailure = ([.hooks.PostToolUseFailure[]?
         | select([.hooks[]?.command] | index($c) | not)]
@@ -56,7 +89,7 @@ if jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" '
       + [{hooks:[{type:"command", command:$f, timeout:15}]}])
   ' "$SETTINGS" > "$tmp"; then
   mv "$tmp" "$SETTINGS"
-  echo "hooks installed into $SETTINGS (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH)"
+  echo "hooks installed into $SETTINGS (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH; [code-guardian] rules -> autoMode.environment + autoMode.allow)"
 else
   rm -f "$tmp"
   echo "hook install did not complete — settings.json left unchanged"
