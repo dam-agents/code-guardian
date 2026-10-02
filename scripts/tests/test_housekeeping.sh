@@ -16,8 +16,8 @@ merged_pr_fx() { # <number> <sha>
     | fx "api repos/acme/widgets/pulls/$1"
 }
 
-# a merged PR with a done row — one prune due and nothing else. One reviewed
-# PR stays open: an empty open list reads as an API anomaly and skips the scan.
+# a merged PR with a done row — one prune due and nothing else, next to one
+# reviewed PR that stays open.
 prune_case() { # <case-name>
   new_case "$1"
   base_config
