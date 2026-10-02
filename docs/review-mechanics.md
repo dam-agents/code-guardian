@@ -171,6 +171,26 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   finished fan-out, which the reclaim's `rm -rf` would destroy
   ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
 
+### Ended holder — a run that stopped with its PR locked
+
+A run that ends without a terminal step keeps its PR held for the quiet window
+of its newest step — an hour when it stopped in the fan-out.
+`review-pr.sh abandon <n> --run <id>` gives the PR back at once: it writes
+`aborted <reason>` in that run's name, releases the lock row per kind (as
+`abort`), cleans the run's tree and releases its PR hold. A run id prefix is
+enough when it names one run.
+
+- **Session end.** The `SessionEnd` adapter runs `abandon … --ended` for every
+  PR its own session locked ([logging.md](logging.md) → **Harness adapters**).
+- **Operator.** A run that never reached session end (a hard kill, a stopped
+  turn in a session that stays open): the operator, in the direct session,
+  runs `abandon <n> --run <id>`. Without `--ended` it refuses —
+  `holder_active` — while the run logs any event inside `HOLDER_QUIET_MIN` or
+  its tree is that fresh.
+- It acts only on the run that locked the PR last: `not_held` when that run
+  never locked it or already ended it, `superseded` when a later run locked
+  it — then it logs the terminal step and touches nothing else.
+
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 
 ```markdown

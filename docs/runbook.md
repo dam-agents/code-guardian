@@ -216,7 +216,8 @@ triage and the 14-day retention cleanup already happened inside preflight
 - A live lock holder is never displaced: takeover needs the holder *silent* as
   well as past the TTL, and Check 1 re-checks every entry — stand down before
   the clone `rm -rf`. The holder owns its PR to a terminal state whatever its
-  lock age (review-mechanics.md → **Live holder**).
+  lock age (review-mechanics.md → **Live holder**). A run that ended with its
+  PR locked gives it back at once (review-mechanics.md → **Ended holder**).
 - Under `review_progress: enabled` the progress status stays cosmetic and
   non-blocking: every terminal state is `success`, a failed write never alters
   the review, and no locked PR is left on `pending`.

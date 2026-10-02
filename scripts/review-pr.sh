@@ -53,6 +53,13 @@
 #                                          milestones, skill_timing, row, history,
 #                                          ledger, cleanup — local reads only
 #   abort <n> <reason…>                    release the lock per kind, clean up
+#   abandon <n> --run <id> [--ended] [--reason <text>]
+#                                          release the PR a run left locked when
+#                                          it ended without a terminal step: the
+#                                          SessionEnd adapter for its own session
+#                                          (--ended), the operator for a stopped
+#                                          run (docs/review-mechanics.md → Ended
+#                                          holder)
 #   hold <n>                               take the PR hold for this run: the
 #                                          run's mentions and review of the PR
 #                                          come after it; the run's other holds
@@ -81,8 +88,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#   release /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|abandon|hold|release) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|abandon|hold|release <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -278,7 +285,7 @@ doc_section() { # <docs-relative file> <exact heading line>
 # ------------------------------------------------------ progress status ----
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
   [ "$PROGRESS" = "enabled" ] || return 0
-  local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
+  local sha; sha="${PROGRESS_SHA:-$(ctx_get '.head_sha')}"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
   if [ -n "${3:-}" ]; then
     gh api -X POST "repos/$REPO/statuses/$sha" -f state="$1" -f context="$REVIEW_MARKER" -f description="$desc" -f target_url="$3" >/dev/null 2>&1 \
@@ -1862,6 +1869,85 @@ cmd_abort() {
   out "$(jq -nc --arg r "$reason" '{outcome:"aborted", reason:$r}')"
 }
 
+# ================================================================= abandon ====
+# A run that ended without a terminal step leaves its PR locked: its newest
+# step stays non-terminal, so the PR reads as held for the quiet window, the
+# fan-out's when it ended there. `abandon` writes the terminal step in that
+# run's name and releases what the run held. It acts only on the run that
+# locked the PR last; `--ended` is the caller's word that the run's session is
+# over (the SessionEnd adapter), else a run that still logs or touches its tree
+# is left alone (docs/review-mechanics.md → Ended holder).
+cmd_abandon() {
+  local run="" ended=0 reason="" st n id step sha newer row
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--run)    [ $# -ge 2 ] || fail "--run needs a run id"; run="$2"; shift 2;;
+      (--reason) [ $# -ge 2 ] || fail "--reason needs a text"; reason="$2"; shift 2;;
+      (--ended)  ended=1; shift;;
+      (*) fail "unknown argument: $1";;
+    esac
+  done
+  [ -n "$run" ] || fail "usage: abandon <n> --run <id> [--ended] [--reason <text>]"
+  reason="${reason:-run ended without a terminal step}"
+  st="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
+    | jq -cs --arg n "PR #$N " --arg r "$run" '
+        def rest: .msg | sub("^PR #[0-9]+:? +"; "");
+        def stepof: rest | sub("^[0-9a-f]{7,40}( +|$)"; "");
+        [ .[] | select(.event == "review_step" and (.msg | startswith($n))) ] as $pr
+        | [ $pr[] | select(stepof | test("^locked( |$)")) | .run ] as $lk
+        | ([ $lk[] | select(startswith($r)) ] | unique) as $m
+        | if ($m | length) != 1 then {n: ($m | length)}
+          else $m[0] as $id
+          | ([ $pr[] | select(.run == $id) ] | sort_by(.ts) | last) as $l
+          | {n: 1, id: $id, step: ($l | stepof),
+             sha: ([ $l | rest | capture("^(?<s>[0-9a-f]{7,40})( |$)")? | .s ] | .[0] // ""),
+             newer: any($pr[]; .run != $id and .ts > $l.ts and (stepof | test("^locked( |$)")))}
+          end' 2>/dev/null)"
+  n="$(printf '%s' "$st" | jq -r '.n // 0' 2>/dev/null)"
+  [ "${n:-0}" -le 1 ] || fail "run id $run matches $n runs that locked PR #$N — give more of it"
+  [ "${n:-0}" -eq 1 ] || out "$(jq -nc --arg r "$run" '{outcome:"not_held", reason:"run \($r) never locked this PR"}')"
+  { read -r id; read -r step; read -r sha; read -r newer; } \
+    < <(printf '%s' "$st" | jq -r '.id, .step, .sha, .newer')
+  if printf '%s' "$step" | grep -qE '^(done|aborted|posted)( |$)'; then
+    out "$(jq -nc --arg r "$id" --arg s "$step" '{outcome:"not_held", run:$r, reason:"the run ended this PR with step \($s)"}')"
+  fi
+  LOG_RUN="$id"   # the terminal step is the ended run's own: liveness reads that run's newest step
+  if [ "$newer" = true ]; then   # a later run locked the PR: its lock, row and tree are not ours to touch
+    logstep "${sha:+$sha }aborted $reason (superseded)"
+    out "$(jq -nc --arg r "$id" --arg s "$step" '{outcome:"superseded", run:$r, last_step:$s}')"
+  fi
+  if [ "$ended" -eq 0 ]; then
+    local e recent=""
+    for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
+      [ -e "$e" ] && [ -n "$(find "$e" -maxdepth 0 -mmin "-$HOLDER_QUIET_MIN" 2>/dev/null)" ] && recent=tree
+    done
+    # any event of the run inside HOLDER_QUIET_MIN — the fan-out's window is
+    # not applied: it is the silence this command exists to end
+    local cut; cut="$(date -u -d "@$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%S 2>/dev/null \
+                      || date -u -r "$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%S 2>/dev/null)"
+    [ -z "$recent" ] && [ "$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
+      | jq -rs --arg r "$id" --arg cut "$cut" 'any(.[]; .run == $r and .ts[0:19] >= $cut)' 2>/dev/null)" = true ] && recent=events
+    if [ -n "$recent" ]; then
+      out "$(jq -nc --arg r "$id" --arg w "$recent" '{outcome:"holder_active", run:$r, reason:"the run shows life in its \($w) inside the quiet window — nothing touched"}')"
+    fi
+  fi
+  if [ -f "$CTX/pr.json" ]; then
+    release_lock "$reason"
+  else   # the run's tree is gone: only its lock row and its own log remain
+    row="$(row_for)"
+    if [ "$(row_field "$row" 6)" = in_progress ]; then
+      case "$(row_field "$row" 3)" in ("$sha"*) PROGRESS_SHA="$(row_field "$row" 3)";; esac
+      delete_row
+    fi
+    progress success "no review posted — $reason; retrying next heartbeat"
+    logstep "${sha:+$sha }aborted $reason"
+    logev warn review_abort "PR #$N: $reason"
+  fi
+  rm -f "$PAYLOAD"; cleanup
+  hold_release "$N" "$id" && logev info hold "PR #$N: released — the run ended"
+  out "$(jq -nc --arg r "$id" --arg s "$step" --arg why "$reason" '{outcome:"abandoned", run:$r, last_step:$s, reason:$why}')"
+}
+
 # ==================================================================== hold ====
 # The event after the hold write is the owner's first sign of life.
 cmd_hold() {
@@ -1895,5 +1981,5 @@ case "$CMD" in
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
-  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;;
+  (abort) cmd_abort "$@";; (abandon) cmd_abandon "$@";; (hold) cmd_hold;; (release) cmd_release;;
 esac

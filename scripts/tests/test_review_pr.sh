@@ -343,6 +343,97 @@ run_step_ago holder 300 "PR #1 skill:doc-drift done"
 run_rp prepare 1
 assert_jq '.outcome == "stand_down"' 'a lock older than the scan window still names the holder'
 
+# --- abandon: a run that ended mid-review gives its PR back at once ----------------
+# A stopped run's newest step stays non-terminal: mid fan-out the PR reads as held
+# for FANOUT_QUIET_MIN (docs/review-mechanics.md → Ended holder).
+row_gone() { # <description>
+  if grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" 2>/dev/null; then printf 'FAIL %s: %s (row kept)\n' "$CASE" "$1"; FAILED=1
+  else printf 'ok   %s: %s\n' "$CASE" "$1"; fi
+}
+run_events() { cat "$WORK"/logs/events-*.jsonl 2>/dev/null | jq -r --arg r "$1" 'select(.run==$r and .event=="review_step") | .msg'; }
+setup abandon_operator_stop
+add_row 1 "$B1_SHA" "$(iso_ago 1500)" - in_progress
+run_step_ago 8d65cbff-0000-dead 1560 "PR #1 ${B1_SHA:0:7} locked"
+run_step_ago 8d65cbff-0000-dead 1440 "PR #1 ${B1_SHA:0:7} fanned out (n=3)"
+mkdir -p "$WORK/.holds.lock"; printf '%s\n%s\n' "$(iso_ago 1560)" 8d65cbff-0000-dead > "$WORK/.holds.lock/1"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'the stopped run still holds the PR in its fan-out window'
+run_rp abandon 1 --run 8d65cbff
+assert_jq '.outcome == "abandoned" and .run == "8d65cbff-0000-dead" and (.last_step | test("fanned out"))' 'a run id prefix names the ended run'
+row_gone 'the lock row is gone'
+if run_events 8d65cbff-0000-dead | tail -1 | grep -q "^PR #1 ${B1_SHA:0:7} aborted run ended without a terminal step$"; then
+  printf 'ok   %s: the terminal step is logged in the ended run'"'"'s name\n' "$CASE"
+else printf 'FAIL %s: no terminal step for the ended run (%s)\n' "$CASE" "$(run_events 8d65cbff-0000-dead | tr '\n' ';')"; FAILED=1; fi
+[ -e "$WORK/.holds.lock/1" ] && { printf 'FAIL %s: hold kept\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the ended run'"'"'s hold is released\n' "$CASE"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'the next run reviews the PR'
+run_rp abort 1 "reset"
+run_rp abandon 1 --run 8d65cbff
+assert_jq '.outcome == "not_held"' 'a second abandon is a no-op'
+
+setup abandon_holder_active
+add_row 1 "$B1_SHA" "$(iso_ago 600)" - in_progress
+run_step_ago live-run 700 "PR #1 ${B1_SHA:0:7} locked"
+run_step_ago live-run 300 "PR #1 ${B1_SHA:0:7} skill:doc-drift done"
+run_rp abandon 1 --run live-run
+assert_jq '.outcome == "holder_active"' 'a run that still logs is left alone'
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | in_progress |" 'its lock row is untouched'
+mkdir -p "$(PR_DIR)"
+run_step_ago tree-run 4000 "PR #1 ${B1_SHA:0:7} locked"
+run_rp abandon 1 --run tree-run
+assert_jq '.outcome == "holder_active" or .outcome == "superseded"' 'a fresh tree or a later lock leaves the PR alone'
+run_rp abandon 1 --run live-run --ended
+assert_jq '.outcome == "abandoned"' '--ended releases a run that logged a minute ago'
+row_gone 'the ended session'"'"'s row is gone'
+
+setup abandon_not_held
+run_step_ago done-run 900 "PR #1 ${B1_SHA:0:7} locked"
+run_step_ago done-run 600 "PR #1 ${B1_SHA:0:7} done"
+run_step_ago taker 300 "PR #1 ${B1_SHA:0:7} stood down (live holder)"
+run_rp abandon 1 --run done-run
+assert_jq '.outcome == "not_held" and (.reason | test("done"))' 'a run that ended the PR holds nothing'
+run_rp abandon 1 --run taker
+assert_jq '.outcome == "not_held"' 'a run that never locked the PR holds nothing'
+run_rp abandon 1 --run
+assert_jq '.outcome == "error" and (.error | test("--run needs"))' 'a trailing --run is an error, not a hang'
+run_rp abandon 1
+assert_jq '.outcome == "error" and (.error | test("usage"))' 'abandon needs a run id'
+
+setup abandon_superseded
+add_row 1 "$B1_SHA" "$(iso_ago 300)" - in_progress
+run_step_ago old-run 5000 "PR #1 ${B1_SHA:0:7} locked"
+run_step_ago old-run 4800 "PR #1 ${B1_SHA:0:7} fanned out (n=2)"
+run_step_ago new-run 400 "PR #1 ${B1_SHA:0:7} locked"
+run_rp abandon 1 --run old-run --ended
+assert_jq '.outcome == "superseded"' 'a later lock supersedes the ended run'
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | in_progress |" 'the later run'"'"'s lock row is untouched'
+
+setup abandon_ambiguous
+run_step_ago abc-1 900 "PR #1 ${B1_SHA:0:7} locked"
+run_step_ago abc-2 800 "PR #1 ${B1_SHA:0:7} locked"
+run_rp abandon 1 --run abc --ended
+assert_jq '.outcome == "error" and (.error | test("matches 2 runs"))' 'an ambiguous prefix is refused'
+
+# --- the SessionEnd adapter abandons what its own session left locked ---------------
+setup abandon_session_end
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'this session locks the PR'
+run_rp step 1 "fanned out (n=2)"
+printf '{"hook_event_name":"SessionEnd","session_id":"%s","reason":"other"}' "$SESSION" \
+  | GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" GH_CALLS_LOG="$SANDBOX/gh.log" \
+    PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/harness/claude-code/release-ended-reviews.sh"
+row_gone 'the session-end hook released the lock row'
+[ -e "$(PR_DIR)" ] && { printf 'FAIL %s: tree kept\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the tree is cleaned up\n' "$CASE"
+assert_event "PR #1 ${B1_SHA:0:7} aborted session ended mid-review" 'the terminal step names the session end'
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'the next run reviews the PR at once'
+run_rp abort 1 "reset"
+printf '{"hook_event_name":"SessionEnd","session_id":"%s"}' "$SESSION" \
+  | GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" \
+    bash "$REPO_ROOT/scripts/harness/claude-code/release-ended-reviews.sh"
+if events | grep -c "aborted session ended" | grep -qx 1; then printf 'ok   %s: a finished session releases nothing\n' "$CASE"
+else printf 'FAIL %s: a finished session logged another abort\n' "$CASE"; FAILED=1; fi
+
 # --- delta range: extension skills route from the changes since the prior review ---
 setup delta_routing
 PRIOR="1111111111111111111111111111111111111111"

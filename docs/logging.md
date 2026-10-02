@@ -142,6 +142,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
 - `log-tool-event.sh` — hook target for `PostToolUseFailure` (all tools) and
   `PostToolUse` (external calls, debug).
 - `log-session-tokens.sh` — `SessionEnd` target: the per-run `tokens` event.
+- `release-ended-reviews.sh` — `SessionEnd` target: gives back every PR the
+  session left locked ([review-mechanics.md](review-mechanics.md) → **Ended
+  holder**).
 - `log-review-step.sh` — `PostToolUse` (`Bash|Task`) target: derives the
   observable `review_step` milestones — `cloned`, `skill:<name> done`,
   `posted <verdict>`, and `locked` / `locked (refresh)` / `done` /

@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.3.0 — 2026-10-02
+
+**Upgrade:** Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent) to register the new `SessionEnd` hook
+`release-ended-reviews.sh`; it takes effect from the next session. Until then
+the audit's `harness_adapter` check warns and names it.
+
 ## 8.2.0 — 2026-10-01
 
 **Upgrade:** Nothing — docs are re-read per run. Benchmark results written

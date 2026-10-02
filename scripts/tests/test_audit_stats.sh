@@ -373,7 +373,8 @@ pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_f
 write_settings <<'EOF'
 {"hooks":{"PostToolUseFailure":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-tool-event.sh"}]}],
           "PostToolUse":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-review-step.sh"}]}],
-          "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}],
+          "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]},
+                        {"hooks":[{"command":"/home/agent/scripts/harness/claude-code/release-ended-reviews.sh"}]}],
           "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}]}}
 EOF
 CLAUDECODE=1 run_preflight audit
@@ -389,6 +390,7 @@ write_settings <<'EOF'
 EOF
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("log-review-step.sh"))' 'missing step-logger hook warns by name'
+assert_jq '.checks[] | select(.id == "harness_adapter") | .detail | contains("release-ended-reviews.sh")' 'missing session-end release hook warns by name'
 
 
 # --- wasted-review metric (stats.stalls) --------------------------------------
