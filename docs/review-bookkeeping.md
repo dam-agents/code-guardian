@@ -25,7 +25,7 @@ never fatal — preflight re-emits the entry.
 ## Pruning (`prunes_due`)
 
 Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
-candidates are the REVIEWS.md rows and the history files without a row.
+candidates are the REVIEWS.md rows and the PRs with step-2 files but no row.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
 `<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
@@ -103,7 +103,8 @@ The missing row is what stops the reset repeating.
 
 ## Stalled-review rate alert (`stall_alert`)
 
-Preflight counts the `stale in_progress lock` takeovers of the last 24 h. At or
+Preflight counts the stalled reviews of the last 24 h — one per dead lock (PR,
+lock time), however many `stale in_progress lock` takeover lines it left. At or
 above `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
 `stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
 UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock, so concurrent

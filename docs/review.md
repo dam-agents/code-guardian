@@ -16,7 +16,9 @@ meets have their own files, read on their trigger:
 
 Every `review-pr.sh <cmd>` below is `cd "$HOME" && bash
 "$HOME/scripts/review-pr.sh" <cmd>`. Each call prints one JSON `outcome`: judge
-the call by it, never by the exit status. Write the payload files (`body.md`,
+the call by it, never by the exit status (0 on every outcome). Read `.outcome`
+first and the other fields only on the expected value — any other outcome
+carries none of them. Write the payload files (`body.md`,
 `findings.json`, `comments.json`, `meta.json`, `rapid.md`) in the PR's context
 directory, `${TMPDIR:-/tmp}/review-pr-<n>.ctx/`, and pass them by absolute
 path — `post` and `abort` delete that directory.

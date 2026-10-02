@@ -6,11 +6,15 @@
 
 SHA1="1111111111111111111111111111111111111111"
 
-# one `stale in_progress lock` takeover event, <secs> ago, for PR <n>
-stall_event() { # <secs-ago> <pr>
-  jq -nc --arg ts "$(iso_ago "$1")" --argjson n "$2" \
+# one `stale in_progress lock` takeover event, <secs> ago, for PR <n>; the
+# lock time defaults to 39 min before the event (a distinct lock per event),
+# `legacy` writes the pre-8.2.1 line without one
+stall_event() { # <secs-ago> <pr> [<lock-ts>|legacy]
+  local lock="${3:-$(iso_ago $(( $1 + 2340 )))}" what
+  what="(39m, locked $lock)"; [ "$lock" = legacy ] && what="(39m)"
+  jq -nc --arg ts "$(iso_ago "$1")" --argjson n "$2" --arg w "$what" \
     '{ts:$ts, run:"r", job:"review", level:"info", event:"preflight",
-      msg:("PR #" + ($n|tostring) + ": stale in_progress lock (39m) — takeover")}' \
+      msg:("PR #" + ($n|tostring) + ": stale in_progress lock " + $w + " — takeover")}' \
     >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
 }
 
@@ -49,6 +53,26 @@ fi
 # --- dedup: the same day never alerts twice -----------------------------------
 run_preflight review
 assert_jq '.stall_alert == null' 'second run the same day is deduped'
+
+# --- one dead lock met by many heartbeats is one stall -------------------------
+stall_case stall_same_lock
+LOCK="$(iso_ago 20000)"
+for s in 3600 4200 4800 5400 6000 6600; do stall_event "$s" 10 "$LOCK"; done
+stall_event 7200 11
+run_preflight review
+assert_jq '.stall_alert == null' 'six takeover lines of one lock count once (2 stalls < 4)'
+
+stall_case stall_same_lock_alert '- stall_alert_threshold: 2'
+for s in 3600 4200 4800; do stall_event "$s" 10 "$LOCK"; done
+stall_event 7200 10
+run_preflight review
+assert_jq '.stall_alert.count == 2 and .stall_alert.prs == [10]' 'two locks on one PR are two stalls'
+assert_jq '.stall_alert.per_day_7d[-1].stalls == 2' 'the per-day trend counts locks, not lines'
+
+stall_case stall_legacy_lines
+for s in 3600 4200 4800 5400; do stall_event "$s" 10 legacy; done
+run_preflight review
+assert_jq '.stall_alert == null' 'pre-8.2.1 lines without a lock time count once per PR'
 
 # --- a due alert is work on its own, with nothing else to do -------------------
 # no open PRs at all, so the alert is the only reason this run isn't idle
