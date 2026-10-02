@@ -145,8 +145,9 @@ else
   for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh; do
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
+  grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS autoMode-rules"
   if [ -z "$MISSING_HOOKS" ]; then
-    ok hooks "all adapter hooks registered in .claude/settings.json"
+    ok hooks "all adapter hooks and auto-mode rules registered in .claude/settings.json"
   else
     fail hooks "hooks not registered:$MISSING_HOOKS" \
       "bash \"\$HOME/scripts/harness/claude-code/install.sh\" (ONBOARDING Step 1b, idempotent)"

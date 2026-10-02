@@ -158,7 +158,11 @@ adapter active, duty 4 above extends to logging tool failures manually.
   ([worklist.md](worklist.md) → **PR holds**).
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and after definition updates that change the
-  adapter; effective from the next session). On another harness it prints a
+  adapter; effective from the next session). It also keeps the auto-mode
+  classifier rules for the agent's documented writes outside the target repo —
+  the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload —
+  as `autoMode.environment` / `autoMode.allow` entries tagged
+  `[code-guardian]`, replacing only its own. On another harness it prints a
   notice and exits 0.
 
 Registration is user-global, so every hook script no-ops unless
@@ -168,7 +172,8 @@ shapes (GitHub/Slack tokens, bearer headers) are masked, per the
 no-secrets-in-logs invariant.
 
 The weekly audit verifies the adapter matches the detected harness
-(`harness_adapter` check): a Claude Code pod without registered hooks is a
+(`harness_adapter` check): a Claude Code pod without registered hooks or
+auto-mode rules is a
 warn.
 
 ## Retention — the weekly audit cleans up
