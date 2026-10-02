@@ -104,7 +104,8 @@ The missing row is what stops the reset repeating.
 ## Stalled-review rate alert (`stall_alert`)
 
 Preflight counts the stalled reviews of the last 24 h — one per dead lock (PR,
-lock time), however many `stale in_progress lock` takeover lines it left. At or
+lock time), however many `stale in_progress lock` takeover lines it left;
+`per_day_7d` counts each stall on the UTC day of its first line. At or
 above `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
 `stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
 UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock, so concurrent

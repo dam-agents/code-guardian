@@ -74,6 +74,23 @@ for s in 3600 4200 4800 5400; do stall_event "$s" 10 legacy; done
 run_preflight review
 assert_jq '.stall_alert == null' 'pre-8.2.1 lines without a lock time count once per PR'
 
+stall_case stall_legacy_then_keyed '- stall_alert_threshold: 1'
+LOCK="$(iso_ago 7000)"
+stall_event 4800 10 legacy
+stall_event 3600 10 "$LOCK"
+run_preflight review
+assert_jq '.stall_alert.count == 1' 'an old-format line next to a keyed line of the same PR is one stall'
+
+# --- a lock met on two UTC days counts on the day of its first line -----------
+# 100000 s and 3600 s ago always fall on two different UTC days
+stall_case stall_two_days '- stall_alert_threshold: 1'
+LOCK="$(iso_ago 102340)"
+stall_event 100000 10 "$LOCK"
+stall_event 3600 10 "$LOCK"
+run_preflight review
+assert_jq '.stall_alert.count == 1' 'the window counts the lock it still sees'
+assert_jq '[.stall_alert.per_day_7d[].stalls] | add == 1' 'the per-day trend counts one lock once across days'
+
 # --- a due alert is work on its own, with nothing else to do -------------------
 # no open PRs at all, so the alert is the only reason this run isn't idle
 stall_case stall_alone

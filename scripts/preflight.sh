@@ -416,10 +416,18 @@ ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
 STALL_ALERT_THRESHOLD="$(cfg stall_alert_threshold)"
 STALL_ALERT_THRESHOLD="${STALL_ALERT_THRESHOLD:-4}"
-# one takeover event -> {ts, pr, key}; key = "<pr>@<lock ts>", the dedup unit
+# one takeover event -> {ts, pr, lock}; lock = "" on a line written before 8.2.1
 STALL_SEL='select(.event == "preflight" and (.msg | test("stale in_progress lock")))
-  | (.msg | capture("PR #(?<n>[0-9]+)") | .n) as $pr
-  | {ts, pr: $pr, key: ($pr + "@" + ((.msg | capture("locked (?<l>[^ )]+)") | .l) // ""))}'
+  | {ts, pr: (.msg | capture("PR #(?<n>[0-9]+)") | .n | tonumber),
+     lock: ((.msg | capture("locked (?<l>[^ )]+)") | .l) // "")}'
+# stalls(scope): takeover events -> one event per stall, its first line. A
+# keyed line counts once per (PR, lock time); an unkeyed line once per (PR,
+# scope), and only when no keyed line of that PR shares the scope
+STALL_DEFS='def stalls(scope): map(.scope = (.ts | scope))
+  | ([.[] | select(.lock != "") | [.pr, .scope]] | unique) as $kp
+  | (map(select(.lock != "")) | group_by([.pr, .lock]) | map(min_by(.ts)))
+    + (map(select(.lock == "" and ([.pr, .scope] | IN($kp[]) | not)))
+       | group_by([.pr, .scope]) | map(min_by(.ts)));'
 case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
@@ -1435,33 +1443,27 @@ if [ "$MODE" = "review" ]; then
   # log and emit ONE alert per UTC day when the threshold is reached.
   # A stall is one dead lock: every heartbeat that meets the same lock logs the
   # takeover again, so events count once per (PR, lock time) — a line without
-  # `locked <ts>` (written before 8.2.1) once per PR.
-  # Cheap by construction: two small log files, no API calls, no extra run.
+  # `locked <ts>` (written before 8.2.1) once per PR, and not at all next to a
+  # line of that PR that names its lock.
+  # Cheap by construction: the retained log files, no API calls, no extra run.
   if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
     STALL_SINCE="$(( NOW_EPOCH - 86400 ))"
-    STALL_N=0; STALL_PRS=""; STALL_KEYS=" "
-    for lf in "$LOG_DIR/events-$(date -u -d @"$STALL_SINCE" +%Y-%m-%d 2>/dev/null \
-                || date -u -r "$STALL_SINCE" +%Y-%m-%d 2>/dev/null)" \
-              "$LOG_DIR/events-$(date -u +%Y-%m-%d).jsonl"; do
-      case "$lf" in (*.jsonl) ;; (*) lf="$lf.jsonl";; esac
-      [ -f "$lf" ] || continue
-      while IFS="$(printf '\t')" read -r ets pr key; do
-        [ -n "$pr" ] || continue
-        [ "$(iso2epoch "$ets")" -ge "$STALL_SINCE" ] || continue
-        case "$STALL_KEYS" in (*" $key "*) continue;; esac
-        STALL_KEYS="$STALL_KEYS$key "; STALL_N=$((STALL_N+1))
-        case " $STALL_PRS " in (*" $pr "*) ;; (*) STALL_PRS="$STALL_PRS $pr";; esac
-      done < <(jq -r "$STALL_SEL"' | [.ts, .pr, .key] | @tsv' "$lf" 2>/dev/null)
-    done
-    STALL_PRS="${STALL_PRS# }"
+    STALL_SINCE_ISO="$(date -u -d @"$STALL_SINCE" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                       || date -u -r "$STALL_SINCE" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    STALL_EVENTS="$(for f in "$LOG_DIR"/events-*.jsonl; do
+        [ -f "$f" ] && jq -c "$STALL_SEL" "$f" 2>/dev/null
+      done | jq -sc '.' 2>/dev/null)"
+    [ -n "$STALL_EVENTS" ] || STALL_EVENTS='[]'
+    # the window: one scope, so an unkeyed line is one stall per PR
+    STALL_WIN="$(printf '%s' "$STALL_EVENTS" | jq -c --arg s "$STALL_SINCE_ISO" \
+      "$STALL_DEFS"' map(select(.ts >= $s)) | stalls("")')"
+    STALL_N="$(printf '%s' "$STALL_WIN" | jq length)"; STALL_N="${STALL_N:-0}"
+    STALL_PRS="$(printf '%s' "$STALL_WIN" | jq -r '[.[].pr] | unique | map(tostring) | join(" ")')"
     # per-UTC-day counts over the retained log window — turns "22 today" into a
-    # trend the operator can read (is this new, or every day?)
-    STALL_WEEK="$(for f in "$LOG_DIR"/events-*.jsonl; do
-        [ -f "$f" ] || continue
-        d="$(basename "$f" .jsonl)"; d="${d#events-}"
-        c="$(jq -r "$STALL_SEL"' | .key' "$f" 2>/dev/null | sort -u | grep -c . || true)"
-        [ "${c:-0}" -gt 0 ] && jq -nc --arg d "$d" --argjson c "${c:-0}" '{day:$d, stalls:$c}'
-      done | jq -sc 'sort_by(.day) | .[-7:]')"
+    # trend the operator can read (is this new, or every day?). A stall counts
+    # on the day of its first line, an unkeyed line once per PR and day
+    STALL_WEEK="$(printf '%s' "$STALL_EVENTS" | jq -c "$STALL_DEFS"' stalls(.[0:10])
+      | group_by(.ts[0:10]) | map({day: .[0].ts[0:10], stalls: length}) | sort_by(.day) | .[-7:]')"
     [ -n "$STALL_WEEK" ] || STALL_WEEK='[]'
     # dedup: the marker records the last UTC day an alert was emitted. Claimed
     # with mkdir (atomic on the shared volume) so two concurrent heartbeats
