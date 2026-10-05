@@ -237,6 +237,7 @@ EOF
     chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
     chk_enum ci_triage 'enabled|disabled' 'enabled | disabled'
     chk_enum merge_ready_nudge 'enabled|disabled' 'enabled | disabled'
+    chk_enum shepherd_scope 'all|needs_human' 'all | needs_human'
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'

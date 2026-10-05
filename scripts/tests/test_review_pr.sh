@@ -1246,6 +1246,14 @@ assert_out_contains '"status": "new"' 'a first review posts every finding as new
 assert_out_contains 'post [0-9]* .* --findings [^ ]*review-pr-1.ctx/findings.json' 'a first review posts its own findings list'
 assert_out_contains 'none' 'no overrides and no memory read as none'
 assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
+assert_out_absent 'triage is forced' 'no human_review_paths, no forced triage'
+run_rp abort 1 "reset"
+
+# a changed file under human_review_paths: the brief says the triage is forced
+setup compose_brief_forced '- human_review_paths: `docs/*`, src/al*'
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_contains 'triage is forced to `needs-human`: `src/alpha.ts (src/al\*)`' 'the brief names the file that forces needs-human'
 run_rp abort 1 "reset"
 
 # --- compose-brief: the conversation that moved since the lock --------------------
