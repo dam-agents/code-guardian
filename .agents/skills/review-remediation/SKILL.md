@@ -6,12 +6,14 @@ description: >
   blocking finding at every location of its class, ask the caller about the
   ones a recorded decision makes disputable, self-review the push the
   way the reviewer will, run the checks the review supplies, and answer in one
-  push and one comment. The next review round stays the caller's to start.
-  Repo-agnostic and REST-only. Use it whenever an agent or a person asks to
-  address, resolve or fix review findings, answer or clear a code review,
-  handle "changes requested", or get a pull request through review or
-  approved — even when the reviewer is not named and the ask is only "fix the
-  PR".
+  push, at most one body edit and one comment. The next review round stays the
+  caller's to start. Repo-agnostic and REST-only. Use it whenever an agent or
+  a person asks to address, resolve or fix review findings, answer or clear a
+  code review, handle "changes requested", or get a pull request through
+  review or approved — even when the reviewer is not named and the ask is only
+  "fix the PR". Also use it whenever an agent opens a pull request: it
+  records the decisions the person made in that conversation in a hidden
+  block of the body, so the reviewer does not raise them again.
 ---
 
 # Review remediation
@@ -19,7 +21,8 @@ description: >
 One posted review on one pull request is the work list; this skill is the
 procedure that finishes it in one round. It carries no repository-specific
 commands: the checks, the standing rules and the trigger the next round uses
-come from the review itself, read over REST.
+come from the review itself, read over REST. When you open a pull request
+and no review exists yet, only **Record the author's decisions** applies.
 
 **What the next round measures.** The reviewer settles every prior finding at
 each of its anchors (`file:line` and every `also`), reads the hunks your push
@@ -92,11 +95,14 @@ Rules of reading:
   summary is settled, and you say so instead of inventing a change there.
 - **A recorded decision settles a finding, and silence never does.** Before
   you plan any edit, find what this pull request already decided about the
-  flagged behavior, in this order: `comments` (the pull request's own thread,
-  the reviewer's own posts dropped), `pr_body`, the branch's commit messages
-  (`git log origin/<head.base>..HEAD`), the code comment or design note at
-  the anchor, and — where the harness gives the caller a search over their own
-  earlier sessions — the sessions that developed this branch.
+  flagged behavior, in this order: the `author-decisions` block of `pr_body`
+  (**Record the author's decisions**), `comments` (the pull request's own
+  thread, the reviewer's own posts dropped), the rest of `pr_body`, the
+  branch's commit messages (`git log origin/<head.base>..HEAD`), the code
+  comment or design note at the anchor, and — where the harness gives the
+  caller a search over their own earlier sessions — the sessions that
+  developed this branch. The `author-decisions` block never settles a
+  `critical` finding.
   Where one of them states that the flagged behavior is what the author asked
   for, answer that finding as **Disputed** and name the source: an automated
   reviewer records such an answer as settling the finding for this pull
@@ -165,7 +171,8 @@ and never re-review the pull request.
 - **Keep the PR body true.** When a fix adds a behavior, a surface or a file
   the body does not declare, or makes a claim in it false, edit the body in
   the same round (`gh api -X PATCH repos/<repo>/pulls/<n> -F body=@<file>`).
-  An undeclared change is a finding on its own.
+  An undeclared change is a finding on its own. The same edit updates the
+  `author-decisions` block (**Record the author's decisions**).
 
 ## 3. Self-review the push
 
@@ -258,10 +265,13 @@ invented here.
 
 ## 5. Answer
 
-Two writes to the pull request, in this order:
+Three writes to the pull request, in this order:
 
 1. **One push** of the commits, on top of the reviewed head.
-2. **One comment** on the pull request, in the language the review uses,
+2. **One body edit** that records this conversation's decisions
+   (**Record the author's decisions**) together with every other body change
+   of this round. Skip it when the body already holds them.
+3. **One comment** on the pull request, in the language the review uses,
    short. Per blocking finding one line:
    - **Fixed** — what changed and every location, including those beyond the
      ones the review listed. Where the prescribed fix does not close
@@ -299,6 +309,39 @@ the most findings to the caller, and offer to run that skill over the fixed
 branch — one skill run answers before the next review round spends one.
 Run it only when the caller asks for it.
 
+## Record the author's decisions
+
+The pull request body carries one hidden block that tells the reviewer which
+choices the person made on purpose. Write it when you open a pull request, and
+update it in every remediation round, in the same body edit as any other body
+change:
+
+```markdown
+<!-- author-decisions
+summary: <two or three sentences: what the person asked for, and how the
+  work changed on the way>
+- <the decision> | scope: <path, behavior or finding> | why: <the person's
+  reason, one clause> | <YYYY-MM-DD>
+-->
+```
+
+- **Only the person's decisions.** An entry is a choice the person stated or
+  confirmed in this conversation: an answer to an **Ask** item, a **Deferred**
+  finding, a trade-off they picked, an option they rejected. A choice you made
+  alone and never put to them is not an entry. Write the reason in their
+  terms, and never more than they said.
+- **The decisions that matter most**, at most ten: the ones a reviewer could
+  read as a defect — a behavior left out on purpose, a known limit, a scope
+  cut, a rejected alternative. A routine step needs no entry.
+- **One block, kept current.** Read the block that is there, keep its entries,
+  add the new ones, and replace an entry the person reversed — never a second
+  block. Write it in English, with no secret, no personal data and nothing
+  from the conversation outside this pull request: the body is public.
+- **Cite it in the answer.** A **Disputed** or **Deferred** line that rests on
+  an entry names it.
+- **Not for a `critical` finding.** The reviewer reports a `critical`
+  finding whatever an entry says. Fix it, or put it to the caller as **Ask**.
+
 ## Done
 
 - Every blocking finding is fixed or disputed, none of them silent, and every
@@ -308,5 +351,7 @@ Run it only when the caller asks for it.
 - Every `rules` entry holds for every file you touched.
 - Your own diff passed the self-review, and the repository's own build and
   test commands pass.
-- One push and one comment carry the work; the caller holds the command that
-  starts the next round.
+- The `author-decisions` block holds the caller's decisions from this
+  conversation that a reviewer could read as a defect.
+- One push, at most one body edit and one comment carry the work; the caller
+  holds the command that starts the next round.
