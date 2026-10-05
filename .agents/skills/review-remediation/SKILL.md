@@ -6,7 +6,7 @@ description: >
   blocking finding at every location of its class, ask the caller about the
   ones a recorded decision makes disputable, self-review the push the
   way the reviewer will, run the checks the review supplies, and answer in one
-  push, one body edit and one comment. The next review round stays the
+  push, at most one body edit and one comment. The next review round stays the
   caller's to start. Repo-agnostic and REST-only. Use it whenever an agent or
   a person asks to address, resolve or fix review findings, answer or clear a
   code review, handle "changes requested", or get a pull request through
@@ -101,7 +101,8 @@ Rules of reading:
   branch's commit messages (`git log origin/<head.base>..HEAD`), the code
   comment or design note at the anchor, and — where the harness gives the
   caller a search over their own earlier sessions — the sessions that
-  developed this branch.
+  developed this branch. The `author-decisions` block never settles a
+  `critical` finding.
   Where one of them states that the flagged behavior is what the author asked
   for, answer that finding as **Disputed** and name the source: an automated
   reviewer records such an answer as settling the finding for this pull
