@@ -509,7 +509,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
-  --arg wr "$WORK_REPO" \
+  --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -525,6 +525,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
+   shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
+   human_review_paths:(if $hp=="" then null else $hp end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -1515,6 +1517,30 @@ if [ "$MODE" = "shepherd" ]; then
     log_warn "lib/ci-rollup.sh unreadable — the ready-to-land nudge is disabled this run"
   fi
 
+  # Who the reviewer-directed nudges cover (docs/shepherd.md → Scope): every
+  # PR, or only the ones my last review says a person must read.
+  SHEP_SCOPE="$(cfg shepherd_scope)"; SHEP_SCOPE="${SHEP_SCOPE:-all}"
+  case "$SHEP_SCOPE" in
+    (all|needs_human) ;;
+    (*) log "shepherd_scope '$SHEP_SCOPE' unknown — treating as all"; SHEP_SCOPE=all;;
+  esac
+
+  # My last review's `triage` (docs/review-mechanics.md → Summary body format),
+  # only while that review read the current head: a call on older code never
+  # silences a nudge. Prints the JSON object, or nothing.
+  own_triage() { # <pr-number> <head-sha>
+    local f="$WORK/reviews/pr-$1.md" sec s7
+    [ -f "$f" ] || return 0
+    # the newest review section alone: a rapid pass carries no review-meta, and
+    # an older section's call never stands in for it
+    sec="$(sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$f" 2>/dev/null)"
+    s7="$(printf '%s\n' "$sec" | head -1 | sed -n -E 's/^## Review at ([0-9a-f]+) .*/\1/p')"
+    case "$2" in ("$s7"*) [ -n "$s7" ] || return 0;; (*) return 0;; esac
+    printf '%s\n' "$sec" | grep -o '<!-- review-meta: .* -->' | tail -1 \
+      | sed -e 's/^<!-- review-meta: //' -e 's/ -->$//' \
+      | jq -c '.triage // empty | select(type == "object")' 2>/dev/null || true
+  }
+
   # The agent's own last word on the PR: a critical it raised and the author has
   # not fixed means the PR is not ready, whatever the humans approved. The
   # newest findings-json of the history file is that word; no file, no review,
@@ -1702,6 +1728,17 @@ if [ "$MODE" = "shepherd" ]; then
     else new_status="${status:-watching}"
     fi
 
+    # a reviewer-directed nudge carries my triage; under `needs_human` a PR my
+    # review of this head called a quick check gets none
+    brief=""
+    if [ "$due" -eq 1 ] && [ "$nudge_class" = "awaiting_review" ] && [ "$dirty" = "false" ]; then
+      brief="$(own_triage "$n" "$head_sha")"
+      if [ "$SHEP_SCOPE" = "needs_human" ] && [ "$(printf '%s' "$brief" | jq -r '.class // ""' 2>/dev/null)" = "quick-check" ]; then
+        due=0; new_status="${status:-watching}"; next_level="$level"
+        log "PR #$n: quick check per my review — no reviewer nudge (shepherd_scope: needs_human)"
+      fi
+    fi
+
     if [ "$due" -eq 1 ]; then
       if [ "$nudge_class" = "ready_to_land" ]; then
         # whoever merges is the author's call, so the message goes to them
@@ -1724,9 +1761,9 @@ if [ "$MODE" = "shepherd" ]; then
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
         --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson m "$mentions" \
         --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
-        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" \
+        --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
         '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
-          conflict:$conf,
+          conflict:$conf, brief:$br,
           needs_target_selection: ($m|length==0 and $c!="changes_requested"
                                    and $c!="ready_to_land" and ($conf|not)),
           escalation:{login:$eo, slack_id:$eid},

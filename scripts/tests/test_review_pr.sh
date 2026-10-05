@@ -662,6 +662,30 @@ assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
 
+# --- post: triage passes through, and human_review_paths forces needs-human -------
+# docs/review-mechanics.md → Summary body format (`triage`)
+triage_post() { # <case> <meta-json> [config line]
+  setup "$1" ${3:+"$3"}
+  pr_fx open '["cg-rereview"]'
+  run_rp prepare 1
+  printf '### Summary\nx\n\n### Verdict\nAPPROVE — ok\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+  printf '{"id":78,"html_url":"https://example.test/r/78","state":"APPROVED"}' | fx "$(POST_SLUG)"
+  printf '%s' "$2" > "$SANDBOX/meta.json"
+  run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --meta "$SANDBOX/meta.json"
+  assert_jq '.outcome == "posted"' 'review posted'
+}
+triage_post post_triage_quick '{"triage":{"class":"quick-check","why":null,"verified":"tests, error paths","minutes":5}}'
+assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"quick-check","why":null,"verified":"tests, error paths","minutes":5}' 'the triage call reaches review-meta as written'
+
+triage_post post_triage_forced '{"triage":{"class":"quick-check","minutes":5}}' '- human_review_paths: `docs/*`, src/al*'
+assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"needs-human",.*"forced":"src/alpha.ts (src/al\*)"' 'a file under human_review_paths forces needs-human and names the match'
+
+triage_post post_triage_unknown_class '{"triage":{"class":"skip","minutes":"soon"}}'
+assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"needs-human","why":null,"verified":null,"minutes":null}' 'an unknown class reads as needs-human and a non-number minutes as null'
+
+triage_post post_triage_absent '{"checks":[]}'
+grep -q '"triage"' "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: a review without a triage call grew one\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no triage call, no triage key\n' "$CASE"
+
 # --- verify: the self-check's mechanical lines after post / abort ----------------
 setup verify_posted
 run_rp verify 1
@@ -1243,6 +1267,14 @@ assert_out_contains '"status": "new"' 'a first review posts every finding as new
 assert_out_contains 'post [0-9]* .* --findings [^ ]*review-pr-1.ctx/findings.json' 'a first review posts its own findings list'
 assert_out_contains 'none' 'no overrides and no memory read as none'
 assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
+assert_out_absent 'triage is forced' 'no human_review_paths, no forced triage'
+run_rp abort 1 "reset"
+
+# a changed file under human_review_paths: the brief says the triage is forced
+setup compose_brief_forced '- human_review_paths: `docs/*`, src/al*'
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_contains 'triage is forced to `needs-human`: `src/alpha.ts (src/al\*)`' 'the brief names the file that forces needs-human'
 run_rp abort 1 "reset"
 
 # --- compose-brief: the conversation that moved since the lock --------------------

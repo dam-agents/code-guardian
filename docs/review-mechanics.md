@@ -74,7 +74,16 @@ the branch, `-e` in place of `--` — and `clean` what a clean run prints
 (`no hits`, or the locations a hit is correct at); commands that only read,
 never a command that changes a file. `deferred` — every 🟢 the budget dropped
 ([finding-form.md](finding-form.md)), so the next round settles them instead
-of deriving them again. Absent (pre-3.29.0), unparsable or missing a key →
+of deriving them again. `triage` — your call on whether a person must read
+this PR, for the shepherd ([shepherd.md](shepherd.md) → **Scope and brief**):
+`class` `needs-human` (a person must judge design, architecture, product
+behavior or a risk the review cannot settle) or `quick-check` (the review
+covered it; a person only confirms), `why` (≤ ~15 words, what the person must
+judge; `null` on a quick check), `verified` (≤ ~15 words, what this review
+already checked), `minutes` (your estimate of a human read). `post` forces
+`needs-human` when a changed file matches `human_review_paths`
+([config.md](config.md)) and records the match in `forced`; an unknown class
+reads as `needs-human`. Absent (pre-3.29.0), unparsable or missing a key →
 every consumer keeps the behavior it had without the line.
 
 ### Mapping findings to inline comments
@@ -93,10 +102,11 @@ every consumer keeps the behavior it had without the line.
 5. **Re-reviews: only `🆕 New` and `🔎 Missed earlier` findings inline** —
    carryovers keep their existing thread, `✅ Fixed` get nothing.
 
-**Suggestion blocks**: for a small, unambiguous fix, append a
-` ```suggestion ` block replacing exactly the anchored line(s) — matching
-indentation, replacement lines only, one block per comment. Never for style
-preferences.
+**Suggestion blocks** — strongly recommended: give every inline finding whose
+fix is local and unambiguous (about 5 lines or fewer) a ` ```suggestion `
+block, so the author applies it in one click. The block replaces exactly the
+anchored line(s) — matching indentation, replacement lines only, one block per
+comment. Never for style preferences.
 
 ## Review tracking state
 

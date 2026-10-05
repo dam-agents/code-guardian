@@ -188,6 +188,13 @@ run_verify
 assert_rc 1 'invalid enum value fails'
 assert_out 'FAIL config-slack_notifications' 'names the key'
 
+new_case invalid_shepherd_scope
+seed_home; seed_memory; seed_lessons
+verify_config '- shepherd_scope: needs-human'
+run_verify
+assert_rc 1 'a misspelled shepherd_scope fails'
+assert_out 'FAIL config-shepherd_scope' 'names the key'
+
 new_case cadence_keys_valid
 seed_home; seed_memory; seed_lessons
 verify_config '- active_hours: 08-21' '- active_days: Mon-Fri' \

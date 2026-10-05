@@ -134,6 +134,7 @@ REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-g
 URGENT_LABEL="$(cfg urgent_label)"
 TRIG="$(cfg rereview_trigger)"; TRIG="${TRIG:-label}"
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
+HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
 DEF_REF="$(cfg definition_repo)"
 [ -z "$DEF_REF" ] && DEF_REF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null | sed -E 's#^(git@|https://)##; s#^([^/:]+)[:/]#\1/#; s#\.git$##')"
 DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
@@ -1367,7 +1368,9 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}]}` — the portable form of each class sweep (docs/review-mechanics.md → Summary body format)\n'
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}],"triage":{"class":"needs-human|quick-check","why":"<≤ ~15 words>","verified":"<≤ ~15 words>","minutes":<int>}}` — the portable form of each class sweep, and your call on whether a person must read this PR (docs/review-mechanics.md → Summary body format)\n'
+  local fh; fh="$(forced_human_path)"
+  [ -n "$fh" ] && printf -- '- triage is forced to `needs-human`: `%s` matches `human_review_paths` — say in `why` what a person must judge there\n' "$fh"
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
   # so the shell never stands in the directory it removes (docs/review.md step f)
   # a re-review posts the file `delta` annotated, a first review its own list
@@ -1593,11 +1596,23 @@ cmd_post() {
   local mj="" rr_lbl=null rr_login=null
   case "$TRIG" in (label|both) rr_lbl="$(jq -nc --arg v "$REREVIEW_LABEL" '$v')";; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && rr_login="$(jq -nc --arg v "$BOT_LOGIN" '$v')";; esac
+  # `triage` is the agent's call on whether a person must read this PR
+  # (docs/review-mechanics.md → Summary body format); a changed file under
+  # `human_review_paths` forces `needs-human`, whatever the call said.
+  local forced; forced="$(forced_human_path)"
   mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" --arg t "$TRIG" \
-    --argjson l "$rr_lbl" --argjson u "$rr_login" \
+    --argjson l "$rr_lbl" --argjson u "$rr_login" --arg f "$forced" \
     '(($m[0] // {}) | if type == "object" then . else {} end)
+     | ((.triage // null) | if type == "object" then . else null end) as $tr
+     | (if $tr == null and $f == "" then null
+        else {class: (if $f == "" and ($tr.class // "") == "quick-check" then "quick-check" else "needs-human" end),
+              why: (($tr.why // null) | if type == "string" then . else null end),
+              verified: (($tr.verified // null) | if type == "string" then . else null end),
+              minutes: (($tr.minutes // null) | if type == "number" and . > 0 then (. | floor) else null end)}
+             + (if $f == "" then {} else {forced: $f} end) end) as $triage
      | {diff_digest: $d, checks: (.checks // []), deferred: (.deferred // []),
-        rereview: {trigger: $t, label: $l, login: $u}}' 2>/dev/null | sed 's/--/–/g')"
+        rereview: {trigger: $t, label: $l, login: $u}}
+       + (if $triage == null then {} else {triage: $triage} end)' 2>/dev/null | sed 's/--/–/g')"
 
   build_payload() { # <comments-json> <moved-json> → $PAYLOAD; findings-json gets inline:false for moved anchors
     fj="$(jq -c --argjson m "$2" 'map(. as $f | if any($m[]; .path == $f.file and .line == $f.line) then .inline = false else . end)' "$FINDINGS" | sed 's/--/–/g')"
@@ -1668,6 +1683,23 @@ cmd_post() {
     --argjson c "$c" --argjson w "$w" --argjson s "$s" --argjson took "$took" --argjson ab "${anchor_bad:-[]}" \
     '{outcome:"posted", verdict:$v, review_id:(if $id=="" then null else ($id|tonumber) end), url:(if $u=="" then null else $u end),
       moved_to_summary:$m, anchors_nulled:$ab, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
+}
+
+# The first changed file under a `human_review_paths` glob (docs/config.md),
+# printed as `<path> (<glob>)`; nothing when none matches or the key is unset.
+# A glob is a shell pattern whose `*` crosses `/`.
+forced_human_path() {
+  [ -n "$HUMAN_PATHS" ] || return 0
+  local p g
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    while IFS= read -r g; do
+      g="$(trim "$g")"; [ -n "$g" ] || continue
+      # shellcheck disable=SC2053  # $g is the pattern
+      [[ "$p" == $g ]] && { printf '%s (%s)' "$p" "$g"; return 0; }
+    done <<< "$(printf '%s' "$HUMAN_PATHS" | tr ',' '\n')"
+  done <<< "$(jq -r '.[].path // empty' "$CTX/files.json" 2>/dev/null)"
+  return 0
 }
 
 append_history() { # sha7 ts verdict body-file findings note kind — the body as posted

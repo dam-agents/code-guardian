@@ -457,7 +457,8 @@ Before you declare the run done:
   **Fix:** whose every member is enumerated
   ([finding-form.md](finding-form.md)), mirrored into `findings-json`, with its
   sweep command in `review-meta.checks` and every dropped 🟢 in
-  `review-meta.deferred` · every delta `ambiguous` pair settled before the post ·
+  `review-meta.deferred` · `meta.json` carrying a `triage` call
+  ([review-mechanics.md](review-mechanics.md)) · every delta `ambiguous` pair settled before the post ·
   every phase guard run and every `head_moved` honoured — restarted once, else
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry

@@ -88,6 +88,81 @@ assert_jq '.nudges_due | length == 0' 'an unclassifiable PR never nudges'
 assert_file_contains "$WORK/SHEPHERD.md" 'changes_requested' 'ledger keeps the last known state'
 assert_out_absent 'awaiting_review' 'an outage is never recorded as a read answer'
 
+# --- triage: the brief rides on the nudge, needs_human skips quick checks -----
+# docs/shepherd.md → **Scope and brief**
+triage_hist() { # <sha7> <class>
+  printf '# PR #1: x\n\n## Review at %s — 2026-07-02T00:00:00Z — APPROVE\n\n<!-- review-meta: {"diff_digest":"x","triage":{"class":"%s","why":"changes the retry policy","verified":"tests","minutes":20}} -->\n' \
+    "$1" "$2" > "$WORK/reviews/pr-1.md"
+}
+
+new_case shepherd_brief_all_scope
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '.nudges_due | length == 1' 'scope all nudges a quick check too'
+assert_jq '.nudges_due[0].brief == {class:"quick-check", why:"changes the retry policy", verified:"tests", minutes:20}' 'the nudge carries the triage brief'
+
+new_case shepherd_scope_needs_human_skip
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'needs_human skips a quick check of this head'
+assert_jq '[.logs[] | select(test("quick check per my review"))] | length == 1' 'the skip is logged'
+
+new_case shepherd_scope_skip_keeps_level
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob | awaiting_review | 1 | $(iso_ago 259200) | 2 | nudging |
+EOF
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'needs_human skips the escalation tick of a quick check'
+assert_file_contains "$WORK/SHEPHERD.md" '| 1 | 2026-07-01T00:00:00Z | bob | awaiting_review | 1 | .* | 2 | nudging |' 'a skipped nudge never climbs the ladder'
+
+new_case shepherd_scope_needs_human_nudges
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" needs-human
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].brief.class == "needs-human"' 'needs_human nudges a PR that needs a person'
+assert_jq '.config.shepherd_scope == "needs_human" and .config.human_review_paths == null' 'the config object carries the scope keys'
+
+new_case shepherd_scope_stale_triage
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "aaaaaaa" quick-check
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].brief == null' 'a triage of an older head never silences a nudge'
+
+new_case shepherd_scope_rapid_after_full
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "aaaaaaa" quick-check
+printf '\n## Review at %s — 2026-07-03T00:00:00Z — RAPID\n\nrapid body\n' "${SHA1:0:7}" >> "$WORK/reviews/pr-1.md"
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].brief == null' 'a newer section without review-meta never borrows an older call'
+
+new_case shepherd_scope_no_review
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].brief == null' 'no review yet reads as needs a person'
+
+new_case shepherd_scope_author_nudge_kept
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "conflicted PR" '[]' "$SHA1" | open_prs_fx
+dirty_fx 1
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].targets == "alice!"' 'the scope never drops an author-directed nudge'
+
 # --- PR facts: appended once, and they outlive the ledger row -----------------
 # docs/shepherd.md → **PR facts**: the audit counts project health from this
 # file, so a sweep must record the first independent review and any conflict.

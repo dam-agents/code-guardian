@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.6.0 — 2026-10-05
+
+**Upgrade:** Nothing — docs and scripts are re-read per run. Reviews posted
+before this version carry no `triage`, so their PRs keep every nudge until
+the next review. Under `slack_notifications: enabled`, offer the operator two
+off-by-default keys (`docs/config.md`): `shepherd_scope: needs_human` sends
+reviewer nudges only for PRs whose current review needs a person, and
+`human_review_paths` names files that always need one.
+
 ## 8.5.0 — 2026-10-05
 
 **Upgrade:** Re-register each review heartbeat (`code-guardian-review-active`,
