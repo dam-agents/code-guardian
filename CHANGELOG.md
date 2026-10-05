@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.4.0 — 2026-10-05
+
+**Upgrade:** Re-register each review heartbeat (`code-guardian-review-active`,
+`…-review-quiet`, `…-review-offdays`) whose task text still says "read
+docs/review.md and docs/skills.md", per ONBOARDING Step 6 (create the corrected
+schedule, then `delete_schedule` the old id; keep its name, cron and
+`precheck`). Idempotent — skip a schedule that already carries the Step 6a
+text. A schedule left as it is stays correct and reads the two files in full.
+
 ## 8.3.0 — 2026-10-05
 
 **Upgrade:** Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"`
