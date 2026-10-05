@@ -62,30 +62,35 @@ for f in "$LOG_DIR"/events-*.jsonl; do
 done
 [ "${#LOG_FILES[@]}" -gt 0 ] || exit 0
 
-# every `review_step` of this run, in order, as "<pr>\t<step>".
+# every `review_step` of this run, in time order (files glob in name order,
+# not time order), as "<pr>\t<step>". The sort key is the timestamp to the
+# second (log.sh writes `.123Z` or `Z`); the stable sort keeps the log order
+# inside one second.
 # msg shape: "PR #<n> [<sha>] <step>" (docs/review.md → Progress logging) —
 # drop the optional sha token so <step> is matched exactly: bare `done` is
 # terminal, `skill:<name> done` is not.
-STEPS="$(jq -r --arg run "$sid" '
-    select(.run == $run and .event == "review_step")
+STEPS="$(jq -c --arg run "$sid" '
+    select(.run == $run and .event == "review_step" and (.msg | type) == "string")' \
+    "${LOG_FILES[@]}" 2>/dev/null | jq -rs '
+    sort_by((.ts // "") | tostring | .[0:19]) | .[]
     | .msg
     | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")
     | .rest |= (sub("^[0-9a-f]{7,40}( +|$)"; ""))
-    | [.pr, .rest] | @tsv' "${LOG_FILES[@]}" 2>/dev/null)"
+    | [.pr, .rest] | @tsv' 2>/dev/null)"
 
-# PRs this run locked but never drove to a terminal step. `rapid posted` is
-# explicitly NOT terminal: an urgent PR still owes its full review.
+# PRs whose newest lock this run never drove to a terminal step. Order counts:
+# a lock taken after an `aborted` (HEAD moved, review restarted) owes its own
+# terminal step. `rapid posted` is explicitly NOT terminal: an urgent PR still
+# owes its full review.
 PENDING="$(printf '%s\n' "$STEPS" \
-  | { locked=""; term=""
+  | { open=" "
       while IFS="$(printf '\t')" read -r pr rest; do
         case "$rest" in
-          (locked*)          locked="$locked $pr";;
-          (done*|aborted*)   term="$term $pr";;
+          (locked*)          case "$open" in (*" $pr "*) ;; (*) open="$open$pr ";; esac;;
+          (done*|aborted*)   open="${open/ $pr / }";;
         esac
       done
-      for pr in $locked; do
-        case " $term " in (*" $pr "*) ;; (*) printf '%s\n' "$pr";; esac
-      done; } \
+      for pr in $open; do printf '%s\n' "$pr"; done; } \
   | sort -un | tr '\n' ' ' | sed -e 's/ *$//')"
 
 [ -n "$PENDING" ] || exit 0

@@ -456,18 +456,19 @@ live_change() { # <additions|deletions|changed_files>
 
 # ------------------------------------------------------------ live holder ----
 # Another run owns this PR when a tree or diff of its exists AND shows life —
-# a recent mtime, or a foreign run that locked this PR and whose newest
-# `review_step` on it is non-terminal and inside its quiet window. A `locked…`
+# a recent mtime, or a foreign run that holds this PR and is alive. A `locked…`
 # step on the PR, at any age, makes a run a holder: a taker that stood down
-# holds nothing, whatever it logged. Liveness is decided per run
-# on that newest step, so the milestones a run logged on the way never outlive
-# its own terminal one. The step is matched the way the `Stop` hook matches it —
-# the `PR #<n>` prefix and the optional sha token stripped, then
-# `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done` and
-# `rapid posted` non-terminal. The window is HOLDER_QUIET_MIN, except for a
-# newest step of `fanned out (n=…)`: the holder is then blocked on its
-# subagents, writes no event and touches no tree, so that phase gets
-# FANOUT_QUIET_MIN instead (docs/review-mechanics.md → Live holder).
+# holds nothing, whatever it logged. A holder still owes the PR while its
+# newest `review_step` on it is non-terminal, so the milestones a run logged on
+# the way never outlive its own terminal one. The step is matched the way the
+# `Stop` hook matches it — the `PR #<n>` prefix and the optional sha token
+# stripped, then `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done`
+# and `rapid posted` non-terminal. The holder is alive while its newest event of
+# any kind is inside HOLDER_QUIET_MIN, or inside FANOUT_QUIET_MIN when that
+# event is the fan-out: the holder is then blocked on its subagents, writes no
+# event and touches no tree. This is the rule preflight and lib/holds.sh apply
+# (docs/review-mechanics.md → Live holder). Events sort on their timestamp to
+# the second (log.sh writes `.123Z` or `Z`), in log order inside one second.
 holder_alive() {
   local recent=0 e cutoff fcut
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
@@ -483,15 +484,17 @@ holder_alive() {
     foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
       | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
           'def stepof: .msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
+           def tkey: (.ts // "") | tostring | .[0:19];
            ([$cut, $fcut] | min) as $scan
-           | [ .[] | select((.msg|startswith($n)) and .run != $me and .event == "review_step") ] as $pr
+           | [ .[] | select(.run != $me) ] as $other
+           | [ $other[] | select((.msg|startswith($n)) and .event == "review_step") ] as $pr
            | ([ $pr[] | select(stepof | test("^locked( |$)")) | .run ] | unique) as $held
-           | [ $pr[] | select(.ts >= $scan and (.run | IN($held[]))) ]
-           | group_by(.run)
-           | map( (sort_by(.ts) | last) as $l
-                  | ($l | stepof) as $step
-                  | select(($step | test("^(done|aborted|posted)( |$)")) | not)
-                  | select($l.ts >= (if ($step | test("fanned out")) then $fcut else $cut end)) )
+           | [ $held[] as $r
+               | ([ $pr[] | select(.run == $r) ] | sort_by(tkey) | last | stepof) as $step
+               | select(($step | test("^(done|aborted|posted)( |$)")) | not)
+               | ([ $other[] | select(.run == $r and .ts >= $scan) ] | sort_by(tkey) | last) as $l
+               | select($l != null)
+               | select($l.ts >= (if (($l.msg // "") | test("fanned out")) then $fcut else $cut end)) ]
            | length' 2>/dev/null)"
     foreign="${foreign:-0}"
   fi

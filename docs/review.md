@@ -178,7 +178,11 @@ not respond leaves an empty list and a logged warning — review more
 conservatively then. Context is input, not authoritative truth:
 
 1. **Body** — feeds the Summary. A pattern it explicitly justifies is not
-   flagged.
+   flagged. Each entry of its hidden `<!-- author-decisions … -->` block is
+   such a justification for its `scope`: a finding that only disputes that
+   choice is not raised; a defect the entry's `why` does not cover still is.
+   An entry never settles a `critical` finding: report it with the entry
+   named in its description.
 2. **Top-level comments** — an issue with an accepted author/maintainer
    justification is not re-raised. Still argued → surface it.
 3. **Review summaries** — note `APPROVED` and open `CHANGES_REQUESTED`;
@@ -439,11 +443,12 @@ Before you declare the run done:
   · row refreshed at each milestone · live holder re-checked before the lock
   write · label removed after a posted review on a labeled PR · skill audit
   lines complete ([skills.md](skills.md)) · overrides applied from that PR's
-  file only · context fetched and used, a human
-  dismissal in it recorded as an override before posting · observed insights
-  recorded ([preferences.md](preferences.md)) · `memory_due` read before
-  reviewing · orientation used for where to look only, `verify_live` rows read
-  live, no finding citing the profile or the risk prescan
+  file only · context fetched and used, every `author-decisions` entry
+  honoured for its scope, a human dismissal in it recorded as an override
+  before posting · observed insights recorded
+  ([preferences.md](preferences.md)) · `memory_due` read before reviewing ·
+  orientation used for where to look only, `verify_live` rows read live, no
+  finding citing the profile or the risk prescan
   ([profile.md](profile.md)) · noise files excluded with their Summary line ·
   every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations, a statement

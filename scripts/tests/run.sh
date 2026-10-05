@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# run.sh — run every preflight stub test (scripts/tests/test_*.sh).
+# run.sh [test-file…] — run the preflight stub tests: the named files (a name in
+# this directory or a path from the caller's directory), or every test_*.sh.
 # Deterministic, offline: gh/curl are stubbed via tests/bin. Used by the CI
 # workflow (.github/workflows/ci.yml) and by self-modification validation
 # (docs/self-modification.md §9). Exit 0 iff every assertion passed.
+#
+# One run per host at a time: the run holds the host lock of suite-lock.sh
+# (CG_TEST_LOCK, CG_TEST_LOCK_WAIT) from before the first file to its exit.
 #
 # Cases are sandbox-isolated (helpers.sh → new_case), so the files run
 # concurrently: CG_TEST_JOBS workers, by default one per core clamped to 2..8.
@@ -13,7 +17,22 @@
 # so the tail does not decide the wall clock. Each worker announces its file on
 # stderr as it starts, so a run that hangs still names the file it waits for.
 # CG_TEST_JOBS=1 restores fully serial execution for debugging.
+CALLER_DIR="$(pwd)"
 cd "$(dirname "$0")" || exit 1
+CHECKOUT="$(cd ../.. && pwd)"
+
+# Resolve the named files before anything waits on the lock: a typo fails now.
+PICKED=""
+for a in "$@"; do
+  # a bare name is a file of this directory; anything else is a path
+  p="$a"
+  if [ "${a#*/}" != "$a" ] || [ ! -f "$a" ]; then
+    case "$p" in (/*) ;; (*) p="$CALLER_DIR/$a";; esac
+  fi
+  case "$p" in (*[[:space:]]*) echo "TESTS FAILED: test file path has whitespace: $p"; exit 1;; esac
+  [ -f "$p" ] || { echo "TESTS FAILED: no such test file: $a"; exit 1; }
+  PICKED="$PICKED $p"
+done
 
 # A 1-core report would restore the serial wall clock this run exists to avoid,
 # and a 64-core one would start every file at once; the work is subprocess-bound
@@ -32,18 +51,24 @@ case "$jobs" in (''|*[!0-9]*|0) jobs=1;; esac
 # still runs, just after the ones that are.
 SLOWEST="test_review_pr.sh test_profile.sh test_mentions.sh test_audit_stats.sh"
 
-ORDER=""
-for t in $SLOWEST; do
-  [ -f "$t" ] && ORDER="$ORDER $t"
-done
-for t in test_*.sh; do
-  case " $ORDER " in (*" $t "*) continue;; esac
-  ORDER="$ORDER $t"
-done
+ORDER="$PICKED"
+if [ -z "$ORDER" ]; then
+  for t in $SLOWEST; do
+    [ -f "$t" ] && ORDER="$ORDER $t"
+  done
+  for t in test_*.sh; do
+    case " $ORDER " in (*" $t "*) continue;; esac
+    ORDER="$ORDER $t"
+  done
+fi
+
+. ./suite-lock.sh
+
+trap 'rm -rf "${OUT_DIR:-}"; release_lock' EXIT
+take_lock || exit 1
 
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cg-run.XXXXXX")" \
   || { echo "TESTS FAILED: no output directory"; exit 1; }
-trap 'rm -rf "$OUT_DIR"' EXIT
 
 # helpers.sh sweeps its own sandboxes on EXIT, which covers a TERM from a
 # `timeout` too — but not SIGKILL, where no trap runs and every cg-test.* dir
@@ -57,9 +82,10 @@ find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'cg-run.*' -type d -mmin +60 \
 
 # one worker: run the file, keep its output and its exit code side by side
 run_one() { # <test-file>
+  local k="${1//\//_}"   # a path's slashes would point outside OUT_DIR
   printf '.. %s\n' "$1" >&2
-  bash "$1" > "$OUT_DIR/$1.out" 2>&1
-  printf '%s' "$?" > "$OUT_DIR/$1.rc"
+  bash "$1" > "$OUT_DIR/$k.out" 2>&1
+  printf '%s' "$?" > "$OUT_DIR/$k.rc"
   return 0   # the verdict travels in the .rc file, never in the worker's status
 }
 
@@ -85,8 +111,9 @@ wait
 rc=0
 for t in $ORDER; do
   echo "== $t"
-  [ -f "$OUT_DIR/$t.out" ] && cat "$OUT_DIR/$t.out"
-  trc="$(cat "$OUT_DIR/$t.rc" 2>/dev/null)"
+  k="${t//\//_}"
+  [ -f "$OUT_DIR/$k.out" ] && cat "$OUT_DIR/$k.out"
+  trc="$(cat "$OUT_DIR/$k.rc" 2>/dev/null)"
   # no .rc means the worker died without reporting — a failure, not a pass
   [ "$trc" = "0" ] || { rc=1; [ -n "$trc" ] || echo "FAIL $t: worker produced no exit code"; }
 done
