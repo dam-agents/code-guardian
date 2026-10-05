@@ -180,6 +180,8 @@ conservatively then. Context is input, not authoritative truth:
    flagged. Each entry of its hidden `<!-- author-decisions … -->` block is
    such a justification for its `scope`: a finding that only disputes that
    choice is not raised; a defect the entry's `why` does not cover still is.
+   An entry never settles a `critical` finding: report it with the entry
+   named in its description.
 2. **Top-level comments** — an issue with an accepted author/maintainer
    justification is not re-raised. Still argued → surface it.
 3. **Review summaries** — note `APPROVED` and open `CHANGES_REQUESTED`;

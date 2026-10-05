@@ -338,6 +338,8 @@ summary: <two or three sentences: what the person asked for, and how the
   from the conversation outside this pull request: the body is public.
 - **Cite it in the answer.** A **Disputed** or **Deferred** line that rests on
   an entry names it.
+- **Not for a `critical` finding.** The reviewer reports a `critical`
+  finding whatever an entry says. Fix it, or put it to the caller as **Ask**.
 
 ## Done
 
