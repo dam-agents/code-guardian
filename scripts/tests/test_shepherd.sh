@@ -111,12 +111,28 @@ run_preflight shepherd
 assert_jq '.nudges_due | length == 0' 'needs_human skips a quick check of this head'
 assert_jq '[.logs[] | select(test("quick check per my review"))] | length == 1' 'the skip is logged'
 
+new_case shepherd_scope_skip_keeps_level
+shep_setup '- shepherd_scope: needs_human'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob | awaiting_review | 1 | $(iso_ago 259200) | 2 | nudging |
+EOF
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'needs_human skips the escalation tick of a quick check'
+assert_file_contains "$WORK/SHEPHERD.md" '| 1 | 2026-07-01T00:00:00Z | bob | awaiting_review | 1 | .* | 2 | nudging |' 'a skipped nudge never climbs the ladder'
+
 new_case shepherd_scope_needs_human_nudges
 shep_setup '- shepherd_scope: needs_human'
 pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
 triage_hist "${SHA1:0:7}" needs-human
 run_preflight shepherd
 assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].brief.class == "needs-human"' 'needs_human nudges a PR that needs a person'
+assert_jq '.config.shepherd_scope == "needs_human" and .config.human_review_paths == null' 'the config object carries the scope keys'
 
 new_case shepherd_scope_stale_triage
 shep_setup '- shepherd_scope: needs_human'
