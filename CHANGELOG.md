@@ -18,6 +18,14 @@ already has the bundled `review-remediation` skill installed mirrors
 `.agents/skills/review-remediation/` from `definition_repo` again to pick the
 change up.
 
+## 8.3.2 — 2026-10-05
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.3.1 — 2026-10-05
+
+**Upgrade:** Nothing — docs and scripts are re-read per run.
+
 ## 8.3.0 — 2026-10-05
 
 **Upgrade:** Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"`
