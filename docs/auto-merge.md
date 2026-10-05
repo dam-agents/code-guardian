@@ -20,8 +20,8 @@ when **every** gate holds:
   files, none under `.github/` or a `human_review_paths` glob — for a renamed
   file, the old path too;
 - no merge of this head failed before (`<!-- auto-merge-failed: <sha> -->` in
-  `reviews/pr-<n>.md`), and the PR carries no fix of mine
-  ([agent-fixes.md](agent-fixes.md)).
+  `reviews/pr-<n>.md`), and the PR carries no pushed fix of mine
+  (`<!-- agent-fix-pushed: <sha> -->`, [agent-fixes.md](agent-fixes.md)).
 
 ## Merging
 

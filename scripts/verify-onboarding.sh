@@ -249,6 +249,15 @@ EOF
           "set auto_merge_label to the human-managed consent label (docs/config.md)"
       fi
     fi
+    chk_enum agent_fixes 'enabled|disabled' 'enabled | disabled'
+    if [ "$(cfg agent_fixes)" = "enabled" ]; then
+      if [ -n "$(cfg agent_fix_label)" ]; then
+        ok config-agent_fix_label "'$(cfg agent_fix_label)'"
+      else
+        fail config-agent_fix_label "agent_fixes is enabled without a label" \
+          "set agent_fix_label to the human-managed label that asks for a fix round (docs/config.md)"
+      fi
+    fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'

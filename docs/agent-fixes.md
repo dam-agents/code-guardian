@@ -9,7 +9,8 @@ admin opts in at onboarding.
 `agent_fix_label` on an open PR, my review of the current head left at least
 one open 🔴 or 🟡 with a **Fix:** line, the head branch lives in the target
 repository (a fork branch is never pushed to), and no fix of this head ran
-before (`<!-- agent-fix: <sha> -->` in `reviews/pr-<n>.md`).
+before (`<!-- agent-fix: <sha> -->` in `reviews/pr-<n>.md`). A pushed fix adds
+`<!-- agent-fix-pushed: <new-sha> -->`.
 
 ## Fixing
 
@@ -18,7 +19,9 @@ Per entry, inside the PR's hold ([worklist.md](worklist.md) → **PR holds**):
 1. `review-pr.sh fix-start <n> --sha <sha>`. It re-reads the PR, refuses when
    the head moved, the label is gone or the branch lives in a fork
    (`skipped`), removes the label, writes the marker, and clones the head
-   branch to `clone` with the bot as the git identity.
+   branch to `clone` with the bot as the git identity. `failed` (the clone did
+   not succeed) or `error` → log the reason and push nothing; when the label
+   is already gone, say so in the comment of step 5.
 2. In `clone`, follow the bundled `review-remediation` skill
    (`.agents/skills/review-remediation/SKILL.md`) for my last review, with these
    limits: fix only blocking findings whose fix the review states, change only

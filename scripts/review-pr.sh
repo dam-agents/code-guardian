@@ -1985,6 +1985,7 @@ cmd_fix_push() {
     || { rm -rf "$FIX_DIR"; fail "the fix commit did not succeed"; }
   new="$(git -C "$FIX_DIR" rev-parse HEAD)"
   if git -C "$FIX_DIR" push -q --force-with-lease="$ref:$sha" origin "HEAD:$ref" >/dev/null 2>&1; then
+    printf '<!-- agent-fix-pushed: %s -->\n' "$new" >> "$WORK/reviews/pr-$N.md"
     rm -rf "$FIX_DIR"; logev info agent_fix "PR #$N: fix pushed as ${new:0:7} on ${sha:0:7}"
     out "$(jq -nc --arg s "$new" '{outcome:"pushed", sha:$s}')"
   fi

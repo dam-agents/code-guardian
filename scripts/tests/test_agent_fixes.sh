@@ -27,6 +27,8 @@ af_setup af_due
 run_preflight review
 assert_jq '.fixes_due == [{number:1, sha:"'"$SHA1"'", findings:1}]' 'a labeled PR with a fixable finding gets one round'
 assert_jq '.read_set | (index("docs/agent-fixes.md") != null) and (index("docs/review.md") != null)' 'the round reads its doc and the style rules'
+assert_jq '.config | .agent_fixes == "enabled" and .agent_fix_label == "cg-fix"' 'the config object carries the agent-fix keys'
+
 
 new_case af_off_by_default
 base_config
@@ -60,9 +62,18 @@ base_config '- auto_merge: enabled' '- auto_merge_label: cg-automerge'
 pr_json 1 "fixed" '[{"name":"cg-automerge"}]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 af_history "$SHA1" '[]'
-printf '<!-- agent-fix: %s -->\n' "2222222222222222222222222222222222222222" >> "$WORK/reviews/pr-1.md"
+printf '<!-- agent-fix: %s -->\n<!-- agent-fix-pushed: %s -->\n' "2222222222222222222222222222222222222222" "$SHA1" >> "$WORK/reviews/pr-1.md"
 run_preflight review
 assert_jq '(.merges_due | length) == 0 and ([.logs[] | select(test("carries a fix of mine"))] | length == 1)' 'a PR with my fix waits for a person'
+
+new_case af_unpushed_round_keeps_auto_merge
+base_config '- auto_merge: enabled' '- auto_merge_label: cg-automerge'
+pr_json 1 "fixed" '[{"name":"cg-automerge"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+af_history "$SHA1" '[]'
+printf '<!-- agent-fix: %s -->\n' "2222222222222222222222222222222222222222" >> "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '[.logs[] | select(test("carries a fix of mine"))] | length == 0' 'a round that pushed nothing does not block auto-merge'
 
 # --- review-pr.sh fix-start / fix-push -----------------------------------------
 RP="$REPO_ROOT/scripts/review-pr.sh"
@@ -97,6 +108,7 @@ printf 'bounded_retry()\n' > "$CLONE/a.ts"
 run_fix_cmd fix-push
 assert_jq '.outcome == "pushed"' 'the fix is pushed'
 NEW="$(printf '%s' "$OUT" | jq -r '.sha')"
+assert_file_contains "$WORK/reviews/pr-1.md" "<!-- agent-fix-pushed: $NEW -->" 'the pushed fix is marked'
 [ "$(git -C "$ORIGIN" rev-parse b1)" = "$NEW" ] && printf 'ok   %s: the branch carries the fix\n' "$CASE" \
   || { printf 'FAIL %s: origin b1 is not the fix commit\n' "$CASE"; FAILED=1; }
 [ "$(git -C "$ORIGIN" log -1 --format=%s b1)" = "Fix review findings (Code Guardian)" ] && printf 'ok   %s: committed with the fixed message\n' "$CASE" \
@@ -132,6 +144,8 @@ CLONE="$(printf '%s' "$OUT" | jq -r '.clone')"
 printf 'broken\n' > "$CLONE/a.ts"
 run_fix_cmd fix-push --abort
 assert_jq '.outcome == "aborted"' 'an aborted round pushes nothing'
+grep -q 'agent-fix-pushed' "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: an aborted round left the pushed marker\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no pushed marker without a push\n' "$CASE"
 [ "$(git -C "$ORIGIN" rev-parse b1)" = "$HEAD_SHA" ] && printf 'ok   %s: the branch is untouched\n' "$CASE" \
   || { printf 'FAIL %s: an aborted round changed the branch\n' "$CASE"; FAILED=1; }
 

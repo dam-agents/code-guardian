@@ -513,6 +513,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
+  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -534,6 +535,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    auto_merge_label:(if $aml=="" then null else $aml end),
    auto_merge_max_lines:(if ($amx|test("^[0-9]+$")) then ($amx|tonumber) else 100 end),
    auto_merge_method:(if ($amm|IN("merge","squash","rebase")) then $amm else "squash" end),
+   agent_fixes:(if $af=="enabled" and $afl!="" then "enabled" else "disabled" end),
+   agent_fix_label:(if $afl=="" then null else $afl end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -1542,7 +1545,7 @@ if [ "$MODE" = "review" ]; then
     grep -qF "<!-- auto-merge-failed: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null \
       && { printf 'a merge of this head already failed'; return; }
     # a person reviews a fix of mine (docs/agent-fixes.md)
-    grep -qF "<!-- agent-fix: " "$WORK/reviews/pr-$n.md" 2>/dev/null \
+    grep -qF "<!-- agent-fix-pushed: " "$WORK/reviews/pr-$n.md" 2>/dev/null \
       && { printf 'the PR carries a fix of mine'; return; }
     row="$(row_for "$n")"
     { [ "$(row_field "$row" 3)" = "$sha" ] && [ "$(row_field "$row" 5)" = "APPROVE" ] \
