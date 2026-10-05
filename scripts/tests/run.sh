@@ -5,12 +5,8 @@
 # workflow (.github/workflows/ci.yml) and by self-modification validation
 # (docs/self-modification.md §9). Exit 0 iff every assertion passed.
 #
-# One run per host at a time: concurrent suites on one machine slow each other
-# down until none finishes. A run takes the lock dir CG_TEST_LOCK (default
-# /tmp/cg-test-suite.lock — /tmp, not $TMPDIR, because $TMPDIR can differ per
-# session on one host). A second run waits for it up to CG_TEST_LOCK_WAIT
-# seconds (default 3600; 0 = fail at once) and names the holder on stderr. A
-# lock whose holder PID is dead is reclaimed.
+# One run per host at a time: the run holds the host lock of suite-lock.sh
+# (CG_TEST_LOCK, CG_TEST_LOCK_WAIT) from before the first file to its exit.
 #
 # Cases are sandbox-isolated (helpers.sh → new_case), so the files run
 # concurrently: CG_TEST_JOBS workers, by default one per core clamped to 2..8.
@@ -28,10 +24,12 @@ CHECKOUT="$(cd ../.. && pwd)"
 # Resolve the named files before anything waits on the lock: a typo fails now.
 PICKED=""
 for a in "$@"; do
-  case "$a" in (*[[:space:]]*) echo "TESTS FAILED: test file path has whitespace: $a"; exit 1;; esac
   # a bare name is a file of this directory; anything else is a path
-  if [ "${a#*/}" = "$a" ] && [ -f "$a" ]; then PICKED="$PICKED $a"; continue; fi
-  p="$a"; case "$p" in (/*) ;; (*) p="$CALLER_DIR/$a";; esac
+  p="$a"
+  if [ "${a#*/}" != "$a" ] || [ ! -f "$a" ]; then
+    case "$p" in (/*) ;; (*) p="$CALLER_DIR/$a";; esac
+  fi
+  case "$p" in (*[[:space:]]*) echo "TESTS FAILED: test file path has whitespace: $p"; exit 1;; esac
   [ -f "$p" ] || { echo "TESTS FAILED: no such test file: $a"; exit 1; }
   PICKED="$PICKED $p"
 done
@@ -64,56 +62,9 @@ if [ -z "$ORDER" ]; then
   done
 fi
 
-LOCK="${CG_TEST_LOCK:-/tmp/cg-test-suite.lock}"
-LOCK_WAIT="${CG_TEST_LOCK_WAIT:-3600}"
-case "$LOCK_WAIT" in (''|*[!0-9]*) LOCK_WAIT=3600;; esac
-OWNED=0
+. ./suite-lock.sh
 
-# the holder's "<pid> <checkout>" line, or empty while it is being written
-lock_owner() { cat "$LOCK/owner" 2>/dev/null; }
-
-# `ps -p` sees a holder of another user too; `kill -0` where ps is missing
-pid_alive() { # <pid>
-  if command -v ps >/dev/null 2>&1; then ps -p "$1" >/dev/null 2>&1
-  else kill -0 "$1" 2>/dev/null; fi
-}
-
-# take the lock; wait for a live holder, reclaim a dead one -> rc 1 on timeout
-take_lock() {
-  local waited=0 owner pid told=0
-  while :; do
-    if mkdir "$LOCK" 2>/dev/null; then
-      printf '%s %s\n' "$$" "$CHECKOUT" > "$LOCK/owner"
-      OWNED=1; return 0
-    fi
-    if [ ! -d "$LOCK" ]; then
-      echo "warning: cannot create $LOCK; this run is not locked" >&2
-      return 0
-    fi
-    owner="$(lock_owner)"; pid="${owner%% *}"
-    case "$pid" in (*[!0-9]*) pid="";; esac
-    if [ -n "$pid" ] && ! pid_alive "$pid"; then
-      # reclaim only the lock judged dead, never one a waiter took meanwhile
-      [ "$(lock_owner)" = "$owner" ] && rm -rf "$LOCK"
-      continue
-    fi
-    # no owner line a minute after the mkdir: the holder died in between
-    if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
-      rm -rf "$LOCK"; continue
-    fi
-    if [ "$waited" -ge "$LOCK_WAIT" ]; then
-      echo "TESTS FAILED: another suite run holds $LOCK (pid ${pid:-?}, checkout ${owner#* }) after ${waited}s"
-      return 1
-    fi
-    if [ "$told" -eq 0 ]; then
-      printf '.. waiting for the suite run of pid %s (checkout %s)\n' "${pid:-?}" "${owner#* }" >&2
-      told=1
-    fi
-    sleep 1; waited=$((waited + 1))
-  done
-}
-
-trap 'rm -rf "${OUT_DIR:-}"; [ "$OWNED" -eq 1 ] && rm -rf "$LOCK"' EXIT
+trap 'rm -rf "${OUT_DIR:-}"; release_lock' EXIT
 take_lock || exit 1
 
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cg-run.XXXXXX")" \

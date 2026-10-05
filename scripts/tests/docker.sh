@@ -15,7 +15,8 @@
 # change to the Dockerfile builds a new one; --rebuild forces a fresh build.
 # The checkout's files (tracked, plus untracked files git does not ignore) are
 # copied into the container: the run never writes to the host checkout.
-# CG_TEST_JOBS passes through.
+# CG_TEST_JOBS passes through. The run holds the host lock of suite-lock.sh
+# for the build and the container, so it waits for any other suite run.
 set -u
 CALLER_DIR="$(pwd)"
 cd "$(dirname "$0")" || exit 1
@@ -56,6 +57,10 @@ RUN useradd -m tester
 USER tester
 WORKDIR /home/tester'
 IMAGE="cg-tests:$(printf '%s' "$DOCKERFILE" | git hash-object --stdin | cut -c1-12)"
+
+. ./suite-lock.sh
+trap 'release_lock' EXIT
+take_lock || exit 1
 
 if [ "$REBUILD" -eq 1 ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo ".. building $IMAGE" >&2
