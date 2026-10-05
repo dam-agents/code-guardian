@@ -173,7 +173,7 @@ no-secrets-in-logs invariant.
 
 The weekly audit verifies the adapter matches the detected harness
 (`harness_adapter` check): a Claude Code pod without registered hooks or
-auto-mode rules is a
+current auto-mode rules (the tracking-issue rule names `definition_repo`) is a
 warn.
 
 ## Retention — the weekly audit cleans up
