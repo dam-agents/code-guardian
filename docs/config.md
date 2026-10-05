@@ -130,6 +130,20 @@ below is for the manual fallback and the direct session.
   skill routing ([profile.md](profile.md)). Orientation only, never evidence;
   its absence never blocks a review.
 
+### Auto-merge (off until the admin opts in)
+
+- **`auto_merge`** — `enabled` | `disabled`. **Missing = `disabled`.** Merges a
+  PR that a person labeled with `auto_merge_label` and that passes every gate
+  of [auto-merge.md](auto-merge.md). Only the repository admin enables it
+  (ONBOARDING Step 4).
+- **`auto_merge_label`** — the **human-managed** consent label. Required while
+  `auto_merge` is `enabled`; missing → auto-merge stays off, logged once per
+  run.
+- **`auto_merge_max_lines`** — the largest `additions + deletions` that merges.
+  **Missing or not a number = `100`.**
+- **`auto_merge_method`** — `squash` | `merge` | `rebase`. **Missing =
+  `squash`**; an unknown value is logged and reads as `squash`.
+
 ### Slack, audit, survey, benchmark
 
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack.
@@ -149,7 +163,8 @@ below is for the manual fallback and the direct session.
 - **`human_review_paths`** — comma-separated shell globs (`*` crosses `/`),
   for example `` `migrations/*, src/auth/*` ``. **Missing = none.** A PR that
   changes a matching file always records triage `needs-human`
-  ([review-mechanics.md](review-mechanics.md) → **Summary body format**).
+  ([review-mechanics.md](review-mechanics.md) → **Summary body format**) and
+  never auto-merges.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
   target of the stalled-review alert. Slack-only key, legitimately absent when
   Slack is disabled.

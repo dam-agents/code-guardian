@@ -51,6 +51,11 @@ PR what is due:
   questions get a reply, explicit review feedback is recorded to memory and
   confirmed in the reply, and "please re-review" is served on demand
   ([`docs/mentions.md`](docs/mentions.md)).
+- With the admin's opt-in (`auto_merge`, off by default), the same heartbeat
+  merges a PR a person labeled with `auto_merge_label` once the review approved
+  it as a quick check and every gate holds — clean mergeable state, green
+  checks, size cap, no `.github/` or sensitive path
+  ([`docs/auto-merge.md`](docs/auto-merge.md)).
 
 **Shepherd sweep** — hourly on working days and hours; exists only when Slack
 notifications were enabled. `preflight.sh shepherd` classifies every open
@@ -229,6 +234,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
 | `human_review_paths` | asked with Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
+| `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |

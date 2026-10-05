@@ -383,6 +383,15 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      under `slack_notifications: enabled` (`docs/review-urgent.md` → **Urgent
      PRs**). Default off (omit the key). A named label is validated or created
      like the re-review label.
+   - **`auto_merge`** — asked of the **repository admin** only; default off
+     (omit the keys). Ask:
+
+     > I can merge a small PR myself when a person adds a label to it, my review of its current commit approved it as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no path you mark as sensitive (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that? If yes: which label, how many changed lines at most (default 100), and which merge method (default squash)?
+
+     **Yes from the admin** → `auto_merge: enabled`, `auto_merge_label`
+     (validated or created like the re-review label), and
+     `auto_merge_max_lines` / `auto_merge_method` only when they differ from
+     the defaults. Anyone else, or no reply → omit the keys.
    - **`review_progress`** — whether a review's progress shows on the PR as a
      commit status (`docs/review-bookkeeping.md` → **Progress signal on
      GitHub**). Mention that the status is always `success` when it finishes,
@@ -496,6 +505,10 @@ Final shape:
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
 - urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
+- auto_merge: enabled                  # admin opt-in only; omit = disabled (docs/auto-merge.md)
+- auto_merge_label: automerge          # human-managed consent label; required with auto_merge
+- auto_merge_max_lines: 100            # largest additions + deletions that merges; omit = 100
+- auto_merge_method: squash            # squash (default) | merge | rebase
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
