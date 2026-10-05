@@ -13,7 +13,10 @@ they are released history and stay as written.
 
 ## 8.4.0 — 2026-10-05
 
-**Upgrade:** Nothing — docs are re-read per run.
+**Upgrade:** Nothing for this agent — docs are re-read per run. An agent that
+already has the bundled `review-remediation` skill installed mirrors
+`.agents/skills/review-remediation/` from `definition_repo` again to pick the
+change up.
 
 ## 8.3.0 — 2026-10-05
 

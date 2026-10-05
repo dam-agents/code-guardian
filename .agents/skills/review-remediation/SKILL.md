@@ -6,14 +6,14 @@ description: >
   blocking finding at every location of its class, ask the caller about the
   ones a recorded decision makes disputable, self-review the push the
   way the reviewer will, run the checks the review supplies, and answer in one
-  push and one comment. The next review round stays the caller's to start.
-  Repo-agnostic and REST-only. Use it whenever an agent or a person asks to
-  address, resolve or fix review findings, answer or clear a code review,
-  handle "changes requested", or get a pull request through review or
-  approved — even when the reviewer is not named and the ask is only "fix the
-  PR". Also use it whenever an agent opens a pull request: it records the
-  decisions the person made in that conversation in a hidden block of the
-  body, so the reviewer does not raise them again.
+  push, one body edit and one comment. The next review round stays the
+  caller's to start. Repo-agnostic and REST-only. Use it whenever an agent or
+  a person asks to address, resolve or fix review findings, answer or clear a
+  code review, handle "changes requested", or get a pull request through
+  review or approved — even when the reviewer is not named and the ask is only
+  "fix the PR". Also use it whenever an agent opens a pull request: it
+  records the decisions the person made in that conversation in a hidden
+  block of the body, so the reviewer does not raise them again.
 ---
 
 # Review remediation
@@ -21,7 +21,8 @@ description: >
 One posted review on one pull request is the work list; this skill is the
 procedure that finishes it in one round. It carries no repository-specific
 commands: the checks, the standing rules and the trigger the next round uses
-come from the review itself, read over REST.
+come from the review itself, read over REST. When you open a pull request
+and no review exists yet, only **Record the author's decisions** applies.
 
 **What the next round measures.** The reviewer settles every prior finding at
 each of its anchors (`file:line` and every `also`), reads the hunks your push
@@ -95,11 +96,12 @@ Rules of reading:
 - **A recorded decision settles a finding, and silence never does.** Before
   you plan any edit, find what this pull request already decided about the
   flagged behavior, in this order: the `author-decisions` block of `pr_body`
-  (**Record the author's decisions**), `comments` (the pull request's own thread,
-  the reviewer's own posts dropped), `pr_body`, the branch's commit messages
-  (`git log origin/<head.base>..HEAD`), the code comment or design note at
-  the anchor, and — where the harness gives the caller a search over their own
-  earlier sessions — the sessions that developed this branch.
+  (**Record the author's decisions**), `comments` (the pull request's own
+  thread, the reviewer's own posts dropped), the rest of `pr_body`, the
+  branch's commit messages (`git log origin/<head.base>..HEAD`), the code
+  comment or design note at the anchor, and — where the harness gives the
+  caller a search over their own earlier sessions — the sessions that
+  developed this branch.
   Where one of them states that the flagged behavior is what the author asked
   for, answer that finding as **Disputed** and name the source: an automated
   reviewer records such an answer as settling the finding for this pull
@@ -262,12 +264,13 @@ invented here.
 
 ## 5. Answer
 
-Two writes to the pull request, in this order:
+Three writes to the pull request, in this order:
 
-1. **One push** of the commits, on top of the reviewed head, with the body
-   edit that records this conversation's decisions
-   (**Record the author's decisions**).
-2. **One comment** on the pull request, in the language the review uses,
+1. **One push** of the commits, on top of the reviewed head.
+2. **One body edit** that records this conversation's decisions
+   (**Record the author's decisions**) together with every other body change
+   of this round. Skip it when the body already holds them.
+3. **One comment** on the pull request, in the language the review uses,
    short. Per blocking finding one line:
    - **Fixed** — what changed and every location, including those beyond the
      ones the review listed. Where the prescribed fix does not close
@@ -347,5 +350,5 @@ summary: <two or three sentences: what the person asked for, and how the
   test commands pass.
 - The `author-decisions` block holds the caller's decisions from this
   conversation that a reviewer could read as a defect.
-- One push and one comment carry the work; the caller holds the command that
-  starts the next round.
+- One push, at most one body edit and one comment carry the work; the caller
+  holds the command that starts the next round.

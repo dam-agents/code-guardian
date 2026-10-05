@@ -442,9 +442,10 @@ Before you declare the run done:
   lines complete ([skills.md](skills.md)) · overrides applied from that PR's
   file only · context fetched and used, every `author-decisions` entry
   honoured for its scope, a human dismissal in it recorded as an override
-  before posting · observed insights recorded ([preferences.md](preferences.md)) · `memory_due` read before
-  reviewing · orientation used for where to look only, `verify_live` rows read
-  live, no finding citing the profile or the risk prescan
+  before posting · observed insights recorded
+  ([preferences.md](preferences.md)) · `memory_due` read before reviewing ·
+  orientation used for where to look only, `verify_live` rows read live, no
+  finding citing the profile or the risk prescan
   ([profile.md](profile.md)) · noise files excluded with their Summary line ·
   every blocking finding verified, the
   skills' included, and sibling-swept with its `also` locations, a statement
