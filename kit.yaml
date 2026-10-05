@@ -65,7 +65,7 @@ schedules:
       the worklist JSON at the path its output names, and never run preflight.sh
       again this run. If the prompt carries no worklist path, run `bash
       "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md →
-      "Review run": read docs/review.md and docs/skills.md, apply the bookkeeping
+      "Review run": read exactly the worklist's read_set, apply the bookkeeping
       arrays (self-heals, label cleanups, prunes), review every PR in reviews_due
       (chat UI + GitHub review with the marker; honour the HEAD-freshness checks,
       locks, and the re-review label gate, removing the label after posting),
