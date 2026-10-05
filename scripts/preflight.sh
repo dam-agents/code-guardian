@@ -90,6 +90,8 @@ CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" >/dev/null 2>&1 || CI_LIB=0
 # pass reads as a first review (full scope) and the audit counts no reviews.
 RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; rr_posted() { return 1; }; }
 HOLDS_LIB=1; . "$SCRIPT_DIR/lib/holds.sh" >/dev/null 2>&1 || HOLDS_LIB=0
+# paths.sh is optional: unreadable, no path glob ever matches
+. "$SCRIPT_DIR/lib/paths.sh" >/dev/null 2>&1 || path_glob_match() { return 1; }
 LOG_JOB="$MODE"
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 # log.sh sources lib/toolpath.sh; stub it when either file was unavailable
@@ -615,6 +617,19 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
 row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
+# The newest `## Review at` section of PR <n>'s history file, only while it
+# reviewed <head-sha>: a call on older code never stands in for the current
+# one, and a rapid pass (no review-meta) never borrows an older section's.
+last_review_section() { # <pr-number> <head-sha>
+  local f="$WORK/reviews/pr-$1.md" sec s7
+  [ -f "$f" ] || return 0
+  sec="$(sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$f" 2>/dev/null)"
+  s7="$(printf '%s\n' "$sec" | head -1 | sed -n -E 's/^## Review at ([0-9a-f]+) .*/\1/p')"
+  case "$2" in ("$s7"*) [ -n "$s7" ] || return 0;; (*) return 0;; esac
+  printf '%s\n' "$sec"
+}
+# that section's review-meta object (docs/review-mechanics.md), or nothing
+section_meta() { grep -o '<!-- review-meta: .* -->' | tail -1 | sed -e 's/^<!-- review-meta: //' -e 's/ -->$//'; }
 # the PR numbers that own a file in reviews/ — the history file, the carry
 # record, the review artifact (the files a prune deletes)
 pr_file_numbers() {
@@ -799,11 +814,11 @@ hk_batch_since() { # <pending count>
 }
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
-  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}"
+  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}"
   local hk_only=false hk_n=0 hk_since hk_age=0
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail"; do
+  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
@@ -834,14 +849,14 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson stall "${STALL_ALERT:-null}" \
     --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
-      status_resets_due:$resets, ci_failures_due:$cifail, skills:$skills, logs:$logs}
+      status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
      + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
@@ -871,6 +886,7 @@ READ_SET_JQ='def read_set:
     + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
     + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
     + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
     + ["work/MEMORY.md", "work/LESSONS.md"]
   end;'
 
@@ -1492,6 +1508,77 @@ if [ "$MODE" = "review" ]; then
     fi
   fi
 
+  # ---------------------------------------------------------- auto-merge ----
+  # docs/auto-merge.md: a PR a person labeled, that my review of its head
+  # approved and called a quick check, merges once every gate holds. Only
+  # labeled PRs pay the detail, files and rollup reads.
+  AUTO_MERGE="$(cfg auto_merge)"; AUTO_MERGE="${AUTO_MERGE:-disabled}"
+  case "$AUTO_MERGE" in
+    (enabled|disabled) ;;
+    (*) log "auto_merge '$AUTO_MERGE' unknown — treating as disabled"; AUTO_MERGE=disabled;;
+  esac
+  AM_LABEL="$(cfg auto_merge_label)"
+  AM_MAX="$(cfg auto_merge_max_lines)"; case "$AM_MAX" in (''|*[!0-9]*) AM_MAX=100;; esac
+  AM_METHOD="$(cfg auto_merge_method)"
+  case "$AM_METHOD" in (merge|squash|rebase) ;; ('') AM_METHOD=squash;; (*) log "auto_merge_method '$AM_METHOD' unknown — using squash"; AM_METHOD=squash;; esac
+  if [ "$AUTO_MERGE" = "enabled" ] && [ -z "$AM_LABEL" ]; then
+    log_warn "auto_merge is enabled without auto_merge_label — auto-merge is off this run"; AUTO_MERGE=disabled
+  fi
+  if [ "$AUTO_MERGE" = "enabled" ] && [ "$CI_LIB" -eq 0 ]; then
+    log_warn "lib/ci-rollup.sh unreadable — auto-merge is off this run"; AUTO_MERGE=disabled
+  fi
+  AM_HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
+  # the first gate that fails, as a log reason; nothing when every gate holds
+  am_block() { # <pr-number> <head-sha>
+    local n="$1" sha="$2" row sec meta det files f ci_json
+    grep -qF "<!-- auto-merge-failed: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null \
+      && { printf 'a merge of this head already failed'; return; }
+    row="$(row_for "$n")"
+    { [ "$(row_field "$row" 3)" = "$sha" ] && [ "$(row_field "$row" 5)" = "APPROVE" ] \
+      && [ "$(row_field "$row" 6)" = "done" ]; } \
+      || { printf 'no APPROVE of mine on this head'; return; }
+    sec="$(last_review_section "$n" "$sha")"
+    [ -n "$sec" ] || { printf 'no review of mine on this head'; return; }
+    [ "$(printf '%s\n' "$sec" | grep -o '<!-- findings-json: .* -->' | tail -1 \
+         | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//' \
+         | jq '[.[] | select(type == "object") | select(.severity == "critical" or .severity == "warning")
+                | select((.status // "") != "fixed")] | length' 2>/dev/null)" = "0" ] \
+      || { printf 'my review has open blocking findings'; return; }
+    meta="$(printf '%s\n' "$sec" | section_meta)"
+    [ "$(printf '%s' "$meta" | jq -r '(.triage.class // "") + "|" + (.triage.forced // "")' 2>/dev/null)" = "quick-check|" ] \
+      || { printf 'my triage is not a quick check'; return; }
+    det="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
+    [ "$(printf '%s' "$det" | jq -r '.head.sha // ""' 2>/dev/null)" = "$sha" ] \
+      || { printf 'the PR detail did not read this head'; return; }
+    [ "$(printf '%s' "$det" | jq -r '.mergeable_state // ""')" = "clean" ] \
+      || { printf 'GitHub reports mergeable_state %s' "$(printf '%s' "$det" | jq -r '.mergeable_state // "unknown"')"; return; }
+    [ "$(printf '%s' "$det" | jq '(.additions // 999999) + (.deletions // 999999)')" -le "$AM_MAX" ] \
+      || { printf 'more than %s changed lines' "$AM_MAX"; return; }
+    [ "$(printf '%s' "$det" | jq '.changed_files // 999')" -le 100 ] \
+      || { printf 'more than 100 changed files'; return; }
+    files="$(gh api "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)"
+    printf '%s' "$files" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
+      || { printf 'the changed files could not be read'; return; }
+    files="$(printf '%s' "$files" | jq -r '.[].filename')"
+    while IFS= read -r f; do
+      case "$f" in (.github/*) printf 'changes %s' "$f"; return;; esac
+      path_glob_match "$f" "$AM_HUMAN_PATHS" >/dev/null && { printf 'changes %s (human_review_paths)' "$f"; return; }
+    done <<< "$files"
+    ci_json="$(ci_runs "$REPO" "$sha")"
+    ci_terminal "$ci_json" || { printf 'checks still running'; return; }
+    [ "$(ci_failing "$ci_json" | jq 'length')" -eq 0 ] || { printf 'a check failed'; return; }
+  }
+  MERGES_DUE='[]'
+  if [ "$AUTO_MERGE" = "enabled" ]; then
+    while IFS=$'\t' read -r n sha; do
+      [ -n "$n" ] || continue
+      why="$(am_block "$n" "$sha")"
+      if [ -n "$why" ]; then log "PR #$n: $AM_LABEL present, no auto-merge — $why"; continue; fi
+      MERGES_DUE="$(printf '%s' "$MERGES_DUE" | jq -c --argjson n "$n" --arg sha "$sha" --arg m "$AM_METHOD" '. + [{number:$n, sha:$sha, method:$m}]')"
+      log "PR #$n: auto-merge due at ${sha:0:7}"
+    done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r --arg l "$AM_LABEL" '.[] | select(.labels | index($l)) | [.number, .head_sha] | @tsv')
+  fi
+
   apply_holds mentions
   emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
@@ -1515,7 +1602,7 @@ if [ "$MODE" = "shepherd" ]; then
     log_warn "lib/ci-rollup.sh unreadable — the ready-to-land nudge is disabled this run"
   fi
 
-  # Who the reviewer-directed nudges cover (docs/shepherd.md → Scope): every
+  # Who the reviewer-directed nudges cover (docs/shepherd.md → Scope and brief): every
   # PR, or only the ones my last review says a person must read.
   SHEP_SCOPE="$(cfg shepherd_scope)"; SHEP_SCOPE="${SHEP_SCOPE:-all}"
   case "$SHEP_SCOPE" in
@@ -1527,15 +1614,7 @@ if [ "$MODE" = "shepherd" ]; then
   # only while that review read the current head: a call on older code never
   # silences a nudge. Prints the JSON object, or nothing.
   own_triage() { # <pr-number> <head-sha>
-    local f="$WORK/reviews/pr-$1.md" sec s7
-    [ -f "$f" ] || return 0
-    # the newest review section alone: a rapid pass carries no review-meta, and
-    # an older section's call never stands in for it
-    sec="$(sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$f" 2>/dev/null)"
-    s7="$(printf '%s\n' "$sec" | head -1 | sed -n -E 's/^## Review at ([0-9a-f]+) .*/\1/p')"
-    case "$2" in ("$s7"*) [ -n "$s7" ] || return 0;; (*) return 0;; esac
-    printf '%s\n' "$sec" | grep -o '<!-- review-meta: .* -->' | tail -1 \
-      | sed -e 's/^<!-- review-meta: //' -e 's/ -->$//' \
+    last_review_section "$1" "$2" | section_meta \
       | jq -c '.triage // empty | select(type == "object")' 2>/dev/null || true
   }
 

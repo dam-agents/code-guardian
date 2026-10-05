@@ -59,6 +59,11 @@
 #                                          are given back (docs/worklist.md →
 #                                          PR holds)
 #   release <n>                            give the PR hold back
+#   merge <n> --sha <sha>                  auto-merge a `merges_due` entry: re-read the
+#                                          PR (open, head = <sha>, label present), merge
+#                                          with `auto_merge_method` guarded by <sha>, and
+#                                          on a refusal mark the head so it is never
+#                                          tried again (docs/auto-merge.md)
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
 # reads the outcome. `context` and `compose-brief` are the exceptions: on
@@ -78,11 +83,11 @@ export LC_ALL=C
 
 CMD="${1:-}"; N="${2:-}"
 usage() { # the subcommand table of this file's header, verbatim
-  sed -n '/^#   prepare /,/^#   release /p' "$0" | sed -e 's/^# \{0,3\}//'
+  sed -n '/^#   prepare /,/^#   merge /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|merge) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -135,6 +140,8 @@ URGENT_LABEL="$(cfg urgent_label)"
 TRIG="$(cfg rereview_trigger)"; TRIG="${TRIG:-label}"
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
+# lib/paths.sh is optional: unreadable, no path forces a triage
+. "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || path_glob_match() { return 1; }
 DEF_REF="$(cfg definition_repo)"
 [ -z "$DEF_REF" ] && DEF_REF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null | sed -E 's#^(git@|https://)##; s#^([^/:]+)[:/]#\1/#; s#\.git$##')"
 DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
@@ -1684,17 +1691,11 @@ cmd_post() {
 
 # The first changed file under a `human_review_paths` glob (docs/config.md),
 # printed as `<path> (<glob>)`; nothing when none matches or the key is unset.
-# A glob is a shell pattern whose `*` crosses `/`.
 forced_human_path() {
   [ -n "$HUMAN_PATHS" ] || return 0
   local p g
   while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    while IFS= read -r g; do
-      g="$(trim "$g")"; [ -n "$g" ] || continue
-      # shellcheck disable=SC2053  # $g is the pattern
-      [[ "$p" == $g ]] && { printf '%s (%s)' "$p" "$g"; return 0; }
-    done <<< "$(printf '%s' "$HUMAN_PATHS" | tr ',' '\n')"
+    g="$(path_glob_match "$p" "$HUMAN_PATHS")" && { printf '%s (%s)' "$p" "$g"; return 0; }
   done <<< "$(jq -r '.[].path // empty' "$CTX/files.json" 2>/dev/null)"
   return 0
 }
@@ -1922,10 +1923,47 @@ cmd_release() {
   out '{"outcome":"released"}'
 }
 
+# ================================================================== merge ====
+# docs/auto-merge.md: preflight decided the PR is due; this re-reads what can
+# change between the two — the head, the state, the consent label — and merges
+# with the head SHA as the server-side guard, so a commit that lands in between
+# makes GitHub refuse instead of merging unread code.
+cmd_merge() {
+  local sha="" det lbl method resp rc=0 err
+  while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
+  case "$sha" in (''|*[!0-9a-fA-F]*) fail "merge needs --sha <full-sha>";; esac
+  [ "$(cfg auto_merge)" = "enabled" ] || out '{"outcome":"skipped","reason":"auto_merge is not enabled"}'
+  lbl="$(cfg auto_merge_label)"; [ -n "$lbl" ] || out '{"outcome":"skipped","reason":"auto_merge_label is not set"}'
+  method="$(cfg auto_merge_method)"; case "$method" in (merge|squash|rebase) ;; (*) method=squash;; esac
+  det="$(gh api "repos/$REPO/pulls/$N" 2>/dev/null)"
+  printf '%s' "$det" | jq -e 'type == "object" and has("state")' >/dev/null 2>&1 || fail "the PR could not be read"
+  [ "$(printf '%s' "$det" | jq -r '.state')" = "open" ] || out '{"outcome":"skipped","reason":"the PR is not open"}'
+  [ "$(printf '%s' "$det" | jq -r '.head.sha')" = "$sha" ] || out '{"outcome":"skipped","reason":"the head moved"}'
+  printf '%s' "$det" | jq -e --arg l "$lbl" '[.labels[]?.name] | index($l) != null' >/dev/null 2>&1 \
+    || out '{"outcome":"skipped","reason":"the label is gone"}'
+  resp="$(gh api -X PUT "repos/$REPO/pulls/$N/merge" -f sha="$sha" -f merge_method="$method" 2>"$TMP_ROOT/merge-$N.err")" || rc=$?
+  err="$(tr '\n' ' ' < "$TMP_ROOT/merge-$N.err" 2>/dev/null | cut -c1-200)"; rm -f "$TMP_ROOT/merge-$N.err"
+  if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$resp" | jq -r '.merged // false' 2>/dev/null)" = "true" ]; then
+    logev info auto_merge "PR #$N: auto-merged at ${sha:0:7} ($method)"
+    out "$(jq -nc --arg s "$sha" --arg m "$method" '{outcome:"merged", sha:$s, method:$m}')"
+  fi
+  [ -n "$err" ] || err="$(printf '%s' "$resp" | jq -r '.message // "no merge in the answer"' 2>/dev/null)"
+  # only GitHub's own refusal marks the head; a transport fault is retried
+  if ! printf '%s' "$err" | grep -qE 'HTTP 4[0-9][0-9]'; then
+    logev warn auto_merge "PR #$N: auto-merge at ${sha:0:7} did not complete — $err; the next run retries"
+    out "$(jq -nc --arg s "$sha" --arg e "$err" '{outcome:"error", sha:$s, reason:$e}')"
+  fi
+  mkdir -p "$WORK/reviews"
+  printf '<!-- auto-merge-failed: %s -->\n' "$sha" >> "$WORK/reviews/pr-$N.md"
+  logev warn auto_merge "PR #$N: auto-merge at ${sha:0:7} refused — $err"
+  out "$(jq -nc --arg s "$sha" --arg e "$err" '{outcome:"failed", sha:$s, reason:$e}')"
+}
+
 case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
   (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;;
+  (merge) cmd_merge "$@";;
 esac
