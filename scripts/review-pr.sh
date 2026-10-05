@@ -59,6 +59,13 @@
 #                                          are given back (docs/worklist.md →
 #                                          PR holds)
 #   release <n>                            give the PR hold back
+#   fix-start <n> --sha <sha>              start a `fixes_due` entry: re-read the PR
+#                                          (open, head = <sha>, label present, branch in
+#                                          the target repo), remove the label, write the
+#                                          marker, clone the head branch for the fix
+#   fix-push <n> [--abort]                 commit the fix clone as the bot and push it
+#                                          with a lease on the read SHA; --abort drops
+#                                          the clone unpushed (docs/agent-fixes.md)
 #   merge <n> --sha <sha>                  auto-merge a `merges_due` entry: re-read the
 #                                          PR (open, head = <sha>, label present), merge
 #                                          with `auto_merge_method` guarded by <sha>, and
@@ -86,8 +93,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#   merge /p' "$0" | sed -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|merge) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|fix-start|fix-push|merge) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -1923,6 +1930,68 @@ cmd_release() {
   out '{"outcome":"released"}'
 }
 
+# ==================================================================== fix ====
+# docs/agent-fixes.md: preflight decided the PR is due. fix-start re-reads what
+# can change in between — the head, the state, the consent label, where the
+# branch lives — then consumes the label and marks the head before any code
+# changes, so one label buys exactly one fix round. The agent edits the clone;
+# fix-push commits it as the bot and pushes with a lease on the read SHA, so a
+# commit that landed meanwhile makes the push fail instead of being overwritten.
+FIX_DIR="$PR_DIR.fix"
+cmd_fix_start() {
+  local sha="" det lbl ref url
+  while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
+  case "$sha" in (''|*[!0-9a-fA-F]*) fail "fix-start needs --sha <full-sha>";; esac
+  [ "$(cfg agent_fixes)" = "enabled" ] || out '{"outcome":"skipped","reason":"agent_fixes is not enabled"}'
+  lbl="$(cfg agent_fix_label)"; [ -n "$lbl" ] || out '{"outcome":"skipped","reason":"agent_fix_label is not set"}'
+  det="$(gh api "repos/$REPO/pulls/$N" 2>/dev/null)"
+  printf '%s' "$det" | jq -e 'type == "object" and has("state")' >/dev/null 2>&1 || fail "the PR could not be read"
+  [ "$(printf '%s' "$det" | jq -r '.state')" = "open" ] || out '{"outcome":"skipped","reason":"the PR is not open"}'
+  [ "$(printf '%s' "$det" | jq -r '.head.sha')" = "$sha" ] || out '{"outcome":"skipped","reason":"the head moved"}'
+  [ "$(printf '%s' "$det" | jq -r '.head.repo.full_name // ""')" = "$REPO" ] || out '{"outcome":"skipped","reason":"the head branch is not in the target repository"}'
+  printf '%s' "$det" | jq -e --arg l "$lbl" '[.labels[]?.name] | index($l) != null' >/dev/null 2>&1 \
+    || out '{"outcome":"skipped","reason":"the label is gone"}'
+  gh api -X DELETE "repos/$REPO/issues/$N/labels/$lbl" >/dev/null 2>&1 \
+    || fail "removing $lbl did not succeed — no fix without consuming the label"
+  mkdir -p "$WORK/reviews"
+  printf '<!-- agent-fix: %s -->\n' "$sha" >> "$WORK/reviews/pr-$N.md"
+  ref="$(printf '%s' "$det" | jq -r '.head.ref')"
+  url="${CG_CLONE_URL:-https://$REPO_HOST/$REPO.git}"
+  rm -rf "$FIX_DIR"
+  { git clone -q --depth 50 --branch "$ref" --single-branch "$url" "$FIX_DIR" \
+    && [ "$(git -C "$FIX_DIR" rev-parse HEAD)" = "$sha" ]; } 2>/dev/null \
+    || { rm -rf "$FIX_DIR"; logev error agent_fix "PR #$N: clone of $ref at ${sha:0:7} did not succeed"; \
+         out "$(jq -nc '{outcome:"failed", reason:"the head branch could not be cloned at the read SHA"}')"; }
+  git -C "$FIX_DIR" config user.name "$BOT_NAME"
+  git -C "$FIX_DIR" config user.email "${BOT_LOGIN:-code-guardian}@users.noreply.$REPO_HOST"
+  printf '%s\n' "$sha" > "$FIX_DIR/.git/cg-fix-sha"; printf '%s\n' "$ref" > "$FIX_DIR/.git/cg-fix-ref"
+  logev info agent_fix "PR #$N: fix round started at ${sha:0:7}"
+  out "$(jq -nc --arg c "$FIX_DIR" --arg r "$ref" --arg s "$sha" '{outcome:"ready", clone:$c, branch:$r, sha:$s}')"
+}
+cmd_fix_push() {
+  local abort=false sha ref new
+  while [ $# -gt 0 ]; do case "$1" in (--abort) abort=true; shift;; (*) shift;; esac; done
+  [ -d "$FIX_DIR/.git" ] || out '{"outcome":"skipped","reason":"no fix clone — run fix-start first"}'
+  sha="$(cat "$FIX_DIR/.git/cg-fix-sha" 2>/dev/null)"; ref="$(cat "$FIX_DIR/.git/cg-fix-ref" 2>/dev/null)"
+  if [ "$abort" = "true" ]; then
+    rm -rf "$FIX_DIR"; logev info agent_fix "PR #$N: fix round dropped unpushed"
+    out '{"outcome":"aborted"}'
+  fi
+  git -C "$FIX_DIR" add -A >/dev/null 2>&1
+  if git -C "$FIX_DIR" diff --cached --quiet 2>/dev/null; then
+    rm -rf "$FIX_DIR"; out '{"outcome":"nothing","reason":"the clone has no change"}'
+  fi
+  git -C "$FIX_DIR" commit -q -m "Fix review findings ($BOT_NAME)" >/dev/null 2>&1 \
+    || { rm -rf "$FIX_DIR"; fail "the fix commit did not succeed"; }
+  new="$(git -C "$FIX_DIR" rev-parse HEAD)"
+  if git -C "$FIX_DIR" push -q --force-with-lease="$ref:$sha" origin "HEAD:$ref" >/dev/null 2>&1; then
+    rm -rf "$FIX_DIR"; logev info agent_fix "PR #$N: fix pushed as ${new:0:7} on ${sha:0:7}"
+    out "$(jq -nc --arg s "$new" '{outcome:"pushed", sha:$s}')"
+  fi
+  rm -rf "$FIX_DIR"; logev warn agent_fix "PR #$N: fix push rejected — the branch moved or the push was refused"
+  out '{"outcome":"rejected","reason":"the branch moved or the push was refused"}'
+}
+
 # ================================================================== merge ====
 # docs/auto-merge.md: preflight decided the PR is due; this re-reads what can
 # change between the two — the head, the state, the consent label — and merges
@@ -1965,5 +2034,6 @@ case "$CMD" in
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
   (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;;
+  (fix-start) cmd_fix_start "$@";; (fix-push) cmd_fix_push "$@";;
   (merge) cmd_merge "$@";;
 esac

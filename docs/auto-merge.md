@@ -19,7 +19,8 @@ when **every** gate holds:
 - `additions + deletions` ≤ `auto_merge_max_lines`, at most 100 changed
   files, none under `.github/` or a `human_review_paths` glob;
 - no merge of this head failed before (`<!-- auto-merge-failed: <sha> -->` in
-  `reviews/pr-<n>.md`).
+  `reviews/pr-<n>.md`), and the PR carries no fix of mine
+  ([agent-fixes.md](agent-fixes.md)).
 
 ## Merging
 

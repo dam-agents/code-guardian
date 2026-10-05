@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.6.0 — 2026-10-05
+
+**Upgrade:** Nothing — docs and scripts are re-read per run. Offer the
+operator the off-by-default agent fixes (`docs/agent-fixes.md`): with the
+repository admin's consent, `agent_fixes: enabled` plus a human-managed
+`agent_fix_label` gives a labeled PR one round in which I fix my own blocking
+findings and push to its branch. On a yes, validate or create the label as
+ONBOARDING Step 4 item 6 does for the re-review label.
+
 ## 8.5.0 — 2026-10-05
 
 **Upgrade:** Nothing — docs and scripts are re-read per run. Offer the

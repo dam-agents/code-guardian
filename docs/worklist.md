@@ -99,6 +99,7 @@ changes", then end the run the same way.
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, artifact included | review-bookkeeping.md → **Pruning** |
 | `ci_failures_due` | `{number, sha, url, checks[]}` — a reviewed PR whose checks failed on the reviewed SHA → one triage comment | [ci-triage.md](ci-triage.md) + [review.md](review.md) |
 | `merges_due` | `{number, sha, method}` — a labeled PR that passed every auto-merge gate (only under `auto_merge: enabled`) → `review-pr.sh merge` | [auto-merge.md](auto-merge.md) |
+| `fixes_due` | `{number, sha, findings}` — a labeled PR whose current review left blocking findings with a fix (only under `agent_fixes: enabled`) → one fix round | [agent-fixes.md](agent-fixes.md) + [review.md](review.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
 | `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review-urgent.md → **Urgent PRs** |
