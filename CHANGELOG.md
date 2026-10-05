@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 8.4.0 — 2026-10-05
+## 8.5.0 — 2026-10-05
 
 **Upgrade:** Re-register each review heartbeat (`code-guardian-review-active`,
 `code-guardian-review-quiet`, `code-guardian-review-offdays`) whose task text
@@ -20,6 +20,21 @@ docs/review.md and docs/skills.md", per ONBOARDING Step 6 (create the corrected
 schedule, then `delete_schedule` the old id; keep its name, cron and
 `precheck`). Idempotent — skip a schedule that already carries the Step 6a
 text. A schedule left as it is stays correct and reads the two files in full.
+
+## 8.4.0 — 2026-10-05
+
+**Upgrade:** Nothing for this agent — docs are re-read per run. An agent that
+already has the bundled `review-remediation` skill installed mirrors
+`.agents/skills/review-remediation/` from `definition_repo` again to pick the
+change up.
+
+## 8.3.2 — 2026-10-05
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.3.1 — 2026-10-05
+
+**Upgrade:** Nothing — docs and scripts are re-read per run.
 
 ## 8.3.0 — 2026-10-05
 
