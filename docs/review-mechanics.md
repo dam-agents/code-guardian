@@ -155,7 +155,7 @@ stream.
 **The skill fan-out has its own window.** Between `fanned out (n=<N>)` and
 `verified` the holder is blocked on its subagents: it writes no event and
 touches no tree, so both signals go quiet for the longest phase of the review
-and a healthy run reads as a dead one. A holder whose last step is
+and a healthy run reads as a dead one. A holder whose newest event is
 `fanned out (n=…)` therefore stays alive for `FANOUT_QUIET_MIN` (60) instead.
 The phase is the only one that is structurally silent, so no other step widens
 the window; calibrate the value against `stats.reviews.phases.skills`
@@ -171,10 +171,11 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
   `HOLDER_QUIET_MIN`, or when another run with a `locked` step on it, at any
   age, has a **newest** `review_step` on it that is non-terminal
-  ([review.md](review.md) → **Completion enforcement**) and inside its window —
-  `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
-  `fanned out (n=…)`. A run that ended releases the PR at once, however many
-  milestones it logged first; a run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
+  ([review.md](review.md) → **Completion enforcement**) and a newest event of
+  any kind inside its window — `HOLDER_QUIET_MIN`, or the fan-out's own when
+  that event is the fan-out — the same rule preflight applies. A run that
+  ended releases the PR at once, however many milestones it logged first; a
+  run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
   nothing touched, `holder alive at Check 1 — stood down` logged — and you take
   the next PR. An older tree with no such event is a dead run's leftover and is
   reclaimed; the lock write comes after this check. Standing down protects a

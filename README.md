@@ -365,7 +365,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   carries. It asks the caller about the findings a recorded decision of the
   pull request makes disputable, and disputes those in writing. Its `scripts/review-worklist.sh` reads all of that from the review
   over REST, and `--verify` checks the work against it before the push; the
-  next review round stays the caller's to start.
+  next review round stays the caller's to start. When it opens or fixes a pull
+  request, it keeps a hidden `author-decisions` block in the body with the
+  decisions the person made, which the reviewer reads.
 - [`docs/`](docs/) — the procedures, read on demand:
   [`review.md`](docs/review.md), [`review-rereview.md`](docs/review-rereview.md),
   [`review-urgent.md`](docs/review-urgent.md),

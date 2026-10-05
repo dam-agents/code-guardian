@@ -174,11 +174,17 @@ image, the harness, an external service — instead of fixing it at its source:
 
 ## 9. Validate before opening the PR
 
-- `bash -n` every changed script; run the deterministic stub tests
-  (`bash scripts/tests/run.sh` — offline, gh/curl faked; CI re-runs them). The
-  suite runs its files in parallel to fit a single shell's budget; it still
-  takes minutes, so give it the whole timeout and **read its last line** —
-  `ALL TESTS PASSED` is the only pass. A truncated run is not a pass.
+- `bash -n` every changed script; run the deterministic stub tests (offline,
+  gh/curl faked) **for the change only**: `bash scripts/tests/run.sh <file…>`
+  with every test file that names a changed file, script or doc
+  (`grep -l <file-name> scripts/tests/test_*.sh`; a change to `helpers.sh`
+  or `tests/bin/` names them all). **CI runs the full suite** on the PR, and
+  its green run is the full-suite pass. Run the full suite locally (`run.sh`
+  with no arguments) only on the operator's request; on a developer machine,
+  `scripts/tests/docker.sh` runs it (same arguments) in a CI-like container.
+  **Read the last line** — `ALL TESTS PASSED` is the only pass; a truncated
+  run is not a pass. One suite runs per host at a time: `run.sh` and
+  `docker.sh` wait for a run that holds the lock and name it on stderr.
   `CG_TEST_JOBS=1` forces serial execution when a failure needs isolating.
   Then a **read-only sanity run** of `scripts/preflight.sh` in both modes
   against the live target repo. Output must be valid JSON and its decisions

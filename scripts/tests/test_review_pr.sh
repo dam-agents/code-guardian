@@ -337,6 +337,27 @@ run_step_ago taker-b 300 "PR #1 abc1234 stood down (live holder)"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'a chain of stand-downs does not hold the PR, whatever their text'
 run_rp abort 1 "reset"
+# liveness is the holder's newest event of any kind, as preflight judges it: a
+# run whose turn ended after the fan-out logged its stop, so the fan-out window
+# no longer applies — preflight hands the PR over and prepare must not stand down
+run_event_ago() { # <run> <secs-ago> <event> <msg>
+  mkdir -p "$WORK/logs"
+  jq -nc --arg ts "$(iso_ago "$2")" --arg r "$1" --arg e "$3" --arg m "$4" \
+    '{ts:$ts, run:$r, job:"review", level:"info", event:$e, msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+setup prepare_holder_stopped_after_fanout
+run_step_ago stopped 3300 "PR #1 abc1234 locked"
+run_step_ago stopped 3300 "PR #1 abc1234 fanned out (n=4)"
+run_event_ago stopped 3210 hold "PR #1: released at stop"
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'a holder quiet since its stop is dead inside the fan-out window'
+run_rp abort 1 "reset"
+setup prepare_holder_fanout_newest
+run_step_ago fanning 2700 "PR #1 abc1234 locked"
+run_step_ago fanning 2400 "PR #1 abc1234 fanned out (n=2)"
+run_step_ago fanning 2400 "PR #1 abc1234 locked (refresh, fanned out (n=2))"
+run_rp prepare 1
+assert_jq '.outcome == "stand_down"' 'a fan-out lock refresh as the newest event keeps the fan-out window'
 setup prepare_holder_old_lock
 run_step_ago holder 4500 "PR #1 abc1234 locked"
 run_step_ago holder 300 "PR #1 skill:doc-drift done"
