@@ -17,7 +17,8 @@ when **every** gate holds:
   reviews and required checks satisfied), and the check rollup is terminal with
   no failure;
 - `additions + deletions` ≤ `auto_merge_max_lines`, at most 100 changed
-  files, none under `.github/` or a `human_review_paths` glob;
+  files, none under `.github/` or a `human_review_paths` glob — for a renamed
+  file, the old path too;
 - no merge of this head failed before (`<!-- auto-merge-failed: <sha> -->` in
   `reviews/pr-<n>.md`), and the PR carries no fix of mine
   ([agent-fixes.md](agent-fixes.md)).
@@ -25,6 +26,8 @@ when **every** gate holds:
 ## Merging
 
 Per entry, inside the PR's hold ([worklist.md](worklist.md) → **PR holds**):
+`review-pr.sh hold <n>` first (`held_elsewhere` → log it and leave the entry
+to the next run), `review-pr.sh release <n>` after the steps below.
 
 1. `review-pr.sh merge <n> --sha <sha>`. It re-reads the PR, refuses when the
    head moved, the PR closed or the label is gone (`skipped`), and merges with
@@ -36,6 +39,9 @@ Per entry, inside the PR's hold ([worklist.md](worklist.md) → **PR holds**):
    ([review.md](review.md) → **Criteria & review style**):
    `🛡️ **<bot_display_name>** — auto-merge did not run at <sha7>: <reason>. A person can merge the PR.`
 4. `skipped` → log the reason and do nothing else.
+5. `error` → a transport fault, a rate limit or an unreadable PR. Log the
+   reason and post nothing: the head has no marker, so the next run tries
+   again.
 
 Never merge a PR outside `merges_due`, and never merge by another route.
 

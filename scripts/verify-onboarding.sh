@@ -237,6 +237,18 @@ EOF
     chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
     chk_enum ci_triage 'enabled|disabled' 'enabled | disabled'
     chk_enum merge_ready_nudge 'enabled|disabled' 'enabled | disabled'
+    chk_enum shepherd_scope 'all|needs_human' 'all | needs_human'
+    chk_enum auto_merge 'enabled|disabled' 'enabled | disabled'
+    chk_enum auto_merge_method 'squash|merge|rebase' 'squash | merge | rebase'
+    chk_enum auto_merge_max_lines '[0-9]+' 'an integer'
+    if [ "$(cfg auto_merge)" = "enabled" ]; then
+      if [ -n "$(cfg auto_merge_label)" ]; then
+        ok config-auto_merge_label "'$(cfg auto_merge_label)'"
+      else
+        fail config-auto_merge_label "auto_merge is enabled without a label" \
+          "set auto_merge_label to the human-managed consent label (docs/config.md)"
+      fi
+    fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'

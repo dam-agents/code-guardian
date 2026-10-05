@@ -34,6 +34,8 @@ am_setup am_due
 run_preflight review
 assert_jq '.merges_due == [{number:1, sha:"'"$SHA1"'", method:"squash"}]' 'every gate holds: the merge is due'
 assert_jq '.nothing_to_do == false and (.read_set | index("docs/auto-merge.md") != null)' 'a due merge wakes the run and reads its doc'
+assert_jq '.config | .auto_merge == "enabled" and .auto_merge_label == "cg-automerge" and .auto_merge_max_lines == 100 and .auto_merge_method == "squash"' \
+  'the config object carries the auto-merge keys with their defaults'
 
 new_case am_off_by_default
 base_config
@@ -81,6 +83,11 @@ am_setup am_workflow_file
 printf '[{"filename":".github/workflows/ci.yml"}]' | fx "api repos/acme/widgets/pulls/1/files?per_page=100"
 am_blocked 'changes .github/workflows/ci.yml' 'a .github file never merges'
 
+am_setup am_workflow_moved_out
+printf '[{"filename":"ci.yml","previous_filename":".github/workflows/ci.yml","status":"renamed"}]' \
+  | fx "api repos/acme/widgets/pulls/1/files?per_page=100"
+am_blocked 'changes .github/workflows/ci.yml' 'a file moved out of .github never merges'
+
 am_setup am_human_path '- human_review_paths: migrations/*, src/u*'
 am_blocked 'changes src/util.ts \\(human_review_paths\\)' 'a human_review_paths file never merges'
 
@@ -127,6 +134,13 @@ fx_fail "$MERGE_SLUG"; fx_err "$MERGE_SLUG" 'HTTP 405: Required approving review
 run_merge
 assert_jq '.outcome == "failed" and (.reason | contains("405"))' 'a GitHub refusal is reported'
 assert_file_contains "$WORK/reviews/pr-1.md" "<!-- auto-merge-failed: $SHA1 -->" 'the refused head is marked'
+
+am_setup rp_merge_rate_limited
+fx_fail "$MERGE_SLUG"; fx_err "$MERGE_SLUG" 'API rate limit exceeded for installation (HTTP 403)'
+run_merge
+assert_jq '.outcome == "error"' 'a rate limit is an error, not a refusal'
+grep -q 'auto-merge-failed' "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: a rate limit marked the head\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a rate limit leaves the head to retry\n' "$CASE"
 
 am_setup rp_merge_transport
 fx_fail "$MERGE_SLUG"; fx_err "$MERGE_SLUG" 'connection reset'

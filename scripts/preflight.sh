@@ -511,7 +511,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
-  --arg wr "$WORK_REPO" \
+  --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
+  --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -527,6 +528,12 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
+   shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
+   human_review_paths:(if $hp=="" then null else $hp end),
+   auto_merge:(if $am=="enabled" and $aml!="" then "enabled" else "disabled" end),
+   auto_merge_label:(if $aml=="" then null else $aml end),
+   auto_merge_max_lines:(if ($amx|test("^[0-9]+$")) then ($amx|tonumber) else 100 end),
+   auto_merge_method:(if ($amm|IN("merge","squash","rebase")) then $amm else "squash" end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -1563,7 +1570,8 @@ if [ "$MODE" = "review" ]; then
     files="$(gh api "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)"
     printf '%s' "$files" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
       || { printf 'the changed files could not be read'; return; }
-    files="$(printf '%s' "$files" | jq -r '.[].filename')"
+    # a rename names its old path too: moving a file out of .github/ changes it
+    files="$(printf '%s' "$files" | jq -r '.[] | .filename, (.previous_filename // empty)')"
     while IFS= read -r f; do
       case "$f" in (.github/*) printf 'changes %s' "$f"; return;; esac
       path_glob_match "$f" "$AM_HUMAN_PATHS" >/dev/null && { printf 'changes %s (human_review_paths)' "$f"; return; }
@@ -1848,7 +1856,7 @@ if [ "$MODE" = "shepherd" ]; then
     if [ "$due" -eq 1 ] && [ "$nudge_class" = "awaiting_review" ] && [ "$dirty" = "false" ]; then
       brief="$(own_triage "$n" "$head_sha")"
       if [ "$SHEP_SCOPE" = "needs_human" ] && [ "$(printf '%s' "$brief" | jq -r '.class // ""' 2>/dev/null)" = "quick-check" ]; then
-        due=0; new_status="${status:-watching}"
+        due=0; new_status="${status:-watching}"; next_level="$level"
         log "PR #$n: quick check per my review — no reviewer nudge (shepherd_scope: needs_human)"
       fi
     fi

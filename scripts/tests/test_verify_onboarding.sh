@@ -188,6 +188,38 @@ run_verify
 assert_rc 1 'invalid enum value fails'
 assert_out 'FAIL config-slack_notifications' 'names the key'
 
+new_case invalid_shepherd_scope
+seed_home; seed_memory; seed_lessons
+verify_config '- shepherd_scope: needs-human'
+run_verify
+assert_rc 1 'a misspelled shepherd_scope fails'
+assert_out 'FAIL config-shepherd_scope' 'names the key'
+
+new_case auto_merge_keys_valid
+seed_home; seed_memory; seed_lessons
+verify_config '- auto_merge: enabled' '- auto_merge_label: automerge' '- auto_merge_max_lines: 50' '- auto_merge_method: rebase'
+run_verify
+assert_out 'ok +config-auto_merge ' 'the switch is validated'
+assert_out 'ok +config-auto_merge_label' 'the consent label is present'
+assert_out 'ok +config-auto_merge_method' 'the method is validated'
+assert_not_out 'FAIL config-auto_merge' 'valid auto-merge keys pass'
+
+new_case auto_merge_invalid
+seed_home; seed_memory; seed_lessons
+verify_config '- auto_merge: enable' '- auto_merge_method: fast-forward' '- auto_merge_max_lines: many'
+run_verify
+assert_rc 1 'misspelled auto-merge values fail'
+assert_out 'FAIL config-auto_merge ' 'names the switch'
+assert_out 'FAIL config-auto_merge_method' 'names the method'
+assert_out 'FAIL config-auto_merge_max_lines' 'names the cap'
+
+new_case auto_merge_without_label
+seed_home; seed_memory; seed_lessons
+verify_config '- auto_merge: enabled'
+run_verify
+assert_rc 1 'auto_merge without its label fails'
+assert_out 'FAIL config-auto_merge_label' 'names the missing label key'
+
 new_case cadence_keys_valid
 seed_home; seed_memory; seed_lessons
 verify_config '- active_hours: 08-21' '- active_days: Mon-Fri' \
