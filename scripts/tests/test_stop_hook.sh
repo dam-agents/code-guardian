@@ -107,6 +107,22 @@ step r1 "PR #10 def5678 done"
 run_hook r1
 assert_rc 0 'the re-lock terminated stops cleanly'
 
+# --- steps sort to the second; one bad event drops only itself ---------------
+# log.sh writes `.123Z` or `Z`: inside one second the log order counts, and a
+# `review_step` without a string msg does not hide the other steps.
+hook_case stop_same_second_mixed_precision
+jq -nc '{ts:"2026-07-31T10:00:00Z", run:"r1", job:"review", level:"info",
+         event:"review_step", msg:"PR #10 abc1234 locked"}' >> "$EVENTS"
+jq -nc '{ts:"2026-07-31T10:00:00.500Z", run:"r1", job:"review", level:"info",
+         event:"review_step", msg:"PR #10 abc1234 aborted HEAD moved"}' >> "$EVENTS"
+jq -nc '{ts:"2026-07-31T10:00:01Z", run:"r1", job:"review", level:"info",
+         event:"review_step", msg:null}' >> "$EVENTS"
+run_hook r1
+assert_rc 0 'an abort in the same second as its lock terminates it'
+step r1 "PR #11 abc1234 locked"
+run_hook r1
+assert_rc 2 'a step with no string msg does not hide an open lock'
+
 # --- another run's stall is not ours -----------------------------------------
 hook_case stop_other_run
 step r1 "PR #10 abc1234 locked"

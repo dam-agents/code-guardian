@@ -145,7 +145,7 @@ stream.
 **The skill fan-out has its own window.** Between `fanned out (n=<N>)` and
 `verified` the holder is blocked on its subagents: it writes no event and
 touches no tree, so both signals go quiet for the longest phase of the review
-and a healthy run reads as a dead one. A holder whose last step is
+and a healthy run reads as a dead one. A holder whose newest event is
 `fanned out (n=…)` therefore stays alive for `FANOUT_QUIET_MIN` (60) instead.
 The phase is the only one that is structurally silent, so no other step widens
 the window; calibrate the value against `stats.reviews.phases.skills`
