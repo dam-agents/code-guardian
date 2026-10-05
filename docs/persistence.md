@@ -8,7 +8,7 @@ change to the definition itself.
 
 | Path | Kind | Holds |
 | --- | --- | --- |
-| `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `AGENTS.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
+| `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `AGENTS.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `.agents/` (bundled skills), `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
 | `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
 | `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone. |
 
@@ -56,7 +56,8 @@ Both directions carry every `work/` file — logs, ledgers, `audit/`,
 `benchmark/`, `survey/` included — except pod-local transient state: mkdir
 locks (`*.lock`), `*.tmp` and `benchmark/.run-lock`. A persist that would
 delete `CONFIG.md`, `MEMORY.md`, `LESSONS.md`, `REVIEW-LEDGER.jsonl`,
-`audit/weeks/`, `benchmark/RESULTS.md` or `benchmark/results/` is refused and
+`PR-EVENTS.jsonl`, `audit/weeks/`, `benchmark/RESULTS.md` or
+`benchmark/results/` is refused and
 logged as an error: that snapshot comes from an unhydrated `work/`, so restore
 first. A deletion the operator asked for passes with
 `WORK_BACKUP_ALLOW_DELETE=1`.

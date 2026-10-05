@@ -1,7 +1,7 @@
 # Structured logging — format, sources, retention
 
 Read this file when writing log events, debugging a past run, replacing the
-harness adapter, or handling the audit's log triage.
+harness adapter, or handling the audit's log triage and retention.
 
 ## The events log
 

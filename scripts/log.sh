@@ -21,8 +21,10 @@ LOG_DIR="$LOG_WORK/logs"
 [ -n "${TOOLPATH_CACHE:-}" ] \
   || . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/toolpath.sh" 2>/dev/null || true
 LOG_RUN="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}}"
+# cfg()'s rules (lib/common.sh), inline: log.sh is sourced into every script
 LOG_LEVEL="$(sed -n 's/^- log_level:[[:space:]]*//p' "$LOG_WORK/CONFIG.md" 2>/dev/null \
-             | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//')"
+             | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+                             -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//')"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # best-effort masking of well-known credential shapes before anything is

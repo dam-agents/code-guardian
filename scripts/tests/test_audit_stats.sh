@@ -506,6 +506,12 @@ missing="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_w
   "$WORK"/logs/events-*.jsonl 2>/dev/null)" || missing="(the query failed)"
 [ -z "$missing" ] && printf 'ok   %s: every kind the audit reads is a key a heartbeat writes\n' "$CASE" \
   || { printf 'FAIL %s: kinds no heartbeat writes: %s\n' "$CASE" "$missing"; FAILED=1; }
+unread="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_work | keys')" '
+  [ .[] | select(.event == "heartbeat") | .msg | scan("([a-z_]+)=") | .[0] ] | unique
+  | map(select(. != "mode" and . != "nothing_to_do" and (. as $x | $k | index($x) | not))) | join(", ")' \
+  "$WORK"/logs/events-*.jsonl 2>/dev/null)" || unread="(the query failed)"
+[ -z "$unread" ] && printf 'ok   %s: every kind a heartbeat writes is a kind the audit reads\n' "$CASE" \
+  || { printf 'FAIL %s: heartbeat kinds the audit ignores: %s\n' "$CASE" "$unread"; FAILED=1; }
 
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions

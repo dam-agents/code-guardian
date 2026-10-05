@@ -61,16 +61,18 @@
 #   release <n>                            give the PR hold back
 #   fix-start <n> --sha <sha>              start a `fixes_due` entry: re-read the PR
 #                                          (open, head = <sha>, label present, branch in
-#                                          the target repo), remove the label, write the
-#                                          marker, clone the head branch for the fix
+#                                          the target repo), remove the label, clone the
+#                                          head branch for the fix, write the marker
 #   fix-push <n> [--abort]                 commit the fix clone as the bot and push it
 #                                          with a lease on the read SHA; --abort drops
 #                                          the clone unpushed (docs/agent-fixes.md)
 #   merge <n> --sha <sha>                  auto-merge a `merges_due` entry: re-read the
-#                                          PR (open, head = <sha>, label present), merge
-#                                          with `auto_merge_method` guarded by <sha>, and
-#                                          on a refusal mark the head so it is never
-#                                          tried again (docs/auto-merge.md)
+#                                          PR (open, not a draft, head = <sha>, label
+#                                          present) and the review row (a done APPROVE
+#                                          of <sha>), merge with `auto_merge_method`
+#                                          guarded by <sha>, and on a refusal mark
+#                                          the head so it is never tried again
+#                                          (docs/auto-merge.md)
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
 # reads the outcome. `context` and `compose-brief` are the exceptions: on
@@ -79,9 +81,11 @@
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
-# limits.txt, findings.annotated.json). GitHub writes happen only in `rapid` and
-# `post` (the review the agent wrote, the label removal and approval dismissal
-# docs/review.md mandates) and the progress status under review_progress.
+# limits.txt, findings.annotated.json), .fix (the agent-fix clone). GitHub
+# writes happen only in `rapid` and `post` (the review the agent wrote, the
+# label removal and approval dismissal docs/review.md mandates), the progress
+# status under review_progress, and the opt-in `merge`, `fix-start` (label
+# removal) and `fix-push` (docs/auto-merge.md, docs/agent-fixes.md).
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
 # Overrides (tests): CG_CLONE_URL (clone source), CG_HOLDER_QUIET_MIN.
 
@@ -90,7 +94,7 @@ export LC_ALL=C
 
 CMD="${1:-}"; N="${2:-}"
 usage() { # the subcommand table of this file's header, verbatim
-  sed -n '/^#   prepare /,/^#   merge /p' "$0" | sed -e 's/^# \{0,3\}//'
+  sed -n '/^#   prepare /,/^#$/p' "$0" | sed -e '/^#$/d' -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
 case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|fix-start|fix-push|merge) ;;
@@ -111,7 +115,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
-LOCK_TTL_MIN=50; HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
+HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
 FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review-mechanics.md → Live holder)
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
@@ -126,15 +130,7 @@ LOG_JOB=review
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
-cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/dev/null | grep -E '^\|'; }
-trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
-iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
-DEFAULT_HOST="${GH_HOST:-github.com}"
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+. "$SCRIPT_DIR/lib/common.sh"
 
 TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
@@ -144,13 +140,17 @@ BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
 URGENT_LABEL="$(cfg urgent_label)"
-TRIG="$(cfg rereview_trigger)"; TRIG="${TRIG:-label}"
+# preflight's trigger gate: an unknown value, or a review request without
+# bot_login, reads as label-only
+TRIG="$(cfg rereview_trigger)"
+case "$TRIG" in (label|review-request|both) ;; (*) TRIG=label;; esac
+[ -n "$(cfg bot_login)" ] || TRIG=label
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
 # lib/paths.sh is optional: unreadable, no path forces a triage
 . "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || path_glob_match() { return 1; }
 DEF_REF="$(cfg definition_repo)"
-[ -z "$DEF_REF" ] && DEF_REF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null | sed -E 's#^(git@|https://)##; s#^([^/:]+)[:/]#\1/#; s#\.git$##')"
+[ -z "$DEF_REF" ] && DEF_REF="$(origin_ref "$HOME_DIR")"
 DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 
 out() { printf '%s\n' "$1"; exit 0; }   # <json>
@@ -159,7 +159,6 @@ logstep() { logev info review_step "PR #$N $1"; }
 
 # ------------------------------------------------------ REVIEWS.md rows ----
 row_for()   { grep -E "^\| *$N *\|" "$REVIEWS" 2>/dev/null | head -1; }
-row_field() { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
 write_row() { # sha ts verdict status — replace in place, else append
   local line="| $N | $1 | $2 | $3 | $4 |"
   if [ -n "$(row_for)" ]; then
@@ -336,8 +335,6 @@ release_lock() { # <reason>
 }
 
 # ------------------------------------------------------------- GitHub reads ----
-gh_get() { local o; o="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$o"; return 0; }; sleep 1; gh api "$@" 2>/dev/null; }
-
 pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
   gh_get "repos/$REPO/pulls/$N" | jq -c '{
     state, merged: (.merged // false), draft: (.draft // false),
@@ -466,8 +463,8 @@ live_change() { # <additions|deletions|changed_files>
 # and `rapid posted` non-terminal. The holder is alive while its newest event of
 # any kind is inside HOLDER_QUIET_MIN, or inside FANOUT_QUIET_MIN when that
 # event is the fan-out: the holder is then blocked on its subagents, writes no
-# event and touches no tree. This is the rule preflight and lib/holds.sh apply
-# (docs/review-mechanics.md → Live holder). Events sort on their timestamp to
+# event and touches no tree. These are the windows preflight and lib/holds.sh
+# apply (docs/review-mechanics.md → Live holder). Events sort on their timestamp to
 # the second (log.sh writes `.123Z` or `Z`), in log order inside one second.
 holder_alive() {
   local recent=0 e cutoff fcut
@@ -650,13 +647,6 @@ risk_json() { # <truncated> — the collected rows on stdin → $CTX/risk.json
 }
 
 # --------------------------------------------------------- skill routing ----
-skills_json() { # → [{skill, source, trigger, section}]
-  cfg_table 'Review skills' | while IFS='|' read -r _ s src trig sec _rest; do
-    s="$(trim "$s")"; case "$s" in (''|skill|-*|:*) continue;; esac
-    jq -nc --arg s "$s" --arg src "$(trim "$src")" --arg t "$(trim "$trig")" --arg sec "$(trim "$sec")" '{skill:$s, source:$src, trigger:$t, section:$sec}'
-  done | jq -s .
-}
-
 # ================================================================= prepare ====
 emit_ready() { # <resumed-bool> — the prepare summary from the state files
   local j
@@ -898,7 +888,7 @@ cmd_prepare() {
   # --- skills: inclusive routing, per-skill copies, briefs from the template ---
   local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths
   tpaths="$(tool_paths)"
-  skills="$(skills_json)"
+  skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   local vl vlblock="" rk rkblock=""
   vl="$(jq -r '[.profile_slice[]? | select(.verify_live) | .row] + (.structure_changed // []) | unique | .[]' "$CTX/slice.json" 2>/dev/null | sed 's/^/- /')"
@@ -1277,7 +1267,7 @@ cmd_compose_brief() {
   # skills: table order, sections only for the ones that ran (`collect`
   # decides ran vs skill-errored; before it, the routed status stands)
   local skills s st sec ran="" omitted="" skipped="" nskipped=0
-  skills="$(skills_json)"
+  skills="$(skills_table_json)"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status // "unknown"' "$CTX/skills.json" 2>/dev/null)"
@@ -1676,7 +1666,7 @@ cmd_post() {
   # --- trigger removal, stale-approval dismissal ---
   local label_removed=false dismissed=null
   if printf '%s' "$labels" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1; then
-    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$REREVIEW_LABEL" >/dev/null 2>&1; then label_removed=true
+    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$REREVIEW_LABEL")" >/dev/null 2>&1; then label_removed=true
     else logev warn label_remove "PR #$N: removing $REREVIEW_LABEL did not succeed"; fi
   fi
   [ "$VERDICT" = "APPROVE" ] || dismissed="$(dismiss_approvals "${rid:-0}" "$sha7" "$VERDICT" review)"
@@ -1704,9 +1694,13 @@ cmd_post() {
 forced_human_path() {
   [ -n "$HUMAN_PATHS" ] || return 0
   local p g
+  # both sides of every diff section, so a rename, a binary file or a mode
+  # change counts as it does in preflight's auto-merge gate
   while IFS= read -r p; do
+    [ -n "$p" ] || continue
     g="$(path_glob_match "$p" "$HUMAN_PATHS")" && { printf '%s (%s)' "$p" "$g"; return 0; }
-  done <<< "$(jq -r '.[].path // empty' "$CTX/files.json" 2>/dev/null)"
+  done <<< "$(jq -r '.[].path // empty' "$CTX/files.json" 2>/dev/null
+              sed -n 's#^diff --git a/\(.*\) b/.*$#\1#p' "$DIFF" 2>/dev/null)"
   return 0
 }
 
@@ -1951,13 +1945,12 @@ cmd_fix_start() {
   printf '%s' "$det" | jq -e 'type == "object" and has("state")' >/dev/null 2>&1 || fail "the PR could not be read"
   [ "$(printf '%s' "$det" | jq -r '.state')" = "open" ] || out '{"outcome":"skipped","reason":"the PR is not open"}'
   [ "$(printf '%s' "$det" | jq -r '.head.sha')" = "$sha" ] || out '{"outcome":"skipped","reason":"the head moved"}'
-  [ "$(printf '%s' "$det" | jq -r '.head.repo.full_name // ""')" = "$REPO" ] || out '{"outcome":"skipped","reason":"the head branch is not in the target repository"}'
+  printf '%s' "$det" | jq -e --arg r "$REPO" '(.head.repo.full_name // "" | ascii_downcase) == ($r | ascii_downcase)' >/dev/null 2>&1 \
+    || out '{"outcome":"skipped","reason":"the head branch is not in the target repository"}'
   printf '%s' "$det" | jq -e --arg l "$lbl" '[.labels[]?.name] | index($l) != null' >/dev/null 2>&1 \
     || out '{"outcome":"skipped","reason":"the label is gone"}'
-  gh api -X DELETE "repos/$REPO/issues/$N/labels/$lbl" >/dev/null 2>&1 \
+  gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$lbl")" >/dev/null 2>&1 \
     || fail "removing $lbl did not succeed — no fix without consuming the label"
-  mkdir -p "$WORK/reviews"
-  printf '<!-- agent-fix: %s -->\n' "$sha" >> "$WORK/reviews/pr-$N.md"
   ref="$(printf '%s' "$det" | jq -r '.head.ref')"
   url="${CG_CLONE_URL:-https://$REPO_HOST/$REPO.git}"
   rm -rf "$FIX_DIR"
@@ -1965,6 +1958,10 @@ cmd_fix_start() {
     && [ "$(git -C "$FIX_DIR" rev-parse HEAD)" = "$sha" ]; } 2>/dev/null \
     || { rm -rf "$FIX_DIR"; logev error agent_fix "PR #$N: clone of $ref at ${sha:0:7} did not succeed"; \
          out "$(jq -nc '{outcome:"failed", reason:"the head branch could not be cloned at the read SHA"}')"; }
+  # the marker spends this head's round only once the round can run: a failed
+  # clone leaves the person free to add the label again
+  mkdir -p "$WORK/reviews"
+  printf '<!-- agent-fix: %s -->\n' "$sha" >> "$WORK/reviews/pr-$N.md"
   git -C "$FIX_DIR" config user.name "$BOT_NAME"
   git -C "$FIX_DIR" config user.email "${BOT_LOGIN:-code-guardian}@users.noreply.$REPO_HOST"
   printf '%s\n' "$sha" > "$FIX_DIR/.git/cg-fix-sha"; printf '%s\n' "$ref" > "$FIX_DIR/.git/cg-fix-ref"
@@ -2002,7 +1999,7 @@ cmd_fix_push() {
 # with the head SHA as the server-side guard, so a commit that lands in between
 # makes GitHub refuse instead of merging unread code.
 cmd_merge() {
-  local sha="" det lbl method resp rc=0 err
+  local sha="" det lbl method resp rc=0 err row
   while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
   case "$sha" in (''|*[!0-9a-fA-F]*) fail "merge needs --sha <full-sha>";; esac
   [ "$(cfg auto_merge)" = "enabled" ] || out '{"outcome":"skipped","reason":"auto_merge is not enabled"}'
@@ -2012,8 +2009,15 @@ cmd_merge() {
   printf '%s' "$det" | jq -e 'type == "object" and has("state")' >/dev/null 2>&1 || fail "the PR could not be read"
   [ "$(printf '%s' "$det" | jq -r '.state')" = "open" ] || out '{"outcome":"skipped","reason":"the PR is not open"}'
   [ "$(printf '%s' "$det" | jq -r '.head.sha')" = "$sha" ] || out '{"outcome":"skipped","reason":"the head moved"}'
+  [ "$(printf '%s' "$det" | jq -r '.draft // false')" = "false" ] || out '{"outcome":"skipped","reason":"the PR is a draft"}'
   printf '%s' "$det" | jq -e --arg l "$lbl" '[.labels[]?.name] | index($l) != null' >/dev/null 2>&1 \
     || out '{"outcome":"skipped","reason":"the label is gone"}'
+  # the review that stands now, not the one preflight read: a review of this
+  # run may have changed the verdict since
+  row="$(row_for)"
+  { [ "$(row_field "$row" 3)" = "$sha" ] && [ "$(row_field "$row" 5)" = "APPROVE" ] \
+    && [ "$(row_field "$row" 6)" = "done" ]; } \
+    || out '{"outcome":"skipped","reason":"the current review of this head is not a done APPROVE"}'
   resp="$(gh api -X PUT "repos/$REPO/pulls/$N/merge" -f sha="$sha" -f merge_method="$method" 2>"$TMP_ROOT/merge-$N.err")" || rc=$?
   err="$(tr '\n' ' ' < "$TMP_ROOT/merge-$N.err" 2>/dev/null | cut -c1-200)"; rm -f "$TMP_ROOT/merge-$N.err"
   if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$resp" | jq -r '.merged // false' 2>/dev/null)" = "true" ]; then
@@ -2021,10 +2025,11 @@ cmd_merge() {
     out "$(jq -nc --arg s "$sha" --arg m "$method" '{outcome:"merged", sha:$s, method:$m}')"
   fi
   [ -n "$err" ] || err="$(printf '%s' "$resp" | jq -r '.message // "no merge in the answer"' 2>/dev/null)"
-  # only GitHub's own refusal marks the head; a transport fault or a rate
-  # limit (HTTP 429, or 403 with "rate limit") is retried
+  # only GitHub's own refusal marks the head; a transport fault, a rate
+  # limit (HTTP 429, or 403 with "rate limit") or a base branch that moved
+  # under the call is retried
   if ! printf '%s' "$err" | grep -qE 'HTTP 4[0-9][0-9]' \
-     || printf '%s' "$err" | grep -qiE 'HTTP 429|rate limit'; then
+     || printf '%s' "$err" | grep -qiE 'HTTP 429|rate limit|base branch was modified'; then
     logev warn auto_merge "PR #$N: auto-merge at ${sha:0:7} did not complete — $err; the next run retries"
     out "$(jq -nc --arg s "$sha" --arg e "$err" '{outcome:"error", sha:$s, reason:$e}')"
   fi

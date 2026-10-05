@@ -48,7 +48,7 @@ fi
 case "$MODE" in
   review|shepherd|benchmark|survey) ;;
   audit)
-    printf 'precheck: audit is not gated — its worklist always carries work. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
+    printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
   '')
     printf 'precheck: no mode given (use review|shepherd|benchmark|survey). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'

@@ -35,10 +35,9 @@ mkdir -p "$(dirname "$SETTINGS")"
 # Step 1b works before the config exists.
 HOME_DIR="${HOME:-/home/agent}"
 CONFIG="$HOME_DIR/work/CONFIG.md"
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
+. "$ADAPTER_DIR/../../lib/common.sh"
 DEF="$(cfg definition_repo)"
-[ -n "$DEF" ] || DEF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
-  | sed -e 's#^git@\([^:]*\):#\1/#' -e 's#^[a-z]*://##' -e 's#^[^@/]*@##' -e 's#\.git$##')"
+[ -n "$DEF" ] || DEF="$(origin_ref "$HOME_DIR")"
 case "$DEF" in (github.com/*) DEF="${DEF#github.com/}";; esac
 TARGET="$(cfg github_repo)"
 AM_ENV="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '[

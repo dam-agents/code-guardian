@@ -52,16 +52,8 @@ ok()   { CHECKS=$((CHECKS+1)); printf 'ok   %s — %s\n' "$1" "$2"; }
 fail() { CHECKS=$((CHECKS+1)); FAILS=$((FAILS+1)); printf 'FAIL %s — %s — fix: %s\n' "$1" "$2" "$3"; }
 warn() { WARNS=$((WARNS+1)); printf 'warn %s — %s\n' "$1" "$2"; }
 
-# MUST mirror preflight.sh's reader, quote stripping included
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
-trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
-
-# `[<host>/]<owner>/<repo>` -> host / slug, the ambient default for two segments
-DEFAULT_HOST="${GH_HOST:-github.com}"
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+# the runtime's own reader (cfg, trim, refhost/refslug)
+. "$SCRIPT_DIR/lib/common.sh"
 
 # ---------------------------------------------------------------- definition
 if [ -d "$HOME_DIR/.git" ]; then
@@ -259,6 +251,7 @@ EOF
       fi
     fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
+    chk_enum benchmark 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_trend 'dam|off' 'dam | off'
@@ -290,16 +283,16 @@ EOF
 
     AS="$(cfg artifact_skill)"
     if [ -n "$AS" ] && [ "$AS" != "none" ]; then
-      if printf '%s' "$AS" | grep -Eq '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+      if printf '%s' "$AS" | grep -Eq '^[A-Za-z0-9._-]+@([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
         ok config-artifact_skill "'$AS'"
       else
-        fail config-artifact_skill "invalid value '$AS'" "use '<skill>@<owner/repo>' or 'none'"
+        fail config-artifact_skill "invalid value '$AS'" "use '<skill>@<[host/]owner/repo>' or 'none'"
       fi
     fi
 
     # --- ## Review skills table shape (rows: docs/skills.md)
     if grep -q '^## Review skills' "$CONFIG"; then
-      SKILL_ROWS="$(sed -n '/^## Review skills/,/^## [^#]/p' "$CONFIG" | grep '^|' | grep -v '^|[ :-]*|' || true)"
+      SKILL_ROWS="$(cfg_table 'Review skills' | grep -v '^|[ :-]*|' || true)"
       HEADER="$(printf '%s\n' "$SKILL_ROWS" | head -1)"
       if printf '%s' "$HEADER" | grep -Eq '^\|[[:space:]]*skill[[:space:]]*\|[[:space:]]*source[[:space:]]*\|[[:space:]]*trigger[[:space:]]*\|[[:space:]]*section[[:space:]]*\|$'; then
         ok skills-header "review-skills table header matches"
@@ -316,7 +309,7 @@ EOF
            || [ -z "$(trim "$(printf '%s' "$row" | cut -d'|' -f2)")" ] \
            || [ -z "$(trim "$(printf '%s' "$row" | cut -d'|' -f4)")" ] \
            || [ -z "$(trim "$(printf '%s' "$row" | cut -d'|' -f5)")" ] \
-           || { [ "$src" != "harness" ] && ! printf '%s' "$src" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; }; then
+           || { [ "$src" != "harness" ] && ! printf '%s' "$src" | grep -Eq '^([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; }; then
           BAD_SKILL="$BAD_SKILL | $row"
         fi
       done <<EOF
@@ -326,7 +319,7 @@ EOF
         ok skills-rows "review-skills rows well-formed"
       else
         fail skills-rows "malformed row(s):$BAD_SKILL" \
-          "each row needs 4 non-empty cells and source = 'harness' or an owner/repo slug (docs/skills.md)"
+          "each row needs 4 non-empty cells and source = 'harness' or a [host/]owner/repo reference (docs/skills.md)"
       fi
     fi
 
@@ -474,7 +467,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log logs reviews memory benchmark .gitignore .stall-alert-day .stall-alert.lock .housekeeping-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey .cache .gitignore .stall-alert-day .stall-alert.lock .housekeeping-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue
@@ -546,7 +539,7 @@ if [ "$LIVE" = 1 ]; then
       fi
 
       # skill sources: every configured skill must exist where it installs from
-      SK_ROWS="$(sed -n '/^## Review skills/,/^## [^#]/p' "$CONFIG" | grep '^|' | grep -v '^|[ :-]*|' | tail -n +2)"
+      SK_ROWS="$(cfg_table 'Review skills' | grep -v '^|[ :-]*|' | tail -n +2)"
       ART="$(cfg artifact_skill)"
       case "$ART" in
         (''|none) ;;

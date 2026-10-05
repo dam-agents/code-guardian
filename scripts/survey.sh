@@ -40,11 +40,7 @@ MAX_LINES=6000
 out()  { printf '%s\n' "$1"; exit 0; }
 fail() { out "$(jq -nc --arg e "$1" --arg c "$CMD" '{outcome:"error", step:$c, error:$e}')"; }
 
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "${GH_HOST:-github.com}";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+. "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
 TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
@@ -53,7 +49,6 @@ mkdir -p "$SDIR" 2>/dev/null || true
 
 # the ledger row of an area: | slug | path | last_surveyed | passes | findings |
 ledger_row() { grep -E "^\| *$1 *\|" "$LEDGER" 2>/dev/null | head -1; }
-row_field()  { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
 
 # slug -> path: the ledger row first, then the profile that named the area. The
 # two always agree, because the slug IS the path with its separators flattened.

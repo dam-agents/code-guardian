@@ -73,7 +73,8 @@ review's triage — estimated minutes, what a person must judge, what was
 checked — and `shepherd_scope: needs_human` skips PRs the review called a
 quick check.
 
-**Weekly audit** — Friday morning by default, gated by `audit_report`.
+**Weekly audit** — Friday morning by default, on while `audit_report` is
+enabled (the default).
 `preflight.sh audit` computes 7-day statistics and deterministic health checks
 (auth and rate limit, missed heartbeats, error log lines, state consistency
 against the GitHub markers, stale locks, disk usage, skill
@@ -95,9 +96,9 @@ their acceptance, latency, spend per week and per review, stalls and error
 counts, plus the repository's own health — how much of what merged was
 reviewed, median PR size, how long a PR waits for its first **human** review,
 and which areas carry the findings — as a summary against the previous week
-and the 4-week average, inline charts and one row per week. The history is append-only, the report is
-regenerated from it, and the whole step is two deterministic script calls — no
-model calls ([`docs/trends.md`](docs/trends.md)).
+and the 4-week average, inline charts and one row per week. The history is
+append-only, the report is regenerated from it, and the whole step is two
+deterministic script calls — no model calls ([`docs/trends.md`](docs/trends.md)).
 
 **Model benchmark** — the 1st of the month by default; exists only when the
 `benchmark` key was enabled. The agent replays ≥5 synthetic review fixtures
@@ -238,13 +239,15 @@ what it can and asking for the rest. Per-key semantics are in
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
-| `human_review_paths` | asked with Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
+| `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
 | `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
 | `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
+| `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
+| `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |

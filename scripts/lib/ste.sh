@@ -27,7 +27,7 @@
 # every `. ` and read layout as prose.
 
 STE_V=2
-STE_ZERO='{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0,"v":2}'
+STE_ZERO="{\"sentences\":0,\"avg_sentence_words\":null,\"sentences_over_20\":0,\"v\":$STE_V}"
 
 STE_JQ='
 def strip_layout:

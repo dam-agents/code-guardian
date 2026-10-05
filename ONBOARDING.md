@@ -328,7 +328,7 @@ fi
 
 Every instance-specific value lives in `work/CONFIG.md` — exact key semantics
 in `docs/config.md`, which you read first. Gather the values below, then write
-the file in exactly the shape of the **Final shape** example: the runtime reads
+the file in exactly the shape of the Final shape example: the runtime reads
 `- <key>: <value>` bullets under those key names, so any other label is
 invisible to it. Then run `bash "$HOME/scripts/verify-onboarding.sh"`, apply
 what it reports, and show the file to the operator.
@@ -391,7 +391,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      **Yes from the admin** → `auto_merge: enabled`, `auto_merge_label`
      (validated or created like the re-review label), and
      `auto_merge_max_lines` / `auto_merge_method` only when they differ from
-     the defaults. Anyone else, or no reply → omit the keys.
+     the defaults; then ask which paths are sensitive (for example
+     `migrations/*, src/auth/*`) → `human_review_paths: <globs>`, none → omit.
+     Anyone else, or no reply → omit the keys.
    - **`agent_fixes`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
@@ -425,8 +427,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      `disabled`.
 7. **Review skills + `artifact_skill`** — fully config-driven
    (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or
-   the `owner/repo` it installs from; artifact format `<skill>@<owner/repo>` or
-   `none`). Present the default public set — see the example below, where
+   the `[host/]owner/repo` it installs from; artifact format
+   `<skill>@<[host/]owner/repo>` or `none`). Present the default public set — see the example below, where
    `issue-fit` ships in this definition repo, so its `source` is the instance's
    `definition_repo` — and let the operator adjust rows, triggers and sources.
    **Validate every row before writing:**
@@ -460,9 +462,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     **`benchmark_report`** (`dam` default / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
     **Model prices**, which enables the cost column of this report **and** of
-    the weekly trend artifact), and register the schedule in Step 6d. The first scheduled run creates the fixture set, and
-    the first scores land on the next monthly tick, or sooner on an on-demand
-    ask.
+    the weekly trend artifact), and register the schedule in Step 6d. The
+    first scheduled run creates the fixture set, and the first scores land on
+    the next monthly tick, or sooner on an on-demand ask.
 11. **Ready-to-land nudge** (only when Slack is enabled) — ask:
 
     > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line saying it is ready to land. Once per approval, to the author. Without it an approved PR goes quiet, which reads the same as still waiting. Turn it on?
@@ -475,7 +477,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Quick checks then get no reminder. Which paths always need a person (for example `migrations/*, src/auth/*`)?
 
     **Only those** → `shepherd_scope: needs_human`; **every PR or no reply** →
-    omit the key. A path list → `human_review_paths: <globs>`; none → omit.
+    omit the key. A path list → `human_review_paths: <globs>` (keep a list the
+    auto-merge question already wrote); none → omit.
 12. **Codebase survey** — the weekly deep pass over one area of the repository
     (`docs/survey.md`). Ask:
 
@@ -538,7 +541,8 @@ Final shape:
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
-- stall_alert_threshold: 4             # stalled reviews per 24h that alert; 0/off disables
+- stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
+- log_level: info                      # or: debug (diagnostic only); omit = info
 - active_hours: 08-21                  # platform timezone, both ends inclusive; missing = 00-23
 - active_days: Mon-Fri                 # or: Mon-Sun / a comma list; missing = Mon-Sun
 - review_interval_active: 5            # minutes in the active window; divisor of 60
@@ -626,12 +630,13 @@ visible to the operator.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
-schedule gate**); the audit is ungated because its worklist always carries work.
+schedule gate**); the audit is ungated because its worklist carries work
+whenever `audit_report` is enabled.
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
 carries every schedule of 6a–6e, at the default cadence of its step, with the
-Slack- and benchmark-dependent ones disabled ([`kit.yaml`](kit.yaml) →
+Slack-, benchmark- and survey-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
 

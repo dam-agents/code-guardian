@@ -8,7 +8,9 @@ name: Code Reviewer
 description: >-
   Reviews every open pull request in a repository on a heartbeat, posts one
   structured review per PR, re-reviews on a label, and can nudge human
-  reviewers on Slack.
+  reviewers on Slack. With the repository admin's opt-in it also merges a
+  labeled PR it approved as a quick check, or fixes its own findings on a
+  labeled PR.
 tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
@@ -97,7 +99,7 @@ schedules:
       each sent nudge's row_update to the ledger immediately after its send
       (send-then-record), and back up work/ (`scripts/work-backup.sh persist`).
   # Weekly audit (Step 6c) — every instance gets it: ungated, because its
-  # worklist always carries work, and Slack-independent, because the report
+  # worklist carries work whenever audit_report is enabled, and Slack-independent, because the report
   # falls back to the chat UI (docs/config.md → audit_report).
   - name: code-guardian-audit-weekly
     cron: "0 7 * * 5"

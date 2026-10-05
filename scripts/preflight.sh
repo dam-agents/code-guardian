@@ -8,46 +8,42 @@
 #
 #   - makes NO GitHub writes at all (only GET calls),
 #   - runs NO git commit/push (the agent persists at end of run),
-#   - writes locally only: the REVIEWS.md `done`->`awaiting_label` status flip,
-#     and in audit mode its own worklist at work/audit/last-worklist.json
-#     (pure bookkeeping mandated by the re-review trigger gate — keeps
-#     transition logs one-shot), shepherd-ledger bookkeeping for rows with no
-#     nudge due, the housekeeping batch's wait marker,
-#     HEARTBEAT.log / SHEPHERD.log lines, structured events in work/logs/
-#     (via scripts/log.sh — docs/logging.md), the per-pass /tmp scratch
-#     directory (removed on exit), the skill install cache, the
-#     git credential helper (`gh auth setup-git`, before the agent clones),
-#     the project profile refresh (work/PROFILE.{json,md} + its /tmp mirror,
-#     scripts/profile.sh — docs/profile.md), and the audit-mode cleanups
-#     (14-day log retention, stale-clone sweep).
+#   - writes locally only: bookkeeping — the REVIEWS.md `done`->`awaiting_label`
+#     flip (keeps the re-review trigger gate's transition logs one-shot),
+#     shepherd-ledger bookkeeping for rows with no nudge due, PR-EVENTS.jsonl
+#     facts, the housekeeping batch's wait marker, dead PR holds removed, the
+#     stall-alert day claim — plus HEARTBEAT.log / SHEPHERD.log lines,
+#     structured events in work/logs/ (scripts/log.sh — docs/logging.md), the
+#     per-pass /tmp scratch directory (removed on exit), the skill install
+#     cache, the git credential helper (`gh auth setup-git`, before the agent
+#     clones), the project profile refresh (work/PROFILE.{json,md} + its /tmp
+#     mirror, scripts/profile.sh — docs/profile.md), the stale-clone sweep, and
+#     the audit-mode cleanups (log retention, ledger trims) with that mode's own
+#     worklist at work/audit/last-worklist.json.
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / status_resets_due / artifacts_due
-#                             / urgent_alerts_due
-#                             / mentions_due (comments addressed to the bot,
-#                             deduped against work/MENTIONS.md)
-#                             (+ skill install, SHA-cached, and the profile
-#                             refresh + per-PR inventory — files, profile
-#                             slice, history, memory_due, skill_routing —
-#                             only when a review/artifact is due)
-#                             + config (resolved keys) and memory (budget)
-#                             whenever there is work
-#                             Bookkeeping alone (self-heals, prunes, status
-#                             resets) is deferred until it has waited or
-#                             a run with other work carries it, and the run it
-#                             does start carries `housekeeping_only: true`
-#                             (docs/worklist.md -> The schedule gate)
+#                             / urgent_alerts_due / mentions_due / ci_failures_due
+#                             / merges_due / fixes_due / stall_alert, the
+#                             read_set, config (resolved keys) and memory
+#                             (budget) whenever there is work, plus the skill
+#                             install and the per-PR inventory when a review or
+#                             artifact is due. Bookkeeping alone is deferred
+#                             (`housekeeping_only` — docs/worklist.md -> The
+#                             schedule gate)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
 #                             + escalation ladder + merge-conflict flag already
 #                             computed; the agent applies each row_update right
 #                             after its send)
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
-#                             checks (auth, state consistency, log gaps/errors,
-#                             disk, skills); the agent adds the judgment
+#                             checks + failures[]; the agent adds the judgment
 #                             checks and sends the report (docs/audit.md)
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
+#   preflight.sh survey    -> survey_due (the area to read, its caps and
+#                             history) when `survey: enabled` and the interval
+#                             passed (docs/survey.md)
 #   preflight.sh memory    -> the memory budget object alone (memory_budget_json),
 #                             for the consolidation to verify its bounds;
 #                             local reads only, no bookkeeping
@@ -115,30 +111,9 @@ if [ ! -e "$BOOT_SENTINEL" ]; then
   : > "$BOOT_SENTINEL" 2>/dev/null || true
 fi
 
-# A CONFIG value is the text after `- <key>: `, minus a trailing comment and
-# minus one layer of markdown quoting (`value`, "value") — writers reach for
-# backticks, and the quoted form must resolve to the same value.
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
-
-trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
-
-# Emit the table rows of one `## <heading>` CONFIG section, stopping at the next
-# `## ` heading — an unbounded `,$p` range would swallow the sections that follow
-# (e.g. `## Watch rules` rows parsed as skills). Header/separator rows are the
-# caller's to skip.
-cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/dev/null | grep -E '^\|'; }
-
-# GNU first; the BSD fallback needs -u or the trailing Z is read as local time
-iso2epoch() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || echo 0; }
-
-# Every repo reference is `[<host>/]<owner>/<repo>`: three segments name the
-# host, two use the ambient default. DEFAULT_HOST is captured before GH_HOST is
-# re-exported in the config section, so each reference resolves independently.
-DEFAULT_HOST="${GH_HOST:-github.com}"
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+# cfg, cfg_table, trim, row_field, iso2epoch, refhost/refslug, gh_get —
+# sourced before GH_HOST is re-exported in the config section
+. "$SCRIPT_DIR/lib/common.sh"
 # report surface keys (docs/config.md): `off` publishes nothing, anything else
 # publishes to the DAM Artifact Library — a legacy value is logged, not fatal
 report_surface() { # <key> <var>
@@ -494,11 +469,7 @@ HOUSEKEEPING_SINCE="$WORK/.housekeeping-since"
 # parses work/CONFIG.md itself. Values only; nothing here is a decision.
 BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 PROJECT_PROFILE="$(cfg project_profile)"; PROJECT_PROFILE="${PROJECT_PROFILE:-enabled}"
-SKILLS_TABLE="$(cfg_table 'Review skills' | while IFS='|' read -r _ s src trig sec _rest; do
-    s="$(trim "$s")"; case "$s" in (''|skill|-*|:*) continue;; esac
-    jq -nc --arg s "$s" --arg src "$(trim "$src")" --arg t "$(trim "$trig")" --arg sec "$(trim "$sec")" \
-      '{skill:$s, source:$src, trigger:$t, section:$sec}'
-  done | jq -s .)"; [ -n "$SKILLS_TABLE" ] || SKILLS_TABLE='[]'
+SKILLS_TABLE="$(skills_table_json)"; [ -n "$SKILLS_TABLE" ] || SKILLS_TABLE='[]'
 WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify note _rest; do
     id="$(trim "$id")"; case "$id" in (''|id|-*|:*) continue;; esac
     jq -nc --arg id "$id" --arg w "$(trim "$wf")" --arg n "$(trim "$notify")" --arg note "$(trim "$note")" \
@@ -514,7 +485,9 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
-  --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
+  --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
+  --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg sid "$(cfg survey_interval_days)" \
+  --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
    active_hours:(if $ah=="" then "00-23" else $ah end), active_days:(if $ad=="" then "Mon-Sun" else $ad end),
@@ -538,6 +511,10 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    agent_fixes:(if $af=="enabled" and $afl!="" then "enabled" else "disabled" end),
    agent_fix_label:(if $afl=="" then null else $afl end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
+   benchmark_judge:(if $bj=="" then "off" else $bj end), benchmark_report:(if $br=="off" then "off" else "dam" end),
+   merge_ready_nudge:(if $mrn=="enabled" then "enabled" else "disabled" end),
+   survey:(if $sv=="enabled" then "enabled" else "disabled" end), survey_report:(if $sr=="off" then "off" else "dam" end),
+   survey_interval_days:(if ($sid|test("^[0-9]+$")) then ($sid|tonumber) else 7 end),
    skills_table:$skills, watch_rules:$watches}')"
 
 # Memory budget (docs/preferences.md → Two layers): the caps of the layer every
@@ -626,7 +603,6 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 # ------------------------------------------------------- REVIEWS.md access ----
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
-row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
 # The newest `## Review at` section of PR <n>'s history file, only while it
 # reviewed <head-sha>: a call on older code never stands in for the current
 # one, and a rapid pass (no review-meta) never borrows an older section's.
@@ -671,6 +647,8 @@ sweep_stale_clones() {
     cn="${d##*/review-pr-}"; cn="${cn%%.*}"
     case "$cn" in (''|*[!0-9]*) continue;; esac
     [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] && continue
+    # a fix round writes no lock row: its PR hold is what says it still runs
+    case "$d" in (*.fix) [ "$HOLDS_LIB" -eq 1 ] && hold_live "$cn" >/dev/null && continue;; esac
     [ -n "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ] || continue
     rm -rf "$d" && n=$((n+1))
   done
@@ -685,15 +663,6 @@ flip_awaiting_label() { # number
     > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
 }
 
-# GET with one silent retry, captured per attempt so a failed attempt's error
-# body never reaches the caller -> body on stdout; rc 1 after two failed attempts
-gh_get() { # <gh api args…>
-  local out
-  out="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$out"; return 0; }
-  sleep 1
-  out="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$out"; return 0; }
-  return 1
-}
 # marker scans distinguish three outcomes: a timestamp (marker found), ""
 # (endpoints answered, marker verified absent), and the sentinel __api_error__
 # (an endpoint failed twice — unknown, never to be treated as absent). Callers
@@ -854,7 +823,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
@@ -1003,10 +972,10 @@ if [ "$MODE" = "review" ]; then
 
   # --- per-open-PR decision ---
   while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
-    has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$REREVIEW_LABEL" && has_label=1
-    has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qx "$BOT_LOGIN" && has_request=1
+    has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_LABEL" && has_label=1
+    has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && has_request=1
     triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ]; } && triggered=1
-    URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qx "$URGENT_LABEL" && URG=true
+    URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$URGENT_LABEL" && URG=true
 
     # one-time urgent Slack alert (agent sends; marker in the history file is
     # the dedup — written by the agent right after the send, docs/review.md)
@@ -1127,7 +1096,7 @@ if [ "$MODE" = "review" ]; then
     fi
 
     # artifact assignee gate (independent of the review decision)
-    if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qx "$BOT_LOGIN"; then
+    if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qxF "$BOT_LOGIN"; then
       action="generate"
       if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_unassign"
       else
@@ -1208,11 +1177,9 @@ if [ "$MODE" = "review" ]; then
       done
       SK_NAMES+=("$1"); SK_SRCS+=("$2")
     }
-    while IFS='|' read -r _ skill src _rest; do
-      skill="$(trim "$skill")"; src="$(trim "$src")"
-      case "$skill" in ''|skill|-*) continue;; esac
+    while IFS=$'\t' read -r skill src; do
       sk_add "$skill" "$src"
-    done < <(cfg_table 'Review skills')
+    done < <(printf '%s' "$SKILLS_TABLE" | jq -r '.[] | [.skill, .source] | @tsv')
     if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
       sk_add "$ARTIFACT_SKILL" "$ARTIFACT_SRC"
     fi
@@ -1564,8 +1531,9 @@ if [ "$MODE" = "review" ]; then
     det="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
     [ "$(printf '%s' "$det" | jq -r '.head.sha // ""' 2>/dev/null)" = "$sha" ] \
       || { printf 'the PR detail did not read this head'; return; }
-    [ "$(printf '%s' "$det" | jq -r '.mergeable_state // ""')" = "clean" ] \
-      || { printf 'GitHub reports mergeable_state %s' "$(printf '%s' "$det" | jq -r '.mergeable_state // "unknown"')"; return; }
+    # has_hooks is clean on a host with pre-receive hooks
+    case "$(printf '%s' "$det" | jq -r '.mergeable_state // ""')" in (clean|has_hooks) ;;
+      (*) printf 'GitHub reports mergeable_state %s' "$(printf '%s' "$det" | jq -r '.mergeable_state // "unknown"')"; return;; esac
     [ "$(printf '%s' "$det" | jq '(.additions // 999999) + (.deletions // 999999)')" -le "$AM_MAX" ] \
       || { printf 'more than %s changed lines' "$AM_MAX"; return; }
     [ "$(printf '%s' "$det" | jq '.changed_files // 999')" -le 100 ] \
@@ -1579,14 +1547,31 @@ if [ "$MODE" = "review" ]; then
       case "$f" in (.github/*) printf 'changes %s' "$f"; return;; esac
       path_glob_match "$f" "$AM_HUMAN_PATHS" >/dev/null && { printf 'changes %s (human_review_paths)' "$f"; return; }
     done <<< "$files"
+    # a person's open change request stands, whatever branch protection requires
+    case "$(gh_get "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" '
+        if type != "array" then "unreadable" else
+          [ .[] | select(.user.login != $b) | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+          | group_by(.user.login) | map(last | .state)
+          | if any(. == "CHANGES_REQUESTED") then "changes" else "ok" end end' 2>/dev/null)" in
+      (ok) ;;
+      (changes) printf 'a person requested changes'; return;;
+      (*) printf 'the reviews could not be read'; return;;
+    esac
     ci_json="$(ci_runs "$REPO" "$sha")"
     ci_terminal "$ci_json" || { printf 'checks still running'; return; }
     [ "$(ci_failing "$ci_json" | jq 'length')" -eq 0 ] || { printf 'a check failed'; return; }
+  }
+  # a PR this run reviews or answers first can change its verdict, its triage
+  # or its findings before the merge or fix step: the next run decides on the
+  # review that stands then
+  reviewed_this_run() { # <pr-number>
+    printf '%s\n%s' "$REVIEWS_DUE" "$MENTIONS_DUE" | jq -se --argjson n "$1" 'add | any(.[]; .number == $n)' >/dev/null 2>&1
   }
   MERGES_DUE='[]'
   if [ "$AUTO_MERGE" = "enabled" ]; then
     while IFS=$'\t' read -r n sha; do
       [ -n "$n" ] || continue
+      if reviewed_this_run "$n"; then log "PR #$n: $AM_LABEL present, no auto-merge — this run reviews or answers it first"; continue; fi
       why="$(am_block "$n" "$sha")"
       if [ -n "$why" ]; then log "PR #$n: $AM_LABEL present, no auto-merge — $why"; continue; fi
       MERGES_DUE="$(printf '%s' "$MERGES_DUE" | jq -c --argjson n "$n" --arg sha "$sha" --arg m "$AM_METHOD" '. + [{number:$n, sha:$sha, method:$m}]')"
@@ -1610,6 +1595,7 @@ if [ "$MODE" = "review" ]; then
   if [ "$AGENT_FIXES" = "enabled" ]; then
     while IFS=$'\t' read -r n sha; do
       [ -n "$n" ] || continue
+      if reviewed_this_run "$n"; then log "PR #$n: $AF_LABEL present, no fix — this run reviews or answers it first"; continue; fi
       if grep -qF "<!-- agent-fix: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null; then
         log "PR #$n: $AF_LABEL present, no fix — a fix round of this head already ran"; continue
       fi
@@ -1620,8 +1606,11 @@ if [ "$MODE" = "review" ]; then
         | jq '[.[] | select(type == "object") | select(.severity == "critical" or .severity == "warning")
                | select((.status // "") != "fixed") | select((.fix // "") != "")] | length' 2>/dev/null)"
       case "$nfix" in (''|0|*[!0-9]*) log "PR #$n: $AF_LABEL present, no fix — my review has no open blocking finding with a fix"; continue;; esac
-      hrepo="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r '.head.repo.full_name // ""' 2>/dev/null)"
-      if [ "$hrepo" != "$REPO" ]; then log "PR #$n: $AF_LABEL present, no fix — the head branch is not in the target repository"; continue; fi
+      hrepo="$(gh_get "repos/$REPO/pulls/$n" | jq -r '.head.repo.full_name // ""' 2>/dev/null)"
+      if [ -z "$hrepo" ]; then log "PR #$n: $AF_LABEL present, no fix — the PR could not be read"; continue; fi
+      if [ "$(printf '%s' "$hrepo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" ]; then
+        log "PR #$n: $AF_LABEL present, no fix — the head branch is not in the target repository"; continue
+      fi
       FIXES_DUE="$(printf '%s' "$FIXES_DUE" | jq -c --argjson n "$n" --arg sha "$sha" --argjson k "$nfix" '. + [{number:$n, sha:$sha, findings:$k}]')"
       log "PR #$n: agent fix due at ${sha:0:7} ($nfix finding(s))"
     done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r --arg l "$AF_LABEL" '.[] | select(.labels | index($l)) | [.number, .head_sha] | @tsv')
@@ -1945,18 +1934,14 @@ if [ "$MODE" = "audit" ]; then
   # definition repo, resolved here because the connectivity checks below cover
   # every host the pipeline touches (target, definition, skill sources)
   DEF_REF="$(cfg definition_repo)"
-  [ -z "$DEF_REF" ] && DEF_REF="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null \
-    | sed -E 's#^(git@|https://)##; s#^([^/:]+)[:/]#\1/#; s#\.git$##')"
+  [ -z "$DEF_REF" ] && DEF_REF="$(origin_ref "$HOME_DIR")"
   DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 
   AUDIT_HOSTS="$REPO_HOST"
   [ -n "$DEF_REF" ] && AUDIT_HOSTS="$AUDIT_HOSTS $DEF_HOST"
-  while IFS='|' read -r _ askill asrc _rest; do
-    askill="$(trim "$askill")"; asrc="$(trim "$asrc")"
-    case "$askill" in (''|skill|-*) continue;; esac
-    [ "$asrc" = "harness" ] && continue
+  while IFS= read -r asrc; do
     AUDIT_HOSTS="$AUDIT_HOSTS $(refhost "$asrc")"
-  done < <(cfg_table 'Review skills')
+  done < <(printf '%s' "$SKILLS_TABLE" | jq -r '.[] | select(.source != "harness") | .source')
   AUDIT_HOSTS="$(printf '%s\n' $AUDIT_HOSTS | sort -u | tr '\n' ' ')"
 
   # --- connectivity (one line per host the pipeline uses) ---------------
@@ -2241,16 +2226,13 @@ if [ "$MODE" = "audit" ]; then
   disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
   if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
 
-  while IFS='|' read -r _ skill src _rest; do
-    skill="$(trim "$skill")"; src="$(trim "$src")"
-    case "$skill" in (''|skill|-*) continue;; esac
-    [ "$src" = "harness" ] && continue
+  while IFS=$'\t' read -r skill src; do
     remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
     cached="$(cat "$SKILL_CACHE/$skill.sha" 2>/dev/null || true)"
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
     else check "skill_$skill" ok "installed and current"; fi
-  done < <(cfg_table 'Review skills')
+  done < <(printf '%s' "$SKILLS_TABLE" | jq -r '.[] | select(.source != "harness") | [.skill, .source] | @tsv')
 
   if [ "$SLACK" = "enabled" ]; then
     if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"
@@ -2379,8 +2361,8 @@ if [ "$MODE" = "audit" ]; then
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","stall","housekeeping",
-       "survey","benchmark"] as $k
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","stall",
+       "housekeeping","survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
         by_work: ([ $k[] as $x
@@ -2527,33 +2509,21 @@ if [ "$MODE" = "audit" ]; then
     done < "$WORK/MENTIONS.md"
     mv "$WORK/MENTIONS.md.tmp" "$WORK/MENTIONS.md"
   fi
-  # review ledger: 180 days, not 14 — it is the only record of a merged PR's
-  # reviews once pruning removed the history file, and the trend backfill reads
-  # back over past weeks. Rewritten in one jq pass (the file outgrows a
-  # line-by-line loop) with the same append-during-rewrite caveat as above.
-  if [ -f "$LEDGER" ]; then
-    lk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-          || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-    if [ -n "$lk" ] && jq -c --arg k "$lk" 'select(type == "object" and (.ts // "") >= $k)' \
-         "$LEDGER" > "$LEDGER.tmp" 2>/dev/null; then
-      mv "$LEDGER.tmp" "$LEDGER"
+  # the review ledger and the PR facts: 180 days, not 14 — they are the only
+  # record of a merged PR's reviews and facts once pruning removed the history
+  # file, and the trend backfill reads back over past weeks (docs/audit.md task
+  # 33). Rewritten in one jq pass each (the files outgrow a line-by-line loop)
+  # with the same append-during-rewrite caveat as above.
+  lk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+        || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  for f in "$LEDGER" "$PR_EVENTS"; do
+    [ -f "$f" ] && [ -n "$lk" ] || continue
+    if jq -c --arg k "$lk" 'select(type == "object" and (.ts // "") >= $k)' "$f" > "$f.tmp" 2>/dev/null; then
+      mv "$f.tmp" "$f"
     else
-      rm -f "$LEDGER.tmp"
+      rm -f "$f.tmp"
     fi
-  fi
-  # PR facts: the same 180 days as the review ledger, for the same reason — the
-  # trend artifact reads project health back over past weeks (docs/audit.md
-  # task 33)
-  if [ -f "$PR_EVENTS" ]; then
-    pk="$(date -u -d "@$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-          || date -u -r "$(( NOW_EPOCH - 180*86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-    if [ -n "$pk" ] && jq -c --arg k "$pk" 'select(type == "object" and (.ts // "") >= $k)' \
-         "$PR_EVENTS" > "$PR_EVENTS.tmp" 2>/dev/null; then
-      mv "$PR_EVENTS.tmp" "$PR_EVENTS"
-    else
-      rm -f "$PR_EVENTS.tmp"
-    fi
-  fi
+  done
   logev info log_cleanup "retention: removed $removed events file(s) older than 14d, trimmed HEARTBEAT/SHEPHERD and the mention ledger to 14d, the review ledger and the PR facts to 180d"
 
   # --- 7-day stats -----------------------------------------------------------

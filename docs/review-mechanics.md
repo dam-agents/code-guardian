@@ -55,13 +55,15 @@ and `warning` are the blocking set, so this line is the machine-readable
 approval bar the next re-review checks against. Every anchor is a real line of
 the file it names — `post` nulls one that is not and reports it. Keep the JSON
 free of `--` sequences — HTML-comment safety, use `–`. No findings → `[]`.
-Rapid reviews carry no such line. A review without `fix` (pre-3.1.0) or without
+Rapid reviews carry no such line. A review without `fix` (pre-3.3.0) or without
 `also` (pre-3.22.0) parses as before.
 
 **`review-meta`** — machine state for the next round and for the author's fix
 round, one line above `findings-json`, in every posted full review. It is
 never rendered for a reader: nothing in it appears in the review body, and the
-visible dropped-suggestion count stays as it is. `post` writes `diff_digest`
+visible dropped-suggestion count stays as it is. The line absent (pre-4.1.0),
+unparsable or missing a key → every consumer keeps the behavior it had
+without it. `post` writes `diff_digest`
 ([review-rereview.md](review-rereview.md) → **Re-review output**) and `rereview`
 itself — how the next round is
 requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
@@ -83,8 +85,7 @@ judge; `null` on a quick check), `verified` (≤ ~15 words, what this review
 already checked), `minutes` (your estimate of a human read). `post` forces
 `needs-human` when a changed file matches `human_review_paths`
 ([config.md](config.md)) and records the match in `forced`; an unknown class
-reads as `needs-human`. Absent (pre-3.29.0), unparsable or missing a key →
-every consumer keeps the behavior it had without the line.
+reads as `needs-human`.
 
 ### Mapping findings to inline comments
 
@@ -173,7 +174,7 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   age, has a **newest** `review_step` on it that is non-terminal
   ([review.md](review.md) → **Completion enforcement**) and a newest event of
   any kind inside its window — `HOLDER_QUIET_MIN`, or the fan-out's own when
-  that event is the fan-out — the same rule preflight applies. A run that
+  that event is the fan-out, the windows preflight applies. A run that
   ended releases the PR at once, however many milestones it logged first; a
   run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
   nothing touched, `holder alive at Check 1 — stood down` logged — and you take

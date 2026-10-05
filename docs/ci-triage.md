@@ -57,13 +57,7 @@ is triaged at most once:
 
 ## Known bounds
 
-- **One comment per PR and SHA, ever.** New commits are a new SHA and a new
-  chance; the same commit is never triaged twice.
-- Only PRs this agent reviewed, only while the reviewed SHA is the live HEAD,
-  and only for 24 h after the review posts. Older news is not triaged.
-- The rollup must be **terminal**: a queued or running check holds the triage,
-  so one comment describes the whole run. A job that never finishes inside the
-  window is never triaged.
+- A job that never finishes inside the 24 h window is never triaged.
 - `cancelled` and `action_required` are not failures.
 - State reconstruction (ONBOARDING Step 5) does not rebuild the markers, so a
   reconstructed instance may triage a live SHA once more. Harmless.
@@ -72,5 +66,4 @@ is triaged at most once:
 
 Every comment matched a failing terminal rollup · exactly one comment per PR
 and SHA · the marker was written immediately after the post, and a failed post
-wrote none · no job was restarted and no label changed · `work/` backed up last
-([persistence.md](persistence.md)).
+wrote none · no job was restarted and no label changed.

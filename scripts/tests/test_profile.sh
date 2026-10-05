@@ -267,6 +267,12 @@ assert_jq '.reviews_due[0].skill_routing == {"react-ui-engineering":["packages/b
 assert_jq '.config | .active_hours == "00-23" and .active_days == "Mon-Sun" and .review_interval_active == 5 and .review_interval_quiet == 60' 'cadence keys resolved with their defaults'
 assert_jq '.config | .bot_login == "test-bot" and .review_marker == "cg:review" and .rereview_label == "cg-rereview" and .rereview_trigger == "label" and .mention_replies == "enabled" and .slack_notifications == "disabled" and .project_profile == "enabled" and (.skills_table | length == 3) and .watch_rules == []' 'resolved config with defaults and tables'
 assert_jq '.memory | .memory_limit == 120 and .over_budget == false' 'memory budget measured'
+missing="$(comm -23 \
+  <(sed -n '/^## Keys/,/^## Reader/p' "$REPO_ROOT/docs/config.md" \
+      | grep -oE '\*\*`[a-z_]+`\*\*' | tr -d '*`' | sort -u) \
+  <(printf '%s' "$OUT" | jq -r '.config | keys[]' | sort -u) | tr '\n' ' ')"
+[ -z "$missing" ] && printf 'ok   %s: the config object carries every key of docs/config.md\n' "$CASE" \
+  || { printf 'FAIL %s: keys missing from the config object: %s\n' "$CASE" "$missing"; FAILED=1; }
 [ -f "$WORK/PROFILE.md" ] && printf 'ok   %s: PROFILE.md written under work/\n' "$CASE" || { printf 'FAIL %s: PROFILE.md missing\n' "$CASE"; FAILED=1; }
 
 # --- overlapping trigger lists: every matching skill receives the file ------

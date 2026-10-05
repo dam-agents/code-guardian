@@ -62,9 +62,7 @@ say() { echo "work-backup: $*"; }
 # The backup remote is `work_repo` in work/CONFIG.md — the same reader every
 # other script uses (docs/config.md). Missing key = local-only persistence.
 CONFIG="$WORK/CONFIG.md"
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 \
-        | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-              -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
+. "$SCRIPT_DIR/lib/common.sh"
 WORK_REPO="$(cfg work_repo)"
 
 # restore's exit code is its outcome (header); persist always exits 0
@@ -83,14 +81,11 @@ fi
 EXCLUDES=(--exclude='./.git' --exclude='.nfs*' --exclude='*.lock' --exclude='*.tmp' --exclude='./benchmark/.run-lock')
 SKIP_RE='(^|/)\.nfs|\.lock(/|$)|\.tmp$|^benchmark/\.run-lock$'
 # Append-only or unreconstructable records a persist may never delete
-PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
+PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl PR-EVENTS.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
 
 # work_repo is `[<host>/]<owner>/<repo>`: three segments name the host, two use
 # the ambient default (docs/config.md)
-case "$WORK_REPO" in
-  (*/*/*) WORK_REF="$WORK_REPO";;
-  (*)     WORK_REF="${GH_HOST:-github.com}/$WORK_REPO";;
-esac
+WORK_REF="$(refhost "$WORK_REPO")/$(refslug "$WORK_REPO")"
 REMOTE_URL="${WORK_BACKUP_REMOTE:-https://$WORK_REF}"
 
 # (Re)seed a usable clone in $LOCAL from the durable remote. tmpfs may be empty

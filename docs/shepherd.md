@@ -38,7 +38,7 @@ post-send record step.
 
 ## Scope and brief
 
-Every reviewer-directed entry carries `brief` — the `triage` of my last review
+Every reviewer-directed entry carries `brief` — the `triage` of the agent's last review
 when that review read the current head, else `null`
 ([review-mechanics.md](review-mechanics.md) → **Summary body format**). Under
 `shepherd_scope: needs_human` ([config.md](config.md)) preflight emits no
