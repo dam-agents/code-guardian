@@ -61,6 +61,38 @@ fx_fail 'api repos/acme/widgets/pulls/5'
 run_preflight review
 assert_jq '.prunes_due | length == 0' 'a history file without a row never prunes without a verified state'
 
+# --- only drafts open, or nothing open: the empty non-draft list still prunes --
+new_case prune_drafts_only
+base_config
+pr_json 2 "draft PR" '[]' "$SHA1" | jq '.draft = true' | open_prs_fx
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+closed_pr_fx 5 "$SHA5" true
+run_preflight review
+assert_jq '.prunes_due | length == 1 and .[0].number == 5 and .[0].state == "MERGED"' 'a merged row prunes while every open PR is a draft'
+
+new_case prune_nothing_open
+base_config
+printf '[]' | fx "api repos/$TEST_REPO/pulls?state=open&per_page=100"
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+closed_pr_fx 5 "$SHA5" true
+run_preflight review
+assert_jq '.prunes_due | length == 1 and .[0].number == 5' 'a merged row prunes with no open PR at all'
+
+# --- a carry record or an artifact without history file or row ----------------
+new_case prune_carry_only
+base_config
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+printf '{"sha":"%s","findings":[]}\n' "$SHA5" > "$WORK/reviews/pr-5.carry.json"
+mkdir -p "$WORK/reviews/pr-artifacts"; printf '<html>\n' > "$WORK/reviews/pr-artifacts/pr-4.html"
+closed_pr_fx 5 "$SHA5" true
+closed_pr_fx 4 "$SHA4" false
+run_preflight review
+assert_jq '[.prunes_due[].number] | sort == [4,5]' 'a leftover carry record or artifact prunes'
+printf '{"sha":"%s","findings":[]}\n' "$SHA1" > "$WORK/reviews/pr-1.carry.json"
+run_preflight review
+assert_jq '[.prunes_due[].number] | index(1) == null' 'an open PR'"'"'s carry record never prunes'
+
 # --- a history file for a number with no pull request: skipped, no warning ----
 new_case prune_file_not_a_pr
 base_config
@@ -88,6 +120,10 @@ assert_jq '.checks[] | select(.id == "orphan_history") | .status == "ok"' 'the f
 printf '# PR #5: gone PR\n' > "$WORK/reviews/pr-5.md"
 run_preflight audit
 assert_jq '.checks[] | select(.id == "orphan_history") | .status == "warn" and (.detail | startswith("1 "))' 'the file of a PR outside the open list is an orphan'
+rm -f "$WORK/reviews/pr-5.md"
+printf '{"sha":"%s","findings":[]}\n' "$SHA5" > "$WORK/reviews/pr-5.carry.json"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "orphan_history") | .status == "warn" and (.detail | startswith("1 ")) and (.detail | endswith("#5"))' 'a carry record alone is an orphan too'
 
 # --- RAPID lock + merged PR → closed review entry instead of prune ------------
 new_case closed_rapid_defers_prune

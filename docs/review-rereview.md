@@ -74,7 +74,8 @@ Delta-scope depth ([review.md](review.md) steps c–d):
 
 - **One compare call decides the range, and `prepare` makes it.** Its base is
   the `headRefOid=` of the last review marker; the result is `delta` =
-  `{base, status, reachable, files[]}`. `status: ahead` with a `patch` per file
+  `{base, status, reachable, files[]}`, `files[]` the changed paths as plain
+  strings. `status: ahead` with a `patch` per file
   → `reachable: true`, delta depth on `delta.files[]`. `status: identical`, or
   the base already at HEAD → `reachable: true` with an empty `files[]`, the
   description-only case. Anything else — `diverged` / `behind`, 404, 300 files,
