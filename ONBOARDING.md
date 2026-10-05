@@ -180,7 +180,8 @@ git branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || t
 
 Register the harness hooks — failed tool calls and per-run token usage into the
 structured events log, plus the `Stop` hook that refuses a stop leaving a
-review mid-pipeline (`docs/logging.md` → **Harness adapters**):
+review mid-pipeline — and the auto-mode classifier rules
+(`docs/logging.md` → **Harness adapters**):
 
 ```bash
 bash "$HOME/scripts/harness/claude-code/install.sh"

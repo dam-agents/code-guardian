@@ -374,10 +374,28 @@ write_settings <<'EOF'
 {"hooks":{"PostToolUseFailure":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-tool-event.sh"}]}],
           "PostToolUse":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-review-step.sh"}]}],
           "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}],
-          "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}]}}
+          "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}]},
+ "autoMode":{"environment":["$defaults","[code-guardian] This is an unattended code review agent."]}}
 EOF
 CLAUDECODE=1 run_preflight audit
-assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks registered → ok'
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks and auto-mode rules registered → ok'
+
+# the hooks alone, without the [code-guardian] auto-mode rules: install.sh not re-run
+HOOKS_ONLY="$(jq 'del(.autoMode)' "$FAKE_HOME/.claude/settings.json")"
+printf '%s\n' "$HOOKS_ONLY" | write_settings
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("autoMode-rules"))' 'missing auto-mode rules warn'
+
+# rules written before definition_repo was configured lack the tracking-issue rule
+new_case audit_hooks_stale_automode
+base_config '- definition_repo: acme/guardian'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '%s\n' "$HOOKS_ONLY" | jq '.autoMode.allow = ["$defaults", "[code-guardian] Uploading a file under work/audit/."]' | write_settings
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("autoMode-rules"))' 'rules without the definition repo warn'
+printf '%s\n' "$HOOKS_ONLY" | jq '.autoMode.allow = ["$defaults", "[code-guardian] Opening a tracking issue on acme/guardian with gh issue create."]' | write_settings
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'rules naming the definition repo → ok'
 
 new_case audit_hooks_missing_step_logger
 base_config

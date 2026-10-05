@@ -2324,8 +2324,14 @@ if [ "$MODE" = "audit" ]; then
       grep -q "harness/claude-code/$h" "$HOME_DIR/.claude/settings.json" 2>/dev/null \
         || hooks_missing="$hooks_missing $h"
     done
+    # the tracking-issue rule names definition_repo: rules written before it
+    # was configured, or for another slug, are stale
+    am_def="$(cfg definition_repo)"; am_def="${am_def#github.com/}"
+    jq -e --arg d "$am_def" '([.autoMode.environment[]?, .autoMode.allow[]? | strings | select(startswith("[code-guardian]"))] | length > 0)
+        and ($d == "" or ([.autoMode.allow[]? | strings | select(startswith("[code-guardian]") and contains($d))] | length > 0))' \
+      "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1 || hooks_missing="$hooks_missing autoMode-rules"
     if [ -z "$hooks_missing" ]; then
-      check harness_adapter ok "Claude Code hooks registered (tool logging + review-completion enforcement)"
+      check harness_adapter ok "Claude Code hooks and auto-mode rules registered (tool logging + review-completion enforcement)"
     else
       check harness_adapter warn "Claude Code hooks not registered:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
