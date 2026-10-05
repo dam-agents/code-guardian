@@ -416,6 +416,18 @@ ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
 STALL_ALERT_THRESHOLD="$(cfg stall_alert_threshold)"
 STALL_ALERT_THRESHOLD="${STALL_ALERT_THRESHOLD:-4}"
+# one takeover event -> {ts, pr, lock}; lock = "" on a line written before 8.2.1
+STALL_SEL='select(.event == "preflight" and (.msg | test("stale in_progress lock")))
+  | {ts, pr: (.msg | capture("PR #(?<n>[0-9]+)") | .n | tonumber),
+     lock: ((.msg | capture("locked (?<l>[^ )]+)") | .l) // "")}'
+# stalls(scope): takeover events -> one event per stall, its first line. A
+# keyed line counts once per (PR, lock time); an unkeyed line once per (PR,
+# scope), and only when no keyed line of that PR shares the scope
+STALL_DEFS='def stalls(scope): map(.scope = (.ts | scope))
+  | ([.[] | select(.lock != "") | [.pr, .scope]] | unique) as $kp
+  | (map(select(.lock != "")) | group_by([.pr, .lock]) | map(min_by(.ts)))
+    + (map(select(.lock == "" and ([.pr, .scope] | IN($kp[]) | not)))
+       | group_by([.pr, .scope]) | map(min_by(.ts)));'
 case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
@@ -603,15 +615,22 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
 row_field()    { printf '%s' "$1" | cut -d'|' -f"$2" | sed -e 's/^ *//' -e 's/ *$//'; }
-# prune candidates: every row in row order, then every history file without a
-# row — the urgent alert, an override or a CI triage marker writes the file
-# before the first review, and a draft's status reset deletes the row
-prune_candidates() {
+# the PR numbers that own a file in reviews/ — the history file, the carry
+# record, the review artifact (the files a prune deletes)
+pr_file_numbers() {
   local f
+  for f in "$WORK"/reviews/pr-*.md "$WORK"/reviews/pr-*.carry.json "$WORK"/reviews/pr-artifacts/pr-*.html; do
+    [ -e "$f" ] || continue
+    f="${f##*/pr-}"; f="${f%%.*}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
+  done | sort -un
+}
+# prune candidates: every row in row order, then every PR file owner without a
+# row — the urgent alert, an override or a CI triage marker writes the file
+# before the first review, a draft's status reset deletes the row, and a prune
+# cut short leaves the rest of the PR's files behind
+prune_candidates() {
   reviews_rows | cut -d'|' -f2 | tr -d ' '
-  for f in "$WORK"/reviews/pr-*.md; do
-    f="${f##*/pr-}"; f="${f%.md}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
-  done | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-') | sort -un
+  pr_file_numbers | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-')
 }
 
 # stale-clone sweep: clones a dead session never removed (live-run cleanup is
@@ -899,11 +918,11 @@ if [ "$MODE" = "review" ]; then
   }
 
   # --- prune detection (verified per PR; the agent executes the prune) ---
+  # an empty open list is a true count (the list call fails the run on any
+  # non-array answer), so drafts-only or no open PR still prunes
   PRUNE_STATES="$PF_TMP/prune-states.jsonl"; : > "$PRUNE_STATES"
-  if [ "$OPEN_COUNT" -gt 0 ]; then
-    prune_states $(prune_candidates | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
-      > "$PRUNE_STATES"
-  fi
+  prune_states $(prune_candidates | grep -vxF -f <(open_numbers; echo '-') | sort -un) \
+    > "$PRUNE_STATES"
   for n in $(prune_candidates); do
     if open_numbers | grep -qx "$n"; then
       # Open, but absent from the non-draft set = turned draft. A draft is never
@@ -922,7 +941,6 @@ if [ "$MODE" = "review" ]; then
       fi
       continue
     fi
-    if [ "$OPEN_COUNT" -eq 0 ]; then log "open PR list empty while rows or history files exist — prune detection skipped (anomaly)"; break; fi
     PJ="$(jq -c --argjson n "$n" 'select(.n == $n) | .pj' "$PRUNE_STATES" 2>/dev/null | head -1)"
     [ -n "$PJ" ] || PJ="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
     # a number with no pull request (a history file named for an issue): no
@@ -990,7 +1008,7 @@ if [ "$MODE" = "review" ]; then
         else
           kind="first"; rr_posted "$WORK/reviews/pr-$n.md" && kind="re-review"
           full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
-          log "PR #$n: stale in_progress lock (${age}m) — takeover"
+          log "PR #$n: stale in_progress lock (${age}m, locked $row_ts) — takeover"
           add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
         fi
       elif [ "$row_sha" = "$sha" ]; then
@@ -1423,32 +1441,29 @@ if [ "$MODE" = "review" ]; then
   # One stall is normal (HEAD moved, pod restart); a cluster is pathological, so
   # count the last 24h of `stale in_progress lock` takeovers across the event
   # log and emit ONE alert per UTC day when the threshold is reached.
-  # Cheap by construction: two small log files, no API calls, no extra run.
+  # A stall is one dead lock: every heartbeat that meets the same lock logs the
+  # takeover again, so events count once per (PR, lock time) — a line without
+  # `locked <ts>` (written before 8.2.1) once per PR, and not at all next to a
+  # line of that PR that names its lock.
+  # Cheap by construction: the retained log files, no API calls, no extra run.
   if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
     STALL_SINCE="$(( NOW_EPOCH - 86400 ))"
-    STALL_N=0; STALL_PRS=""
-    for lf in "$LOG_DIR/events-$(date -u -d @"$STALL_SINCE" +%Y-%m-%d 2>/dev/null \
-                || date -u -r "$STALL_SINCE" +%Y-%m-%d 2>/dev/null)" \
-              "$LOG_DIR/events-$(date -u +%Y-%m-%d).jsonl"; do
-      case "$lf" in (*.jsonl) ;; (*) lf="$lf.jsonl";; esac
-      [ -f "$lf" ] || continue
-      while IFS="$(printf '\t')" read -r ets pr; do
-        [ -n "$pr" ] || continue
-        [ "$(iso2epoch "$ets")" -ge "$STALL_SINCE" ] || continue
-        STALL_N=$((STALL_N+1))
-        case " $STALL_PRS " in (*" $pr "*) ;; (*) STALL_PRS="$STALL_PRS $pr";; esac
-      done < <(jq -r 'select(.event == "preflight" and (.msg | test("stale in_progress lock")))
-                      | [.ts, (.msg | capture("PR #(?<n>[0-9]+)") | .n)] | @tsv' "$lf" 2>/dev/null)
-    done
-    STALL_PRS="${STALL_PRS# }"
+    STALL_SINCE_ISO="$(date -u -d @"$STALL_SINCE" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                       || date -u -r "$STALL_SINCE" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+    STALL_EVENTS="$(for f in "$LOG_DIR"/events-*.jsonl; do
+        [ -f "$f" ] && jq -c "$STALL_SEL" "$f" 2>/dev/null
+      done | jq -sc '.' 2>/dev/null)"
+    [ -n "$STALL_EVENTS" ] || STALL_EVENTS='[]'
+    # the window: one scope, so an unkeyed line is one stall per PR
+    STALL_WIN="$(printf '%s' "$STALL_EVENTS" | jq -c --arg s "$STALL_SINCE_ISO" \
+      "$STALL_DEFS"' map(select(.ts >= $s)) | stalls("")')"
+    STALL_N="$(printf '%s' "$STALL_WIN" | jq length)"; STALL_N="${STALL_N:-0}"
+    STALL_PRS="$(printf '%s' "$STALL_WIN" | jq -r '[.[].pr] | unique | map(tostring) | join(" ")')"
     # per-UTC-day counts over the retained log window — turns "22 today" into a
-    # trend the operator can read (is this new, or every day?)
-    STALL_WEEK="$(for f in "$LOG_DIR"/events-*.jsonl; do
-        [ -f "$f" ] || continue
-        d="$(basename "$f" .jsonl)"; d="${d#events-}"
-        c="$(jq -r 'select(.event == "preflight" and (.msg | test("stale in_progress lock"))) | 1' "$f" 2>/dev/null | grep -c . || true)"
-        [ "${c:-0}" -gt 0 ] && jq -nc --arg d "$d" --argjson c "${c:-0}" '{day:$d, stalls:$c}'
-      done | jq -sc 'sort_by(.day) | .[-7:]')"
+    # trend the operator can read (is this new, or every day?). A stall counts
+    # on the day of its first line, an unkeyed line once per PR and day
+    STALL_WEEK="$(printf '%s' "$STALL_EVENTS" | jq -c "$STALL_DEFS"' stalls(.[0:10])
+      | group_by(.ts[0:10]) | map({day: .[0].ts[0:10], stalls: length}) | sort_by(.day) | .[-7:]')"
     [ -n "$STALL_WEEK" ] || STALL_WEEK='[]'
     # dedup: the marker records the last UTC day an alert was emitted. Claimed
     # with mkdir (atomic on the shared volume) so two concurrent heartbeats
@@ -1922,16 +1937,16 @@ if [ "$MODE" = "audit" ]; then
   elif [ -n "$unread" ]; then check closed_rows warn "close time unreadable (API) for rows of non-open PRs: $unread$pend_note"
   else check closed_rows ok "every row maps to an open PR$pend_note"; fi
 
-  # an open PR keeps its file without a row (the urgent alert before the first
+  # an open PR keeps its files without a row (the urgent alert before the first
   # review, a draft's override); a non-open one is a prune that did not happen
-  orphan_files=0
-  for f in "$WORK"/reviews/pr-*.md; do
-    [ -f "$f" ] || continue
-    n="${f##*/pr-}"; n="${n%.md}"
+  orphans=""
+  for n in $(pr_file_numbers); do
     [ -n "$(row_for "$n")" ] && continue
-    open_numbers | grep -qx "$n" || orphan_files=$((orphan_files+1))
+    open_numbers | grep -qx "$n" || orphans="$orphans #$n"
   done
-  [ "$orphan_files" -gt 0 ] && check orphan_history warn "$orphan_files history files without a REVIEWS.md row or an open PR" || check orphan_history ok "every history file has a row or an open PR"
+  if [ -n "$orphans" ]; then
+    check orphan_history warn "$(printf '%s' "$orphans" | wc -w | tr -d ' ') PR(s) keep reviews/ files without a REVIEWS.md row or an open PR:$orphans"
+  else check orphan_history ok "every reviews/ file has a row or an open PR"; fi
 
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail

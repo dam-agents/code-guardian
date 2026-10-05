@@ -11,12 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 8.3.0 — 2026-10-02
+## 8.3.0 — 2026-10-05
 
 **Upgrade:** Re-run `bash "$HOME/scripts/harness/claude-code/install.sh"`
 (idempotent) to add the `[code-guardian]` auto-mode rules to
 `~/.claude/settings.json`; effective from the next session. **Operator-only:**
 remove any hand-written `autoMode` rules that duplicate them.
+
+## 8.2.1 — 2026-10-02
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 8.2.0 — 2026-10-01
 
