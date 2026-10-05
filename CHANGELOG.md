@@ -14,7 +14,8 @@ they are released history and stay as written.
 ## 8.4.0 — 2026-10-05
 
 **Upgrade:** Re-register each review heartbeat (`code-guardian-review-active`,
-`…-review-quiet`, `…-review-offdays`) whose task text still says "read
+`code-guardian-review-quiet`, `code-guardian-review-offdays`) whose task text
+still says "read
 docs/review.md and docs/skills.md", per ONBOARDING Step 6 (create the corrected
 schedule, then `delete_schedule` the old id; keep its name, cron and
 `precheck`). Idempotent — skip a schedule that already carries the Step 6a
