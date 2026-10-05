@@ -1948,8 +1948,10 @@ cmd_merge() {
     out "$(jq -nc --arg s "$sha" --arg m "$method" '{outcome:"merged", sha:$s, method:$m}')"
   fi
   [ -n "$err" ] || err="$(printf '%s' "$resp" | jq -r '.message // "no merge in the answer"' 2>/dev/null)"
-  # only GitHub's own refusal marks the head; a transport fault is retried
-  if ! printf '%s' "$err" | grep -qE 'HTTP 4[0-9][0-9]'; then
+  # only GitHub's own refusal marks the head; a transport fault or a rate
+  # limit (HTTP 429, or 403 with "rate limit") is retried
+  if ! printf '%s' "$err" | grep -qE 'HTTP 4[0-9][0-9]' \
+     || printf '%s' "$err" | grep -qiE 'HTTP 429|rate limit'; then
     logev warn auto_merge "PR #$N: auto-merge at ${sha:0:7} did not complete — $err; the next run retries"
     out "$(jq -nc --arg s "$sha" --arg e "$err" '{outcome:"error", sha:$s, reason:$e}')"
   fi

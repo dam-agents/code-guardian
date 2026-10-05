@@ -512,6 +512,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
+  --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -529,6 +530,10 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    work_repo:(if $wr=="" then null else $wr end),
    shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
    human_review_paths:(if $hp=="" then null else $hp end),
+   auto_merge:(if $am=="enabled" and $aml!="" then "enabled" else "disabled" end),
+   auto_merge_label:(if $aml=="" then null else $aml end),
+   auto_merge_max_lines:(if ($amx|test("^[0-9]+$")) then ($amx|tonumber) else 100 end),
+   auto_merge_method:(if ($amm|IN("merge","squash","rebase")) then $amm else "squash" end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -1561,7 +1566,8 @@ if [ "$MODE" = "review" ]; then
     files="$(gh api "repos/$REPO/pulls/$n/files?per_page=100" 2>/dev/null)"
     printf '%s' "$files" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
       || { printf 'the changed files could not be read'; return; }
-    files="$(printf '%s' "$files" | jq -r '.[].filename')"
+    # a rename names its old path too: moving a file out of .github/ changes it
+    files="$(printf '%s' "$files" | jq -r '.[] | .filename, (.previous_filename // empty)')"
     while IFS= read -r f; do
       case "$f" in (.github/*) printf 'changes %s' "$f"; return;; esac
       path_glob_match "$f" "$AM_HUMAN_PATHS" >/dev/null && { printf 'changes %s (human_review_paths)' "$f"; return; }
