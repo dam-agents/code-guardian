@@ -161,10 +161,11 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
   `HOLDER_QUIET_MIN`, or when another run with a `locked` step on it, at any
   age, has a **newest** `review_step` on it that is non-terminal
-  ([review.md](review.md) → **Completion enforcement**) and inside its window —
-  `HOLDER_QUIET_MIN`, or the fan-out's own when that step is
-  `fanned out (n=…)`. A run that ended releases the PR at once, however many
-  milestones it logged first; a run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
+  ([review.md](review.md) → **Completion enforcement**) and a newest event of
+  any kind inside its window — `HOLDER_QUIET_MIN`, or the fan-out's own when
+  that event is the fan-out — the same rule preflight applies. A run that
+  ended releases the PR at once, however many milestones it logged first; a
+  run that never locked it holds nothing. Then it stands down — `outcome: stand_down`,
   nothing touched, `holder alive at Check 1 — stood down` logged — and you take
   the next PR. An older tree with no such event is a dead run's leftover and is
   reclaimed; the lock write comes after this check. Standing down protects a

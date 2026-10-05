@@ -469,14 +469,18 @@ holder_alive() {
       | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
           'def stepof: .msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
            ([$cut, $fcut] | min) as $scan
-           | [ .[] | select((.msg|startswith($n)) and .run != $me and .event == "review_step") ] as $pr
+           | [ .[] | select(.run != $me) ] as $other
+           | [ $other[] | select((.msg|startswith($n)) and .event == "review_step") ] as $pr
            | ([ $pr[] | select(stepof | test("^locked( |$)")) | .run ] | unique) as $held
-           | [ $pr[] | select(.ts >= $scan and (.run | IN($held[]))) ]
-           | group_by(.run)
-           | map( (sort_by(.ts) | last) as $l
-                  | ($l | stepof) as $step
-                  | select(($step | test("^(done|aborted|posted)( |$)")) | not)
-                  | select($l.ts >= (if ($step | test("fanned out")) then $fcut else $cut end)) )
+           # a holder still owes this PR while its newest step on it is not
+           # terminal; it is alive while its newest event of any kind is inside
+           # the window — the rule preflight and lib/holds.sh apply
+           | [ $held[] as $r
+               | ([ $pr[] | select(.run == $r) ] | sort_by(.ts) | last | stepof) as $step
+               | select(($step | test("^(done|aborted|posted)( |$)")) | not)
+               | ([ $other[] | select(.run == $r and .ts >= $scan) ] | sort_by(.ts) | last) as $l
+               | select($l != null)
+               | select($l.ts >= (if (($l.msg // "") | test("fanned out")) then $fcut else $cut end)) ]
            | length' 2>/dev/null)"
     foreign="${foreign:-0}"
   fi

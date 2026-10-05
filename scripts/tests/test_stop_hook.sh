@@ -90,6 +90,23 @@ run_hook r1
 assert_rc 2 'a single unfinished PR still blocks'
 assert_file_contains "$SANDBOX/stderr" 'PR(s) 11' 'only the owed PR is named'
 
+# --- a lock after an abort owes its own terminal step -------------------------
+# HEAD moved mid-review: the first lock aborted, the review restarted at the new
+# SHA. The earlier `aborted` must not cover the newer lock.
+hook_case stop_relock_after_abort
+step r1 "PR #10 abc1234 locked"
+step r1 "PR #10 abc1234 aborted HEAD moved"
+step r1 "PR #10 def5678 locked"
+step r1 "PR #10 def5678 fanned out (n=4)"
+run_hook r1
+assert_rc 2 'a re-lock after an abort still blocks'
+assert_file_contains "$SANDBOX/stderr" 'PR(s) 10' 'stderr names the re-locked PR'
+assert_file_contains "$EVENTS" "after .fanned out (n=4)." \
+  'the logged event names the step of the newer lock'
+step r1 "PR #10 def5678 done"
+run_hook r1
+assert_rc 0 'the re-lock terminated stops cleanly'
+
 # --- another run's stall is not ours -----------------------------------------
 hook_case stop_other_run
 step r1 "PR #10 abc1234 locked"
@@ -150,7 +167,7 @@ assert_rc 0 "yesterday's lock terminated today stops cleanly"
 # produced a false mid-pipeline block (docs/logging.md → The shape is a contract)
 hook_case stop_offcadence_filename
 step r1 "PR #10 abc1234 locked"
-jq -nc '{ts:"2026-07-30T23:58:00Z", run:"r1", job:"review", level:"info",
+jq -nc '{ts:"2026-07-31T10:05:00Z", run:"r1", job:"review", level:"info",
          event:"review_step", msg:"PR #10 abc1234 done"}' \
   >> "$WORK/logs/events-2026-07-30.jsonl"
 run_hook r1
