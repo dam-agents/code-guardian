@@ -452,6 +452,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     **Yes** → `merge_ready_nudge: enabled`. Default off; it needs no schedule
     of its own, because the shepherd sweep already runs.
+
+    Then ask about the nudge scope (`docs/shepherd.md` → **Scope and brief**):
+
+    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Quick checks then get no reminder. Which paths always need a person (for example `migrations/*, src/auth/*`)?
+
+    **Only those** → `shepherd_scope: needs_human`; **every PR or no reply** →
+    omit the key. A path list → `human_review_paths: <globs>`; none → omit.
 12. **Codebase survey** — the weekly deep pass over one area of the repository
     (`docs/survey.md`). Ask:
 
@@ -499,6 +506,8 @@ Final shape:
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
+- shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; omit = all
+- human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
 - survey: enabled                      # weekly deep pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_interval_days: 7              # floor between two passes; omit = 7

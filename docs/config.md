@@ -141,6 +141,15 @@ below is for the manual fallback and the direct session.
   ([shepherd.md](shepherd.md) → **Ready to land**). Needs
   `slack_notifications: enabled` like every other nudge, and reads the rollup
   through the same reader as the CI triage.
+- **`shepherd_scope`** — `all` | `needs_human`. **Missing = `all`.** Which PRs
+  get reviewer-directed nudges: every waiting PR, or only those whose last
+  review of the current head did not call a quick check
+  ([shepherd.md](shepherd.md) → **Scope and brief**). Author-directed,
+  conflict and ready-to-land nudges are never filtered.
+- **`human_review_paths`** — comma-separated shell globs (`*` crosses `/`),
+  for example `` `migrations/*, src/auth/*` ``. **Missing = none.** A PR that
+  changes a matching file always records triage `needs-human`
+  ([review-mechanics.md](review-mechanics.md) → **Summary body format**).
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
   target of the stalled-review alert. Slack-only key, legitimately absent when
   Slack is disabled.

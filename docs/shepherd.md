@@ -36,6 +36,15 @@ post-send record step.
   `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
   `chatId`).
 
+## Scope and brief
+
+Every reviewer-directed entry carries `brief` — the `triage` of my last review
+when that review read the current head, else `null`
+([review-mechanics.md](review-mechanics.md) → **Summary body format**). Under
+`shepherd_scope: needs_human` ([config.md](config.md)) preflight emits no
+reviewer-directed nudge for a PR whose `brief.class` is `quick-check`; a PR
+with no current triage counts as one that needs a person.
+
 ## Target selection (`needs_target_selection: true`)
 
 When a reviewer-directed nudge has no persisted targets and no requested
@@ -92,6 +101,11 @@ for that approval, so the PR is told exactly once. An approval submitted after
 the message — the second one, once new commits dropped the first — is a new
 landing moment and is announced again.
 
+**Brief tail** — when `brief` is non-null, every reviewer-directed template
+ends, before `<url>`, with the parts that have a value:
+`≈ <minutes> min · Why: <why> · Checked: <verified>`. A `forced` match adds
+`· Sensitive path: <forced>`. With a brief, `Focus:` comes from `why` first.
+
 The focus line comes from the targets' expertise plus the PR content. Level 4 =
 widen and hold: include the `escalation` mention from the worklist when its
 `slack_id` is present (missing → send without it and log). Preflight marks the
@@ -126,7 +140,8 @@ cell.
 
 ## Shepherd-run self-check
 
-Every send matched a `nudges_due` entry · every sent nudge's `row_update` was
+Every send matched a `nudges_due` entry · every reviewer-directed nudge with a
+`brief` carried its tail · every sent nudge's `row_update` was
 written immediately AFTER the send, with a real UTC `last_nudge_at`, and a
 failed send left its row untouched · only roster `slack_id`s mentioned ·
 targets persisted when selected · a ready-to-land entry sent to its author
