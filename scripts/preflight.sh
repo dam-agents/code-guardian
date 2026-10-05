@@ -513,6 +513,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
+  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -534,6 +535,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    auto_merge_label:(if $aml=="" then null else $aml end),
    auto_merge_max_lines:(if ($amx|test("^[0-9]+$")) then ($amx|tonumber) else 100 end),
    auto_merge_method:(if ($amm|IN("merge","squash","rebase")) then $amm else "squash" end),
+   agent_fixes:(if $af=="enabled" and $afl!="" then "enabled" else "disabled" end),
+   agent_fix_label:(if $afl=="" then null else $afl end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -821,11 +824,11 @@ hk_batch_since() { # <pending count>
 }
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
-  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}"
+  local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
   local hk_only=false hk_n=0 hk_since hk_age=0
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges"; do
+  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
   # a due stall alert is work in its own right — never let it be swallowed by an
@@ -856,14 +859,14 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" --argjson stall "${STALL_ALERT:-null}" \
     --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
     "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
-      status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, skills:$skills, logs:$logs}
+      status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
      + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
@@ -879,7 +882,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
 # trigger, not here.
 READ_SET_JQ='def read_set:
   if .housekeeping_only then ["docs/review-bookkeeping.md"] else
-    (if [.reviews_due, .mentions_due, .ci_failures_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
     + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
     + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
@@ -894,6 +897,7 @@ READ_SET_JQ='def read_set:
     + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
     + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
     + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
+    + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
     + ["work/MEMORY.md", "work/LESSONS.md"]
   end;'
 
@@ -1540,6 +1544,9 @@ if [ "$MODE" = "review" ]; then
     local n="$1" sha="$2" row sec meta det files f ci_json
     grep -qF "<!-- auto-merge-failed: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null \
       && { printf 'a merge of this head already failed'; return; }
+    # a person reviews a fix of mine (docs/agent-fixes.md)
+    grep -qF "<!-- agent-fix-pushed: " "$WORK/reviews/pr-$n.md" 2>/dev/null \
+      && { printf 'the PR carries a fix of mine'; return; }
     row="$(row_for "$n")"
     { [ "$(row_field "$row" 3)" = "$sha" ] && [ "$(row_field "$row" 5)" = "APPROVE" ] \
       && [ "$(row_field "$row" 6)" = "done" ]; } \
@@ -1585,6 +1592,39 @@ if [ "$MODE" = "review" ]; then
       MERGES_DUE="$(printf '%s' "$MERGES_DUE" | jq -c --argjson n "$n" --arg sha "$sha" --arg m "$AM_METHOD" '. + [{number:$n, sha:$sha, method:$m}]')"
       log "PR #$n: auto-merge due at ${sha:0:7}"
     done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r --arg l "$AM_LABEL" '.[] | select(.labels | index($l)) | [.number, .head_sha] | @tsv')
+  fi
+
+  # ---------------------------------------------------------- agent fixes ----
+  # docs/agent-fixes.md: a PR a person labeled, whose current head my review
+  # left with open blocking findings that state their fix, gets one fix round.
+  AGENT_FIXES="$(cfg agent_fixes)"; AGENT_FIXES="${AGENT_FIXES:-disabled}"
+  case "$AGENT_FIXES" in
+    (enabled|disabled) ;;
+    (*) log "agent_fixes '$AGENT_FIXES' unknown — treating as disabled"; AGENT_FIXES=disabled;;
+  esac
+  AF_LABEL="$(cfg agent_fix_label)"
+  if [ "$AGENT_FIXES" = "enabled" ] && [ -z "$AF_LABEL" ]; then
+    log_warn "agent_fixes is enabled without agent_fix_label — agent fixes are off this run"; AGENT_FIXES=disabled
+  fi
+  FIXES_DUE='[]'
+  if [ "$AGENT_FIXES" = "enabled" ]; then
+    while IFS=$'\t' read -r n sha; do
+      [ -n "$n" ] || continue
+      if grep -qF "<!-- agent-fix: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null; then
+        log "PR #$n: $AF_LABEL present, no fix — a fix round of this head already ran"; continue
+      fi
+      sec="$(last_review_section "$n" "$sha")"
+      if [ -z "$sec" ]; then log "PR #$n: $AF_LABEL present, no fix — no review of mine on this head"; continue; fi
+      nfix="$(printf '%s\n' "$sec" | grep -o '<!-- findings-json: .* -->' | tail -1 \
+        | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//' \
+        | jq '[.[] | select(type == "object") | select(.severity == "critical" or .severity == "warning")
+               | select((.status // "") != "fixed") | select((.fix // "") != "")] | length' 2>/dev/null)"
+      case "$nfix" in (''|0|*[!0-9]*) log "PR #$n: $AF_LABEL present, no fix — my review has no open blocking finding with a fix"; continue;; esac
+      hrepo="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null | jq -r '.head.repo.full_name // ""' 2>/dev/null)"
+      if [ "$hrepo" != "$REPO" ]; then log "PR #$n: $AF_LABEL present, no fix — the head branch is not in the target repository"; continue; fi
+      FIXES_DUE="$(printf '%s' "$FIXES_DUE" | jq -c --argjson n "$n" --arg sha "$sha" --argjson k "$nfix" '. + [{number:$n, sha:$sha, findings:$k}]')"
+      log "PR #$n: agent fix due at ${sha:0:7} ($nfix finding(s))"
+    done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r --arg l "$AF_LABEL" '.[] | select(.labels | index($l)) | [.number, .head_sha] | @tsv')
   fi
 
   apply_holds mentions

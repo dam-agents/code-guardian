@@ -220,6 +220,28 @@ run_verify
 assert_rc 1 'auto_merge without its label fails'
 assert_out 'FAIL config-auto_merge_label' 'names the missing label key'
 
+new_case agent_fix_keys_valid
+seed_home; seed_memory; seed_lessons
+verify_config '- agent_fixes: enabled' '- agent_fix_label: cg-fix'
+run_verify
+assert_out 'ok +config-agent_fixes ' 'the switch is validated'
+assert_out 'ok +config-agent_fix_label' 'the fix label is present'
+assert_not_out 'FAIL config-agent_fix' 'valid agent-fix keys pass'
+
+new_case agent_fixes_invalid
+seed_home; seed_memory; seed_lessons
+verify_config '- agent_fixes: enable'
+run_verify
+assert_rc 1 'a misspelled agent_fixes fails'
+assert_out 'FAIL config-agent_fixes ' 'names the switch'
+
+new_case agent_fixes_without_label
+seed_home; seed_memory; seed_lessons
+verify_config '- agent_fixes: enabled'
+run_verify
+assert_rc 1 'agent_fixes without its label fails'
+assert_out 'FAIL config-agent_fix_label' 'names the missing label key'
+
 new_case cadence_keys_valid
 seed_home; seed_memory; seed_lessons
 verify_config '- active_hours: 08-21' '- active_days: Mon-Fri' \

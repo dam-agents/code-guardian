@@ -1,7 +1,8 @@
 # Reviewing a PR
 
 Read this file when the worklist's `read_set` names it — `reviews_due`,
-`mentions_due` or `ci_failures_due` non-empty — or before an on-demand review.
+`mentions_due`, `ci_failures_due` or `fixes_due` non-empty — or before an
+on-demand review.
 Preflight decided; you act. `scripts/review-pr.sh` performs the mechanical
 steps, and its two HEAD-freshness checks plus the pre-post dedup re-check guard
 the window between preflight and post time. The cases a first review rarely

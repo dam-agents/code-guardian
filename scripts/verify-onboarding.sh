@@ -207,7 +207,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -247,6 +247,15 @@ EOF
       else
         fail config-auto_merge_label "auto_merge is enabled without a label" \
           "set auto_merge_label to the human-managed consent label (docs/config.md)"
+      fi
+    fi
+    chk_enum agent_fixes 'enabled|disabled' 'enabled | disabled'
+    if [ "$(cfg agent_fixes)" = "enabled" ]; then
+      if [ -n "$(cfg agent_fix_label)" ]; then
+        ok config-agent_fix_label "'$(cfg agent_fix_label)'"
+      else
+        fail config-agent_fix_label "agent_fixes is enabled without a label" \
+          "set agent_fix_label to the human-managed label that asks for a fix round (docs/config.md)"
       fi
     fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'

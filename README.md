@@ -56,6 +56,11 @@ PR what is due:
   it as a quick check and every gate holds — clean mergeable state, green
   checks, size cap, no `.github/` or sensitive path
   ([`docs/auto-merge.md`](docs/auto-merge.md)).
+- With the admin's opt-in (`agent_fixes`, off by default), a person's
+  `agent_fix_label` asks for one round in which the agent fixes its own
+  blocking findings and pushes one commit to the PR branch — never to a fork,
+  never past a commit pushed meanwhile; such a PR never auto-merges
+  ([`docs/agent-fixes.md`](docs/agent-fixes.md)).
 
 **Shepherd sweep** — hourly on working days and hours; exists only when Slack
 notifications were enabled. `preflight.sh shepherd` classifies every open
@@ -235,6 +240,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
 | `human_review_paths` | asked with Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
 | `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
+| `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |

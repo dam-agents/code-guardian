@@ -144,6 +144,17 @@ below is for the manual fallback and the direct session.
 - **`auto_merge_method`** — `squash` | `merge` | `rebase`. **Missing =
   `squash`**; an unknown value is logged and reads as `squash`.
 
+### Agent fixes (off until the admin opts in)
+
+- **`agent_fixes`** — `enabled` | `disabled`. **Missing = `disabled`.** A PR a
+  person labeled with `agent_fix_label` gets one round in which I fix my own
+  open blocking findings and push to its branch
+  ([agent-fixes.md](agent-fixes.md)). Only the repository admin enables it
+  (ONBOARDING Step 4).
+- **`agent_fix_label`** — the **human-managed** label that asks for one round;
+  I remove it when the round starts. Required while `agent_fixes` is
+  `enabled`; missing → agent fixes stay off, logged once per run.
+
 ### Slack, audit, survey, benchmark
 
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack.

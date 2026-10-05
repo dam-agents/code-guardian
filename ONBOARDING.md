@@ -392,6 +392,14 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      (validated or created like the re-review label), and
      `auto_merge_max_lines` / `auto_merge_method` only when they differ from
      the defaults. Anyone else, or no reply → omit the keys.
+   - **`agent_fixes`** — asked of the **repository admin** only; default off
+     (omit the keys). Ask:
+
+     > When a person adds a label to a PR, I can fix the blocking findings of my own last review and push one commit to the PR branch — never to a fork, never past a commit someone else pushed meanwhile (`docs/agent-fixes.md`). I remove the label when I start, and a person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that? If yes, which label?
+
+     **Yes from the admin** → `agent_fixes: enabled` and `agent_fix_label`
+     (validated or created like the re-review label). Anyone else, or no
+     reply → omit the keys.
    - **`review_progress`** — whether a review's progress shows on the PR as a
      commit status (`docs/review-bookkeeping.md` → **Progress signal on
      GitHub**). Mention that the status is always `success` when it finishes,
@@ -509,6 +517,8 @@ Final shape:
 - auto_merge_label: automerge          # human-managed consent label; required with auto_merge
 - auto_merge_max_lines: 100            # largest additions + deletions that merges; omit = 100
 - auto_merge_method: squash            # squash (default) | merge | rebase
+- agent_fixes: enabled                 # admin opt-in only; omit = disabled (docs/agent-fixes.md)
+- agent_fix_label: cg-fix              # human-managed label that asks for one fix round
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
