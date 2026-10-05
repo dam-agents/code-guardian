@@ -180,7 +180,8 @@ image, the harness, an external service — instead of fixing it at its source:
   (`grep -l <script-name> scripts/tests/test_*.sh`; a change to `helpers.sh`
   or `tests/bin/` names them all). **CI runs the full suite** on the PR, and
   its green run is the full-suite pass. Run the full suite locally (`run.sh`
-  with no arguments) only on the operator's request. **Read the last line** —
+  with no arguments) only on the operator's request; on a developer machine,
+  `scripts/tests/docker.sh` runs it (same arguments) in a CI-like container. **Read the last line** —
   `ALL TESTS PASSED` is the only pass; a truncated run is not a pass. One
   suite runs per host at a time: `run.sh` waits for a run that holds the lock
   and names it on stderr. `CG_TEST_JOBS=1` forces serial execution when a
