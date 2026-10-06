@@ -1547,10 +1547,11 @@ if [ "$MODE" = "review" ]; then
       case "$f" in (.github/*) printf 'changes %s' "$f"; return;; esac
       path_glob_match "$f" "$AM_HUMAN_PATHS" >/dev/null && { printf 'changes %s (human_review_paths)' "$f"; return; }
     done <<< "$files"
-    # a person's open change request stands, whatever branch protection requires
-    case "$(gh_get "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" '
-        if type != "array" then "unreadable" else
-          [ .[] | select(.user.login != $b) | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+    # a person's open change request stands, whatever branch protection requires;
+    # every page, oldest first, so a person's latest review is never cut off
+    case "$(gh_get --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -rs --arg b "$BOT_LOGIN" '
+        if length == 0 or any(.[]; type != "array") then "unreadable" else
+          [ add | .[] | select(.user.login != $b) | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
           | group_by(.user.login) | map(last | .state)
           | if any(. == "CHANGES_REQUESTED") then "changes" else "ok" end end' 2>/dev/null)" in
       (ok) ;;

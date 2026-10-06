@@ -20,11 +20,14 @@ am_setup() { # <case> [extra config lines…]
   jq -n '{total_count:1, check_runs:[{name:"build", status:"completed", conclusion:"success",
         details_url:"", output:{}}]}' | fx "api repos/acme/widgets/commits/$SHA1/check-runs?per_page=100"
 }
-# the PR's reviews: the bot's own marked approval plus <extra> people's reviews
+# the PR's reviews: the bot's own marked approval plus <extra> people's reviews,
+# for the marker scan's first page and the auto-merge gate's paginated read
 am_reviews() { # <extra-reviews-json>
-  jq -n --arg s "$SHA1" --argjson x "$1" '[{user:{login:"test-bot"}, state:"APPROVED",
-        body:"<!-- cg:review headRefOid=\($s) -->", submitted_at:"2026-07-01T00:00:00Z"}] + $x' \
-    | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+  local j
+  j="$(jq -n --arg s "$SHA1" --argjson x "$1" '[{user:{login:"test-bot"}, state:"APPROVED",
+        body:"<!-- cg:review headRefOid=\($s) -->", submitted_at:"2026-07-01T00:00:00Z"}] + $x')"
+  printf '%s' "$j" | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+  printf '%s' "$j" | fx "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
 }
 am_history() { # <triage-class> <findings-json> [forced]
   local forced=""; [ -n "${3:-}" ] && forced=",\"forced\":\"$3\""
@@ -117,6 +120,16 @@ am_setup am_changes_then_approved
 am_reviews '[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"},{"user":{"login":"bob"},"state":"APPROVED","body":"ok"}]'
 run_preflight review
 assert_jq '(.merges_due | length) == 1' 'a change request its author later approved no longer blocks'
+
+# gh --paginate prints one array per page: the latest review sits on the last one
+am_setup am_changes_on_page_two
+printf '[{"user":{"login":"bob"},"state":"APPROVED","body":"ok"}]\n[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"}]\n' \
+  | fx "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
+am_blocked 'a person requested changes' 'a change request on a later page of reviews never merges'
+
+am_setup am_reviews_unreadable
+fx_fail "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
+am_blocked 'the reviews could not be read' 'unreadable reviews never merge'
 
 am_setup am_reviewed_this_run
 mention_on_pr1

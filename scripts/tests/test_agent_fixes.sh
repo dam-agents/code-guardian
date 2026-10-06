@@ -160,6 +160,10 @@ run_fix_cmd fix-start --sha "$HEAD_SHA"
 grep -q -- '-X DELETE repos/acme/widgets/issues/1/labels/cg%2Ffix' "$SANDBOX/gh.log" \
   && printf 'ok   %s: a label name is URL-encoded in the removal\n' "$CASE" \
   || { printf 'FAIL %s: the label removal path is not encoded\n' "$CASE"; FAILED=1; }
+# every label path the scripts call or the docs hand the agent encodes the name
+raw="$(cd "$REPO_ROOT" && grep -nE 'labels/\$\{?[A-Za-z_]' scripts/*.sh scripts/lib/*.sh docs/*.md ONBOARDING.md)"
+[ -z "$raw" ] && printf 'ok   %s: no label path carries a raw label name\n' "$CASE" \
+  || { printf 'FAIL %s: raw label name in a label path:\n%s\n' "$CASE" "$raw"; FAILED=1; }
 
 rp_fix_setup rp_fix_nothing
 run_fix_cmd fix-start --sha "$HEAD_SHA"

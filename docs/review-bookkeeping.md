@@ -44,10 +44,11 @@ deletes it.
 ## Trigger removal
 
 Use REST — `gh pr edit` goes through GraphQL, which 401s in this pod (the
-platform's auth proxy does not rewrite that code path):
+platform's auth proxy does not rewrite that code path), with the label name
+URL-encoded as one path segment:
 
 ```bash
-gh api -X DELETE "repos/$REPO/issues/<n>/labels/$REREVIEW_LABEL" >/dev/null \
+gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$REREVIEW_LABEL" '$v | @uri')" >/dev/null \
   || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
 ```
 
