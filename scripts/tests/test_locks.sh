@@ -122,6 +122,16 @@ holder_event 60   cccc3333
 run_preflight review
 assert_jq '.reviews_due | length == 1' "a different PR's live run does not protect this lock"
 
+# --- a holder that already ended its PR holds it no longer --------------------
+# its run is still alive on other work, but its newest step on this PR is
+# terminal: the row left behind is stale (docs/review-mechanics.md → Live holder)
+lock_case ended_holder 3300
+holder_event 3300 dddd4444 review_step "PR #1 1111111 locked"
+holder_event 300  dddd4444 review_step "PR #1 1111111 done"
+holder_event 60   dddd4444 review_step "PR #7 7777777 locked"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'a run whose newest step on the PR is terminal does not protect its lock'
+
 # --- a recent event naming the PR keeps it, even without a locked step -------
 # Crash-recovery gap: the `locked` event may predate log retention, so an
 # unattributable but recent mention of this PR still counts as life.

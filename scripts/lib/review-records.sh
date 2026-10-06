@@ -4,6 +4,7 @@
 #
 #   review_records <reviews dir> <ledger file> [<since ISO>]   # JSONL on stdout
 #   rr_posted <history file>             # true when it holds a posted review
+#   rr_line findings-json|review-meta    # the last such payload of stdin
 #
 # Record: {src, pr, ts, sha, kind, verdict, size:{files,additions,deletions} | null,
 #          bullets:{fixed,still},
@@ -162,6 +163,13 @@ RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"
 # only when this holds.
 rr_posted() { # <history file>
   grep -qE '^## Review at |<!-- findings-json: ' "$1" 2>/dev/null
+}
+
+# The payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
+# line of a history file or section on stdin (docs/review-mechanics.md →
+# Summary body format); nothing when the line is absent.
+rr_line() { # <findings-json|review-meta>  < text
+  grep -o "<!-- $1: .* -->" | tail -1 | sed -e "s/^<!-- $1: //" -e 's/ -->$//'
 }
 
 review_records() { # <reviews dir> <ledger file> [<since ISO>]

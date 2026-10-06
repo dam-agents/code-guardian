@@ -47,6 +47,18 @@ DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
 
+# epoch -> UTC time in <format> (default ISO-8601 with Z), GNU then BSD date;
+# empty when neither form works
+epoch2iso() { # <epoch> [date format]
+  local f="${2:-%Y-%m-%dT%H:%M:%SZ}"
+  date -u -d "@$1" +"$f" 2>/dev/null || date -u -r "$1" +"$f" 2>/dev/null
+}
+
+# every retained structured event (docs/logging.md) as one JSON object per
+# line; `fromjson?` drops the partial line a concurrently writing session may
+# leave. LOG_DIR comes from log.sh.
+events_jsonl() { cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null; }
+
 # a value as one URL path segment (a label name may hold `/`, `?` or `%`)
 uri() { jq -rn --arg v "$1" '$v | @uri'; }
 
