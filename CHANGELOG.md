@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.9.0 — 2026-10-06
+
+**Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent; a no-op on another harness). It adds the deny list of unused tools
+to `~/.claude/settings.json` and installs the `review-skill` subagent type, both
+effective from the next session. The `tokens` event now also counts subagent
+transcripts: the first weekly audit after the upgrade reports the step in
+estimated spend as this accounting change, not as a cost rise.
+
 ## 8.8.2 — 2026-10-06
 
 **Upgrade:** Nothing — docs and scripts are re-read per run.

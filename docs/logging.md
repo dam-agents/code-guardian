@@ -105,11 +105,16 @@ function calling the binary directly.
    Under `log_level: debug`, successful external calls (Bash `gh`/`git`/`curl`,
    `mcp__*` tools) also land as `tool_use` debug events with a truncated
    result. At session end one **`tokens`** event records the run's API usage
-   (`input=… output=… cache_read=… cache_creation=… msgs=…`, summed from the
-   session transcript, deduped by message id); one scheduled run is one fresh
+   (`input=… output=… cache_read=… cache_creation=… msgs=… model=…`, summed
+   from the session transcript and its subagents' transcripts, deduped by
+   message id, then `subagents=<n>` and, when n > 0, the subagents' share as
+   `sub_tokens=in:…,out:…,cr:…,cw:…`); one scheduled run is one fresh
    session, so this is per-job consumption — join on `run` with the
-   `heartbeat` event for the mode. Best-effort: a hard-crashed session has no
-   tokens event, and subagent transcripts are not included.
+   `heartbeat` event for the mode. A session that called the Agent tool and
+   has no subagent transcript beside its own (`<session>/subagents/*.jsonl`)
+   also logs one warn **`tokens_subagents_missing`**: the subagents' usage is
+   then outside the event, and the audit's warn count shows it. Best-effort: a
+   hard-crashed session has no tokens event.
 3. **`scripts/review-pr.sh`** (automatic) — the review milestones its
    subcommands perform: `locked`, `cloned` (`prepare`), `locked (refresh, …)`
    and the milestone text (`step`), `rapid posted`, `posted <verdict>`, `done`,
@@ -162,8 +167,15 @@ adapter active, duty 4 above extends to logging tool failures manually.
   classifier rules for the agent's documented writes outside the target repo —
   the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload —
   as `autoMode.environment` / `autoMode.allow` entries tagged
-  `[code-guardian]`, replacing only its own. On another harness it prints a
-  notice and exits 0.
+  `[code-guardian]`, replacing only its own. It writes the tools of
+  `denied-tools.txt` — tools no procedure calls — to `permissions.deny`, which
+  removes their definitions from every request of every session and subagent,
+  replacing only its own entries; and it installs `agents/review-skill.md` as
+  `~/.claude/agents/review-skill.md`, the subagent type of the skill fan-out
+  ([skills.md](skills.md) → **Invocation & audit log**), limited to the tools
+  a skill run needs. `install.sh --check` prints the parts not current
+  (`tool-deny`, `skill-agent`). On another harness it prints a notice and
+  exits 0.
 
 Registration is user-global, so every hook script no-ops unless
 `$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
@@ -172,9 +184,9 @@ shapes (GitHub/Slack tokens, bearer headers) are masked, per the
 no-secrets-in-logs invariant.
 
 The weekly audit verifies the adapter matches the detected harness
-(`harness_adapter` check): a Claude Code pod without registered hooks or
-current auto-mode rules (the tracking-issue rule names `definition_repo`) is a
-warn.
+(`harness_adapter` check): a Claude Code pod without registered hooks, current
+auto-mode rules (the tracking-issue rule names `definition_repo`), the deny
+list or a current `review-skill` agent is a warn.
 
 ## Retention — the weekly audit cleans up
 

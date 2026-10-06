@@ -73,7 +73,9 @@ brief. Every skill's arguments are fixed at that point — a subagent never
 derives its own file list.
 
 **Then fan out: one subagent per skill with status `run`, all launched in a
-single message** so they run concurrently. Each prompt is that skill's
+single message** so they run concurrently. The subagent type is `review-skill`
+when the harness offers it (Claude Code, [logging.md](logging.md) → **Harness
+adapters**), otherwise the harness's default subagent. Each prompt is that skill's
 `skills.<skill>.prompt` verbatim — one line naming the skill, the PR and its
 brief file (`paths.briefs/<skill>.md`), which the subagent reads itself.
 `prepare` renders the brief from

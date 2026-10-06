@@ -11,8 +11,8 @@ run_install() {
   OUT="$(HOME="$FAKE_HOME" CLAUDECODE=1 bash "$INSTALL" 2>>"$STDERR_LOG")"
 }
 
-assert_settings() { # <jq-filter> <description>
-  if jq -e "$1" "$FAKE_HOME/.claude/settings.json" >/dev/null 2>&1; then
+assert_settings() { # <jq-filter, $d = the deny list> <description>
+  if jq -e --argjson d "${DENY_JSON:-[]}" "$1" "$FAKE_HOME/.claude/settings.json" >/dev/null 2>&1; then
     printf 'ok   %s: %s\n' "$CASE" "$2"
   else
     printf 'FAIL %s: %s\n     autoMode: %s\n' "$CASE" "$2" \
@@ -70,5 +70,73 @@ install_case unresolved
 run_install
 assert_out "definition repo unresolved" 'unresolved definition repo is reported'
 assert_settings '.autoMode.allow | all(contains("gh issue create") | not)' 'no tracking-issue rule without a slug'
+
+# --- tool deny list and the review-skill agent --------------------------------------
+ADAPTER="$REPO_ROOT/scripts/harness/claude-code"
+DENY_JSON="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$ADAPTER/denied-tools.txt" \
+  | jq -Rsc 'split("\n") | map(select(length > 0))')"
+agent() { printf "%s" "$FAKE_HOME/.claude/agents/review-skill.md"; }
+run_check() { OUT="$(HOME="$FAKE_HOME" CLAUDECODE=1 bash "$INSTALL" --check 2>>"$STDERR_LOG")"; }
+
+install_case trim_fresh '- github_repo: acme/widgets'
+mkdir -p "$FAKE_HOME/.claude"
+echo '{"permissions":{"defaultMode":"auto","deny":["Bash(rm -rf *)"]}}' > "$FAKE_HOME/.claude/settings.json"
+run_check
+assert_out "tool-deny skill-agent" '--check names both parts before the install'
+run_install
+assert_settings '.permissions.deny == ["Bash(rm -rf *)"] + $d' 'deny list appended after the operator entry'
+assert_settings '.permissions.defaultMode == "auto"' 'other permission keys stay'
+if cmp -s "$ADAPTER/agents/review-skill.md" "$(agent)"; then printf 'ok   %s: review-skill agent installed\n' "$CASE"
+else printf 'FAIL %s: review-skill agent missing or different\n' "$CASE"; FAILED=1; fi
+run_check
+if [ -z "$OUT" ]; then printf 'ok   %s: --check prints nothing once installed\n' "$CASE"
+else printf 'FAIL %s: --check after install printed "%s"\n' "$CASE" "$OUT"; FAILED=1; fi
+run_install
+assert_out "already installed" 'second run is a no-op'
+assert_settings '[.permissions.deny[] | select(. as $x | $d | index([$x]))] | length == ($d | length)' 'no duplicate deny entries'
+
+# a name dropped from denied-tools.txt leaves settings.json; a stale agent is replaced
+echo '["mcp__platform-outbound__gone_tool"]' > "$FAKE_HOME/.claude/.code-guardian-denied-tools.json"
+jq '.permissions.deny += ["mcp__platform-outbound__gone_tool"]' "$FAKE_HOME/.claude/settings.json" > "$SANDBOX/s.json" \
+  && mv "$SANDBOX/s.json" "$FAKE_HOME/.claude/settings.json"
+echo "stale" >> "$(agent)"
+run_install
+assert_settings '.permissions.deny | index("mcp__platform-outbound__gone_tool") | not' 'a dropped name is removed'
+assert_settings '.permissions.deny[0] == "Bash(rm -rf *)"' 'the operator entry stays'
+if cmp -s "$ADAPTER/agents/review-skill.md" "$(agent)"; then printf 'ok   %s: stale agent replaced\n' "$CASE"
+else printf 'FAIL %s: stale agent not replaced\n' "$CASE"; FAILED=1; fi
+
+# another harness: nothing written, --check silent
+install_case trim_other_harness
+OUT="$(HOME="$FAKE_HOME" CLAUDECODE=0 bash "$INSTALL" 2>>"$STDERR_LOG")"
+assert_out "not the Claude Code harness" 'other harness prints the notice'
+if [ ! -e "$FAKE_HOME/.claude/settings.json" ] && [ ! -e "$(agent)" ]; then
+  printf 'ok   %s: nothing written on another harness\n' "$CASE"
+else printf 'FAIL %s: files written on another harness\n' "$CASE"; FAILED=1; fi
+OUT="$(HOME="$FAKE_HOME" CLAUDECODE=0 bash "$INSTALL" --check 2>>"$STDERR_LOG")"
+if [ -z "$OUT" ]; then printf 'ok   %s: --check silent on another harness\n' "$CASE"
+else printf 'FAIL %s: --check printed "%s" on another harness\n' "$CASE" "$OUT"; FAILED=1; fi
+
+# --- no procedure names a denied tool --------------------------------------------------
+# the deny list removes a tool from every session: a doc that calls one would
+# fail on a deployed instance
+new_case trim_unused_only
+DOCS=("$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/AGENTS.md" "$REPO_ROOT/ONBOARDING.md" "$REPO_ROOT/README.md"
+      "$REPO_ROOT"/docs/*.md "$REPO_ROOT"/scripts/templates/* "$REPO_ROOT"/.agents/skills/*/SKILL.md)
+names_tool() { # <tool> — true when a doc names it
+  local pat
+  case "$1" in
+    mcp__*) pat="(^|[^A-Za-z0-9_]|__)${1##*__}([^A-Za-z0-9_]|\$)" ;;
+    *) pat="\`${1}\`|${1} tool|${1}\\(" ;;
+  esac
+  grep -lE "$pat" "${DOCS[@]}" >/dev/null 2>&1
+}
+if names_tool mcp__platform-outbound__create_artifact_upload_url && names_tool Skill; then
+  printf 'ok   %s: the scan finds tools the procedures do name\n' "$CASE"
+else printf 'FAIL %s: the scan misses named tools — the guard below proves nothing\n' "$CASE"; FAILED=1; fi
+named=""
+for t in $(printf '%s' "$DENY_JSON" | jq -r '.[]'); do names_tool "$t" && named="$named $t"; done
+if [ -z "$named" ]; then printf 'ok   %s: no doc names a denied tool\n' "$CASE"
+else printf 'FAIL %s: denied tools named by a procedure:%s\n' "$CASE" "$named"; FAILED=1; fi
 
 exit "$FAILED"

@@ -358,7 +358,8 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
 - [`scripts/log.sh`](scripts/log.sh) +
   [`scripts/harness/`](scripts/harness/) — the structured events log
   (`work/logs/events-*.jsonl`, 14-day retention) and the per-harness adapters
-  that auto-capture failed tool calls.
+  that auto-capture failed tool calls and, on Claude Code, keep unused tools
+  out of every request.
 - [`scripts/tests/`](scripts/tests/) +
   [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — deterministic stub
   tests for `preflight.sh` (gh/curl faked, offline) and the CI that runs them

@@ -97,7 +97,7 @@ Outside `work/`, nothing needs a copy — each part comes back by itself:
 | State | Returns through |
 | --- | --- |
 | Definition checkout, branch | ONBOARDING Step 1, from the restored `definition_repo` / `definition_branch` |
-| Harness hooks (`~/.claude/settings.json`) | ONBOARDING Step 1b |
+| Harness hooks, tool deny list, `review-skill` agent (`~/.claude/`) | ONBOARDING Step 1b |
 | Schedules | ONBOARDING Step 6, from the restored `CONFIG.md` cadence keys |
 | Skills | the platform; preflight installs what is due |
 | Onboarding sentinel | ONBOARDING Step 7 |
