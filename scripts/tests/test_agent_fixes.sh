@@ -41,6 +41,17 @@ jq -n --arg s "$SHA1" '{state:"open", head:{sha:$s, ref:"b1", repo:{full_name:"s
 run_preflight review
 assert_jq '(.fixes_due | length) == 0 and ([.logs[] | select(test("not in the target repository"))] | length == 1)' 'a fork branch is never pushed to'
 
+af_setup af_owner_case
+jq -n --arg s "$SHA1" '{state:"open", head:{sha:$s, ref:"b1", repo:{full_name:"Acme/Widgets"}}}' | fx "api repos/acme/widgets/pulls/1"
+run_preflight review
+assert_jq '(.fixes_due | length) == 1' 'the target repository matches whatever case GitHub reports'
+
+af_setup af_reviewed_this_run
+mention_on_pr1
+run_preflight review
+assert_jq '(.mentions_due | length) == 1 and (.fixes_due | length) == 0 and ([.logs[] | select(test("no fix — this run reviews or answers it first"))] | length == 1)' \
+  'a PR this run answers first gets no fix round from the old findings'
+
 af_setup af_no_fix_line
 af_history "$SHA1" '[{"status":"new","severity":"suggestion","file":"src/a.ts","line":3,"summary":"x","fix":null}]'
 run_preflight review
@@ -132,6 +143,27 @@ run_fix_cmd fix-start --sha "1111111111111111111111111111111111111111"
 assert_jq '.outcome == "skipped" and .reason == "the head moved"' 'a moved head never starts a round'
 grep -q -- '-X DELETE' "$SANDBOX/gh.log" && { printf 'FAIL %s: label consumed for a skipped round\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: a skipped round keeps the label\n' "$CASE"
+
+rp_fix_setup rp_fix_clone_failed
+ORIGIN="$SANDBOX/no-such-origin.git"
+run_fix_cmd fix-start --sha "$HEAD_SHA"
+assert_jq '.outcome == "failed"' 'a clone that does not succeed fails the round'
+grep -q "agent-fix: $HEAD_SHA" "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: a failed clone spent the round\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a failed clone leaves the head free for a new label\n' "$CASE"
+
+new_case rp_fix_label_encoded
+base_config '- agent_fixes: enabled' '- agent_fix_label: cg/fix'; mk_origin
+af_history "$HEAD_SHA" "$WARN_FIX"
+jq -n --arg s "$HEAD_SHA" '{state:"open", head:{sha:$s, ref:"b1", repo:{full_name:"acme/widgets"}}, labels:[{name:"cg/fix"}]}' \
+  | fx "api repos/acme/widgets/pulls/1"
+run_fix_cmd fix-start --sha "$HEAD_SHA"
+grep -q -- '-X DELETE repos/acme/widgets/issues/1/labels/cg%2Ffix' "$SANDBOX/gh.log" \
+  && printf 'ok   %s: a label name is URL-encoded in the removal\n' "$CASE" \
+  || { printf 'FAIL %s: the label removal path is not encoded\n' "$CASE"; FAILED=1; }
+# every label path the scripts call or the docs hand the agent encodes the name
+raw="$(cd "$REPO_ROOT" && grep -nE 'labels/\$\{?[A-Za-z_]' scripts/*.sh scripts/lib/*.sh docs/*.md ONBOARDING.md)"
+[ -z "$raw" ] && printf 'ok   %s: no label path carries a raw label name\n' "$CASE" \
+  || { printf 'FAIL %s: raw label name in a label path:\n%s\n' "$CASE" "$raw"; FAILED=1; }
 
 rp_fix_setup rp_fix_nothing
 run_fix_cmd fix-start --sha "$HEAD_SHA"

@@ -1277,6 +1277,21 @@ run_rp compose-brief 1
 assert_out_contains 'triage is forced to `needs-human`: `src/alpha.ts (src/al\*)`' 'the brief names the file that forces needs-human'
 run_rp abort 1 "reset"
 
+# a file moved out of a human_review_paths glob still forces needs-human
+setup compose_brief_forced_rename '- human_review_paths: src/lo*'
+seq 1 20 > "$FX/src/long.ts"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm more-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" merge -q --no-edit main
+git -C "$FX" mv src/long.ts src/moved.ts && git -C "$FX" "${GIT_ID[@]}" commit -qm move
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff -M main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_contains 'triage is forced to `needs-human`: `src/long.ts (src/lo\*)`' 'a pure rename out of the glob still forces needs-human'
+run_rp abort 1 "reset"
+
 # --- compose-brief: the conversation that moved since the lock --------------------
 # docs/review.md → Guarding a running review
 setup compose_refresh

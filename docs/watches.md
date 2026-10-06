@@ -1,7 +1,8 @@
 # Watch rules — instance-local heads-up notifications
 
-Read this file at the start of a review run when `work/CONFIG.md` has a
-non-empty `## Watch rules` table. Watch rules answer team requests of the shape
+Read this file when the worklist's `read_set` names it — `reviews_due` or
+`mentions_due` non-empty while `work/CONFIG.md` has a non-empty
+`## Watch rules` table. Watch rules answer team requests of the shape
 *"whenever a PR does X, give us a heads-up in Y"*.
 
 They are **runtime state, not definition**: the team-specific trigger, target

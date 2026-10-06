@@ -3,7 +3,7 @@
 The shape every finding takes, whoever writes it — the diff review
 ([review.md](review.md)), a skill subagent's reformat ([skills.md](skills.md) →
 **Invocation & audit log**), the benchmark reviewer
-([benchmark.md](benchmark.md)). The shape, the severity bar, the approval bar
+([benchmark.md](benchmark.md)), the survey ([survey.md](survey.md)). The shape, the severity bar, the approval bar
 and the conciseness rules bind every writer; bullets marked *review only* apply
 when the review itself is composed. Wording follows ASD-STE100
 ([review.md](review.md) → **Criteria & review style**).
@@ -57,13 +57,10 @@ a section that reported 🟢 never reads as clean.
 **One finding carries every location.** A finding merged by the sibling sweep
 ([review.md](review.md) → **Sibling sweep**) names each location in its text and
 lists them all in `also` ([review-mechanics.md](review-mechanics.md) → **Summary
-body format**), so one entry never reads as one site.
-
-**A Fix stated for a class names every member of the class.** A **Fix:** that
-reads as a rule — *every*, *each*, *all* — carries the complete location list
-from the sweep that verified it ([review.md](review.md) → **Sibling sweep**),
-because the fix round works the locations and not the sentence. Cannot
-enumerate → narrow the **Fix:** to the locations you verified.
+body format**). A **Fix:** that reads as a rule — *every*, *each*, *all* —
+carries that complete list, because the fix round works the locations and not
+the sentence. Cannot enumerate → narrow the **Fix:** to the locations you
+verified.
 
 **Concise by default (all reviews, all channels):**
 

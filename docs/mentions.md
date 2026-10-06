@@ -66,10 +66,9 @@ entry.
 2. **Classify and route** — run every route that applies:
    - **Feedback on a review** — a correction, dismissal, disagreement or
      preference about the bot's findings or behavior → **record it** per
-     [preferences.md](preferences.md) (global → MEMORY.md, PR-specific → that
-     PR's overrides, tagged `[from PR comments]`), then reply confirming the
-     stored rule and how future reviews change. Recording is mandatory for
-     every explicit correction, and the reply always names what was stored.
+     [preferences.md](preferences.md) → **Route feedback by scope**, tagged
+     `[from PR comments]`, then reply naming the stored rule and how future
+     reviews change.
    - **Question** — answer in a reply, grounded in the PR's actual diff and
      review. When the answer needs data you lack, say what.
    - **Review request** ("please review / re-review / take another look") →

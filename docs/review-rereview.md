@@ -91,7 +91,7 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   block as `🔁 Still present` one-liners, keep the prior verdict, and write
   `Range holds base-branch merges only — no change to this PR's own diff.`
   under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
-  `### Findings`. No prior digest (pre-3.29.0) → the normal delta round.
+  `### Findings`. No prior digest (pre-4.1.0) → the normal delta round.
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR

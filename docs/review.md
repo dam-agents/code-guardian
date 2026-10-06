@@ -130,12 +130,11 @@ consecutive timestamps give per-step durations.
   (`rapid`) · `posted <verdict>`, `done` (`post`) · `aborted <reason>`
   (`post` / `abort`). The adapter hook derives `skill:<name> done`
   ([logging.md](logging.md) → **Harness adapters**).
-- `fanned out (n=<N>)` goes immediately before the fan-out, `verified`
-  immediately after verification, `composed` once body and findings are
-  written. With `delta settled (…)` they bound one duration per phase: the
-  diff review, the skills with their verification, the delta round, the
-  compose, and the post. Per-skill durations come from `skill_timing`
-  ([skills.md](skills.md) → **Invocation & audit log**).
+- With `delta settled (…)` the `step` milestones (**Lock heartbeat**) bound
+  one duration per phase: the diff review, the skills with their
+  verification, the delta round, the compose, and the post. Per-skill
+  durations come from `skill_timing` ([skills.md](skills.md) → **Invocation
+  & audit log**).
 - In the manual fallback the hook still derives `cloned`, `posted <verdict>`,
   `locked` / `done` / `aborted (lock released)` from the commands that perform
   them ([review-mechanics.md](review-mechanics.md) → **Review tracking
@@ -151,14 +150,14 @@ consecutive timestamps give per-step durations.
   filename and `msg` shape are a contract ([logging.md](logging.md) →
   **The shape is a contract**).
 
-**Lock heartbeat.** Before each of steps d, e and f,
-`review-pr.sh step <n> "<milestone>"` rewrites the PR's REVIEWS.md row
-with the **current** UTC time (same fields, status stays `in_progress`) and
-logs `locked (refresh, …)`: `fanned out (n=<N>)` before step d, `verified`
-before step e and `composed` before step f. The timestamp is the age preflight
-measures and the event is the liveness signal it reads
-([review-mechanics.md](review-mechanics.md) → **Live holder**), so a
-review that refreshes never crosses the TTL.
+**Lock heartbeat.** Each `review-pr.sh step <n> "<milestone>"` —
+`fanned out (n=<N>)` immediately before the fan-out, `verified` immediately
+after verification, `composed` once body and findings are written — rewrites
+the PR's REVIEWS.md row with the **current** UTC time (same fields, status
+stays `in_progress`) and logs `locked (refresh, …)`. The timestamp is the age
+preflight measures and the event is the liveness signal it reads
+([review-mechanics.md](review-mechanics.md) → **Live holder**), so a review
+that refreshes never crosses the TTL.
 
 **Completion enforcement.** The `Stop` hook reads these events back at end of
 turn: a PR logged `locked` this run with no later `done` / `aborted <reason>`
@@ -440,8 +439,7 @@ Before you declare the run done:
   lines to check by hand.
 - **Per reviewed PR** — one GitHub review carrying the full-SHA marker · Check
   1, Check 2 and the dedup re-check done, the re-review trigger check included
-  · row refreshed at each milestone · live holder re-checked before the lock
-  write · label removed after a posted review on a labeled PR · skill audit
+  · live holder re-checked before the lock write · label removed after a posted review on a labeled PR · skill audit
   lines complete ([skills.md](skills.md)) · overrides applied from that PR's
   file only · context fetched and used, every `author-decisions` entry
   honoured for its scope, a human dismissal in it recorded as an override
@@ -459,15 +457,15 @@ Before you declare the run done:
   ([finding-form.md](finding-form.md)), mirrored into `findings-json`, with its
   sweep command in `review-meta.checks` and every dropped 🟢 in
   `review-meta.deferred` · `meta.json` carrying a `triage` call
-  ([review-mechanics.md](review-mechanics.md)) · every delta `ambiguous` pair settled before the post ·
-  every phase guard run and every `head_moved` honoured — restarted once, else
+  ([review-mechanics.md](review-mechanics.md)) · every delta `ambiguous` pair
+  settled before the post · every phase guard run and every `head_moved` honoured — restarted once, else
   left to the heartbeat · a compose-time context change folded into the review ·
   every carried finding settled at its anchor and reported as `new`, the carry
   never named · every structured-block finding block-swept · every `late`
   finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`) ·
-  skill sections reformatted and merged with no finding lost ·
-  stale approval dismissed when the verdict dropped below APPROVE · every sentence of the posted prose inside the 20-word
-  bar (**The sentence bar is 20 words**).
+  skill sections reformatted and merged with no finding lost · stale approval
+  dismissed when the verdict dropped below APPROVE · every sentence of the
+  posted prose inside the 20-word bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget
   ([finding-form.md](finding-form.md)); re-review scope matched the trigger;

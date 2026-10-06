@@ -301,11 +301,16 @@ assert_out 'FAIL config-work_repo-shape' 'names the key'
 new_case host_prefixed_refs
 seed_home; seed_memory; seed_lessons
 base_config '- definition_repo: ghe.example.com/acme/code-guardian' \
-            '- github_repo: ghe.example.com/acme/widgets'
+            '- github_repo: ghe.example.com/acme/widgets' \
+            '- artifact_skill: pr-artifact@ghe.example.com/acme/dam' \
+            '' '## Review skills' '' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+            '| issue-fit | ghe.example.com/acme/code-guardian | always | Issue fit |'
 ( cd "$FAKE_HOME" && git remote set-url origin https://ghe.example.com/acme/code-guardian.git )
 run_verify
 assert_rc 0 'host-prefixed references pass the shape check'
 assert_out 'ok   def-origin' 'origin matched against the prefixed reference'
+assert_out 'ok   config-artifact_skill' 'a host-prefixed artifact skill source passes'
+assert_out 'ok   skills-rows' 'a host-prefixed review-skill source passes'
 
 new_case bare_ref_under_foreign_default_host
 seed_home; seed_memory; seed_lessons

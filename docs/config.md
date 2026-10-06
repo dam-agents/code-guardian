@@ -25,8 +25,8 @@ cross-host calls pass `--hostname` (`gh api`) or `[HOST/]OWNER/REPO`
 
 ## In the worklist
 
-`config` — one object per run with work: every key below with its default
-applied (`bot_login` / `review_marker` are `null` when missing),
+`config` — one object per review or shepherd run with work: every key below
+with its default applied (`bot_login` / `review_marker` are `null` when missing),
 `artifact_skill` as effective (`none` when off),
 `skills_table` (`[{skill, source, trigger, section}]`) and `watch_rules`
 (`[{id, watch_for, notify, note}]`). Runs read their values from it; the reader
@@ -46,7 +46,8 @@ below is for the manual fallback and the direct session.
   (ONBOARDING Step 3a).
 - **`definition_repo`** — the repo this definition was installed from
   (fork-aware). Outer-repo `origin`, target of definition PRs, review-footer
-  link. Fallback: `git -C "$HOME" remote get-url origin`.
+  link. Written at onboarding, which a restore re-installs from; a run with the
+  key missing falls back to `git -C "$HOME" remote get-url origin`.
 - **`definition_branch`** — the branch of `definition_repo` this instance runs
   from ([persistence.md](persistence.md) → **Tracked branch**). **Missing =
   `main`.** Operator-only to change.
@@ -147,12 +148,12 @@ below is for the manual fallback and the direct session.
 ### Agent fixes (off until the admin opts in)
 
 - **`agent_fixes`** — `enabled` | `disabled`. **Missing = `disabled`.** A PR a
-  person labeled with `agent_fix_label` gets one round in which I fix my own
-  open blocking findings and push to its branch
+  person labeled with `agent_fix_label` gets one round in which the agent
+  fixes its own open blocking findings and pushes to its branch
   ([agent-fixes.md](agent-fixes.md)). Only the repository admin enables it
   (ONBOARDING Step 4).
 - **`agent_fix_label`** — the **human-managed** label that asks for one round;
-  I remove it when the round starts. Required while `agent_fixes` is
+  the agent removes it when the round starts. Required while `agent_fixes` is
   `enabled`; missing → agent fixes stay off, logged once per run.
 
 ### Slack, audit, survey, benchmark
@@ -244,11 +245,7 @@ below is for the manual fallback and the direct session.
 
 ```bash
 CONFIG=/home/agent/work/CONFIG.md
-# awk is not available in the pod — sed/grep/cut only
-cfg() { sed -n "s/^- $1:[[:space:]]*//p" "$CONFIG" 2>/dev/null | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//'; }
-DEFAULT_HOST="${GH_HOST:-github.com}"   # capture before the re-export below
-refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
-refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
+. /home/agent/scripts/lib/common.sh   # the scripts' own cfg, refhost, refslug — before the re-export below
 TARGET="$(cfg github_repo)"; TARGET="${TARGET:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 REPO_HOST="$(refhost "$TARGET")"; REPO="$(refslug "$TARGET")"; export GH_HOST="$REPO_HOST"
 BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"

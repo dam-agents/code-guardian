@@ -63,7 +63,7 @@ case "$tool" in
                 "$LOG_WORK/CONFIG.md" 2>/dev/null | grep -E '^\|' \
               | cut -d'|' -f2 | tr -d '[:blank:]' | grep -vE '^(skill|[-:]*)$')"
     art="$(sed -n 's/^- artifact_skill:[[:space:]]*//p' "$LOG_WORK/CONFIG.md" 2>/dev/null \
-           | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/@.*$//' -e 's/[[:space:]]*$//')"
+           | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/^[`"'"'"']//' -e 's/@.*$//' -e 's/[[:space:]]*$//')"
     case "$art" in (none) art="";; esac
     for s in $skills $art; do        # unquoted: empty values expand to no word
       case "$txt" in (*"$s"*) emit "$pr" "skill:$s done" "skill-$s"; exit 0;; esac

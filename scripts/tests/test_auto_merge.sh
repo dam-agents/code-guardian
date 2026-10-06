@@ -16,8 +16,18 @@ am_setup() { # <case> [extra config lines…]
   jq -n --arg s "$SHA1" '{state:"open", head:{sha:$s}, mergeable_state:"clean", additions:10, deletions:2,
         changed_files:1, labels:[{name:"cg-automerge"}]}' | fx "api repos/acme/widgets/pulls/1"
   printf '[{"filename":"src/util.ts"}]' | fx "api repos/acme/widgets/pulls/1/files?per_page=100"
+  am_reviews '[]'
   jq -n '{total_count:1, check_runs:[{name:"build", status:"completed", conclusion:"success",
         details_url:"", output:{}}]}' | fx "api repos/acme/widgets/commits/$SHA1/check-runs?per_page=100"
+}
+# the PR's reviews: the bot's own marked approval plus <extra> people's reviews,
+# for the marker scan's first page and the auto-merge gate's paginated read
+am_reviews() { # <extra-reviews-json>
+  local j
+  j="$(jq -n --arg s "$SHA1" --argjson x "$1" '[{user:{login:"test-bot"}, state:"APPROVED",
+        body:"<!-- cg:review headRefOid=\($s) -->", submitted_at:"2026-07-01T00:00:00Z"}] + $x')"
+  printf '%s' "$j" | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+  printf '%s' "$j" | fx "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
 }
 am_history() { # <triage-class> <findings-json> [forced]
   local forced=""; [ -n "${3:-}" ] && forced=",\"forced\":\"$3\""
@@ -96,6 +106,37 @@ jq -n '{total_count:1, check_runs:[{name:"build", status:"completed", conclusion
   | fx "api repos/acme/widgets/commits/$SHA1/check-runs?per_page=100"
 am_blocked 'a check failed' 'a red rollup never merges'
 
+am_setup am_has_hooks
+jq -n --arg s "$SHA1" '{state:"open", head:{sha:$s}, mergeable_state:"has_hooks", additions:10, deletions:2, changed_files:1}' \
+  | fx "api repos/acme/widgets/pulls/1"
+run_preflight review
+assert_jq '(.merges_due | length) == 1' 'has_hooks counts as clean'
+
+am_setup am_changes_requested
+am_reviews '[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"}]'
+am_blocked 'a person requested changes' "a person's open change request never merges"
+
+am_setup am_changes_then_approved
+am_reviews '[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"},{"user":{"login":"bob"},"state":"APPROVED","body":"ok"}]'
+run_preflight review
+assert_jq '(.merges_due | length) == 1' 'a change request its author later approved no longer blocks'
+
+# gh --paginate prints one array per page: the latest review sits on the last one
+am_setup am_changes_on_page_two
+printf '[{"user":{"login":"bob"},"state":"APPROVED","body":"ok"}]\n[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"}]\n' \
+  | fx "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
+am_blocked 'a person requested changes' 'a change request on a later page of reviews never merges'
+
+am_setup am_reviews_unreadable
+fx_fail "api --paginate repos/acme/widgets/pulls/1/reviews?per_page=100"
+am_blocked 'the reviews could not be read' 'unreadable reviews never merge'
+
+am_setup am_reviewed_this_run
+mention_on_pr1
+run_preflight review
+assert_jq '(.mentions_due | length) == 1 and (.merges_due | length) == 0' 'a PR this run answers first is not merged in the same run'
+assert_jq '[.logs[] | select(test("no auto-merge — this run reviews or answers it first"))] | length == 1' 'and the log says why'
+
 am_setup am_failed_before
 printf '<!-- auto-merge-failed: %s -->\n' "$SHA1" >> "$WORK/reviews/pr-1.md"
 am_blocked 'a merge of this head already failed' 'a refused head is never tried again'
@@ -123,6 +164,21 @@ run_merge
 assert_jq '.outcome == "skipped" and .reason == "the head moved"' 'a moved head is never merged'
 grep -q -- '-X PUT' "$SANDBOX/gh.log" && { printf 'FAIL %s: merge called after the head moved\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no merge call after the head moved\n' "$CASE"
+
+am_setup rp_merge_verdict_changed
+sed -i.bak 's/| APPROVE | done |/| REQUEST_CHANGES | done |/' "$WORK/REVIEWS.md"
+run_merge
+assert_jq '.outcome == "skipped" and (.reason | contains("not a done APPROVE"))' 'a verdict changed since preflight withdraws the merge'
+
+am_setup rp_merge_draft
+jq -n --arg s "$SHA1" '{state:"open", draft:true, head:{sha:$s}, labels:[{name:"cg-automerge"}]}' | fx "api repos/acme/widgets/pulls/1"
+run_merge
+assert_jq '.outcome == "skipped" and .reason == "the PR is a draft"' 'a draft is never merged'
+
+am_setup rp_merge_base_moved
+fx_fail "$MERGE_SLUG"; fx_err "$MERGE_SLUG" 'HTTP 405: Base branch was modified. Review and try the merge again.'
+run_merge
+assert_jq '.outcome == "error"' 'a base branch that moved under the call is retried, not refused'
 
 am_setup rp_merge_unlabeled
 jq -n --arg s "$SHA1" '{state:"open", head:{sha:$s}, labels:[]}' | fx "api repos/acme/widgets/pulls/1"

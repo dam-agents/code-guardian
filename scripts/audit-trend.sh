@@ -37,6 +37,7 @@ DIR="${1:-}"; shift 2>/dev/null || true
 [ -n "$DIR" ] || { printf 'usage: audit-trend.sh [append|backfill|index|report] <work/audit dir> [args]\n' >&2; exit 2; }
 
 CONFIG_MD="${TREND_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
+CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ISO week label (2026-W37) of an epoch — the row key, so a week has one row
@@ -45,10 +46,6 @@ NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # the row instead of filing it under a wrong week.
 iso_week() { # <epoch>
   date -u -d "@$1" +%G-W%V 2>/dev/null || date -u -r "$1" +%G-W%V 2>/dev/null
-}
-iso2epoch() { # <iso ts> -> epoch, 0 when unparseable
-  local t="${1:-}"; [ -n "$t" ] || { printf '0'; return; }
-  date -u -d "$t" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$t" +%s 2>/dev/null || printf '0'
 }
 
 # ---------------------------------------------------------------- append -----
@@ -312,9 +309,7 @@ if [ "$MODE" = "append" ] || [ "$MODE" = "backfill" ]; then
       + " · human review \(if $c.human_ttfr_h == null then "—" else "\($c.human_ttfr_h)h" end)\(d($c.human_ttfr_h; $p.human_ttfr_h; "h"))"
       + " · stalled \($c.stalled|f)/\($c.locked_runs|f)"
     end'
-  # the same reader as preflight's cfg(): an inline `# …` comment is not the value
-  surfaces="$(sed -n 's/^- *audit_trend:[[:space:]]*//p' "$CONFIG_MD" 2>/dev/null | head -1 \
-    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' -e 's/^[`"'"'"']//' -e 's/[`"'"'"']$//')"
+  surfaces="$(cfg audit_trend)"
   [ "$surfaces" = "off" ] || surfaces=dam
   printf 'weeks=%s surfaces=%s report=%s\n' "$WEEKS" "$surfaces" "$DIR/report.html"
   exit 0

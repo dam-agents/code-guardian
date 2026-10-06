@@ -49,6 +49,18 @@ assert_path gone "$TMP_T/review-pr-9"  'a review run reclaims a dead session clo
 assert_path kept "$TMP_T/review-pr-8"  'a live in_progress lock keeps its clone'
 assert_path kept "$TMP_T/review-pr-10" 'a fresh clone is kept'
 
+# a fix round sets no lock row: its PR hold keeps the clone, a dead one does not
+new_case tmp_sweep_fix_clone
+base_config
+pr_json 7 "open PR" '[]' "7777777777777777777777777777777777777777" | open_prs_fx
+TMP_T="$SANDBOX/tmp"; mkdir -p "$TMP_T" "$WORK/.holds.lock"
+mkdir -p "$TMP_T/review-pr-11.fix" "$TMP_T/review-pr-12.fix"
+touch -t 202001010000 "$TMP_T/review-pr-11.fix" "$TMP_T/review-pr-12.fix"
+printf '%s\nrun-fixing\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$WORK/.holds.lock/11"
+TMPDIR="$TMP_T" run_preflight review
+assert_path kept "$TMP_T/review-pr-11.fix" 'a fix clone under a live hold is kept'
+assert_path gone "$TMP_T/review-pr-12.fix" 'a fix clone without a hold is reclaimed'
+
 new_case tmp_sweep_clean
 base_config
 pr_json 7 "open PR" '[]' "7777777777777777777777777777777777777777" | open_prs_fx

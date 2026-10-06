@@ -192,8 +192,9 @@ measurement.
     session's included, and splits them by `by_mode` and by the work they
     carried (`by_work.<kind>` — `runs` and `items`; one run can carry several
     kinds). A kind whose `runs` grew without matching `items` is a run woken
-    for too little work; name it. `unlabelled` counts runs that name no kind
-    (events from before 7.1.0), which the report states once as a floor.
+    for too little work; name it. `unlabelled` counts runs whose heartbeat
+    names no kind of their work (written before that kind was counted), which
+    the report states once as a floor.
 27. **Spend ground truth** — one `mcp__platform-outbound__get_metrics` call
     (`days: 7`, `granularity: "summary"` — that granularity's totals cover
     every session in the window, which `session`/`call` rows do not: they cap
@@ -377,6 +378,4 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
   "fail" or "error", which next week's log grep would flag), then back up
-  `work/` ([persistence.md](persistence.md)). No state repairs beyond tasks
-  34–36, and no GitHub writes except the task-3 tracking issue and the trend
-  artifact's own publish.
+  `work/` ([persistence.md](persistence.md)).

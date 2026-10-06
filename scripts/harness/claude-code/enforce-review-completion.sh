@@ -42,12 +42,11 @@ export LOG_RUN_ID="$sid"
 
 # A stop that goes through gives back the PR holds this run still owns
 # (docs/worklist.md → PR holds); a blocked stop keeps them — the run goes on.
+WORK="$LOG_WORK"; . "$(cd "$(dirname "$0")/../.." && pwd)/lib/holds.sh" 2>/dev/null \
+  || hold_release_others() { :; }
 release_own_holds() {
-  local f
-  for f in "$LOG_WORK/.holds.lock"/*; do
-    [ -f "$f" ] && [ "$(sed -n 2p "$f" 2>/dev/null)" = "$sid" ] || continue
-    rm -f "$f" && logev info hold "PR #${f##*/}: released at stop"
-  done
+  local n
+  hold_release_others "" "$sid" | while IFS= read -r n; do logev info hold "PR #$n: released at stop"; done
 }
 trap release_own_holds EXIT
 
