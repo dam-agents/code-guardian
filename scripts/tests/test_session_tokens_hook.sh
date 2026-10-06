@@ -15,7 +15,11 @@ run_hook() { # <transcript>
   jq -nc --arg t "$1" '{hook_event_name:"SessionEnd", session_id:"s-tok", transcript_path:$t}' \
     | WORK_DIR="$WORK" bash "$HOOK" >/dev/null 2>&1
 }
+agent_call_line() { # one Agent tool call, no usage of its own
+  jq -nc '{type:"assistant", message:{id:"t-agent", content:[{type:"tool_use", name:"Agent", input:{}}]}}'
+}
 tokens_msg() { jq -r 'select(.event=="tokens") | .msg' "$EVENTS" 2>/dev/null | tail -1; }
+missing_warns() { jq -c 'select(.event=="tokens_subagents_missing" and .level=="warn")' "$EVENTS" 2>/dev/null | wc -l | tr -d ' '; }
 expect_msg() { # <grep -E pattern> <description>
   if tokens_msg | grep -qE -- "$1"; then printf 'ok   %s: %s\n' "$CASE" "$2"
   else printf 'FAIL %s: %s\n     msg: %s\n' "$CASE" "$2" "$(tokens_msg)"; FAILED=1; fi
@@ -34,10 +38,21 @@ setup tokens_main_only
 run_hook "$TP"
 expect_msg '^input=15 output=150 cache_read=3000 cache_creation=500 msgs=2 model=claude-opus-5-5 subagents=0$' \
   'main transcript summed and deduped, subagents=0, no sub_tokens'
+if [ "$(missing_warns)" = 0 ]; then printf 'ok   %s: no Agent call, no subagents warn\n' "$CASE"
+else printf 'FAIL %s: subagents warn without an Agent call\n' "$CASE"; FAILED=1; fi
+
+# --- Agent calls, but no subagent transcript beside the session: a warn ---------
+setup tokens_subagents_missing
+{ usage_line m1 10 100 1000 500; agent_call_line; agent_call_line; } > "$TP"
+run_hook "$TP"
+expect_msg ' subagents=0$' 'tokens event still written with subagents=0'
+if [ "$(missing_warns)" = 1 ] && jq -e 'select(.event=="tokens_subagents_missing") | .msg | test("^2 Agent calls")' "$EVENTS" >/dev/null 2>&1; then
+  printf 'ok   %s: one tokens_subagents_missing warn naming the Agent calls\n' "$CASE"
+else printf 'FAIL %s: warn missing or wrong: %s\n' "$CASE" "$(jq -c 'select(.event=="tokens_subagents_missing")' "$EVENTS")"; FAILED=1; fi
 
 # --- subagents: summed into the totals, their share appended --------------------
 setup tokens_with_subagents
-{ usage_line m1 10 100 1000 500; usage_line m2 5 50 2000 0; } > "$TP"
+{ usage_line m1 10 100 1000 500; agent_call_line; usage_line m2 5 50 2000 0; } > "$TP"
 mkdir -p "${TP%.jsonl}/subagents"
 usage_line a1 1 10 100 50 > "${TP%.jsonl}/subagents/agent-a1.jsonl"
 # a2 repeats the parent's m2 (a layout that embeds usage twice) — counted once,
@@ -49,6 +64,8 @@ expect_msg '^input=18 output=180 cache_read=3300 cache_creation=620 msgs=4 model
   'totals include both subagents, a repeated message id once'
 expect_msg ' subagents=2 sub_tokens=in:3,out:30,cr:300,cw:120$' \
   'subagent count and share appended (meta files ignored, shared message on the main side)'
+if [ "$(missing_warns)" = 0 ]; then printf 'ok   %s: transcripts found, no subagents warn\n' "$CASE"
+else printf 'FAIL %s: subagents warn although transcripts exist\n' "$CASE"; FAILED=1; fi
 
 # --- the audit's capture still reads the event -----------------------------------
 # preflight.sh audit (TOKENS_WEEK) captures the leading fields; the appended

@@ -6,8 +6,10 @@
 # message id, into: input / output / cache_read / cache_creation / msgs, then
 # appends `subagents=<n>` and, when n > 0, the subagents' own share as
 # `sub_tokens=in:…,out:…,cr:…,cw:…`. The run id is the session id, so the event
-# joins 1:1 with the run's other events. Best-effort: a hard-crashed session
-# never fires SessionEnd and simply has no tokens event.
+# joins 1:1 with the run's other events. A session with Agent calls and no
+# subagent transcript beside it also logs one `tokens_subagents_missing` warn.
+# Best-effort: a hard-crashed session never fires SessionEnd and simply has no
+# tokens event.
 # No-op unless work/CONFIG.md exists (same deployed-instance guard as
 # log-tool-event.sh). Never blocks the agent: always exits 0.
 set -u
@@ -45,4 +47,13 @@ msg="$(jq -rn --argjson a "$all" --argjson m "$main" --argjson n "${#SUBS[@]}" '
        " sub_tokens=in:\($a.input - ($m.input // 0)),out:\($a.output - ($m.output // 0)),cr:\($a.cache_read - ($m.cache_read // 0)),cw:\($a.cache_creation - ($m.cache_creation // 0))"
      else "" end)' 2>/dev/null)"
 [ -n "$msg" ] && logev info tokens "$msg"
+# Agent calls with no subagent transcript beside the session: the subagents'
+# usage is outside the event (the harness keeps the transcripts elsewhere) —
+# one warn per run, so the audit shows the undercount instead of hiding it
+if [ "${#SUBS[@]}" -eq 0 ]; then
+  agent_calls="$(jq -nR '[inputs | fromjson? // empty | .message.content[]?
+    | select(type == "object" and .type == "tool_use" and (.name == "Agent" or .name == "Task"))] | length' "$tp" 2>/dev/null)"
+  [ "${agent_calls:-0}" -gt 0 ] 2>/dev/null && logev warn tokens_subagents_missing \
+    "$agent_calls Agent calls in the session, no transcript under ${tp%.jsonl}/subagents/ — their usage is not in the tokens event (the harness transcript layout may have moved)"
+fi
 exit 0

@@ -1,7 +1,7 @@
 ---
 name: review-skill
 description: Runs one configured review skill on one pull request from the brief file the prompt names, and writes the findings to the output file the brief names. Used by the per-PR skill fan-out.
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill
+tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, Skill
 model: inherit
 ---
 You run one review skill for one pull request, unattended, as part of an
