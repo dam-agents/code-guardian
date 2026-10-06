@@ -4,7 +4,8 @@
 # Stop hook; the caller provides WORK, LOG_DIR, NOW_EPOCH and lib/common.sh.
 #
 #   holder_cutoffs             sets HOLDER_CUT and FANOUT_CUT (UTC, to the second)
-#   $HOLDER_JQ                 jq definitions: tkey, stepof, alive_last, live_holders
+#   $HOLDER_JQ                 jq definitions: tkey, stepof, pr_steps, locked_step,
+#                              ended, alive_last, live_holders
 #   hold_live <n>              0 + why = held by a live run; 1 = no hold;
 #                              2 + its timestamp = a dead hold, removed here
 #   hold_acquire <n> <run>     0 = this run holds it; 1 + why = another live run does
@@ -20,9 +21,9 @@
 # events, measured at 16.7 min over real runs — or inside FANOUT_QUIET_MIN when
 # that event is the skill fan-out, the one phase that is structurally silent
 # (the holder is blocked on its subagents until `verified`; calibrate against
-# stats.reviews.phases.skills, docs/audit.md task 23). CG_* override for tests.
-HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
-FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"
+# stats.reviews.phases.skills, docs/audit.md task 23).
+HOLDER_QUIET_MIN=20
+FANOUT_QUIET_MIN=60
 HOLD_DIR="$WORK/.holds.lock"
 
 holder_cutoffs() {
@@ -35,24 +36,33 @@ holder_cutoffs() {
 # stable, so log order holds inside one second). A step is matched the way the
 # Stop hook matches it: the `PR #<n>` prefix and the optional sha token
 # stripped, so `skill:<name> done` and `rapid posted` stay non-terminal.
-# live_holders: a `locked` step on the PR makes a run a holder — a taker that
-# stood down holds nothing; it still owes the PR while its newest step there is
-# not done/aborted/posted, and it is alive while its newest event of any kind
-# is inside its window. Input: the events array; output: [{run, last}].
+#   pr_steps($n)      the review_step events of PR #<n> (`PR #<n> ` or `PR #<n>:`)
+#   locked_step       the step is `locked…`
+#   ended($pr; $r)    run $r's newest step in $pr is done, aborted or posted
+#   alive_last        the newest event of the input, when inside its window
+#   live_holders      a `locked` step on the PR makes a run a holder — a taker
+#                     that stood down holds nothing; it owes the PR until it
+#                     ended, and it is alive while its newest event of any kind
+#                     is inside its window. Input: the events array; output:
+#                     [{run, last}].
 HOLDER_JQ='
   def tkey: (.ts // "") | tostring | .[0:19];
   def stepof: (.msg // "") | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
+  def pr_steps($n):
+    [ .[] | select(.event == "review_step" and ((.msg // "") | test("^PR #" + $n + "(:| |$)"))) ];
+  def locked_step: stepof | test("^locked( |$)");
+  def ended($pr; $r):
+    [ $pr[] | select(.run == $r) ] | sort_by(tkey) | last | stepof | test("^(done|aborted|posted)( |$)");
   def alive_last($cut; $fcut):
     sort_by(tkey) | last
     | select(. != null)
     | select(tkey >= (if ((.msg // "") | test("fanned out")) then $fcut else $cut end));
   def live_holders($n; $cut; $fcut):
     . as $ev
-    | [ $ev[] | select(.event == "review_step" and ((.msg // "") | test("^PR #" + $n + "(:| |$)"))) ] as $pr
-    | [ $pr[] | select(stepof | test("^locked( |$)")) | .run ] | unique
+    | ($ev | pr_steps($n)) as $pr
+    | [ $pr[] | select(locked_step) | .run ] | unique
     | map(. as $r
-          | select(([ $pr[] | select(.run == $r) ] | sort_by(tkey) | last | stepof
-                    | test("^(done|aborted|posted)( |$)")) | not)
+          | select(ended($pr; $r) | not)
           | ([ $ev[] | select(.run == $r) ] | alive_last($cut; $fcut)) as $l
           | select($l != null)
           | {run: $r, last: $l});

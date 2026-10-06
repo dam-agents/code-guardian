@@ -41,11 +41,11 @@ CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ISO week label (2026-W37) of an epoch — the row key, so a week has one row
-# whatever hour the audit fires. GNU and BSD date both accept %G/%V; a date(1)
-# that supports neither invocation returns empty, which makes the caller skip
-# the row instead of filing it under a wrong week.
+# whatever hour the audit fires. GNU and BSD date both accept %G/%V; empty when
+# date(1) supports neither invocation, which makes the caller skip the row
+# instead of filing it under a wrong week.
 iso_week() { # <epoch>
-  date -u -d "@$1" +%G-W%V 2>/dev/null || date -u -r "$1" +%G-W%V 2>/dev/null
+  epoch2iso "$1" '%G-W%V'
 }
 
 # ---------------------------------------------------------------- append -----

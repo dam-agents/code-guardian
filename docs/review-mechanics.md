@@ -144,15 +144,16 @@ comment. Never for style preferences.
 
 **The TTL bounds a crash, not a slow review.** A lock past `LOCK_TTL_MIN` is
 only a candidate: preflight emits `takeover` **only when no run is a live
-holder of the PR**. A run with a `locked` step on the PR is its holder; it
-still owes the PR while its newest `review_step` there is non-terminal
-([review.md](review.md) → **Completion enforcement**), and it is alive while
-its newest event of any kind is inside `HOLDER_QUIET_MIN` (20 — above the
-16.7-min longest gap a healthy review shows). A run that ended releases the PR
-at once, however many milestones it logged first; a run that never locked it
-holds nothing. With no `locked` step since the lock (it can predate log
-retention after a crash), a recent event of any run naming the PR counts as
-life. A live holder's PR is omitted and logged `holder … — left
+holder of the PR** in the events since the lock. The core rule: a run with a
+`locked` step on the PR is its holder; it still owes the PR while its newest
+`review_step` there is non-terminal ([review.md](review.md) → **Completion
+enforcement**), and it is alive while its newest event of any kind is inside
+`HOLDER_QUIET_MIN` (20 — above the 16.7-min longest gap a healthy review
+shows). A run that ended releases the PR at once, however many milestones it
+logged first; a run that never locked it holds nothing. Preflight's fallback:
+with no `locked` step since the lock (it can predate log retention after a
+crash), a recent event naming the PR counts as life when its run has not ended
+the PR. A live holder's PR is omitted and logged `holder … — left
 running`. The check is a local log read; the rule and its windows live in
 [lib/holds.sh](../scripts/lib/holds.sh). Two signals must both go quiet: the
 row timestamp ([review.md](review.md) → **Lock heartbeat**) and the event
@@ -175,11 +176,13 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   death; `takeover: false` only means its snapshot saw no lock, and that
   snapshot can predate your arrival by minutes. `prepare` re-checks first: the
   PR lives when a tree, diff or state of `/tmp/review-pr-<n>*` is younger than
-  `HOLDER_QUIET_MIN`, or when another run is a live holder by the rule above.
+  `HOLDER_QUIET_MIN`, or when another run is a live holder by the core rule
+  above, read over every retained event (a `locked` step at any age counts).
   Then it stands down — `outcome: stand_down`, nothing touched,
-  `holder alive at Check 1 — stood down` logged — and you take the next PR. An older tree with no such event is a dead run's leftover and is
-  reclaimed; the lock write comes after this check. Standing down protects a
-  finished fan-out, which the reclaim's `rm -rf` would destroy
+  `holder alive at Check 1 — stood down` logged — and you take the next PR.
+  An older tree with no such event is a dead run's leftover and is reclaimed;
+  the lock write comes after this check. Standing down protects a finished
+  fan-out, which the reclaim's `rm -rf` would destroy
   ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):

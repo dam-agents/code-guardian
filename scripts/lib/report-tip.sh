@@ -4,9 +4,10 @@
 # title, or an SVG band's <title>, shows as one styled bubble on hover and
 # focus. Each report expands REPORT_TIP_CSS inside its <style> and
 # REPORT_TIP_JS inside its <script>; the page tokens (--ink, --surface,
-# --rule-strong, --seq) are the report's own.
+# --rule-strong, --seq) are the report's own. `read -d ''` ends at EOF with
+# status 1, so each read carries `|| true` and sourcing the file returns 0.
 
-IFS= read -r -d '' REPORT_TIP_CSS <<'CSS'
+IFS= read -r -d '' REPORT_TIP_CSS <<'CSS' || true
 /* a column with help text is marked by a dotted underline; the text itself
    ships as the header title (readable with no JS) and the script below moves it
    into the bubble, because a native title is clipped by the scroller */
@@ -23,7 +24,7 @@ th[data-tip]:focus-visible,td[data-tip]:focus-visible{color:var(--ink);outline:2
 .tip b{display:block;margin-bottom:.15rem}
 CSS
 
-IFS= read -r -d '' REPORT_TIP_JS <<'JS'
+IFS= read -r -d '' REPORT_TIP_JS <<'JS' || true
 // Column help: the header title becomes a styled bubble on hover and focus —
 // a native title inside the horizontal scroller is slow, truncated and
 // untouched by the light/dark tokens. Headers and chart bands also become

@@ -150,6 +150,16 @@ for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
 run_preflight review
 assert_jq '.stall_alert == null' 'a live concurrent claim suppresses this run'
 
+# --- a line the detector cannot read is skipped, the rest still counts --------
+stall_case stall_unreadable_lines
+EV="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+for s in 3600 7200; do stall_event "$s" 10; done
+printf '{"ts":"%s","run":"r","job":"review","level":"info","event":"preflight","msg":null}\n' "$(iso_ago 5000)" >> "$EV"
+printf '{"ts":"%s","run":"r","event":"pre\n' "$(iso_ago 5000)" >> "$EV"
+for s in 10800 14400; do stall_event "$s" 10; done
+run_preflight review
+assert_jq '.stall_alert.count == 4' 'an event without msg and a torn line are skipped'
+
 # --- unrelated preflight lines are not counted --------------------------------
 stall_case stall_no_false_positives
 for s in 3600 7200 10800 14400; do

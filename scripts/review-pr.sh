@@ -87,8 +87,7 @@
 # status under review_progress, and the opt-in `merge`, `fix-start` (label
 # removal) and `fix-push` (docs/auto-merge.md, docs/agent-fixes.md).
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
-# Overrides (tests): CG_CLONE_URL (clone source); CG_HOLDER_QUIET_MIN and
-# CG_FANOUT_QUIET_MIN (lib/holds.sh).
+# Overrides (tests): CG_CLONE_URL (clone source).
 
 set -u
 export LC_ALL=C
@@ -179,7 +178,7 @@ need_ctx() { [ -f "$CTX/pr.json" ] || fail "no prepared state for PR #$N — run
 # is absent — a first review, or history older than the line.
 prior_findings() {
   local hist="$WORK/reviews/pr-$N.md" p=""
-  [ -f "$hist" ] && p="$(rr_line findings-json < "$hist")"
+  [ -f "$hist" ] && p="$(marker_payload findings-json < "$hist")"
   [ -n "$p" ] || { printf '[]\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
 }
@@ -188,7 +187,7 @@ prior_findings() {
 # or history written before the line existed.
 prior_meta() {
   local hist="$WORK/reviews/pr-$N.md" p=""
-  [ -f "$hist" ] && p="$(rr_line review-meta < "$hist")"
+  [ -f "$hist" ] && p="$(marker_payload review-meta < "$hist")"
   [ -n "$p" ] || { printf '{}\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "object" then . else {} end' 2>/dev/null || printf '{}\n'
 }

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # common.sh — the helpers every script shares: the work/CONFIG.md reader
-# (docs/config.md), repo references, time and a GitHub GET with retry. Set
-# CONFIG before calling cfg or cfg_table; source this file before GH_HOST is
-# re-exported, so DEFAULT_HOST keeps the ambient default and each reference
-# resolves independently.
+# (docs/config.md), repo references, time, the event log and history-marker
+# reads, and a GitHub GET with retry. Set CONFIG before calling cfg or
+# cfg_table; source this file before GH_HOST is re-exported, so DEFAULT_HOST
+# keeps the ambient default and each reference resolves independently.
 
 # A CONFIG value is the text after `- <key>: `, minus a trailing comment and
 # minus one layer of markdown quoting (`value`, "value") — writers reach for
@@ -58,6 +58,13 @@ epoch2iso() { # <epoch> [date format]
 # line; `fromjson?` drops the partial line a concurrently writing session may
 # leave. LOG_DIR comes from log.sh.
 events_jsonl() { cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null; }
+
+# the payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
+# line of a history file or section on stdin (docs/review-mechanics.md →
+# Summary body format); nothing when the line is absent
+marker_payload() { # <findings-json|review-meta>  < text
+  grep -o "<!-- $1: .* -->" | tail -1 | sed -e "s/^<!-- $1: //" -e 's/ -->$//'
+}
 
 # a value as one URL path segment (a label name may hold `/`, `?` or `%`)
 uri() { jq -rn --arg v "$1" '$v | @uri'; }

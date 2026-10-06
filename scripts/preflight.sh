@@ -84,8 +84,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CI_LIB=1; . "$SCRIPT_DIR/lib/ci-rollup.sh" >/dev/null 2>&1 || CI_LIB=0
 # review-records.sh is optional: unreadable, every takeover and owed closed-PR
 # pass reads as a first review (full scope) and the audit counts no reviews.
-RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; rr_posted() { return 1; }; rr_line() { :; }; }
-. "$SCRIPT_DIR/lib/holds.sh"
+RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; rr_posted() { return 1; }; }
+# holds.sh carries the live-holder rule and the PR holds. Unreadable, review
+# mode stops with an `error` (fail_out below) and the audit's clone sweep judges
+# a `.fix` clone by its age alone.
+HOLDS_LIB=1; . "$SCRIPT_DIR/lib/holds.sh" >/dev/null 2>&1 || HOLDS_LIB=0
 # paths.sh is optional: unreadable, no path glob ever matches
 . "$SCRIPT_DIR/lib/paths.sh" >/dev/null 2>&1 || path_glob_match() { return 1; }
 LOG_JOB="$MODE"
@@ -313,19 +316,21 @@ fi
 # Is the session holding PR #<n>'s lock still working? Local signals only, no
 # API call: lib/holds.sh's live_holders over the events since the lock. When no
 # run logged a `locked` step on the PR since the lock — the step can predate log
-# retention after a crash — a recent event of any run naming `PR #<n> ` counts
-# as life instead. Prints the live run id (8 chars) + minutes since its last
-# event, or nothing. docs/review-mechanics.md → **Live holder**.
+# retention after a crash — a recent event naming `PR #<n> ` counts as life
+# instead, from a run that has not ended the PR. Prints the live run id (8
+# chars) + minutes since its last event, or nothing.
+# docs/review-mechanics.md → **Live holder**.
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
   holder_cutoffs || return 1
   events_jsonl | jq -rs --arg n "$1" --arg lock "${2:0:19}" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
       --argjson now "$NOW_EPOCH" "$HOLDER_JQ"'
       [ .[] | select(tkey >= $lock) ] as $ev
+      | ($ev | pr_steps($n)) as $pr
       | ($ev | live_holders($n; $cut; $fcut)) as $h
       | if ($h | length) > 0 then ($h | map(.last) | sort_by(tkey) | last)
-        elif any($ev[]; .event == "review_step" and ((.msg // "") | test("^PR #" + $n + "(:| |$)"))
-                        and (stepof | test("^locked( |$)"))) then null
-        else ([ $ev[] | select((.msg // "") | contains("PR #" + $n + " ")) ] | alive_last($cut; $fcut)) end
+        elif any($pr[]; locked_step) then null
+        else ([ $ev[] | select((.msg // "") | contains("PR #" + $n + " ")) | select(ended($pr; .run) | not) ]
+              | alive_last($cut; $fcut)) end
       | select(. != null) as $l
       | ( ($l.msg // "") | test("fanned out") ) as $fan
       | ((($now - (($l | tkey) + "Z" | fromdateiso8601)) / 60) | floor) as $mins
@@ -359,10 +364,11 @@ apply_holds() { # reviews|mentions
     '($h | split(" ") | map(select(length > 0) | tonumber)) as $h | map(select(.number | IN($h[]) | not))')"
 }
 
-# jq helpers the audit statistics share: an event timestamp as epoch, a
-# median whose mid-point of an even count is rounded by <f> (floor for
-# minutes, round for sizes and hours), and the week's review_step events
-# parsed into {run, pr, ts, rest} — rest without the optional sha token.
+# jq helpers the audit statistics and the progress ETA share: an event
+# timestamp as epoch, a median whose mid-point of an even count is rounded by
+# <f> (floor for minutes and seconds, round for sizes and hours), and the
+# review_step events since <s> parsed into {run, pr, ts, rest} — rest without
+# the optional sha token.
 STATS_JQ='
   def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
   def median(f): sort | if length == 0 then null
@@ -370,7 +376,7 @@ STATS_JQ='
                         else ((.[length / 2 - 1] + .[length / 2]) / 2 | f) end;
   def review_steps($s):
     [ .[] | select(.ts >= $s and .event == "review_step")
-      | select(.msg | test("^PR #[0-9]+:? +."))
+      | select((.msg // "") | test("^PR #[0-9]+:? +."))
       | (.msg | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
       | { run: .run, pr: $c.pr, ts: .ts, rest: ($c.rest | sub("^[0-9a-f]{7,40}( +|$)"; "")) } ];
 '
@@ -393,7 +399,8 @@ ESCALATION_OWNER="$(cfg escalation_owner)"
 # stalled-review alert threshold: stalls per 24h that trigger one alert (0/off = disabled)
 STALL_ALERT_THRESHOLD="$(cfg stall_alert_threshold)"
 STALL_ALERT_THRESHOLD="${STALL_ALERT_THRESHOLD:-4}"
-# one takeover event -> {ts, pr, lock}; lock = "" on a line written before 8.2.1
+# one takeover event -> {ts, pr, lock}; lock = "" on a line written before 8.2.1.
+# Applied per event under `try`: an event it cannot read is skipped.
 STALL_SEL='select(.event == "preflight" and (.msg | test("stale in_progress lock")))
   | {ts, pr: (.msg | capture("PR #(?<n>[0-9]+)") | .n | tonumber),
      lock: ((.msg | capture("locked (?<l>[^ )]+)") | .l) // "")}'
@@ -571,6 +578,8 @@ fail_out() {
 }
 
 [ -z "$REPO" ] && fail_out "target repo unresolved (CONFIG.md github_repo missing)"
+[ "$MODE" = "review" ] && [ "$HOLDS_LIB" -eq 0 ] \
+  && fail_out "lib/holds.sh unreadable — live holders and PR holds cannot be judged"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
 
 # ------------------------------------------------------------ open PR set ----
@@ -638,7 +647,7 @@ sweep_stale_clones() {
     case "$cn" in (''|*[!0-9]*) continue;; esac
     [ "$(row_field "$(row_for "$cn")" 6)" = "in_progress" ] && continue
     # a fix round writes no lock row: its PR hold is what says it still runs
-    case "$d" in (*.fix) hold_live "$cn" >/dev/null && continue;; esac
+    case "$d" in (*.fix) [ "$HOLDS_LIB" -eq 1 ] && hold_live "$cn" >/dev/null && continue;; esac
     [ -n "$(find "$d" -maxdepth 0 -mmin +"$LOCK_TTL_MIN" 2>/dev/null)" ] || continue
     rm -rf "$d" && n=$((n+1))
   done
@@ -1122,20 +1131,14 @@ if [ "$MODE" = "review" ]; then
       < <(ls -1 "$LOG_DIR"/events-*.jsonl 2>/dev/null | sort | tail -7)
     ETA=null
     if [ "${#ETA_FILES[@]}" -gt 0 ]; then
-      ETA="$(jq -R -n '
-        [ inputs | fromjson? // empty
-          | select(.event == "review_step")
-          | select(.msg | test("PR #[0-9]+ +[0-9a-f]+ +(locked|done)$"))
-          | (.msg | capture("PR #(?<n>[0-9]+) +[0-9a-f]+ +(?<step>locked|done)$")) as $c
-          | {key: ((.run // "?") + "#" + $c.n), step: $c.step,
-             t: (.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)} ]
-        | group_by(.key)
-        | map( (map(select(.step == "locked") | .t) | min) as $a
-             | (map(select(.step == "done")   | .t) | max) as $b
+      ETA="$(jq -R -n "$STATS_JQ"'
+        [ inputs | fromjson? // empty ] | review_steps("")
+        | group_by([.run, .pr])
+        | map( ([ .[] | select(.rest == "locked") | .ts | epoch ] | min) as $a
+             | ([ .[] | select(.rest == "done")   | .ts | epoch ] | max) as $b
              | if $a == null or $b == null or $b <= $a then empty
                else {end: $b, d: ($b - $a)} end )
-        | sort_by(.end) | .[-20:] | map(.d) | sort
-        | if length == 0 then null else .[(length / 2) | floor] end' "${ETA_FILES[@]}" 2>/dev/null)"
+        | sort_by(.end) | .[-20:] | map(.d) | median(floor)' "${ETA_FILES[@]}" 2>/dev/null)"
       [ -n "$ETA" ] || ETA=null
     fi
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson eta "$ETA" 'map(. + {eta_seconds: $eta})')"
@@ -1432,7 +1435,7 @@ if [ "$MODE" = "review" ]; then
   if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
     STALL_SINCE="$(( NOW_EPOCH - 86400 ))"
     STALL_SINCE_ISO="$(epoch2iso "$STALL_SINCE")"
-    STALL_EVENTS="$(events_jsonl | jq -sc "[ .[] | $STALL_SEL ]" 2>/dev/null)"
+    STALL_EVENTS="$(events_jsonl | jq -sc "[ .[] | try ($STALL_SEL) ]" 2>/dev/null)"
     [ -n "$STALL_EVENTS" ] || STALL_EVENTS='[]'
     # the window: one scope, so an unkeyed line is one stall per PR
     STALL_WIN="$(printf '%s' "$STALL_EVENTS" | jq -c --arg s "$STALL_SINCE_ISO" \
@@ -1506,11 +1509,11 @@ if [ "$MODE" = "review" ]; then
       || { printf 'no APPROVE of mine on this head'; return; }
     sec="$(last_review_section "$n" "$sha")"
     [ -n "$sec" ] || { printf 'no review of mine on this head'; return; }
-    [ "$(printf '%s\n' "$sec" | rr_line findings-json \
+    [ "$(printf '%s\n' "$sec" | marker_payload findings-json \
          | jq '[.[] | select(type == "object") | select(.severity == "critical" or .severity == "warning")
                 | select((.status // "") != "fixed")] | length' 2>/dev/null)" = "0" ] \
       || { printf 'my review has open blocking findings'; return; }
-    meta="$(printf '%s\n' "$sec" | rr_line review-meta)"
+    meta="$(printf '%s\n' "$sec" | marker_payload review-meta)"
     [ "$(printf '%s' "$meta" | jq -r '(.triage.class // "") + "|" + (.triage.forced // "")' 2>/dev/null)" = "quick-check|" ] \
       || { printf 'my triage is not a quick check'; return; }
     det="$(gh api "repos/$REPO/pulls/$n" 2>/dev/null)"
@@ -1587,7 +1590,7 @@ if [ "$MODE" = "review" ]; then
       fi
       sec="$(last_review_section "$n" "$sha")"
       if [ -z "$sec" ]; then log "PR #$n: $AF_LABEL present, no fix — no review of mine on this head"; continue; fi
-      nfix="$(printf '%s\n' "$sec" | rr_line findings-json \
+      nfix="$(printf '%s\n' "$sec" | marker_payload findings-json \
         | jq '[.[] | select(type == "object") | select(.severity == "critical" or .severity == "warning")
                | select((.status // "") != "fixed") | select((.fix // "") != "")] | length' 2>/dev/null)"
       case "$nfix" in (''|0|*[!0-9]*) log "PR #$n: $AF_LABEL present, no fix — my review has no open blocking finding with a fix"; continue;; esac
@@ -1636,7 +1639,7 @@ if [ "$MODE" = "shepherd" ]; then
   # only while that review read the current head: a call on older code never
   # silences a nudge. Prints the JSON object, or nothing.
   own_triage() { # <pr-number> <head-sha>
-    last_review_section "$1" "$2" | rr_line review-meta \
+    last_review_section "$1" "$2" | marker_payload review-meta \
       | jq -c '.triage // empty | select(type == "object")' 2>/dev/null || true
   }
 
@@ -1647,7 +1650,7 @@ if [ "$MODE" = "shepherd" ]; then
   own_open_criticals() { # <pr-number> -> count
     local f="$WORK/reviews/pr-$1.md" j
     [ -f "$f" ] || { printf 0; return 0; }
-    j="$(rr_line findings-json < "$f")"
+    j="$(marker_payload findings-json < "$f")"
     [ -n "$j" ] || { printf 0; return 0; }
     printf '%s' "$j" | jq '[.[] | select(type == "object")
                             | select((.severity // "") == "critical")
@@ -2262,16 +2265,20 @@ if [ "$MODE" = "audit" ]; then
   fi
 
   # --- events log: triage, harness adapter, 14-day retention (docs/logging.md)
+  # the week's events, read once for every statistic of this audit
+  AUDIT_EVENTS="$PF_TMP/audit-events.jsonl"
+  events_jsonl | jq -c --arg s "$SINCE_ISO" 'select(.ts >= $s)' > "$AUDIT_EVENTS" 2>/dev/null
+  week_events() { cat "$AUDIT_EVENTS" 2>/dev/null; }
   ev_err=0; ev_warn=0; recurring=""
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
-    ev_err="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="error")] | length' 2>/dev/null)"; ev_err="${ev_err:-0}"
-    ev_warn="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="warn")] | length' 2>/dev/null)"; ev_warn="${ev_warn:-0}"
-    recurring="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" \
+    ev_err="$(week_events | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="error")] | length' 2>/dev/null)"; ev_err="${ev_err:-0}"
+    ev_warn="$(week_events | jq -rs --arg s "$SINCE_ISO" '[.[] | select(.ts >= $s and .level=="warn")] | length' 2>/dev/null)"; ev_warn="${ev_warn:-0}"
+    recurring="$(week_events | jq -rs --arg s "$SINCE_ISO" \
       '[.[] | select(.ts >= $s and (.level=="error" or .level=="warn"))] | group_by(.event)
        | map(select(length >= 3) | "\(.[0].event)×\(length)") | join(", ")' 2>/dev/null)"
   fi
   if [ "$ev_err" -gt 0 ]; then
-    last_err="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" \
+    last_err="$(week_events | jq -rs --arg s "$SINCE_ISO" \
       '[.[] | select(.ts >= $s and .level=="error")] | last | "\(.event): \(.msg)"' 2>/dev/null | cut -c1-160)"
     check events_errors warn "$ev_err error events this week; last: ${last_err:-?}"
   else check events_errors ok "no error events this week ($ev_warn warns)"; fi
@@ -2289,7 +2296,7 @@ if [ "$MODE" = "audit" ]; then
   # agent's diagnosis pass (docs/audit.md task 3).
   FAILURES='[]'
   if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
-    FAILURES="$(events_jsonl | jq -s --arg s "$SINCE_ISO" '
+    FAILURES="$(week_events | jq -s --arg s "$SINCE_ISO" '
       def norm: gsub("[0-9a-f]{7,40}";"<sha>") | gsub("[0-9]+";"<n>")
               | gsub("/tmp/[^ ]*";"<tmp>") | gsub("\\s+";" ") | .[0:120];
       [ .[] | select(.ts >= $s and .level=="error")
@@ -2325,7 +2332,7 @@ if [ "$MODE" = "audit" ]; then
   # `by_model` splits the same counters per recorded model id, which is what
   # prices a week (docs/trends.md → Cost); events written before the hook
   # recorded a model land under "unknown" and price as "—", never as a guess.
-  TOKENS_WEEK="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" '
+  TOKENS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
     def sums: {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
                cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)};
     [.[] | select(.ts >= $s and .event=="tokens") | .msg
@@ -2340,7 +2347,7 @@ if [ "$MODE" = "audit" ]; then
   # gate). `by_work.<kind>` counts the runs that carried that work (`runs`) and
   # its items; one run can carry several kinds. `unlabelled` counts woken runs
   # that name no kind: events from before the kind keys.
-  WAKEUPS_WEEK="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" '
+  WAKEUPS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
@@ -2372,7 +2379,7 @@ if [ "$MODE" = "audit" ]; then
   ARTIFACTS_WEEK='null'
   if [ -n "$ARTIFACT_SKILL" ]; then
     ART_CUTOFF="$(epoch2iso "$(( NOW_EPOCH - 3600 ))")"
-    ARTIFACTS_WEEK="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$ART_CUTOFF" '
+    ARTIFACTS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$ART_CUTOFF" '
       def prs(f): [ .[] | select(.ts >= $s) | select(f) | .msg
                     | capture("^PR #(?<n>[0-9]+)") | .n ] | unique;
       [ .[] | select(.ts >= $s) | select(.event=="artifact") | .msg
@@ -2407,7 +2414,7 @@ if [ "$MODE" = "audit" ]; then
   # a run whose last event is newer than the lock TTL may still be alive
   # (no SessionEnd yet is not a kill) — exclude it rather than miscount it
   STALL_CUTOFF="$(epoch2iso "$(( NOW_EPOCH - LOCK_TTL_MIN * 60 ))")"
-  STALLS_WEEK="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
+  STALLS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
     [.[] | select(.ts >= $s)] as $w
     | ($w | map(select(.event=="pod_boot") | .ts)) as $boots
     | [ $w | group_by(.run)[]
@@ -2536,7 +2543,7 @@ if [ "$MODE" = "audit" ]; then
   # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
   # queue wait + this; without it a slow median cannot be attributed to either.
-  REVIEW_DUR="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" "$STATS_JQ"'
+  REVIEW_DUR="$(week_events | jq -rs --arg s "$SINCE_ISO" "$STATS_JQ"'
     review_steps($s)
     | group_by([.run, .pr])
     | map({ locked: ([.[] | select(.rest | startswith("locked")) | .ts] | min),
@@ -2580,7 +2587,7 @@ if [ "$MODE" = "audit" ]; then
   # Progress logging): a median that grew is attributable to the phase that
   # grew it, instead of hiding inside one `verified` -> `posted` interval. A
   # phase whose bounding milestone is missing is not counted, never zero.
-  REVIEW_PHASES="$(events_jsonl | jq -rs --arg s "$SINCE_ISO" "$STATS_JQ"'
+  REVIEW_PHASES="$(week_events | jq -rs --arg s "$SINCE_ISO" "$STATS_JQ"'
     def at($g; $step): [ $g[] | select(.rest | startswith($step)) | .ts ] | min;
     def span($g; $from; $to): at($g; $from) as $a | at($g; $to) as $b
       | if $a == null or $b == null then null
