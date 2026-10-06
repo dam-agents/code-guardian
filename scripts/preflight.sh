@@ -2462,10 +2462,13 @@ if [ "$MODE" = "audit" ]; then
     jq -e --arg d "$am_def" '([.autoMode.environment[]?, .autoMode.allow[]? | strings | select(startswith("[code-guardian]"))] | length > 0)
         and ($d == "" or ([.autoMode.allow[]? | strings | select(startswith("[code-guardian]") and contains($d))] | length > 0))' \
       "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1 || hooks_missing="$hooks_missing autoMode-rules"
+    # the tool deny list and the review-skill agent: install.sh owns both
+    trim_missing="$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null)"
+    [ -n "$trim_missing" ] && hooks_missing="$hooks_missing $trim_missing"
     if [ -z "$hooks_missing" ]; then
-      check harness_adapter ok "Claude Code hooks and auto-mode rules registered (tool logging + review-completion enforcement)"
+      check harness_adapter ok "Claude Code hooks, auto-mode rules, tool deny list and review-skill agent installed (tool logging + review-completion enforcement)"
     else
-      check harness_adapter warn "Claude Code hooks not registered:$hooks_missing — run scripts/harness/claude-code/install.sh"
+      check harness_adapter warn "Claude Code adapter not current:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
   else
     check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"

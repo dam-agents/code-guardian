@@ -180,7 +180,8 @@ git branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || t
 
 Register the harness hooks — failed tool calls and per-run token usage into the
 structured events log, plus the `Stop` hook that refuses a stop leaving a
-review mid-pipeline — and the auto-mode classifier rules
+review mid-pipeline — the auto-mode classifier rules, the deny list of unused
+tools and the `review-skill` subagent type
 (`docs/logging.md` → **Harness adapters**):
 
 ```bash

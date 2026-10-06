@@ -5,17 +5,25 @@
 # log-review-step.sh on PostToolUse (Bash|Task), log-session-tokens.sh on
 # SessionEnd, enforce-review-completion.sh on Stop. It also keeps the
 # auto-mode classifier rules for the agent's documented writes
-# (autoMode.environment / autoMode.allow, entries tagged [code-guardian]).
+# (autoMode.environment / autoMode.allow, entries tagged [code-guardian]),
+# the tool deny list (permissions.deny ← denied-tools.txt, so the unused
+# tools' definitions leave every request) and the `review-skill` subagent type
+# (~/.claude/agents/review-skill.md ← agents/review-skill.md).
 # On any other harness it prints a notice and exits 0 — the agent then logs
-# tool failures manually per docs/logging.md. Newly registered hooks take
-# effect from the next session.
+# tool failures manually per docs/logging.md. Changes take effect from the
+# next session.
+#
+#   install.sh           # install or refresh
+#   install.sh --check   # print the parts not current (tool-deny, skill-agent), or nothing
 set -u
 
+CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 if [ "${CLAUDECODE:-}" != "1" ]; then
+  [ "$CHECK" = 1 ] && exit 0
   echo "not the Claude Code harness (CLAUDECODE != 1) — no hooks installed; manual tool-failure logging applies (docs/logging.md)"
   exit 0
 fi
-command -v jq >/dev/null 2>&1 || { echo "jq missing — cannot install hooks"; exit 0; }
+command -v jq >/dev/null 2>&1 || { [ "$CHECK" = 1 ] || echo "jq missing — cannot install hooks"; exit 0; }
 
 SETTINGS="${HOME:-/home/agent}/.claude/settings.json"
 ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -23,6 +31,28 @@ SCRIPT="$ADAPTER_DIR/log-tool-event.sh"
 TOKENS="$ADAPTER_DIR/log-session-tokens.sh"
 FINISH="$ADAPTER_DIR/enforce-review-completion.sh"
 STEPS="$ADAPTER_DIR/log-review-step.sh"
+AGENT_SRC="$ADAPTER_DIR/agents/review-skill.md"
+AGENT_DST="$(dirname "$SETTINGS")/agents/review-skill.md"
+# the deny entries this script wrote last time, so a name dropped from
+# denied-tools.txt leaves settings.json too (the operator's entries stay)
+OWNED="$(dirname "$SETTINGS")/.code-guardian-denied-tools.json"
+
+# denied-tools.txt: one tool name per line, `#` comments
+DENY="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$ADAPTER_DIR/denied-tools.txt" 2>/dev/null \
+  | jq -Rsc 'split("\n") | map(select(length > 0))' 2>/dev/null)"
+[ -n "$DENY" ] || DENY='[]'
+PREV="$(jq -c 'if type == "array" then map(strings) else [] end' "$OWNED" 2>/dev/null)"
+[ -n "$PREV" ] || PREV='[]'
+
+if [ "$CHECK" = 1 ]; then
+  missing=""
+  jq -e --argjson d "$DENY" '($d - (.permissions.deny // [])) == []' "$SETTINGS" >/dev/null 2>&1 \
+    || missing="$missing tool-deny"
+  cmp -s "$AGENT_SRC" "$AGENT_DST" || missing="$missing skill-agent"
+  printf '%s\n' "${missing# }"
+  exit 0
+fi
+
 chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
 
 mkdir -p "$(dirname "$SETTINGS")"
@@ -49,23 +79,9 @@ AM_ALLOW="$(jq -nc --arg d "$DEF" --arg h "$HOME_DIR" '
   + ["[code-guardian] Uploading a file under \($h)/work/audit/ or \($h)/work/reviews/pr-artifacts/ with curl -X PUT --data-binary to the URL that create_artifact_upload_url returned in the same session."]')"
 [ -n "$DEF" ] || echo "definition repo unresolved — tracking-issue rule left out; re-run once work/CONFIG.md has definition_repo"
 
-if jq -e --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
-      --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" \
-    '[(.autoMode.environment // [])[], (.autoMode.allow // [])[]
-      | select(type == "string" and startswith("[code-guardian]"))] == ($e + $a)
-     and ([.hooks.PostToolUseFailure[]?.hooks[]?, .hooks.PostToolUse[]?.hooks[]?]
-      | map(select(.command == $c)) | length == 2)
-     and ([.hooks.SessionEnd[]?.hooks[]?] | map(select(.command == $t)) | length == 1)
-     and ([.hooks.Stop[]?.hooks[]?] | map(select(.command == $f)) | length == 1)
-     and ([.hooks.PostToolUse[]?.hooks[]?] | map(select(.command == $s)) | length == 1)' \
-    "$SETTINGS" >/dev/null 2>&1; then
-  echo "hooks and auto-mode rules already installed ($SETTINGS)"
-  exit 0
-fi
-
 tmp="$(mktemp)"
-if jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
-      --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" '
+if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
+      --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" --argjson deny "$DENY" --argjson prev "$PREV" '
     # own entries are replaced, the operator'"'"'s kept; a new list keeps the
     # built-in rules through "$defaults"
     def am($k; $new): .autoMode[$k] = (((.autoMode[$k] // ["$defaults"])
@@ -85,12 +101,37 @@ if jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
       + [{hooks:[{type:"command", command:$t, timeout:30}]}]) |
     .hooks.Stop = ([.hooks.Stop[]?
         | select([.hooks[]?.command] | index($f) | not)]
-      + [{hooks:[{type:"command", command:$f, timeout:15}]}])
+      + [{hooks:[{type:"command", command:$f, timeout:15}]}]) |
+    # tool deny list: own entries (this and the previous install) are replaced
+    # in place of their old position at the end, the operator'"'"'s kept in order
+    if ($deny | length) > 0 or ((.permissions.deny // []) | any(. as $x | $prev | index([$x])))
+    then .permissions.deny = ([(.permissions.deny // [])[] | select(. as $x | ($prev + $deny) | index([$x]) | not)] + $deny)
+    else . end
   ' "$SETTINGS" > "$tmp"; then
-  mv "$tmp" "$SETTINGS"
-  echo "hooks installed into $SETTINGS (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH; [code-guardian] rules -> autoMode.environment + autoMode.allow)"
-else
   rm -f "$tmp"
   echo "hook install did not complete — settings.json left unchanged"
+  exit 0
+fi
+
+settings_same=0
+jq -e -n --slurpfile old "$SETTINGS" --slurpfile new "$tmp" '$old == $new' >/dev/null 2>&1 && settings_same=1
+agent_same=0
+cmp -s "$AGENT_SRC" "$AGENT_DST" && agent_same=1
+
+if [ "$settings_same" = 1 ]; then
+  rm -f "$tmp"
+else
+  mv "$tmp" "$SETTINGS"
+fi
+printf '%s\n' "$DENY" > "$OWNED" 2>/dev/null || true
+if [ "$agent_same" = 0 ] && [ -f "$AGENT_SRC" ]; then
+  mkdir -p "$(dirname "$AGENT_DST")" && cp "$AGENT_SRC" "$AGENT_DST" \
+    || echo "review-skill agent not installed — the skill fan-out uses the default subagent"
+fi
+
+if [ "$settings_same" = 1 ] && [ "$agent_same" = 1 ]; then
+  echo "hooks, auto-mode rules, tool deny list and review-skill agent already installed ($SETTINGS)"
+else
+  echo "installed into $SETTINGS: hooks (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH), [code-guardian] rules -> autoMode.environment + autoMode.allow, $(printf '%s' "$DENY" | jq 'length') tools -> permissions.deny; review-skill agent -> $AGENT_DST"
 fi
 exit 0

@@ -378,7 +378,19 @@ write_settings <<'EOF'
  "autoMode":{"environment":["$defaults","[code-guardian] This is an unattended code review agent."]}}
 EOF
 CLAUDECODE=1 run_preflight audit
-assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks and auto-mode rules registered → ok'
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("tool-deny") and contains("skill-agent"))' 'hooks without the deny list and the review-skill agent warn by part'
+# the parts install.sh adds: the deny list and the review-skill agent
+ADAPTER="$REPO_ROOT/scripts/harness/claude-code"
+DENY_JSON="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$ADAPTER/denied-tools.txt" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+jq --argjson d "$DENY_JSON" '.permissions.deny = (["Bash(rm -rf *)"] + $d)' "$FAKE_HOME/.claude/settings.json" > "$SANDBOX/s.json" \
+  && write_settings < "$SANDBOX/s.json"
+mkdir -p "$FAKE_HOME/.claude/agents" && cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks, auto-mode rules, deny list and agent installed → ok'
+echo "stale" >> "$FAKE_HOME/.claude/agents/review-skill.md"
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("skill-agent")) and (.detail | contains("tool-deny") | not)' 'a stale agent file warns alone'
+cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
 
 # the hooks alone, without the [code-guardian] auto-mode rules: install.sh not re-run
 HOOKS_ONLY="$(jq 'del(.autoMode)' "$FAKE_HOME/.claude/settings.json")"
@@ -390,6 +402,7 @@ assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and 
 new_case audit_hooks_stale_automode
 base_config '- definition_repo: acme/guardian'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$FAKE_HOME/.claude/agents" && cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
 printf '%s\n' "$HOOKS_ONLY" | jq '.autoMode.allow = ["$defaults", "[code-guardian] Uploading a file under work/audit/."]' | write_settings
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("autoMode-rules"))' 'rules without the definition repo warn'

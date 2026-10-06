@@ -1,0 +1,46 @@
+# Tools removed from every Claude Code session of this agent: install.sh writes
+# them to permissions.deny in ~/.claude/settings.json. A bare tool name removes
+# the tool's definition from every request, the main session's and its
+# subagents', and from the operator's direct session too. One name per line.
+#
+# Only tools no procedure of this definition calls: test_install_hook.sh fails
+# when CLAUDE.md, AGENTS.md, ONBOARDING.md, README.md, docs/, scripts/templates/
+# or a bundled skill names one of them. To use a tool again, remove its line;
+# the next install.sh run removes it from settings.json.
+
+# platform-outbound — artifact folders (artifacts themselves stay available)
+mcp__platform-outbound__create_artifact_folder
+mcp__platform-outbound__update_artifact_folder
+mcp__platform-outbound__delete_artifact_folder
+mcp__platform-outbound__list_artifact_folders
+# platform-outbound — the platform skill catalog (preflight installs the review
+# skills from their source repositories)
+mcp__platform-outbound__install_skill
+mcp__platform-outbound__uninstall_skill
+mcp__platform-outbound__publish_skill
+mcp__platform-outbound__list_skill_sources
+mcp__platform-outbound__list_skills_in_source
+# platform-outbound — case studies
+mcp__platform-outbound__get_case_study_baseline
+mcp__platform-outbound__submit_case_study
+# platform-outbound — sandboxed sub-agents on other harnesses (the skill
+# fan-out uses the harness's own subagents)
+mcp__platform-outbound__spawn_subagent
+mcp__platform-outbound__await_subagents
+mcp__platform-outbound__list_harnesses
+mcp__platform-outbound__list_connections
+mcp__platform-outbound__get_budget
+
+# Claude Code built-in tools
+Workflow
+DesignSync
+ReportFindings
+CronCreate
+CronDelete
+CronList
+ScheduleWakeup
+EnterWorktree
+ExitWorktree
+NotebookEdit
+ListAgents
+WebSearch

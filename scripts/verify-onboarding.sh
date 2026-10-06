@@ -138,10 +138,12 @@ else
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
   grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS autoMode-rules"
+  TRIM_MISSING="$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null)"
+  [ -n "$TRIM_MISSING" ] && MISSING_HOOKS="$MISSING_HOOKS $TRIM_MISSING"
   if [ -z "$MISSING_HOOKS" ]; then
-    ok hooks "all adapter hooks and auto-mode rules registered in .claude/settings.json"
+    ok hooks "all adapter hooks, auto-mode rules, the tool deny list and the review-skill agent installed"
   else
-    fail hooks "hooks not registered:$MISSING_HOOKS" \
+    fail hooks "adapter not current:$MISSING_HOOKS" \
       "bash \"\$HOME/scripts/harness/claude-code/install.sh\" (ONBOARDING Step 1b, idempotent)"
   fi
 fi
