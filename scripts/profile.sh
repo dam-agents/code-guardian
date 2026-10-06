@@ -465,8 +465,7 @@ history_records() {
 }
 gen_history() {
   local since
-  since="$(date -u -d "@$((NOW_EPOCH - HISTORY_DAYS*86400))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-           || date -u -r "$((NOW_EPOCH - HISTORY_DAYS*86400))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  since="$(epoch2iso "$((NOW_EPOCH - HISTORY_DAYS*86400))")"
   history_records | jq -s --arg since "$since" --argjson days "$HISTORY_DAYS" --argjson max "$MAX_HISTORY_ROWS" '
     [ .[] | select(.ts >= $since) ] as $r
     | [ $r[] | .ts as $ts | .pr as $pr | .findings[]? | select(type=="object" and (.file|type)=="string")

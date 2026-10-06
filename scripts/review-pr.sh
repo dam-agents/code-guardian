@@ -87,7 +87,7 @@
 # status under review_progress, and the opt-in `merge`, `fix-start` (label
 # removal) and `fix-push` (docs/auto-merge.md, docs/agent-fixes.md).
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
-# Overrides (tests): CG_CLONE_URL (clone source), CG_HOLDER_QUIET_MIN.
+# Overrides (tests): CG_CLONE_URL (clone source).
 
 set -u
 export LC_ALL=C
@@ -115,8 +115,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
 PAYLOAD="$PR_DIR.post.json"
-HOLDER_QUIET_MIN="${CG_HOLDER_QUIET_MIN:-20}"
-FANOUT_QUIET_MIN="${CG_FANOUT_QUIET_MIN:-60}"   # the fan-out's own quiet window (docs/review-mechanics.md → Live holder)
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
@@ -180,8 +178,7 @@ need_ctx() { [ -f "$CTX/pr.json" ] || fail "no prepared state for PR #$N — run
 # is absent — a first review, or history older than the line.
 prior_findings() {
   local hist="$WORK/reviews/pr-$N.md" p=""
-  [ -f "$hist" ] && p="$(grep -o '<!-- findings-json: .* -->' "$hist" 2>/dev/null | tail -1 \
-    | sed -e 's/^<!-- findings-json: //' -e 's/ -->$//')"
+  [ -f "$hist" ] && p="$(marker_payload findings-json < "$hist")"
   [ -n "$p" ] || { printf '[]\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || printf '[]\n'
 }
@@ -190,8 +187,7 @@ prior_findings() {
 # or history written before the line existed.
 prior_meta() {
   local hist="$WORK/reviews/pr-$N.md" p=""
-  [ -f "$hist" ] && p="$(grep -o '<!-- review-meta: .* -->' "$hist" 2>/dev/null | tail -1 \
-    | sed -e 's/^<!-- review-meta: //' -e 's/ -->$//')"
+  [ -f "$hist" ] && p="$(marker_payload review-meta < "$hist")"
   [ -n "$p" ] || { printf '{}\n'; return 0; }
   printf '%s' "$p" | jq -c 'if type == "object" then . else {} end' 2>/dev/null || printf '{}\n'
 }
@@ -452,48 +448,18 @@ live_change() { # <additions|deletions|changed_files>
 }
 
 # ------------------------------------------------------------ live holder ----
-# Another run owns this PR when a tree or diff of its exists AND shows life —
-# a recent mtime, or a foreign run that holds this PR and is alive. A `locked…`
-# step on the PR, at any age, makes a run a holder: a taker that stood down
-# holds nothing, whatever it logged. A holder still owes the PR while its
-# newest `review_step` on it is non-terminal, so the milestones a run logged on
-# the way never outlive its own terminal one. The step is matched the way the
-# `Stop` hook matches it — the `PR #<n>` prefix and the optional sha token
-# stripped, then `^(done|aborted|posted)( |$)` — which keeps `skill:<name> done`
-# and `rapid posted` non-terminal. The holder is alive while its newest event of
-# any kind is inside HOLDER_QUIET_MIN, or inside FANOUT_QUIET_MIN when that
-# event is the fan-out: the holder is then blocked on its subagents, writes no
-# event and touches no tree. These are the windows preflight and lib/holds.sh
-# apply (docs/review-mechanics.md → Live holder). Events sort on their timestamp to
-# the second (log.sh writes `.123Z` or `Z`), in log order inside one second.
+# Another run owns this PR when a tree or diff of its shows a recent mtime, or
+# when a foreign run is a live holder of the PR — lib/holds.sh's live_holders,
+# the rule preflight applies (docs/review-mechanics.md → Live holder).
 holder_alive() {
-  local recent=0 e cutoff fcut
+  local recent=0 e me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}" foreign=0
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
     [ -e "$e" ] || continue
     [ -n "$(find "$e" -maxdepth 0 -mmin "-$HOLDER_QUIET_MIN" 2>/dev/null)" ] && recent=1
   done
-  cutoff="$(date -u -d "@$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-            || date -u -r "$((NOW_EPOCH - HOLDER_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-  fcut="$(date -u -d "@$((NOW_EPOCH - FANOUT_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-          || date -u -r "$((NOW_EPOCH - FANOUT_QUIET_MIN*60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-  local me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}" foreign=0
-  if ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1; then
-    foreign="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
-      | jq -rs --arg n "PR #$N " --arg me "$me" --arg cut "$cutoff" --arg fcut "$fcut" \
-          'def stepof: .msg | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
-           def tkey: (.ts // "") | tostring | .[0:19];
-           ([$cut, $fcut] | min) as $scan
-           | [ .[] | select(.run != $me) ] as $other
-           | [ $other[] | select((.msg|startswith($n)) and .event == "review_step") ] as $pr
-           | ([ $pr[] | select(stepof | test("^locked( |$)")) | .run ] | unique) as $held
-           | [ $held[] as $r
-               | ([ $pr[] | select(.run == $r) ] | sort_by(tkey) | last | stepof) as $step
-               | select(($step | test("^(done|aborted|posted)( |$)")) | not)
-               | ([ $other[] | select(.run == $r and .ts >= $scan) ] | sort_by(tkey) | last) as $l
-               | select($l != null)
-               | select($l.ts >= (if (($l.msg // "") | test("fanned out")) then $fcut else $cut end)) ]
-           | length' 2>/dev/null)"
-    foreign="${foreign:-0}"
+  if holder_cutoffs; then
+    foreign="$(events_jsonl | jq -rs --arg n "$N" --arg me "$me" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
+      "$HOLDER_JQ"'[ .[] | select(.run != $me) ] | live_holders($n; $cut; $fcut) | length' 2>/dev/null)"
   fi
   [ "$recent" -eq 1 ] || [ "${foreign:-0}" -gt 0 ]
 }
@@ -1767,8 +1733,7 @@ cmd_verify() {
 "; }
   # one tolerant pass over every retained events file, as holder_alive reads
   # them — a torn line is skipped, never the end of the read
-  cy="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null \
-    | jq -sc --arg run "$run" --arg pr "$N" '
+  cy="$(events_jsonl | jq -sc --arg run "$run" --arg pr "$N" '
       [ .[] | select(.run == $run and (.event | IN("review_step", "skill_timing", "skill_run", "review_pr")))
         | . as $e | (($e.msg // "") | capture("^PR #(?<pr>[0-9]+):? +(?<rest>.*)$")) as $c
         | select($c.pr == $pr)

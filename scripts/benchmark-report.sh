@@ -68,12 +68,9 @@ DIR="${1:-}"
 # prices), parsed by the shared reader in lib/prices.sh — one home, one parse,
 # so the weekly trend report prices identically. Missing file/section → [].
 CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
-PRICES='[]'
-if [ -f "$SCRIPT_DIR/lib/prices.sh" ]; then
-  . "$SCRIPT_DIR/lib/prices.sh" 2>/dev/null
-  PRICES="$(prices_json "$CONFIG_MD")"
-fi
-PRICES="${PRICES:-[]}"
+. "$SCRIPT_DIR/lib/prices.sh"
+. "$SCRIPT_DIR/lib/report-tip.sh"   # REPORT_TIP_CSS, REPORT_TIP_JS
+PRICES="$(prices_json "$CONFIG_MD")"
 
 ALL="$(for f in "$DIR"/results/*.json; do
          [ -f "$f" ] || continue
@@ -85,7 +82,7 @@ ALL="$(for f in "$DIR"/results/*.json; do
        done | jq -s 'sort_by(.ts // "")')"
 RUNS="$(printf '%s' "$ALL" | jq length)"
 
-JQ_COMMON='
+JQ_COMMON="$PRICES_JQ"'
   def fmt: if . == null then "—" else tostring end;
   def r3: if . == null then null else (. * 1000 | round) / 1000 end;
   def avg(f): [.[] | f | select(. != null)] as $v
@@ -99,13 +96,11 @@ JQ_COMMON='
   def run_cost:
     ([.fixtures // {} | .[] | (.first.tokens?, .rereview.tokens?)
       | select(type == "object")]) as $t
-    | (.model // "") as $m
-    | ([$prices[] | select(. as $p | $m | contains($p.m))] | first) as $p
+    | price_row(.model // "") as $p
     | if ($t | length) == 0 or $p == null then null
-      else ((([$t[].input // 0] | add) * $p.i + ([$t[].output // 0] | add) * $p.o
-             + ([$t[].cache_read // 0] | add) * $p.cr
-             + ([$t[].cache_creation // 0] | add) * $p.cw) / 1000000
-            | (. * 100 | round) / 100) end;
+      else ({input: ([$t[].input // 0] | add), output: ([$t[].output // 0] | add),
+             cache_read: ([$t[].cache_read // 0] | add), cache_creation: ([$t[].cache_creation // 0] | add)}
+            | token_usd($p) | (. * 100 | round) / 100) end;
   def bools($o): [$o // {} | to_entries[] | .value | select(type == "boolean")];
   def jnums($o): [$o // {} | to_entries[] | .value | numbers];
   # weighted, fully deterministic quality index of one fixture object —
@@ -340,19 +335,7 @@ th,td{padding:.36rem .6rem;text-align:left;border-bottom:1px solid var(--rule);
 th{background:var(--head);cursor:pointer;user-select:none;font-weight:600;
   color:var(--ink-2);position:relative}
 th:hover{color:var(--ink)}
-/* a column with help text is marked by a dotted underline; the text itself
-   ships as the header title (readable with no JS) and the script below moves it
-   into the bubble, because a native title is clipped by the scroller */
-th[title],th[data-tip]{text-decoration:underline dotted var(--rule-strong);
-  text-underline-offset:3px}
-th[data-tip]:focus-visible{color:var(--ink);outline:2px solid var(--seq);
-  outline-offset:-2px}
-.tip{position:fixed;display:none;z-index:9;max-width:26rem;
-  padding:.5rem .65rem;font-size:.78rem;font-weight:400;line-height:1.45;
-  white-space:normal;color:var(--ink);background:var(--surface);
-  border:1px solid var(--rule-strong);border-radius:6px;
-  box-shadow:0 4px 14px color-mix(in srgb,var(--ink) 22%,transparent)}
-.tip b{display:block;margin-bottom:.15rem}
+${REPORT_TIP_CSS}
 th[data-d="a"]::after{content:" ▲";color:var(--seq)}
 th[data-d="d"]::after{content:" ▼";color:var(--seq)}
 tbody tr:last-child td{border-bottom:0}
@@ -484,49 +467,6 @@ document.querySelectorAll('table').forEach(function (t) {
   render();
 });
 
-// Column help. Every header carries its plain-language text in its title
-// attribute, so the help is readable with the script disabled. One shared bubble
-// replaces it here:
-// a native title inside the horizontal scroller is slow, truncated and untouched
-// by the light/dark tokens. Headers also become focusable, so the help and the
-// sort both work from the keyboard.
-(function () {
-  var tip = document.createElement('div');
-  tip.className = 'tip'; tip.id = 'col-tip'; tip.setAttribute('role', 'tooltip');
-  document.body.appendChild(tip);
-  var open = null;
-  function hide() {
-    if (open) open.removeAttribute('aria-describedby');
-    open = null; tip.style.display = 'none';
-  }
-  function show(th) {
-    var txt = th.getAttribute('data-tip'); if (!txt) return;
-    var label = document.createElement('b'); label.textContent = th.textContent.trim();
-    tip.textContent = ''; tip.appendChild(label);
-    tip.appendChild(document.createTextNode(txt));
-    tip.style.display = 'block'; tip.style.left = '0px'; tip.style.top = '0px';
-    var r = th.getBoundingClientRect(), b = tip.getBoundingClientRect();
-    var x = Math.min(Math.max(4, r.left), Math.max(4, window.innerWidth - b.width - 4));
-    var y = r.bottom + 6;
-    if (y + b.height > window.innerHeight - 4) y = Math.max(4, r.top - b.height - 6);
-    tip.style.left = x + 'px'; tip.style.top = y + 'px';
-    th.setAttribute('aria-describedby', 'col-tip'); open = th;
-  }
-  document.querySelectorAll('th[title]').forEach(function (th) {
-    th.setAttribute('data-tip', th.getAttribute('title'));
-    th.removeAttribute('title');
-    th.tabIndex = 0;
-    th.addEventListener('mouseenter', function () { show(th); });
-    th.addEventListener('mouseleave', hide);
-    th.addEventListener('focus', function () { show(th); });
-    th.addEventListener('blur', hide);
-    th.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); th.click(); }
-      else if (e.key === 'Escape') hide();
-    });
-  });
-  // any scroll moves the header out from under a bubble anchored to the viewport
-  window.addEventListener('scroll', hide, true);
-})();
+${REPORT_TIP_JS}
 </script>
 EOF

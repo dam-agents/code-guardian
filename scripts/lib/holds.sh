@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# holds.sh — PR holds: a run owns the one PR it works on, its mentions and its
-# review together (docs/worklist.md → PR holds).
+# holds.sh — live holders and PR holds (docs/review-mechanics.md → Live holder,
+# docs/worklist.md → PR holds). Sourced by preflight.sh, review-pr.sh and the
+# Stop hook; the caller provides WORK, LOG_DIR, NOW_EPOCH and lib/common.sh.
 #
+#   holder_cutoffs             sets HOLDER_CUT and FANOUT_CUT (UTC, to the second)
+#   $HOLDER_JQ                 jq definitions: tkey, stepof, pr_steps, locked_step,
+#                              ended, alive_last, live_holders
 #   hold_live <n>              0 + why = held by a live run; 1 = no hold;
 #                              2 + its timestamp = a dead hold, removed here
 #   hold_acquire <n> <run>     0 = this run holds it; 1 + why = another live run does
@@ -11,29 +15,64 @@
 #
 # A hold is `work/.holds.lock/<n>`: its creation time, then the owning run id,
 # written in full before it is linked into place.
-# The owner is alive while it logs — an event within HOLDER_QUIET_MIN, or
-# FANOUT_QUIET_MIN when its newest event is the skill fan-out, the windows of a
-# review lock's live holder (docs/review-mechanics.md → Live holder).
-# The caller provides WORK, LOG_DIR, NOW_EPOCH, HOLDER_QUIET_MIN,
-# FANOUT_QUIET_MIN and iso2epoch.
 
+# A run is alive while it logs. Its newest event must be inside
+# HOLDER_QUIET_MIN — above the longest gap a healthy review shows between
+# events, measured at 16.7 min over real runs — or inside FANOUT_QUIET_MIN when
+# that event is the skill fan-out, the one phase that is structurally silent
+# (the holder is blocked on its subagents until `verified`; calibrate against
+# stats.reviews.phases.skills, docs/audit.md task 23).
+HOLDER_QUIET_MIN=20
+FANOUT_QUIET_MIN=60
 HOLD_DIR="$WORK/.holds.lock"
 
+holder_cutoffs() {
+  HOLDER_CUT="$(epoch2iso $(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 )) '%Y-%m-%dT%H:%M:%S')"
+  FANOUT_CUT="$(epoch2iso $(( NOW_EPOCH - FANOUT_QUIET_MIN * 60 )) '%Y-%m-%dT%H:%M:%S')"
+  [ -n "$HOLDER_CUT" ] && [ -n "$FANOUT_CUT" ]
+}
+
+# Events compare to the second (log.sh writes `.123Z` or `Z`; jq's sort is
+# stable, so log order holds inside one second). A step is matched the way the
+# Stop hook matches it: the `PR #<n>` prefix and the optional sha token
+# stripped, so `skill:<name> done` and `rapid posted` stay non-terminal.
+#   pr_steps($n)      the review_step events of PR #<n> (`PR #<n> ` or `PR #<n>:`)
+#   locked_step       the step is `locked…`
+#   ended($pr; $r)    run $r's newest step in $pr is done, aborted or posted
+#   alive_last        the newest event of the input, when inside its window
+#   live_holders      a `locked` step on the PR makes a run a holder — a taker
+#                     that stood down holds nothing; it owes the PR until it
+#                     ended, and it is alive while its newest event of any kind
+#                     is inside its window. Input: the events array; output:
+#                     [{run, last}].
+HOLDER_JQ='
+  def tkey: (.ts // "") | tostring | .[0:19];
+  def stepof: (.msg // "") | sub("^PR #[0-9]+:? +"; "") | sub("^[0-9a-f]{7,40}( +|$)"; "");
+  def pr_steps($n):
+    [ .[] | select(.event == "review_step" and ((.msg // "") | test("^PR #" + $n + "(:| |$)"))) ];
+  def locked_step: stepof | test("^locked( |$)");
+  def ended($pr; $r):
+    [ $pr[] | select(.run == $r) ] | sort_by(tkey) | last | stepof | test("^(done|aborted|posted)( |$)");
+  def alive_last($cut; $fcut):
+    sort_by(tkey) | last
+    | select(. != null)
+    | select(tkey >= (if ((.msg // "") | test("fanned out")) then $fcut else $cut end));
+  def live_holders($n; $cut; $fcut):
+    . as $ev
+    | ($ev | pr_steps($n)) as $pr
+    | [ $pr[] | select(locked_step) | .run ] | unique
+    | map(. as $r
+          | select(ended($pr; $r) | not)
+          | ([ $ev[] | select(.run == $r) ] | alive_last($cut; $fcut)) as $l
+          | select($l != null)
+          | {run: $r, last: $l});
+'
+
 hold_run_alive() { # <run-id> <since-ts> -> "last event <ts>" when alive
-  local cut fcut
-  cut="$(date -u -d "@$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))" +%Y-%m-%dT%H:%M:%S 2>/dev/null \
-         || date -u -r "$(( NOW_EPOCH - HOLDER_QUIET_MIN * 60 ))" +%Y-%m-%dT%H:%M:%S 2>/dev/null)" || return 1
-  fcut="$(date -u -d "@$(( NOW_EPOCH - FANOUT_QUIET_MIN * 60 ))" +%Y-%m-%dT%H:%M:%S 2>/dev/null \
-          || date -u -r "$(( NOW_EPOCH - FANOUT_QUIET_MIN * 60 ))" +%Y-%m-%dT%H:%M:%S 2>/dev/null)" || return 1
-  ls "$LOG_DIR"/events-*.jsonl >/dev/null 2>&1 || return 1
-  # seconds precision on both sides: an event's `.123Z` sorts before a `Z`
-  cat "$LOG_DIR"/events-*.jsonl 2>/dev/null \
-    | jq -c -R 'fromjson? // empty' 2>/dev/null \
-    | jq -rs --arg run "$1" --arg since "${2:0:19}" --arg cut "$cut" --arg fcut "$fcut" '
-        ( [ .[] | select(.run == $run and .ts[0:19] >= $since) ] | last ) as $l
-        | ( ($l.msg // "") | test("fanned out") ) as $fan
-        | if $l and $l.ts[0:19] >= (if $fan then $fcut else $cut end)
-          then "last event \($l.ts[0:19])Z" else empty end' 2>/dev/null
+  holder_cutoffs || return 1
+  events_jsonl | jq -rs --arg run "$1" --arg since "${2:0:19}" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
+    "$HOLDER_JQ"'[ .[] | select(.run == $run and tkey >= $since) ] | alive_last($cut; $fcut)
+                  | "last event \(tkey)Z"' 2>/dev/null
 }
 
 hold_live() { # <n>

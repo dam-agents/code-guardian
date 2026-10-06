@@ -122,6 +122,47 @@ holder_event 60   cccc3333
 run_preflight review
 assert_jq '.reviews_due | length == 1' "a different PR's live run does not protect this lock"
 
+# --- a holder that already ended its PR holds it no longer --------------------
+# its run is still alive on other work, but its newest step on this PR is
+# terminal: the row left behind is stale (docs/review-mechanics.md → Live holder)
+lock_case ended_holder 3300
+holder_event 3300 dddd4444 review_step "PR #1 1111111 locked"
+holder_event 300  dddd4444 review_step "PR #1 1111111 done"
+holder_event 60   dddd4444 review_step "PR #7 7777777 locked"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'a run whose newest step on the PR is terminal does not protect its lock'
+
+# --- a step written as `PR #<n>:` names the PR too ---------------------------
+lock_case colon_step_holder 3300
+holder_event 3300 eeee5555 review_step "PR #1: 1111111 locked"
+holder_event 120  eeee5555
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'a `PR #<n>:` locked step makes its run the holder'
+
+# --- milestones that only sound final keep the holder -------------------------
+# matched like the Stop hook: `rapid posted` and `skill:<name> done` are not done
+lock_case rapid_posted_holder 3300
+holder_event 3300 aaaa1111 review_step "PR #1 1111111 locked"
+holder_event 600  aaaa1111 review_step "PR #1 1111111 rapid posted"
+holder_event 120  aaaa1111
+run_preflight review
+assert_jq '.reviews_due | length == 0' '`rapid posted` is not terminal'
+lock_case skill_done_holder 3300
+holder_event 3300 aaaa1111 review_step "PR #1 1111111 locked"
+holder_event 600  aaaa1111 review_step "PR #1 1111111 skill:security done"
+holder_event 120  aaaa1111
+run_preflight review
+assert_jq '.reviews_due | length == 0' '`skill:<name> done` is not terminal'
+
+# --- any live holder keeps the lock, not only the last one to lock ------------
+lock_case second_holder_alive 3300
+holder_event 3200 aaaa1111 review_step "PR #1 1111111 locked"
+holder_event 3000 bbbb2222 review_step "PR #1 1111111 locked"
+holder_event 60   aaaa1111
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'the earlier holder is alive, so the lock stays'
+assert_jq '.logs | any(contains("holder aaaa1111 active"))' 'the live holder is named'
+
 # --- a recent event naming the PR keeps it, even without a locked step -------
 # Crash-recovery gap: the `locked` event may predate log retention, so an
 # unattributable but recent mention of this PR still counts as life.
@@ -129,5 +170,22 @@ lock_case unattributed_holder 3300
 holder_event 90 dddd4444 tool_use "Bash [gh pr view 1 — PR #1 context]"
 run_preflight review
 assert_jq '.reviews_due | length == 0' 'recent PR-specific activity protects the lock'
+
+# --- the fallback ignores a run that ended the PR -----------------------------
+lock_case unattributed_ended 3300
+holder_event 600 dddd4444 review_step "PR #1 1111111 composed"
+holder_event 90  dddd4444 review_step "PR #1 1111111 done"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'a recent terminal step is no sign of life'
+
+# --- review mode stops with an error without lib/holds.sh ---------------------
+lock_case holds_lib_missing 3300
+mkdir -p "$SANDBOX/scripts"
+cp "$REPO_ROOT"/scripts/*.sh "$SANDBOX/scripts/"
+cp -R "$REPO_ROOT/scripts/lib" "$SANDBOX/scripts/"
+rm "$SANDBOX/scripts/lib/holds.sh"
+REPO_ROOT="$SANDBOX" run_preflight review
+assert_jq '.error | contains("lib/holds.sh unreadable")' 'the error names the missing lib'
+assert_jq '.reviews_due == null' 'and no lock is taken over'
 
 finish
