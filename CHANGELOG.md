@@ -17,7 +17,9 @@ they are released history and stay as written.
 (idempotent; a no-op on another harness). It adds the auto-mode rule that lets
 a review run start its other PRs with `mcp__platform-outbound__schedule_once`,
 effective from the next session. Without that tool on the platform a run keeps
-every PR, as before.
+every PR, as before. The new `review_dispatch` key needs no edit: missing means
+`enabled`; write `review_dispatch: disabled` to keep every PR in the run that
+found it.
 
 ## 8.11.0 — 2026-10-07
 

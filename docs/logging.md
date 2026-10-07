@@ -30,7 +30,7 @@ file per UTC day), one JSON object per line:
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
   `artifact`, `stall_rate`, `stall_alert_sent`, `pod_boot`, `log_cleanup`,
-  `profile`, `dispatch`, …).
+  `profile`, `dispatch`, `state_lock`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 

@@ -133,6 +133,20 @@ hold whose run is quiet by the **Live holder** windows
 hook releases the holds a finished run still owns ([logging.md](logging.md) →
 **Harness adapters**).
 
+**Dispatch** — under `review_dispatch: enabled` (the default), the run that
+receives a worklist with several PRs keeps its first PR, in the order of
+[runbook.md](runbook.md) → **Review run** steps 5 to 10, and starts every other
+PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
+worklist per PR next to the gate's file — that PR's entries from every per-PR
+key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
+by}`, and a `read_set` of its own — and prints the exact `name`
+(`code-guardian-review-pr-<n>`) and `task` of each
+`mcp__platform-outbound__schedule_once` call. The task carries the PR number and
+the unit's path alone. `dispatch.sh rest` then writes the run's own worklist
+without the PRs the platform accepted; a PR it refused stays in the run. The
+new session takes its PR's hold first; a PR whose session never starts is the
+next heartbeat's ([scripts/dispatch.sh](../scripts/dispatch.sh)).
+
 ## Runtime configuration: `work/CONFIG.md`
 
 A run with work reads every key resolved in the worklist's `config` object,

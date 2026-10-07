@@ -5,14 +5,15 @@
 # Dispatch).
 #
 #   dispatch.sh plan <worklist>
-#       Cuts one unit worklist per PR to dispatch — that PR's entries alone, no
-#       bookkeeping, `dispatched: {number, by}`, its own read_set — next to
-#       <worklist>, and prints
+#       Cuts one unit worklist per PR to dispatch — that PR's entries alone,
+#       its bookkeeping included, `dispatched: {number, by}`, its own read_set
+#       — next to <worklist>, and prints
 #       {"dispatch": [{number, worklist, name, task}]}: every PR after the first
 #       in run order, each with the exact `name` and `task` of its
 #       mcp__platform-outbound__schedule_once call. The platform's own limits on
 #       one-time tasks bound how many start; a refused PR stays with the run.
-#       Prints an empty list for one PR or a housekeeping-only run.
+#       Prints an empty list for one PR, a housekeeping-only run, or
+#       `review_dispatch: disabled` in the worklist's config.
 #   dispatch.sh rest <worklist> [<n>…]
 #       Prints `worklist: <path>` — <worklist> without the entries of PRs <n>…,
 #       its read_set recomputed — the run's worklist from then on. A <n> with
@@ -36,12 +37,15 @@ if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; LOG_RUN=""; fi
 
 die() { printf 'dispatch: %s\n' "$1" >&2; exit 2; }
 
-# The entries that belong to one PR travel with it, its urgent alert included,
-# so the session that reviews the PR announces it first; every other key —
-# bookkeeping, the stall alert — stays with the run that received the
-# worklist. Run order is docs/runbook.md → Review run step 5's.
+# The entries that belong to one PR travel with it — its urgent alert, so the
+# session that reviews the PR announces it first, and its bookkeeping rows, so
+# one session writes that PR's REVIEWS.md row; the stall alert stays with the
+# run that received the worklist. Run order is docs/runbook.md → Review run
+# steps 5 to 10: urgent reviews, mentions, reviews, artifacts, CI failures,
+# merges, fixes.
 UNIT_JQ='
-  def per_pr: ["reviews_due","mentions_due","ci_failures_due","merges_due","fixes_due","artifacts_due","urgent_alerts_due"];
+  def per_pr: ["reviews_due","mentions_due","ci_failures_due","merges_due","fixes_due","artifacts_due","urgent_alerts_due",
+               "selfheals_due","label_cleanups_due","prunes_due","status_resets_due"];
   def only_prs($ns): reduce per_pr[] as $k (.;
     .[$k] = [(.[$k] // [])[] | select(.number as $x | any($ns[]; . == $x))]);
   def drop_prs($ns): reduce per_pr[] as $k (.;
@@ -49,8 +53,8 @@ UNIT_JQ='
   def units:
     ([(.reviews_due // [])[] | select(.urgent == true) | .number]
      + [(.mentions_due // [])[].number] + [(.reviews_due // [])[].number]
-     + [(.fixes_due // [])[].number] + [(.merges_due // [])[].number]
-     + [(.ci_failures_due // [])[].number] + [(.artifacts_due // [])[].number])
+     + [(.artifacts_due // [])[].number] + [(.ci_failures_due // [])[].number]
+     + [(.merges_due // [])[].number] + [(.fixes_due // [])[].number])
     | map(select(type == "number"))
     | reduce .[] as $n ([]; if any(.[]; . == $n) then . else . + [$n] end);
 '
@@ -65,7 +69,8 @@ umask 077
 case "$CMD" in
   plan)
     NUMS="$(jq -r "$UNIT_JQ"'
-      if .housekeeping_only == true or .nothing_to_do == true then empty
+      if .housekeeping_only == true or .nothing_to_do == true
+         or (.config.review_dispatch // "enabled") == "disabled" then empty
       else units[1:][] end' "$WL")" \
       || die "the worklist could not be read"
     OUT='[]'
@@ -74,7 +79,6 @@ case "$CMD" in
       UNIT="$BASE-pr$n.json"
       jq --argjson n "$n" --arg by "${LOG_RUN:0:8}" "$READ_SET_JQ$UNIT_JQ"'
         only_prs([$n])
-        | .selfheals_due = [] | .label_cleanups_due = [] | .prunes_due = [] | .status_resets_due = []
         | del(.stall_alert, .housekeeping_only)
         | .dispatched = {number: $n, by: $by}
         | .logs = (["PR #\($n): dispatched by run \($by) to a session of its own"]

@@ -414,6 +414,11 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      (`docs/ci-triage.md`). Mention that it only reads and explains: no job is
      restarted and no verdict changes. Default `disabled`; write the key only
      on a yes.
+   - **`review_dispatch`** — whether a heartbeat that finds several PRs starts
+     every PR after its first at once, each in a one-time session of its own
+     (`docs/worklist.md` → **Dispatch**). Mention that each such session pays
+     its own session prefix. Default `enabled`; write the key only for
+     `disabled`.
    - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
      reply in its inline review threads, get handled every heartbeat:
      questions answered, review feedback recorded to memory, review requests
@@ -525,6 +530,7 @@ Final shape:
 - agent_fix_label: cg-fix              # human-managed label that asks for one fix round
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
+- review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled

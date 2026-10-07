@@ -166,14 +166,18 @@ write_row() { with_state_lock "$REVIEWS" write_row_held "$@"; }
 write_row_held() { # sha ts verdict status — replace in place, else append
   local line="| $N | $1 | $2 | $3 | $4 |"
   if [ -n "$(row_for)" ]; then
-    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS"
+    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+    rm -f "$REVIEWS.$$.tmp"; return 1
   else
     [ -f "$REVIEWS" ] || printf '# Reviewed PRs\n\n| PR | Commit | Timestamp | Verdict | Status |\n|----|--------|-----------|---------|--------|\n' > "$REVIEWS"
     printf '%s\n' "$line" >> "$REVIEWS"
   fi
 }
 delete_row() { with_state_lock "$REVIEWS" delete_row_held; }
-delete_row_held() { grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.$$.tmp" 2>/dev/null && mv "$REVIEWS.$$.tmp" "$REVIEWS"; }
+delete_row_held() {
+  grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.$$.tmp" 2>/dev/null && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+  rm -f "$REVIEWS.$$.tmp"; return 1
+}
 
 # --------------------------------------------------------- state files ----
 ctx_get() { jq -r "$1" "$CTX/pr.json" 2>/dev/null; }

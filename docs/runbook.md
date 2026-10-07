@@ -68,7 +68,9 @@ still valid at post time*.
      `dispatch[]` entry with exactly its `name` and `task`, then — when the
      platform accepted any — `bash "$HOME/scripts/dispatch.sh" rest <worklist>
      <each accepted number>`, whose worklist is this run's from here on. A PR
-     whose call failed, or every PR when the tool is missing, stays in the run.
+     whose call failed, or every PR when the tool is missing, stays in the run;
+     `plan` prints an empty list under `review_dispatch: disabled`
+     ([worklist.md](worklist.md) → **Dispatch**).
    - A run with no worklist file (preflight printed its JSON) dispatches
      nothing.
 2. **Read exactly the worklist's `read_set`** — `$HOME`-relative paths,

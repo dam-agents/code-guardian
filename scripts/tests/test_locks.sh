@@ -241,12 +241,38 @@ rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
 if [ "$rows" = 20 ]; then printf 'ok   %s: twenty writers behind a dead lock keep twenty rows\n' "$CASE"
 else printf 'FAIL %s: twenty writers behind a dead lock left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
 
-# a live writer that holds on: the write goes ahead after ten seconds, and says so
+# a lock that is not yet dead is waited out and then broken, never bypassed:
+# the bypass comes later than a dead lock lives
+new_case state_lock_waits_for_dead
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+start=$(date +%s)
+( export WORK_DIR="$WORK" STATE_LOCK_DEAD_S=2 STATE_LOCK_WAIT_S=20; . "$REPO_ROOT/scripts/log.sh"; . "$REPO_ROOT/scripts/lib/common.sh"
+  with_state_lock "$F" true )
+el=$(( $(date +%s) - start ))
+if [ "$el" -ge 2 ] && [ "$el" -lt 10 ] && [ ! -e "$F.lock" ]; then
+  printf 'ok   %s: a young lock is waited out until it is dead, then broken (%ss)\n' "$CASE" "$el"
+else printf 'FAIL %s: a young lock took %ss, lock left: %s\n' "$CASE" "$el" "$([ -e "$F.lock" ] && echo yes || echo no)"; FAILED=1; fi
+if grep -q '"event":"state_lock"' "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 2>/dev/null; then
+  printf 'FAIL %s: the write bypassed the lock\n' "$CASE"; FAILED=1
+else printf 'ok   %s: and no write went past the lock\n' "$CASE"; fi
+
+# a holder whose lock was taken over leaves the next holder's lock alone
+new_case state_lock_owner_guard
+F="$WORK/REVIEWS.md"
+( . "$REPO_ROOT/scripts/lib/common.sh"
+  taken_over() { rm -rf "$F.lock"; mkdir "$F.lock"; printf '99999\n' > "$F.lock/owner"; }
+  with_state_lock "$F" taken_over )
+if [ "$(cat "$F.lock/owner" 2>/dev/null)" = 99999 ]; then printf 'ok   %s: only the owner gives a lock back\n' "$CASE"
+else printf 'FAIL %s: the previous holder removed another holder'"'"'s lock\n' "$CASE"; FAILED=1; fi
+rm -rf "$F.lock"
+
+# a live writer that holds on past the wait: the write goes ahead, and says so
 new_case state_lock_bypass_logged
 F="$WORK/REVIEWS.md"; mkdir "$F.lock"
-( export WORK_DIR="$WORK"; . "$REPO_ROOT/scripts/log.sh"; . "$REPO_ROOT/scripts/lib/common.sh"
+( export WORK_DIR="$WORK" STATE_LOCK_DEAD_S=600 STATE_LOCK_WAIT_S=1; . "$REPO_ROOT/scripts/log.sh"; . "$REPO_ROOT/scripts/lib/common.sh"
   with_state_lock "$F" true )
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"state_lock"' 'a write past a held lock is logged'
+rm -rf "$F.lock"
 
 # --- review-pr.sh row: the bookkeeping rows under the same lock ---------------
 new_case review_pr_row

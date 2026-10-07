@@ -92,6 +92,12 @@ below is for the manual fallback and the direct session.
   probable cause and the smallest fix ([ci-triage.md](ci-triage.md)). Reads the
   rollup only for PRs reviewed in the last 24 h and only until the SHA's marker
   exists; it never restarts a job or changes a verdict.
+- **`review_dispatch`** — `enabled` | `disabled`. **Missing = `enabled`.** A
+  review run that finds several PRs keeps its first and starts every other PR
+  at once in a one-time session of its own through the platform's
+  `schedule_once` ([runbook.md](runbook.md) → **Review run** step 1,
+  [worklist.md](worklist.md) → **Dispatch**). `disabled` keeps every PR in the
+  run that found it, one after another.
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
