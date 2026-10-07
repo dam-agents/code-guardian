@@ -23,9 +23,9 @@
 #                    gate, never an idle tick.
 #
 # preflight is never run twice for one fire. Its bookkeeping is one-shot — the
-# `done -> awaiting_label` flip and the once-per-UTC-day stall-alert claim are
-# consumed by this pass — so the run reads the file named here instead of
-# recomputing the decisions.
+# `done -> awaiting_label` flip, the once-per-UTC-day stall-alert claim and the
+# anomaly-alert marker are consumed by this pass — so the run reads the file
+# named here instead of recomputing the decisions.
 #
 # `audit` has no gate: preflight's audit mode always reports work, so the weekly
 # audit keeps the in-session entry command (docs/worklist.md → **The schedule
@@ -109,7 +109,7 @@ OUT="$TMP/cg-worklist-$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
 ( umask 077; : > "$OUT" ) 2>/dev/null || true
 if ! printf '%s\n' "$JSON" > "$OUT" 2>/dev/null; then
   logev error precheck "$MODE gate: the worklist file could not be written — the run recomputes it"
-  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/preflight.sh" %s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim) is already spent, so a stall alert may be missing from the second worklist.\n' "$MODE" "$MODE"
+  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/preflight.sh" %s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) is already spent, so a stall or anomaly alert may be missing from the second worklist.\n' "$MODE" "$MODE"
   exit 0
 fi
 

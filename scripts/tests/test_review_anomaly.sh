@@ -95,9 +95,12 @@ run_preflight review
 if [ "$(wc -l < "$WORK/REVIEW-USAGE.jsonl" | tr -d ' ')" = 13 ]; then printf 'ok   %s: the baseline file holds every review\n' "$CASE"
 else printf 'FAIL %s: baseline file has %s rows\n' "$CASE" "$(wc -l < "$WORK/REVIEW-USAGE.jsonl")"; FAILED=1; fi
 rm -f "$WORK"/logs/events-*.jsonl
+printf '%s\n' '{"ts":"2026-10-0' >> "$WORK/REVIEW-USAGE.jsonl"
 cost_event 60 42 5000
 run_preflight review
-assert_rules '["cost"]' 'with the event log gone, the stored baseline still judges a review'
+assert_rules '["cost"]' 'with the event log gone and a broken line, the stored baseline still judges a review'
+if [ "$(wc -l < "$WORK/REVIEW-USAGE.jsonl" | tr -d ' ')" = 14 ]; then printf 'ok   %s: a broken line drops alone, the stored reviews stay\n' "$CASE"
+else printf 'FAIL %s: baseline file has %s rows\n' "$CASE" "$(wc -l < "$WORK/REVIEW-USAGE.jsonl")"; FAILED=1; fi
 
 # --- the baseline keeps the last 30 reviews per model -----------------------------
 anomaly_case anomaly_baseline_cap
@@ -136,10 +139,14 @@ assert_jq '.config.review_anomaly_factor == 2.5' 'config object carries the fact
 anomaly_case anomaly_ledger
 baseline 12 1000
 cost_event 600 42 5000
+# a long-lived ledger: over 128 KiB, the cap of one argv entry
+jq -nc 'range(1500) | {src: "ledger", pr: (1000 + .), ts: "2026-10-01T00:00:00Z",
+  sha: "0123456789abcdef0123456789abcdef01234567", kind: "re-review", verdict: "APPROVE",
+  size: {files: 1, additions: 1, deletions: 1}}' > "$WORK/REVIEW-LEDGER.jsonl"
 printf '%s\n' '{"src":"ledger","pr":42,"ts":"2026-10-07T10:00:00Z","sha":"abcdef1234567890abcdef1234567890abcdef12","kind":"first","verdict":"APPROVE","size":{"files":40,"additions":1800,"deletions":20}}' \
-  > "$WORK/REVIEW-LEDGER.jsonl"
+  >> "$WORK/REVIEW-LEDGER.jsonl"
 run_preflight review
-assert_jq '.review_anomaly.reviews[0] | .kind == "first" and .size.additions == 1800' 'entry carries the ledger kind and size'
+assert_jq '.review_anomaly.reviews[0] | .kind == "first" and .size.additions == 1800' 'entry carries the ledger kind and size, whatever the ledger size'
 
 # --- first contact judges the last 24 h only -----------------------------------
 anomaly_case anomaly_first_contact
@@ -149,6 +156,14 @@ cost_event 90000 40 99999 '' repeats=50
 run_preflight review
 assert_jq '.review_anomaly == null' 'a review older than 24 h is not judged on first contact'
 assert_file_contains "$WORK/.review-anomaly-seen" "$(iso_ago 7100 | cut -c1-13)" 'the marker moves to the newest event'
+
+# --- a stale marker (a re-enabled alert, a long outage) judges the last 24 h --
+anomaly_case anomaly_stale_marker
+iso_ago 200000 > "$WORK/.review-anomaly-seen"
+cost_event 90000 40 1000 '' repeats=50
+cost_event 600 41 1000
+run_preflight review
+assert_jq '.review_anomaly == null' 'a review older than 24 h is not judged after a stale marker'
 
 # --- off switch ----------------------------------------------------------------
 anomaly_case anomaly_off '- review_anomaly_factor: off'
@@ -162,6 +177,13 @@ baseline 12 1000
 cost_event 600 42 5000
 run_preflight review
 assert_jq '.review_anomaly.factor == 4' 'garbage factor falls back to 4'
+
+# --- a factor between 0 and 1 would alert on most reviews: the default applies -
+anomaly_case anomaly_factor_below_one '- review_anomaly_factor: 0.5'
+baseline 12 1000
+cost_event 600 42 5000
+run_preflight review
+assert_jq '.review_anomaly.factor == 4 and .config.review_anomaly_factor == 4' 'a factor under 1 falls back to 4'
 
 # --- a fresh claim lock (live concurrent run) leaves the judgment to it --------
 anomaly_case anomaly_fresh_lock

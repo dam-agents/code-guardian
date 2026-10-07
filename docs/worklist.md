@@ -14,9 +14,9 @@ model call at all. A started run receives the gate's stdout: the
 `worklist: <path>` line, the due keys, and preflight's `logs` to echo.
 
 - **Read that file and never run `preflight.sh` again this run.** One fire is
-  one preflight pass: the `done → awaiting_label` flip and the once-per-UTC-day
-  stall-alert claim are already spent, so a second pass answers with less than
-  the first.
+  one preflight pass: the `done → awaiting_label` flip, the once-per-UTC-day
+  stall-alert claim and the anomaly-alert marker are already spent, so a second
+  pass answers with less than the first.
 - **Bookkeeping alone waits.** `selfheals_due`, `prunes_due` and
   `status_resets_due` never open the gate by themselves: they ride along with
   the next run that has work of its own, and start a run of their own only after

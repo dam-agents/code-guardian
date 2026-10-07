@@ -132,8 +132,8 @@ The harness adapter logs one `review_cost` event per finished review: the API
 usage between its `locked` and `done` steps, subagents included, and the shape
 of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
 ([logging.md](logging.md) → **Harness adapters**). Preflight judges every
-event newer than `work/.review-anomaly-seen` once (first contact: the last
-24 h), under a `mkdir` claim. Each rule's limit is **max(floor, factor ×
+event of the last 24 h newer than `work/.review-anomaly-seen` once, under a
+`mkdir` claim. Each rule's limit is **max(floor, factor ×
 median)** — the repo sets its own norm, the floor stops a count from alerting
 on noise. A review at or over any limit is an entry:
 
@@ -144,7 +144,7 @@ on noise. A review at or over any limit is an entry:
 | `context` | `peak_ctx` — the largest single API call's context | none |
 | `repeats` | the most repeated identical tool call | 8 |
 | `failures` | `tool_failure` events in the window | 5 |
-| `output` | `max_out` — the largest tool result, in characters | 200 000 |
+| `output` | `max_out` — the largest tool result, in characters; a result the harness saved to a file counts at its stated full size | 200 000 |
 
 - **Factor** — `review_anomaly_factor` (missing = `4`; `0`/`off` disables the
   whole alert).
@@ -169,7 +169,7 @@ Deliver it **once, after the run's review work**, like the stall alert:
 1. Chat UI: per review the PR, each broken rule with its value, limit and
    median, and the likely cause — `repeats` or many `msgs` on a small diff is a
    loop, `context` or high `cache_read` per message is a large context or
-   memory, `output` is a huge file or API dump read whole, `failures` is a
+   memory, `output` is a huge file or API dump, `failures` is a
    broken tool, many `subagents` is fan-out, a large `size` or a `first`
    review of a large PR is a legitimate cost.
 2. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM

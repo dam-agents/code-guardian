@@ -426,9 +426,11 @@ ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
 case "$ANOMALY_FACTOR" in
   (off|none) ANOMALY_FACTOR=0;;
   ('') ANOMALY_FACTOR=4;;
-  (*) if printf '%s' "$ANOMALY_FACTOR" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
-        ANOMALY_FACTOR="$(awk -v f="$ANOMALY_FACTOR" 'BEGIN { print f + 0 }')"   # a JSON number
-      else log "review_anomaly_factor '$ANOMALY_FACTOR' unparseable — using 4"; ANOMALY_FACTOR=4; fi;;
+  (*) # 0 or a number of 1 or more, printed as a JSON number
+      ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
+        | awk '{ f = $1 + 0; if (f == 0 || f >= 1) print f }')"
+      if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
+      else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
 esac
 ANOMALY_MIN_SAMPLES=10     # baseline reviews of the same model before a median rule applies
 ANOMALY_WINDOW=30          # the baseline: that model's last N reviews before the one judged
@@ -1501,34 +1503,39 @@ if [ "$MODE" = "review" ]; then
   # ------------------------------------------------- review anomaly alert ----
   # docs/review-bookkeeping.md → Review anomaly alert. Every `review_cost`
   # event (one review's lock-to-done usage and shape, logged by the harness
-  # adapter) newer than the marker is judged once: each metric against
-  # max(floor, factor × the median of the same model's previous reviews) —
-  # floors only for the counts and the largest tool result. The marker then moves
-  # to the newest event, under a mkdir claim. Local reads only, no extra run.
+  # adapter) of the last 24 h newer than the marker is judged once: each
+  # metric against max(floor, factor × the median of the same model's previous
+  # reviews) — floors only for the counts and the largest tool result. The
+  # marker then moves to the newest event, under a mkdir claim. Local reads
+  # only, no extra run.
   if [ "$ANOMALY_FACTOR" != 0 ]; then
     find "$WORK/.review-anomaly.lock" -maxdepth 0 -mmin +5 -exec rmdir {} \; 2>/dev/null || true
     if mkdir "$WORK/.review-anomaly.lock" 2>/dev/null; then
       ANOMALY_MARKER="$WORK/.review-anomaly-seen"
+      # judged: the last 24 h after the marker — first contact, a re-enabled
+      # alert and a stale marker alike
+      ANOMALY_CUT="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
       ANOMALY_SEEN="$(cat "$ANOMALY_MARKER" 2>/dev/null)"
-      # first contact judges the last 24 h only, never the whole retained log
-      [ -n "$ANOMALY_SEEN" ] || ANOMALY_SEEN="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
-      ANOMALY_EVENTS="$(events_jsonl | jq -sc '[ .[] | select(.event == "review_cost") | try (
+      [ "$ANOMALY_SEEN" \> "$ANOMALY_CUT" ] || ANOMALY_SEEN="$ANOMALY_CUT"
+      ANOMALY_EVENTS="$(events_jsonl review_cost | jq -sc '[ .[] | select(.event == "review_cost") | try (
           .ts as $ts | .msg | capture("^PR #(?<pr>[0-9]+) (?<sha>[0-9a-f]{7}) ") as $c
           | [scan("([a-z_]+)=([^ ]+)") | {(.[0]): (.[1] | tonumber? // .)}] | add
           | . + {ts: $ts, pr: ($c.pr | tonumber), sha: $c.sha}) ] | sort_by(.ts)' 2>/dev/null)"
       if [ -n "$ANOMALY_EVENTS" ] && [ "$(printf '%s' "$ANOMALY_EVENTS" | jq --arg s "$ANOMALY_SEEN" 'any(.[]; .ts > $s)')" = true ]; then
         . "$SCRIPT_DIR/lib/prices.sh"
-        ANOMALY_LEDGER="$(jq -sc '[.[] | select(.src == "ledger") | {pr, sha, kind, size}]' "$LEDGER" 2>/dev/null)"
         # the baseline outlives the 14-day event retention: the judged reviews
-        # of REVIEW-USAGE.jsonl plus the retained events, one row per review
-        ANOMALY_ALL="$( { cat "$REVIEW_USAGE" 2>/dev/null; printf '%s' "$ANOMALY_EVENTS" | jq -c '.[]'; } \
+        # of REVIEW-USAGE.jsonl (line by line, a broken line drops alone) plus
+        # the retained events, one row per review
+        ANOMALY_ALL="$( { jq -cR 'fromjson? // empty' "$REVIEW_USAGE" 2>/dev/null; printf '%s' "$ANOMALY_EVENTS" | jq -c '.[]'; } \
           | jq -sc '[.[] | objects] | unique_by([.ts, .pr, .sha, .model]) | sort_by(.ts)' 2>/dev/null)"
-        [ -n "$ANOMALY_ALL" ] || ANOMALY_ALL="$ANOMALY_EVENTS"
+        # a failed merge judges on the retained events and keeps the stored baseline
+        ANOMALY_STORE=true
+        [ -n "$ANOMALY_ALL" ] || { ANOMALY_ALL="$ANOMALY_EVENTS"; ANOMALY_STORE=false; }
         ANOMALY_JUDGED="$(printf '%s' "$ANOMALY_ALL" | jq -c --arg seen "$ANOMALY_SEEN" \
           --argjson f "$ANOMALY_FACTOR" --argjson min "$ANOMALY_MIN_SAMPLES" --argjson w "$ANOMALY_WINDOW" \
           --argjson lim "$(jq -nc --argjson r "$ANOMALY_REPEATS" --argjson fl "$ANOMALY_FAILURES" --argjson o "$ANOMALY_OUTPUT" \
                            '{repeats: $r, failures: $fl, max_out: $o}')" \
-          --argjson prices "$(prices_json "$CONFIG")" --argjson ledger "${ANOMALY_LEDGER:-[]}" "$PRICES_JQ"'
+          --argjson prices "$(prices_json "$CONFIG")" "$PRICES_JQ"'
           # unpriced model: tokens weighted by the usual Claude price ratios — a
           # ratio within one model needs no absolute price
           def cost: price_row(.model) as $p
@@ -1555,23 +1562,30 @@ if [ "$MODE" = "review" ]; then
                   rule($r; $b; "context"; "peak_ctx"; null), rule($r; $b; "repeats"; "repeats"; $lim.repeats),
                   rule($r; $b; "failures"; "failures"; $lim.failures), rule($r; $b; "output"; "max_out"; $lim.max_out)] as $why
                | select($why | length > 0)
-               | ([$ledger[] | select(.pr == $r.pr and ((.sha // "") | startswith($r.sha)))] | last) as $l
                | {pr: $r.pr, sha: $r.sha, ts: $r.ts, model: $r.model, reasons: $why,
                   unit: $r.unit, cost: ($r.v | r(100)), samples: ($b | length),
                   secs: $r.secs, msgs: $r.msgs, subagents: $r.subagents,
                   input: $r.input, output: $r.output, cache_read: $r.cache_read, cache_creation: $r.cache_creation,
                   peak_ctx: $r.peak_ctx, repeats: $r.repeats, repeat_tool: $r.repeat_tool,
-                  max_out: $r.max_out, failures: $r.failures,
-                  kind: ($l.kind // null), size: ($l.size // null)}]}' 2>/dev/null)"
+                  max_out: $r.max_out, failures: $r.failures}]}' 2>/dev/null)"
         ANOMALY_NEWEST="$(printf '%s' "$ANOMALY_JUDGED" | jq -r '.newest // empty' 2>/dev/null)"
         # keep the last $ANOMALY_WINDOW reviews per model, read -> tmp -> mv under the claim
-        printf '%s' "$ANOMALY_ALL" | jq -c --argjson w "$ANOMALY_WINDOW" \
-          'group_by(.model) | map(.[-$w:]) | add // [] | sort_by(.ts) | .[]' \
-          > "$REVIEW_USAGE.tmp" 2>/dev/null && mv "$REVIEW_USAGE.tmp" "$REVIEW_USAGE" 2>/dev/null
-        rm -f "$REVIEW_USAGE.tmp" 2>/dev/null
+        if [ "$ANOMALY_STORE" = true ]; then
+          printf '%s' "$ANOMALY_ALL" | jq -c --argjson w "$ANOMALY_WINDOW" \
+            'group_by(.model) | map(.[-$w:]) | add // [] | sort_by(.ts) | .[]' \
+            > "$REVIEW_USAGE.tmp" 2>/dev/null && mv "$REVIEW_USAGE.tmp" "$REVIEW_USAGE" 2>/dev/null
+          rm -f "$REVIEW_USAGE.tmp" 2>/dev/null
+        fi
         [ -n "$ANOMALY_NEWEST" ] && printf '%s\n' "$ANOMALY_NEWEST" > "$ANOMALY_MARKER" 2>/dev/null
         if [ "$(printf '%s' "$ANOMALY_JUDGED" | jq '.reviews | length' 2>/dev/null)" -gt 0 ] 2>/dev/null; then
-          ANOMALY_ALERT="$(printf '%s' "$ANOMALY_JUDGED" | jq -c --argjson f "$ANOMALY_FACTOR" '{factor: $f, reviews}')"
+          # kind and size from the review ledger, which grows with every review:
+          # it reaches jq on stdin, after the judged reviews
+          ANOMALY_ALERT="$( { printf '%s\n' "$ANOMALY_JUDGED"; jq -cR 'fromjson? // empty | select(.src == "ledger")' "$LEDGER" 2>/dev/null; } \
+            | jq -nc --argjson f "$ANOMALY_FACTOR" 'input as $j | [inputs] as $ledger
+                | {factor: $f, reviews: [$j.reviews[] | . as $r
+                    | ([$ledger[] | select(.pr == $r.pr and ((.sha // "") | startswith($r.sha)))] | last) as $l
+                    | . + {kind: ($l.kind // null), size: ($l.size // null)}]}' 2>/dev/null)"
+          [ -n "$ANOMALY_ALERT" ] || ANOMALY_ALERT="$(printf '%s' "$ANOMALY_JUDGED" | jq -c --argjson f "$ANOMALY_FACTOR" '{factor: $f, reviews}')"
           ANOMALY_LIST="$(printf '%s' "$ANOMALY_ALERT" | jq -r '[.reviews[] | "PR #\(.pr) (\([.reasons[].rule] | join("+")))"] | join(", ")')"
           log "review anomaly: $ANOMALY_LIST — alert due"
           logev warn review_anomaly "$ANOMALY_LIST"
@@ -2562,9 +2576,9 @@ if [ "$MODE" = "audit" ]; then
   # the week's anomaly alerts; and the stored baseline per model, which says
   # whether the median rules apply yet (REVIEW-USAGE.jsonl).
   REVIEW_SHAPE="$(events_jsonl | jq -sc --arg s "$SINCE_ISO" --arg p "$(epoch2iso $(( SINCE_EPOCH - 7*86400 )))" \
-      --argjson base "$(jq -sc 'map(objects) | group_by(.model)
-                          | map({key: (.[0].model // "unknown"), value: length}) | from_entries' \
-                          "$REVIEW_USAGE" 2>/dev/null || echo '{}')" \
+      --argjson base "$(jq -cR 'fromjson? // empty' "$REVIEW_USAGE" 2>/dev/null \
+                        | jq -sc 'map(objects) | group_by(.model)
+                          | map({key: (.[0].model // "unknown"), value: length}) | from_entries' 2>/dev/null)" \
       --argjson min "$ANOMALY_MIN_SAMPLES" '
     def median: sort | if length == 0 then null elif length % 2 == 1 then .[length / 2 | floor]
                        else (.[length / 2 - 1] + .[length / 2]) / 2 end;

@@ -261,7 +261,7 @@ EOF
     chk_enum benchmark_report 'dam|off' 'dam | off'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
-    chk_enum review_anomaly_factor '[0-9]+(\.[0-9]+)?|off' 'a number | 0 | off'
+    chk_enum review_anomaly_factor '0+(\.0+)?|0*[1-9][0-9]*(\.[0-9]+)?|off' 'a number of 1 or more | 0 | off'
     # Review cadence (docs/config.md). Both intervals must
     # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
     # window that wraps midnight is not expressible as a single cron.
@@ -470,7 +470,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey .cache .gitignore .stall-alert-day .stall-alert.lock .housekeeping-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock .housekeeping-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

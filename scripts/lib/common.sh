@@ -56,8 +56,12 @@ epoch2iso() { # <epoch> [date format]
 
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
-# leave. LOG_DIR comes from log.sh.
-events_jsonl() { cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null; }
+# leave. With an event name, a fixed-string grep keeps that event's lines
+# before jq parses them (log.sh writes compact JSON). LOG_DIR comes from log.sh.
+events_jsonl() { # [event]
+  if [ -n "${1:-}" ]; then grep -hF "\"event\":\"$1\"" "$LOG_DIR"/events-*.jsonl 2>/dev/null
+  else cat "$LOG_DIR"/events-*.jsonl 2>/dev/null; fi | jq -c -R 'fromjson? // empty' 2>/dev/null
+}
 
 # the payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
 # line of a history file or section on stdin (docs/review-mechanics.md →

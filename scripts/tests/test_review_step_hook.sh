@@ -211,6 +211,11 @@ tool_result_line() { # <chars> <timestamp>
   jq -nc --argjson n "$1" --arg ts "$2" \
     '{type:"user", timestamp:$ts, message:{content:[{type:"tool_result", content:("x" * $n), is_error:false}]}}'
 }
+persisted_line() { # <stated size, e.g. 48KB> <timestamp> — a result the harness saved to a file
+  jq -nc --arg s "$1" --arg ts "$2" \
+    '{type:"user", timestamp:$ts, message:{content:[{type:"tool_result", is_error:false,
+      content:("<persisted-output>\nOutput too large (" + $s + "). Full output saved to: /tmp/out.txt\n\nPreview (first 2KB):\nxxxx")}]}}'
+}
 step_ev() { # <session> <msg> <ts> [event] — an event the script itself logged
   jq -nc --arg r "$1" --arg m "$2" --arg ts "$3" --arg e "${4:-review_step}" \
     '{ts:$ts, run:$r, job:"review", level:"info", event:$e, msg:$m}' >> "$EVENTS"
@@ -233,6 +238,7 @@ usage_line m2 7 70 2026-10-07T10:01:00.000Z >> "$TP"
 for i in 1 2 3; do tool_use_line "bash scripts/review-pr.sh guard 42" 2026-10-07T10:02:00.000Z >> "$TP"; done
 tool_use_line "cat big.json" 2026-10-07T10:02:00.000Z >> "$TP"
 tool_result_line 1234 2026-10-07T10:02:00.000Z >> "$TP"
+persisted_line 48KB 2026-10-07T10:02:30.000Z >> "$TP"
 mkdir -p "${TP%.jsonl}/subagents"; usage_line a1 3000 30 2026-10-07T10:03:00.000Z > "${TP%.jsonl}/subagents/agent-a1.jsonl"
 step_ev "$SID" "Bash: exit 1" "2026-10-07T10:04:00.000Z" tool_failure
 step_ev "$SID" "Bash: exit 1" "2026-10-07T09:58:00.000Z" tool_failure
@@ -241,8 +247,8 @@ run_bash_tp "$SID" "bash scripts/review-pr.sh step 42 verified" "$TP"
 step_ev "$SID" "PR #42 1111111 done" "2026-10-07T10:13:20.000Z"
 run_bash_tp "$SID" "bash scripts/review-pr.sh post 42 --verdict APPROVE" "$TP"
 run_bash_tp "$SID" "bash scripts/review-pr.sh verify 42" "$TP"
-if [ "$(cost_msgs)" = "PR #42 1111111 secs=800 input=3007 output=100 cache_read=200 cache_creation=20 msgs=2 model=claude-opus-5-5 subagents=1 peak_ctx=3110 repeats=3 repeat_tool=Bash max_out=1234 failures=1" ]; then
-  printf 'ok   %s: one review_cost event with the lock-to-done delta and window shape\n' "$CASE"
+if [ "$(cost_msgs)" = "PR #42 1111111 secs=800 input=3007 output=100 cache_read=200 cache_creation=20 msgs=2 model=claude-opus-5-5 subagents=1 peak_ctx=3110 repeats=3 repeat_tool=Bash max_out=49152 failures=1" ]; then
+  printf 'ok   %s: one review_cost event with the lock-to-done delta and window shape, a saved output at its full size\n' "$CASE"
 else printf 'FAIL %s: review_cost wrong: %s\n' "$CASE" "$(cost_msgs)"; FAILED=1; fi
 
 step_case review_cost_other_run_ignored

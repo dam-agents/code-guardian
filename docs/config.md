@@ -113,9 +113,9 @@ below is for the manual fallback and the direct session.
 - **`review_anomaly_factor`** — a review whose cost, time, peak context,
   repeated calls, failures or largest tool result reaches max(floor, this ×
   the median of its model's recent reviews) alerts once. **Missing = `4`**;
-  `0`/`off` disables the whole anomaly alert; a decimal is allowed; an
-  unparseable value falls back to `4` (review-bookkeeping.md → **Review
-  anomaly alert**).
+  `0`/`off` disables the whole anomaly alert; a number of `1` or more, a
+  decimal too, sets it; any other value falls back to `4`
+  (review-bookkeeping.md → **Review anomaly alert**).
 
 ### Skills, artifacts, watches
 
@@ -184,8 +184,8 @@ below is for the manual fallback and the direct session.
   ([review-mechanics.md](review-mechanics.md) → **Summary body format**) and
   never auto-merges.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
-  target of the stalled-review alert. Slack-only key, legitimately absent when
-  Slack is disabled.
+  target of the stalled-review and review anomaly alerts. Slack-only key,
+  legitimately absent when Slack is disabled.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,
   otherwise to the chat UI.
