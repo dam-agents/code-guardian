@@ -97,6 +97,10 @@ skipped task is an incomplete audit — a task that is impossible this week
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
      temporary monitor is theirs to watch — report an unrecognised schedule as
      **info**, never a failure.
+   - One-time schedules named `code-guardian-review-pr-<n>` are dispatched
+     reviews ([runbook.md](runbook.md) → **Review run** step 1): leave them out
+     of the info list; each whose `state` is `missed` or `failed` → **warn**
+     naming its PR.
 6. Slack connectivity — no separate probe: sending the report *is* the test (a
    send failure is a fail plus a fall back to the chat UI).
 7. Artifact feature (when `artifact_skill` is configured): are the DAM MCP

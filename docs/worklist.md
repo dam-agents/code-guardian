@@ -103,7 +103,7 @@ changes", then end the run the same way.
 | `fixes_due` | `{number, sha, findings}` — a labeled PR whose current review left blocking findings with a fix (only under `agent_fixes: enabled`) → one fix round | [agent-fixes.md](agent-fixes.md) + [review.md](review.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
-| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review-urgent.md → **Urgent PRs** |
+| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any PR work** | review-urgent.md → **Urgent PRs** |
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
@@ -124,6 +124,9 @@ by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh));
 one PR.
 Preflight drops the `reviews_due` and `mentions_due` entries of a PR another
 live run holds, and logs why; the first run after the release serves them. A
+run dispatches every PR after its first to a session of its own
+([runbook.md](runbook.md) → **Review run** step 1); a PR whose session never
+starts is the next heartbeat's. A
 hold whose run is quiet by the **Live holder** windows
 ([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
 hook releases the holds a finished run still owns ([logging.md](logging.md) →

@@ -258,7 +258,7 @@ what it can and asking for the rest. Per-key semantics are in
 - **Platform:** the agent assumes the DAM agent infrastructure — `$HOME` at
   `/home/agent` on a persistent `/workspace` volume, the platform's outbound
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
-  schedules and Slack. Running elsewhere requires adapting those assumptions.
+  schedules, one-time review sessions and Slack. Running elsewhere requires adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
   target repo, this definition, the skill sources and the `work_repo` backup may
   each live on a different host — `github.com` or a GitHub Enterprise instance.

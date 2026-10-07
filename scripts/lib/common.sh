@@ -85,3 +85,31 @@ origin_ref() { # <checkout dir>
   git -C "$1" remote get-url origin 2>/dev/null \
     | sed -e 's#^git@\([^:]*\):#\1/#' -e 's#^[a-z]*://##' -e 's#^[^@/]*@##' -e 's#\.git$##'
 }
+
+# The files a review-mode run reads before acting (docs/runbook.md → Review
+# run, step 2): the core per due key, the rare cases only when an entry needs
+# them. A mention reply and a CI triage comment write outward prose, so they
+# read review.md for its style rules and PR-context calls. A file the run needs
+# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
+# trigger, not here. preflight.sh applies it to the worklist, dispatch.sh to
+# each worklist it cuts from one.
+READ_SET_JQ='def read_set:
+  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
+    (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
+    + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
+    + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
+       then ["docs/review-urgent.md"] else [] end)
+    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
+          or .stall_alert != null
+       then ["docs/review-bookkeeping.md"] else [] end)
+    + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
+          and ((.config.watch_rules // []) | length) > 0
+       then ["docs/watches.md"] else [] end)
+    + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
+    + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
+    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
+    + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
+    + ["work/MEMORY.md", "work/LESSONS.md"]
+  end;'
