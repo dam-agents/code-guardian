@@ -115,5 +115,10 @@ assert_rc 2 'a non-number is refused'
 jq '.mode = "shepherd"' "$WL" > "$WL.s"
 run_ds plan "$WL.s"
 assert_rc 2 'a shepherd worklist is refused'
+chmod 500 "$SANDBOX/tmp"
+run_ds rest "$WL" 8
+chmod 700 "$SANDBOX/tmp"
+assert_rc 2 'a rest worklist that cannot be written is an error'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'leaves #8 to their sessions' 'and the error names the PRs the run leaves alone'
 
 finish

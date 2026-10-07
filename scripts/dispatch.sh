@@ -92,10 +92,14 @@ worklist: $UNIT
     for n in "$@"; do case "$n" in (''|*[!0-9]*) die "not a PR number: $n";; esac; done
     NS="$(printf '%s\n' "$@" | jq -R 'tonumber' | jq -sc .)"
     REST="$BASE-rest.json"
-    jq --argjson ns "$NS" "$READ_SET_JQ$UNIT_JQ"'drop_prs($ns) | .read_set = read_set' "$WL" > "$REST" 2>/dev/null \
-      || { rm -f "$REST"; die "the rest worklist could not be written — go on with $WL"; }
+    STARTED="$(printf '#%s, ' "$@" | sed 's/, $//')"
+    if ! jq --argjson ns "$NS" "$READ_SET_JQ$UNIT_JQ"'drop_prs($ns) | .read_set = read_set' "$WL" > "$REST" 2>/dev/null; then
+      rm -f "$REST"
+      logev error dispatch "the rest worklist could not be written — the run goes on with $WL and leaves $STARTED to their sessions"
+      die "the rest worklist could not be written — go on with $WL and leave every entry of $STARTED to its own session"
+    fi
     KEPT="$(jq -r "$UNIT_JQ"'[units[] | "#\(.)"] | join(", ")' "$REST")"
-    logev info dispatch "$(printf '#%s, ' "$@" | sed 's/, $//') dispatched to sessions of their own; this run keeps ${KEPT:-no PR}"
+    logev info dispatch "$STARTED dispatched to sessions of their own; this run keeps ${KEPT:-no PR}"
     printf 'worklist: %s\n' "$REST"
     ;;
   *) die "usage: dispatch.sh plan|rest <worklist> [<n>…]";;

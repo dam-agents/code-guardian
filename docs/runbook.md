@@ -65,7 +65,8 @@ still valid at post time*.
    `mcp__platform-outbound__schedule_once` call per `dispatch[]` entry with
    exactly its `name` and `task`, then `bash "$HOME/scripts/dispatch.sh" rest
    <worklist> <each accepted number>`. The worklist `rest` prints is this run's
-   from here on; a PR whose call failed stays in it.
+   from here on; a PR whose call failed, or every PR when the tool is missing,
+   stays in it.
 2. **Read exactly the worklist's `read_set`** — `$HOME`-relative paths,
    computed by preflight from the due keys — and each `reviews_due` entry's
    `memory_due` files. Never the memory archive, which is searched only to
