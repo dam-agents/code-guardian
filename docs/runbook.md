@@ -59,16 +59,20 @@ still valid at post time*.
 
 1. Echo the worklist's `logs` to the chat UI, the `project profile:` line
    included; note the per-skill install statuses (an `install-failed` skill is
-   skipped for every PR this run, with its audit line). Then **dispatch** every
-   PR after the first to a session of its own: `bash
-   "$HOME/scripts/dispatch.sh" plan <worklist>`, one
-   `mcp__platform-outbound__schedule_once` call per `dispatch[]` entry with
-   exactly its `name` and `task`, then `bash "$HOME/scripts/dispatch.sh" rest
-   <worklist> <each accepted number>`. The worklist `rest` prints is this run's
-   from here on; a PR whose call failed, or every PR when the tool is missing,
-   stays in it.
+   skipped for every PR this run, with its audit line). Then **dispatch**:
+   - A worklist with `dispatched` is one PR's, started by another run: take
+     that PR's hold at once (`review-pr.sh hold <n>`; `held_elsewhere` → log
+     it and end the run).
+   - Any other worklist file: `bash "$HOME/scripts/dispatch.sh" plan
+     <worklist>`, one `mcp__platform-outbound__schedule_once` call per
+     `dispatch[]` entry with exactly its `name` and `task`, then — when the
+     platform accepted any — `bash "$HOME/scripts/dispatch.sh" rest <worklist>
+     <each accepted number>`, whose worklist is this run's from here on. A PR
+     whose call failed, or every PR when the tool is missing, stays in the run.
+   - A run with no worklist file (preflight printed its JSON) dispatches
+     nothing.
 2. **Read exactly the worklist's `read_set`** — `$HOME`-relative paths,
-   computed by preflight from the due keys — and each `reviews_due` entry's
+   computed from the due keys — and each `reviews_due` entry's
    `memory_due` files. Never the memory archive, which is searched only to
    look a specific thing up ([preferences.md](preferences.md) → **Two
    layers**). A file the run needs later is read on its trigger:

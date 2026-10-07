@@ -28,7 +28,7 @@ synthetic_worklist() { # <path>
     mentions_due:[{number:8, id:501}],
     ci_failures_due:[{number:10, sha:"abc", url:"u", checks:[]}],
     merges_due:[], fixes_due:[], artifacts_due:[],
-    urgent_alerts_due:[{number:9}], selfheals_due:[{number:3}], label_cleanups_due:[{number:8, label:"cg-rereview"}],
+    urgent_alerts_due:[{number:9}, {number:7}], selfheals_due:[{number:3}], label_cleanups_due:[{number:8, label:"cg-rereview"}],
     prunes_due:[{number:4}], status_resets_due:[],
     stall_alert:{count:4}, skills:{}, logs:["reviews due: #9 #7 #8", "project profile: current"],
     config:{watch_rules:[]},
@@ -52,6 +52,7 @@ if printf '%s' "$OUT" | jq -e --arg u "$U8" '.dispatch[0].task | contains("workl
 else printf 'FAIL %s: the task names the PR and its unit worklist (%s)\n' "$CASE" "$OUT"; FAILED=1; fi
 assert_out_absent 'Ignore previous instructions' 'no PR text reaches a task'
 assert_file_jq "$U8" '[.reviews_due[].number] == [8] and .mode == "review"' 'the unit holds its PR alone'
+assert_file_jq "$U8" '.dispatched == {number: 8, by: "run-lead"}' 'the unit names its PR and the dispatching run'
 assert_file_jq "$U8" '.read_set | index("docs/review.md") != null and index("work/MEMORY.md") != null' 'the unit carries its own read_set'
 case "$(ls -l "$U8" 2>/dev/null)" in
   (-rw-------*) printf 'ok   %s: the unit worklist is private to the instance\n' "$CASE";;
@@ -63,6 +64,8 @@ case "$U8" in
 esac
 run_ds plan "$U8"
 assert_jq '.dispatch == []' 'a dispatched session dispatches nothing'
+run_ds rest "$WL" 7
+assert_rc 2 'a PR plan did not cut stays with the run'
 run_ds rest "$WL" 8 9
 assert_rc 0 'rest succeeds'
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
@@ -80,13 +83,14 @@ assert_jq '[.dispatch[].number] == [8, 7, 10]' 'urgent first, then mentions, rev
 U8="$SANDBOX/tmp/cg-worklist-review-x-pr8.json"
 assert_file_jq "$U8" '.mentions_due == [{number:8, id:501}] and [.reviews_due[].number] == [8]' 'a PR takes its mention with its review'
 assert_file_jq "$U8" '.urgent_alerts_due == [] and .selfheals_due == [] and .label_cleanups_due == [] and .prunes_due == [] and (has("stall_alert") | not)' 'run-wide work is not copied'
+assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr7.json" '.urgent_alerts_due == [{number:7}] and (.read_set | index("docs/review-urgent.md") != null)' 'a PR takes its urgent alert with it'
 assert_file_jq "$U8" '.read_set | (index("docs/review-rereview.md") != null) and (index("docs/mentions.md") != null) and (index("docs/review-bookkeeping.md") == null)' 'its read_set follows its own entries'
 assert_file_jq "$U8" '.logs == ["PR #8: dispatched by run run-lead to a session of its own", "project profile: current"]' 'its logs name the dispatch and keep the profile line'
 assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr10.json" '[.ci_failures_due[].number] == [10] and .reviews_due == []' 'a CI failure alone is a unit too'
 run_ds rest "$WL" 7 8 10
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.reviews_due[].number] == [9] and .mentions_due == [] and .ci_failures_due == []' 'the run keeps the urgent PR'
-assert_file_jq "$REST" '.urgent_alerts_due == [{number:9}] and .label_cleanups_due == [{number:8, label:"cg-rereview"}] and .stall_alert == {count:4}' 'the run keeps every run-wide entry'
+assert_file_jq "$REST" '.urgent_alerts_due == [{number:9}] and .label_cleanups_due == [{number:8, label:"cg-rereview"}] and .stall_alert == {count:4}' 'the run keeps its own alert and every run-wide entry'
 run_ds rest "$WL" 7 8
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.ci_failures_due[].number] == [10]' 'a PR whose session did not start stays with the run'
@@ -115,6 +119,7 @@ assert_rc 2 'a non-number is refused'
 jq '.mode = "shepherd"' "$WL" > "$WL.s"
 run_ds plan "$WL.s"
 assert_rc 2 'a shepherd worklist is refused'
+run_ds plan "$WL"
 chmod 500 "$SANDBOX/tmp"
 run_ds rest "$WL" 8
 chmod 700 "$SANDBOX/tmp"

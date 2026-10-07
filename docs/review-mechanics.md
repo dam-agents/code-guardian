@@ -128,9 +128,9 @@ comment. Never for style preferences.
   [preflight.sh](../scripts/preflight.sh)); the remote dedup check stays
   authoritative.
 - `review-pr.sh` writes every row (`prepare` locks, `step` refreshes, `rapid`
-  sets `RAPID`, `post` / `abort` finish), and it and preflight write one at a
-  time: concurrent runs share the file (`with_state_lock` in
-  [common.sh](../scripts/lib/common.sh)). In the manual fallback, rewrite the
+  sets `RAPID`, `post` / `abort` finish, `row` the bookkeeping rows), and it
+  and preflight write one at a time: concurrent runs share the file
+  (`with_state_lock` in [common.sh](../scripts/lib/common.sh)). In the manual fallback, rewrite the
   PR's line in place; rows are full of `|`, so give sed another delimiter:
 
   ```bash

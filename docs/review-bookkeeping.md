@@ -10,7 +10,8 @@ Both run before the review loop, one log line each. A failed removal is logged,
 never fatal — preflight re-emits the entry.
 
 - **Self-heal** `{number, sha, ts, status}` → write the REVIEWS.md row
-  `| <number> | <sha> | <ts> | SEE-GITHUB | <status> |`. `ts` is the
+  `| <number> | <sha> | <ts> | SEE-GITHUB | <status> |` with
+  `review-pr.sh row <number> <sha> <ts> SEE-GITHUB <status>`. `ts` is the
   GitHub-reported timestamp; use the remote body's verdict when you have it.
   Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
 - **Same-SHA trigger cleanup** `{number, label, request}` → a trigger on a PR
@@ -37,8 +38,8 @@ deletes it.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
    work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
    ([review-mechanics.md](review-mechanics.md) → **Review ledger**).
-3. Delete the PR's REVIEWS.md row when present, and its `work/SHEPHERD.md` row
-   when present.
+3. Delete the PR's REVIEWS.md row (`review-pr.sh row <n> --delete`), and its
+   `work/SHEPHERD.md` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
 ## Trigger removal
@@ -99,7 +100,8 @@ line — GitHub truncates past 140 characters.
 
 **`status_resets_due`** `{number, sha, reason}` — a locked review was abandoned
 with the status left `pending` (`reason: draft`). Write the terminal row above,
-then **delete the PR's REVIEWS.md row**; the `reviews/pr-<n>.md` history stays.
+then **delete the PR's REVIEWS.md row** (`review-pr.sh row <n> --delete`); the
+`reviews/pr-<n>.md` history stays.
 The missing row is what stops the reset repeating.
 
 ## Stalled-review rate alert (`stall_alert`)

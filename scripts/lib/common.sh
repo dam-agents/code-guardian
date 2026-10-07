@@ -56,13 +56,25 @@ epoch2iso() { # <epoch> [date format]
 
 # Runs <command…> as the one writer of <file>, a state file several runs
 # rewrite in place (work/REVIEWS.md): `mkdir` of `<file>.lock` is atomic, and a
-# lock older than a minute is a dead writer's. After ten seconds of waiting the
-# command runs anyway, so a review never stalls on the lock.
+# lock older than a minute is a dead writer's. One waiter at a time removes a
+# dead lock — the one that holds `<file>.break.lock`, and only while the lock is
+# still old. Every attempt counts: after ten seconds the command runs anyway,
+# with a warn, so a review never stalls on the lock.
+state_lock_old() { [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }
 with_state_lock() { # <file> <command…>
-  local l="$1.lock" i=0 rc; shift
+  local f="$1" l="$1.lock" b="$1.break.lock" i=0 rc; shift
   until mkdir "$l" 2>/dev/null; do
-    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$l" 2>/dev/null; continue; fi
-    i=$((i + 1)); [ "$i" -ge 100 ] && { "$@"; return; }
+    i=$((i + 1))
+    if [ "$i" -gt 100 ]; then
+      command -v logev >/dev/null 2>&1 && logev warn state_lock "${f##*/}: lock held for 10 s — written without it"
+      "$@"; return
+    fi
+    if state_lock_old "$l" && mkdir "$b" 2>/dev/null; then
+      state_lock_old "$l" && rm -rf "$l"
+      rmdir "$b" 2>/dev/null
+      continue
+    fi
+    state_lock_old "$b" && rmdir "$b" 2>/dev/null
     sleep 0.1
   done
   "$@"; rc=$?

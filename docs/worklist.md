@@ -111,6 +111,7 @@ changes", then end the run the same way.
 | `survey_due` | survey mode: the area to read this run, with its caps and history slice | [survey.md](survey.md) |
 | `stall_alert` | `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24 h reached `stall_alert_threshold` (once per UTC day) → report it after the review work | review-bookkeeping.md → **Stalled-review rate alert** |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |
+| `dispatched` | `{number, by}`, present in a worklist `dispatch.sh plan` cut for one PR → the session takes that PR's hold first | [runbook.md](runbook.md) → **Review run** step 1 |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |
 | `config` | every `work/CONFIG.md` key resolved with its default, plus the `skills_table` and `watch_rules` rows; present in a review or shepherd worklist with work | [config.md](config.md) |
