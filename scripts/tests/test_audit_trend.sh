@@ -287,4 +287,22 @@ assert_out_contains 'Runs by day' 'the report renders the days'
 assert_out_contains 'APPROVE share, first reviews' 'the report renders the verdict shares'
 assert_out_contains 'Disk used (fullest volume)' 'the report renders the disk row'
 
+# --- review-quality signals (docs/audit.md tasks 24, 28) ------------------------
+new_case trend_quality_signals
+price_config
+mkdir -p "$WORK/audit"
+worklist 10 20 0 0 | jq '.stats.findings += {late:5, density:{reviews:8, findings:12, lines:800}}
+  | .stats.overruled = {approved_prs:4, scanned:4, unread:[], changes_requested:[{pr:7, by:"alice", at:"x"}],
+                        reverted:[{pr:7, by_pr:20}, {pr:9, by_pr:21}]}' > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+assert_out_contains '"findings_per_100_lines": 1.5' 'findings per 100 changed lines'
+assert_out_contains '"late_share": 0.25' 'the missed-earlier share of raised findings'
+assert_out_contains '"overruled": 2' 'a PR overruled twice counts once'
+assert_out_contains '"overruled_share": 0.5' 'overruled share of the approved PRs'
+assert_out_contains '"density_lines": 800' 'the counts behind the density stay in the row'
+run_trend report "$WORK/audit"
+assert_out_contains 'APPROVE overruled' 'the report renders the overruled row'
+assert_out_contains 'Findings per 100 changed lines' 'the report renders the density row'
+
 finish

@@ -62,7 +62,7 @@ write, and it never touches state outside `work/audit/`.
 | Group | Metrics | Source |
 | --- | --- | --- |
 | Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog, artifacts published | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label`, `stats.artifacts` |
-| Quality | verdict split, APPROVE and REQUEST_CHANGES shares (all and first reviews), findings raised by severity, findings per review, acceptance ratio, 👍/👎 | `stats.reviews`, `stats.findings`, `stats.reactions` |
+| Quality | verdict split, APPROVE and REQUEST_CHANGES shares (all and first reviews), APPROVE overruled by a person, findings raised by severity, findings per review and per 100 changed lines, missed-earlier share, acceptance ratio, 👍/👎 | `stats.reviews`, `stats.overruled`, `stats.findings`, `stats.reactions` |
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
 | Cost | heartbeats and idle share, wake-ups by work (reviews / mention replies / artifacts), tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.wakeups`, `stats.tokens`, the price table, extras |
 | Runs | finished sessions, run length (median, mean, p90; review runs apart), cost per run (median, mean), cache hit ratio — per week and per day | `stats.sessions` (below) |
@@ -87,9 +87,11 @@ is the transcript's wall time (`secs=`), else the span of the run's events;
 and the per-day table derive at render time and reprice with the table. A
 session that crashed has no `tokens` event and no record.
 
-The audit reads its baselines from this history instead of recounting them —
-`verdict_shift` compares the week with the four recorded weeks before it
-([audit.md](audit.md) → task 24).
+The audit reads its baselines from this history instead of recounting them:
+`verdict_shift`, `findings_shift` and `late_shift` compare the week with the
+four recorded weeks before it ([audit.md](audit.md) → tasks 24, 28). A derived
+row keeps the counts behind each share, so the baseline pools counts, never
+averages of shares.
 
 ## Cost
 

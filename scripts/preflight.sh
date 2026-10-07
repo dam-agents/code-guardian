@@ -2595,25 +2595,44 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
     # the lib is what defines RR_AGG_ZERO, so this branch carries its own copy
-    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
     logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
   fi
-  # --- verdict shift (docs/audit.md task 24) ---------------------------------
-  # this week's verdict shares against the four recorded weeks before it. The
-  # baseline is read from the trend history (docs/trends.md), never recounted;
-  # a shift is a warn only when it is both large and unlikely to be noise
-  # (two-proportion z-test).
+  # --- shifts against the recorded weeks (docs/audit.md tasks 24, 28) -------
+  # This week against the four weeks before it on record in the trend history
+  # (docs/trends.md) — the baseline is read, never recounted. A shift warns only
+  # when it is both large and unlikely to be noise (a z-test on the pooled
+  # counts); each check names the definition versions on both sides.
   TREND_ROWS="$(TREND_CONFIG="$CONFIG" bash "$SCRIPT_DIR/audit-trend.sh" index "$WORK/audit" 2>/dev/null)"
   printf '%s' "$TREND_ROWS" | jq -e 'type == "array"' >/dev/null 2>&1 || TREND_ROWS='[]'
-  shift_out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
-    --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" '
+  SHIFT_DEFS='
     def absv: if . < 0 then -. else . end;
     def pc: (. * 100 | round | tostring) + "%";
+    def r1: (. * 10 | round) / 10;
+    # two proportions, or two rates when $n is an exposure (changed lines)
     def z($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
       | ($p * (1 - $p) * (1 / $n1 + 1 / $n2)) as $v
       | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
+    def zrate($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
+      | ($p * (1 / $n1 + 1 / $n2)) as $v
+      | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
     ($rows | map(select(.week < $wk)) | .[-4:]) as $base
-    | $ra.reviews as $c
+    | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
+    | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
+    | (($ra.reviews.defs // []) | join(", ")) as $dcur
+    | " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)" as $defs
+    | "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history" as $nohist
+    |'
+  shift_check() { # <check id> <jq program after SHIFT_DEFS> <what failed>
+    local out
+    out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+      --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" "$SHIFT_DEFS$2" 2>/dev/null)"
+    if [ -n "$out" ]; then check "$1" "${out%%$'\t'*}" "${out#*$'\t'}"
+    else check "$1" warn "$3 could not be compared — trend history unreadable"; fi
+  }
+  # task 24: APPROVE and REQUEST_CHANGES shares, all and first reviews apart
+  shift_check verdict_shift '
+    $ra.reviews as $c
     | [ {pop: "all reviews", v: "APPROVE", x1: $c.approve, n1: $c.total,
          b: [$base[] | {x: .approve, n: .reviews}]},
         {pop: "all reviews", v: "REQUEST_CHANGES", x1: $c.request_changes, n1: $c.total,
@@ -2626,22 +2645,48 @@ if [ "$MODE" = "audit" ]; then
     | [ $all[] | select(.n1 >= 6 and .n2 >= 12)
         | . + {p1: (.x1 / .n1), p2: (.x2 / .n2), z: z(.x1; .n1; .x2; .n2)} ] as $cmp
     | [ $cmp[] | select(((.p1 - .p2) | absv) >= 0.2 and (.z | absv) >= 2) ] as $hit
-    | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
-    | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
-    | (($c.defs // []) | join(", ")) as $dcur
-    | if ($base | length) == 0 then
-        "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history"
+    | if ($base | length) == 0 then $nohist
       elif ($cmp | length) == 0 then
         "ok\ttoo few reviews to compare: \($c.total) this week (\($c.first) first), \($all[0].n2) in \($span) — needs 6 and 12"
       elif ($hit | length) > 0 then
-        "warn\t" + ([ $hit[] | "\(.pop): \(.v) \(.p1 | pc) of \(.n1) this week vs \(.p2 | pc) of \(.n2) in \($span) (z \(.z * 10 | round / 10))" ] | join("; "))
-        + " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)"
+        "warn\t" + ([ $hit[] | "\(.pop): \(.v) \(.p1 | pc) of \(.n1) this week vs \(.p2 | pc) of \(.n2) in \($span) (z \(.z | r1))" ] | join("; ")) + $defs
       else
         "ok\t" + ([ $cmp[] | select(.v == "APPROVE") | "\(.pop): APPROVE \(.p1 | pc) of \(.n1) vs \(.p2 | pc) of \(.n2)" ] | join("; "))
         + " in \($span) — no significant shift"
-      end' 2>/dev/null)"
-  if [ -n "$shift_out" ]; then check verdict_shift "${shift_out%%$'\t'*}" "${shift_out#*$'\t'}"
-  else check verdict_shift warn "verdict shares could not be compared — trend history unreadable"; fi
+      end' "verdict shares"
+  # task 28: new findings per 100 changed lines of first reviews — halved or
+  # doubled at equal PR size means the review reads looser or stricter
+  shift_check findings_shift '
+    ($ra.findings.density // {reviews: 0, findings: 0, lines: 0}) as $c
+    | [ $base[] | select(.density_reviews != null) ] as $b
+    | { n2: ([$b[].density_reviews] | add // 0), x2: ([$b[].density_findings] | add // 0),
+        l2: ([$b[].density_lines] | add // 0) } as $o
+    | if ($base | length) == 0 then $nohist
+      elif $c.reviews < 6 or $o.n2 < 12 or $c.lines == 0 or $o.l2 == 0 or $o.x2 == 0 then
+        "ok\ttoo few sized first reviews to compare: \($c.reviews) this week, \($o.n2) in \($span) — needs 6 and 12"
+      else
+        ($c.findings / $c.lines * 100) as $r1 | ($o.x2 / $o.l2 * 100) as $r2
+        | zrate($c.findings; $c.lines; $o.x2; $o.l2) as $z
+        | "\($r1 * 100 | round / 100) findings per 100 changed lines this week (\($c.reviews) first reviews, \($c.lines) lines) vs \($r2 * 100 | round / 100) in \($span) (\($o.n2) reviews)" as $txt
+        | if ($r1 <= $r2 / 2 or $r1 >= $r2 * 2) and ($z | absv) >= 2 then "warn\t\($txt) (z \($z | r1))" + $defs
+          else "ok\t\($txt) — no significant shift" end
+      end' "findings density"
+  # task 28: the share of raised findings an earlier round had missed — only a
+  # rise is a warn, a fall is the review reading wider
+  shift_check late_shift '
+    ($ra.findings // {}) as $c
+    | [ $base[] | select(.late != null and .findings_new != null) ] as $b
+    | { n2: ([$b[].findings_new] | add // 0), x2: ([$b[].late] | add // 0) } as $o
+    | ($c.new // 0) as $n1 | ($c.late // 0) as $x1
+    | if ($base | length) == 0 then $nohist
+      elif $n1 < 10 or $o.n2 < 20 then
+        "ok\ttoo few raised findings to compare: \($n1) this week, \($o.n2) in \($span) — needs 10 and 20"
+      else
+        ($x1 / $n1) as $p1 | ($o.x2 / $o.n2) as $p2 | z($x1; $n1; $o.x2; $o.n2) as $z
+        | "missed earlier: \($x1) of \($n1) raised findings (\($p1 | pc)) this week vs \($o.x2) of \($o.n2) (\($p2 | pc)) in \($span)" as $txt
+        | if ($p1 - $p2) >= 0.1 and $p1 >= $p2 * 2 and $z >= 2 then "warn\t\($txt) (z \($z | r1))" + $defs
+          else "ok\t\($txt) — no significant rise" end
+      end' "missed-earlier share"
 
   # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
   # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
@@ -2798,9 +2843,13 @@ if [ "$MODE" = "audit" ]; then
     command -v review_records >/dev/null 2>&1 || return 0
     review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" 2>/dev/null
   }
-  # coverage — PRs merged this week against the ones this agent reviewed
-  merged_nums="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null \
-    | jq -r --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s) | .number] | .[]' 2>/dev/null)"
+  # coverage — PRs merged this week against the ones this agent reviewed; the
+  # same list call feeds the revert scan below
+  MERGED_WEEK="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null \
+    | jq -c --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s)
+                                   | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)"
+  [ -n "$MERGED_WEEK" ] || MERGED_WEEK='[]'
+  merged_nums="$(printf '%s' "$MERGED_WEEK" | jq -r '.[].number' 2>/dev/null)"
   if [ -n "$merged_nums" ]; then
     reviewed_list="$(rr_week | jq -rs '[.[] | .pr] | unique | .[]' 2>/dev/null)"
     m_total=0; m_reviewed=0
@@ -2812,6 +2861,53 @@ if [ "$MODE" = "audit" ]; then
       '{merged:$m, reviewed:$r, share:(if $m == 0 then null else (($r / $m * 100) | round) end)}')"
   else
     COVERAGE='{"merged":0,"reviewed":0,"share":null}'
+  fi
+
+  # --- our APPROVE overruled (docs/audit.md task 24) -------------------------
+  # A person requested changes on the very commit this agent approved, or a PR
+  # merged this week reverts a PR it approved: the review let something
+  # through. One reviews call per PR approved this week (at most 30); the
+  # reverted PR is read from GitHub's own revert body ("Reverts <repo>#<n>").
+  APPROVED_WEEK="$(rr_week | jq -sc '[.[] | select(.verdict == "APPROVE" and (.sha // "") != "") | {pr, sha, ts}]' 2>/dev/null)"
+  [ -n "$APPROVED_WEEK" ] || APPROVED_WEEK='[]'
+  ov_cr='[]'; ov_read=0; ov_unread=""
+  for ap in $(printf '%s' "$APPROVED_WEEK" | jq -r '[.[].pr] | unique | .[:30] | .[]' 2>/dev/null); do
+    if ! ap_rv="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)"; then
+      ov_unread="$ov_unread #$ap"; continue
+    fi
+    ov_read=$((ov_read + 1))
+    ap_hit="$(printf '%s' "$ap_rv" | jq -c --argjson a "$APPROVED_WEEK" --argjson n "$ap" --arg bot "$BOT_LOGIN" '
+      [ $a[] | select(.pr == $n) ] as $mine
+      | [ .[]? | select(.state == "CHANGES_REQUESTED" and (.user.login // "") != $bot
+                        and (.user.type // "User") != "Bot")
+          | . as $r
+          | select(any($mine[]; . as $m | (($r.commit_id // "") | startswith($m.sha))
+                                         and (($r.submitted_at // "") >= $m.ts)))
+          | {pr: $n, by: .user.login, at: .submitted_at} ] | first // empty' 2>/dev/null)"
+    [ -n "$ap_hit" ] && ov_cr="$(printf '%s' "$ov_cr" | jq -c --argjson h "$ap_hit" '. + [$h]')"
+  done
+  approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
+    | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
+  OVERRULED="$(printf '%s' "$MERGED_WEEK" | jq -c --argjson ever "${approved_ever:-[]}" --argjson cr "$ov_cr" \
+    --argjson aw "$APPROVED_WEEK" --argjson read "$ov_read" --arg unread "${ov_unread# }" '
+    { approved_prs: ([$aw[].pr] | unique | length), scanned: $read,
+      unread: ($unread | split(" ") | map(select(. != ""))),
+      changes_requested: $cr,
+      reverted: [ .[] | select(.title | test("^Revert\\b"))
+                  | . as $p | (.body | [scan("Reverts +[^ #]*#([0-9]+)")[0] | tonumber]) as $ns
+                  | $ns[] | select(IN($ever[])) | {pr: ., by_pr: $p.number} ] }' 2>/dev/null)"
+  [ -n "$OVERRULED" ] || OVERRULED='null'
+  if [ "$OVERRULED" = null ]; then check approve_overruled warn "overruled approvals could not be counted"
+  else
+    ov_n="$(printf '%s' "$OVERRULED" | jq '[.changes_requested[].pr, .reverted[].pr] | unique | length')"
+    ov_detail="$(printf '%s' "$OVERRULED" | jq -r '
+      ([ .changes_requested[] | "#\(.pr) changes requested by \(.by) on the approved commit" ]
+       + [ .reverted[] | "#\(.pr) reverted by #\(.by_pr)" ]) | join("; ")')"
+    ov_note="$(printf '%s' "$OVERRULED" | jq -r 'if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end')"
+    ov_total="$(printf '%s' "$OVERRULED" | jq '.approved_prs')"
+    if [ "$ov_n" -gt 0 ]; then check approve_overruled warn "$ov_n PR(s) a person overruled after my APPROVE: $ov_detail$ov_note"
+    elif [ -n "$ov_note" ]; then check approve_overruled warn "no overruled APPROVE among $ov_read of $ov_total approved PRs read$ov_note"
+    else check approve_overruled ok "no overruled APPROVE ($ov_total approved PRs this week, reverts checked)"; fi
   fi
 
   # PR size — from the ledger rows of the week, first reviews only, so a PR is
@@ -2859,14 +2955,14 @@ if [ "$MODE" = "audit" ]; then
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
     --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson disk "$DISK_JSON" \
-    --argjson ses "$SESSIONS_WEEK" \
+    --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
-      project:$proj, disk:$disk, sessions:$ses}')"
+      project:$proj, disk:$disk, sessions:$ses, overruled:$ovr}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

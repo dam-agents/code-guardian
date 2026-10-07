@@ -904,4 +904,94 @@ assert_jq '.stats.sessions | length == 2' 'only finished sessions (a tokens even
 assert_jq '.stats.sessions[] | select(.job == "review") | .min == 7 and .reviews == 1 and .output == 2000 and .model == "claude-opus-5"' 'the transcript wall time wins; posted PRs and tokens are kept'
 assert_jq '.stats.sessions[] | select(.job == "shepherd") | .min == 3' 'without secs the run spans its own events'
 
+# --- findings density and missed-earlier share (docs/audit.md task 28) ---------
+base_weeks_findings() { # <findings per week> <late per week> — 15 sized first reviews, 1500 lines
+  mkdir -p "$WORK/audit/weeks"
+  for w in 01 02 03 04; do
+    jq -n --arg w "2020-W$w" --argjson f "$1" --argjson l "$2" \
+      '{ts:"2020-01-01T00:00:00Z", week:$w, source:"audit", definition_version:"9.1.0",
+        stats:{reviews:{total:15, first:15, re_review:0, approve:5, comment:10, request_changes:0, defs:["9.1.0"]},
+               findings:{new:$f, late:$l, density:{reviews:15, findings:$f, lines:1500}}},
+        checks:{ok:1, warn:0, fail:0}, extras:{}}' > "$WORK/audit/weeks/2020W$w.json"
+  done
+}
+sized_ledger() { # <reviews> <new findings each> <late findings each> — 100 lines per PR
+  local i=0
+  while [ "$i" -lt "$1" ]; do
+    jq -nc --argjson pr "$((200 + i))" --arg ts "$(iso_ago $((3600 + i * 60)))" \
+      --argjson nf "$2" --argjson nl "$3" \
+      '{src:"ledger", pr:$pr, ts:$ts, sha:"abc1234", kind:"first", verdict:"COMMENT", def:"9.9.0",
+        size:{files:2, additions:90, deletions:10}, bullets:{fixed:0, still:0},
+        findings:([range($nf) | {status:"new", severity:"warning"}] + [range($nl) | {status:"new", severity:"warning", late:true}])}' \
+      >> "$WORK/REVIEW-LEDGER.jsonl"
+    i=$((i + 1))
+  done
+}
+
+new_case audit_findings_density_drop
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks_findings 45 2
+sized_ledger 10 0 0
+jq -nc --arg ts "$(iso_ago 3000)" '{src:"ledger", pr:299, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE",
+  size:{files:1, additions:5000, deletions:0}, bullets:{fixed:0, still:0}, findings:[{status:"new", severity:"warning"}]}' \
+  >> "$WORK/REVIEW-LEDGER.jsonl"
+run_preflight audit
+assert_jq '.stats.findings.density == {reviews: 11, findings: 1, lines: 2000}' 'sized first reviews counted, one PR capped at 1000 lines'
+assert_jq '.checks[] | select(.id == "findings_shift") | .status == "warn" and (.detail | test("0.05 findings per 100 changed lines this week \\(11 first reviews, 2000 lines\\) vs 3 in 2020-W01…2020-W04"))' \
+  'findings per changed line far under the baseline warn'
+
+new_case audit_findings_density_steady
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks_findings 45 2
+sized_ledger 10 3 0
+run_preflight audit
+assert_jq '.checks[] | select(.id == "findings_shift") | .status == "ok" and (.detail | test("no significant shift"))' 'the same density passes'
+assert_jq '.checks[] | select(.id == "late_shift") | .status == "ok" and (.detail | test("missed earlier: 0 of 30 raised findings"))' 'no missed finding is no rise'
+
+new_case audit_late_rise
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks_findings 45 2
+sized_ledger 10 2 1
+run_preflight audit
+assert_jq '.stats.findings.late == 10 and .stats.findings.new == 30' 'late findings counted among the raised ones'
+assert_jq '.checks[] | select(.id == "late_shift") | .status == "warn" and (.detail | test("missed earlier: 10 of 30 raised findings \\(33%\\) this week vs 8 of 180 \\(4%\\)"))' \
+  'a missed-earlier share far over the baseline warns'
+
+# --- an APPROVE a person overruled (docs/audit.md task 24) ---------------------
+new_case audit_approve_overruled
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+jq -nc --arg ts "$(iso_ago 80000)" '{src:"ledger", pr:8, ts:$ts, sha:"def5678", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+jq -nc --arg ts "$(iso_ago 70000)" '{src:"ledger", pr:9, ts:$ts, sha:"9999999", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+jq -n --arg at "$(iso_ago 3600)" --arg early "$(iso_ago 90000)" '[
+  {state:"CHANGES_REQUESTED", user:{login:"carol", type:"User"}, commit_id:"0000000aaaa", submitted_at:$at},
+  {state:"CHANGES_REQUESTED", user:{login:"bob", type:"User"}, commit_id:"abc1234ffff", submitted_at:$early},
+  {state:"CHANGES_REQUESTED", user:{login:"alice", type:"User"}, commit_id:"abc1234ffff", submitted_at:$at}]' \
+  | fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100'
+jq -n --arg at "$(iso_ago 3600)" '[{state:"CHANGES_REQUESTED", user:{login:"lint[bot]", type:"Bot"}, commit_id:"def5678ffff", submitted_at:$at}]' \
+  | fx 'api repos/acme/widgets/pulls/8/reviews?per_page=100'
+jq -n --arg m "$(iso_ago 7200)" '[
+  {number:20, title:"Revert \"Add cache\"", body:"Reverts acme/widgets#9", merged_at:$m},
+  {number:21, title:"Revert \"Old thing\"", body:"Reverts acme/widgets#3", merged_at:$m},
+  {number:22, title:"Fix", body:"Reverts nothing", merged_at:$m}]' \
+  | fx 'api repos/acme/widgets/pulls?state=closed&sort=updated&direction=desc&per_page=100'
+run_preflight audit
+assert_jq '.stats.overruled.changes_requested == [{pr: 7, by: "alice", at: .stats.overruled.changes_requested[0].at}]' \
+  'only a person, on the approved commit, after the APPROVE, overrules it'
+assert_jq '.stats.overruled.reverted == [{pr: 9, by_pr: 20}]' 'a merged revert of an approved PR counts; one of a PR never approved does not'
+assert_jq '.stats.overruled | .approved_prs == 3 and .scanned == 3' 'every approved PR of the week is read'
+assert_jq '.checks[] | select(.id == "approve_overruled") | .status == "warn" and (.detail | test("#7 changes requested by alice on the approved commit; #9 reverted by #20"))' \
+  'each overruled APPROVE is named'
+
+new_case audit_approve_kept
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "approve_overruled") | .status == "ok" and (.detail | test("1 approved PRs"))' 'an APPROVE nobody overruled passes'
+
 finish

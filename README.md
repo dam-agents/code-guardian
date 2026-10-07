@@ -77,8 +77,9 @@ quick check.
 enabled (the default).
 `preflight.sh audit` computes 7-day statistics and deterministic health checks
 (auth and rate limit, missed heartbeats, error log lines, state consistency
-against the GitHub markers, stale locks, disk space per volume, a verdict
-shift against the recorded weeks, skill freshness, roster sanity, 👍/👎
+against the GitHub markers, stale locks, disk space per volume, shifts of
+verdicts, findings density and missed findings against the recorded weeks,
+approvals a person overruled, skill freshness, roster sanity, 👍/👎
 reactions). The agent adds the judgment checks —
 schedules, memory-rule compliance, nudge integrity, lessons from 👎-flagged
 findings — and sends a traffic-light report to Slack when enabled, and to the
