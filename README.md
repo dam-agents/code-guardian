@@ -378,9 +378,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   over REST, and `--verify` checks the work against it before the push; the
   next review round stays the caller's to start.
   [`pr-open`](.agents/skills/pr-open/SKILL.md) is its first-push counterpart:
-  it self-reviews the branch, declares the scope in the PR body and records
-  the person's decisions in a hidden `author-decisions` block, which the
-  reviewer reads.
+  it self-reviews the branch, declares the scope in the PR body, gives a human
+  reviewer a guide to the decisions that matter, and records the person's
+  decisions in a hidden `author-decisions` block, which the reviewer reads.
 - [`docs/`](docs/) — the procedures, read on demand:
   [`review.md`](docs/review.md), [`review-rereview.md`](docs/review-rereview.md),
   [`review-urgent.md`](docs/review-urgent.md),
