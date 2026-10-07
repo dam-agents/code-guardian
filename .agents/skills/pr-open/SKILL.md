@@ -3,8 +3,10 @@ name: pr-open
 description: >
   Get a pull request ready for an automated code review before its first
   round: self-review the branch the way the reviewer will, run the
-  repository's own checks, and write a body that declares the scope, links the
-  issue and records — in a hidden author-decisions block — the decisions the
+  repository's own checks, and write a short body in Simplified Technical
+  English (ASD-STE100) that declares the scope, links the issue, gives a human
+  reviewer a plain-language guide to the decisions that matter and where to
+  look, and records — in a hidden author-decisions block — the decisions the
   person made while the work was built, so the reviewer does not raise them as
   findings. Repo-agnostic and REST-only. Use it whenever an agent or a person
   opens a pull request, pushes a branch for review for the first time, or
@@ -29,7 +31,9 @@ here.
   unless the caller names another), and the **repo slug** — derived from the
   checkout when the caller does not give them.
 - The conversation that built the branch: the request, the questions put to
-  the person and their answers.
+  the person and their answers. Where the harness gives the caller a search
+  over their own earlier sessions, the sessions that developed this branch
+  count too — find them by the branch name.
 - `gh` authenticated for the repository, plus `jq`. Use plain REST
   (`gh api`) everywhere — some deployments' auth proxies rewrite only REST
   paths, so GraphQL-backed `gh` subcommands can 401.
@@ -90,11 +94,19 @@ you changed — the ones it already defines, not commands invented here.
 
 ## 3. Write the body
 
-Fill the repository's template when it has one; otherwise use these parts, in
-the language the repository's pull requests use:
+Fill the repository's template when it has one; otherwise use these parts.
+Write the body in English, in ASD-STE100 (Simplified Technical English):
+
+- One topic per sentence, at most 20 words. Split a longer sentence.
+- Active voice, simple tenses, one term per concept, no idioms.
+- Short: a reader gets the whole change in two minutes. A bullet is better
+  than a paragraph. Keep only what the reader cannot see in the diff title.
+
+The parts:
 
 - **What and why** — two to four sentences: the problem, and what the change
   does about it.
+- **Reviewer guide** — see **Reviewer guide** below.
 - **Scope** — every behavior, surface and file group the diff changes, the
   side changes included (a doc, a config key, a migration). The reviewer
   reads anything the body does not declare as undeclared scope.
@@ -104,6 +116,26 @@ the language the repository's pull requests use:
 - The `author-decisions` block (**The author-decisions block**).
 
 Every claim in the body is true of this diff, not of a later one.
+
+### Reviewer guide
+
+A section for a person who reads the body and not the code. After it, they
+know what the pull request decides and where to look. Name concepts,
+behaviors and components, not lines or symbols. Write at most fifteen lines.
+For a change with no decision in it (a typo, a version bump), write one line
+that says so.
+
+- **What changes in substance** — each architectural decision, one bullet:
+  what the pull request decided, the alternative it did not take, and what
+  the decision changes for the rest of the system — a contract, a data
+  format, a behavior users see, the way it is run.
+- **Where to look closely** — two to four places where a mistake costs most
+  or the work rests on an assumption: a migration, a concurrency path, a
+  security boundary, a behavior change no test covers. Say what could go
+  wrong there.
+- **Who decided.** A decision the person made or confirmed also has its
+  `author-decisions` entry. A decision you made alone appears only here,
+  marked `(open)`, so the reviewer judges it.
 
 ## 4. Push and open
 
@@ -135,13 +167,18 @@ summary: <two or three sentences: what the person asked for, and how the
 ```
 
 - **Only the person's decisions.** An entry is a choice the person stated or
-  confirmed in the conversation: an answer to a question you put to them, a
+  confirmed in the conversation or in the sessions that built the branch: an answer to a question you put to them, a
   finding they deferred, a trade-off they picked, an option they rejected. A
   choice you made alone and never put to them is not an entry. Write the
   reason in their terms, and never more than they said.
 - **The decisions that matter most**, at most ten: the ones a reviewer could
   read as a defect — a behavior left out on purpose, a known limit, a scope
   cut, a rejected alternative. A routine step needs no entry.
+- **Precise enough to match.** The reviewer applies an entry only to a
+  finding inside its `scope` that its `why` covers. `scope` names the path
+  and the behavior (`src/sync/ — no retry on a 409`), never only a theme
+  (`error handling`); `why` names the risk the person accepted, not only
+  their preference.
 - **One block, kept current.** Read the block that is there, keep its entries,
   add the new ones, and replace an entry the person reversed — never a second
   block. Write it in English, with no secret, no personal data and nothing
@@ -154,7 +191,8 @@ summary: <two or three sentences: what the person asked for, and how the
 - The range passed the self-review, and the repository's own build and test
   commands pass.
 - The body declares every change in the diff, links the issue with the right
-  keyword, and says what was tested.
+  keyword, says what was tested, and its reviewer guide names every
+  architectural decision, with the ones you made alone marked `(open)`.
 - The `author-decisions` block holds the person's decisions that a reviewer
   could read as a defect.
 - The branch is pushed; the pull request is open, or the caller holds the
