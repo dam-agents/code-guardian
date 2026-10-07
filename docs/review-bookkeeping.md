@@ -133,30 +133,41 @@ usage between its `locked` and `done` steps, subagents included, and the shape
 of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
 ([logging.md](logging.md) → **Harness adapters**). Preflight judges every
 event newer than `work/.review-anomaly-seen` once (first contact: the last
-24 h), under a `mkdir` claim. A review that breaks any rule is an entry:
+24 h), under a `mkdir` claim. Each rule's limit is **max(floor, factor ×
+median)** — the repo sets its own norm, the floor stops a count from alerting
+on noise. A review at or over any limit is an entry:
 
-| Rule | Field | Breaks when |
+| Rule | Field | Floor |
 | --- | --- | --- |
-| `cost` | tokens priced by `## Benchmark model prices` ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; without a row weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read / cache write), `unit: weighted_tokens` | above factor × median |
-| `time` | `secs` | above factor × median |
-| `context` | `peak_ctx` — the largest single API call's context | above factor × median |
-| `repeats` | the most repeated identical tool call | 8 or more |
-| `failures` | `tool_failure` events in the window | 5 or more |
-| `output` | `max_out` — the largest tool result, in characters | 200 000 or more |
+| `cost` | tokens priced by `## Benchmark model prices` ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; without a row weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read / cache write), `unit: weighted_tokens` | none |
+| `time` | `secs` | none |
+| `context` | `peak_ctx` — the largest single API call's context | none |
+| `repeats` | the most repeated identical tool call | 8 |
+| `failures` | `tool_failure` events in the window | 5 |
+| `output` | `max_out` — the largest tool result, in characters | 200 000 |
 
-The factor is `review_anomaly_factor` (missing = `4`; `0`/`off` disables the
-whole alert). The median is the same model's last 30 reviews before this one;
-a median rule needs 10 of them, the absolute rules none. The worklist carries
-`review_anomaly: {factor, reviews: [{pr, sha, ts, model, reasons: [{rule,
-value, median, ratio} | {rule, value, limit}], unit, cost, samples, secs, msgs,
-subagents, input, output, cache_read, cache_creation, peak_ctx, repeats,
-repeat_tool, max_out, failures, kind, size}]}`; `kind` and `size` come from the
-review ledger, `null` when it has no row.
+- **Factor** — `review_anomaly_factor` (missing = `4`; `0`/`off` disables the
+  whole alert).
+- **Median** — the same model's last 30 reviews before this one. It counts
+  from 10 reviews on; before that a new repo is judged on the floors alone,
+  and `cost`, `time` and `context` wait.
+- **Baseline** — `work/REVIEW-USAGE.jsonl` keeps the last 30 judged reviews
+  per model, so the median outlives the 14-day event retention and a quiet
+  repo still reaches 10. First contact seeds it from every retained event.
+- **Entry** — `review_anomaly: {factor, reviews: [{pr, sha, ts, model,
+  reasons: [{rule, value, limit, median, ratio}], unit, cost, samples, secs,
+  msgs, subagents, input, output, cache_read, cache_creation, peak_ctx,
+  repeats, repeat_tool, max_out, failures, kind, size}]}`; `median` and
+  `ratio` are `null` while the floor alone sets the limit; `kind` and `size`
+  come from the review ledger, `null` when it has no row.
+
+A chronic problem enters the median and stops alerting: the weekly audit's
+review-shape line shows that drift ([audit.md](audit.md) task 37).
 
 Deliver it **once, after the run's review work**, like the stall alert:
 
-1. Chat UI: per review the PR, each broken rule with its value and median or
-   limit, and the likely cause — `repeats` or many `msgs` on a small diff is a
+1. Chat UI: per review the PR, each broken rule with its value, limit and
+   median, and the likely cause — `repeats` or many `msgs` on a small diff is a
    loop, `context` or high `cache_read` per message is a large context or
    memory, `output` is a huge file or API dump read whole, `failures` is a
    broken tool, many `subagents` is fan-out, a large `size` or a `first`

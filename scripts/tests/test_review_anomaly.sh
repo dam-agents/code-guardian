@@ -75,6 +75,37 @@ run_preflight review
 assert_rules '["repeats","failures","output"]' 'repeats, failures and output at their limits, no baseline needed'
 assert_jq '.review_anomaly.reviews[0].reasons[0].limit == 8' 'an absolute reason carries its limit'
 
+# --- a repo whose norm is higher raises the limit above the floor -------------
+anomaly_case anomaly_adaptive
+for i in $(seq 1 12); do cost_event $(( 7200 + i * 600 )) $(( 100 + i )) 1000 '' repeats=6 failures=2; done
+cost_event 600 42 1000 '' repeats=20 failures=7
+run_preflight review
+assert_jq '.review_anomaly == null' 'repeats 20 and failures 7 stay under 4× a median of 6 and 2'
+cost_event 300 43 1000 '' repeats=24
+run_preflight review
+assert_jq '.review_anomaly.reviews[0].reasons == [{rule:"repeats", value:24, limit:24, median:6, ratio:4}]' \
+  'the limit is factor × the repo median once it exceeds the floor'
+
+# --- the baseline outlives the event retention ----------------------------------
+anomaly_case anomaly_durable_baseline
+baseline 12 1000
+cost_event 600 41 1000
+run_preflight review
+if [ "$(wc -l < "$WORK/REVIEW-USAGE.jsonl" | tr -d ' ')" = 13 ]; then printf 'ok   %s: the baseline file holds every review\n' "$CASE"
+else printf 'FAIL %s: baseline file has %s rows\n' "$CASE" "$(wc -l < "$WORK/REVIEW-USAGE.jsonl")"; FAILED=1; fi
+rm -f "$WORK"/logs/events-*.jsonl
+cost_event 60 42 5000
+run_preflight review
+assert_rules '["cost"]' 'with the event log gone, the stored baseline still judges a review'
+
+# --- the baseline keeps the last 30 reviews per model -----------------------------
+anomaly_case anomaly_baseline_cap
+baseline 35 1000
+for i in 1 2 3; do cost_event $(( 7300 + i * 600 )) $(( 300 + i )) 1000 claude-sonnet-5-5; done
+run_preflight review
+if [ "$(wc -l < "$WORK/REVIEW-USAGE.jsonl" | tr -d ' ')" = 33 ]; then printf 'ok   %s: 30 per model are kept\n' "$CASE"
+else printf 'FAIL %s: baseline file has %s rows\n' "$CASE" "$(wc -l < "$WORK/REVIEW-USAGE.jsonl")"; FAILED=1; fi
+
 # --- too few baseline reviews → no median rule -----------------------------------
 anomaly_case anomaly_few_samples
 baseline 9 1000
@@ -84,7 +115,7 @@ assert_jq '.review_anomaly == null' 'fewer than 10 baseline reviews never apply 
 
 # --- the baseline is the same model's ------------------------------------------
 anomaly_case anomaly_per_model
-baseline 12 1000 claude-sonnet-5-5
+for i in $(seq 1 12); do cost_event $(( 7300 + i * 600 )) $(( 300 + i )) 1000 claude-sonnet-5-5; done
 baseline 12 8000
 cost_event 600 42 9000
 run_preflight review
@@ -137,5 +168,19 @@ mkdir "$WORK/.review-anomaly.lock"
 cost_event 600 42 5000 '' repeats=50
 run_preflight review
 assert_jq '.review_anomaly == null' 'a live concurrent claim suppresses this run'
+
+# --- the weekly audit reports the review shape, this week and the one before ---
+anomaly_case anomaly_audit_shape
+for i in 1 2 3; do cost_event $(( 8 * 86400 + i * 600 )) $(( 200 + i )) 1000 '' repeats=2 peak_ctx=40000; done
+for i in 1 2 3 4 5; do cost_event $(( 7200 + i * 600 )) $(( 100 + i )) 1000 '' repeats=$(( 2 + i )) peak_ctx=60000; done
+jq -nc --arg ts "$(iso_ago 3600)" '{ts:$ts, run:"r", job:"review", level:"warn", event:"review_anomaly",
+  msg:"PR #101 (repeats), PR #102 (cost+time)"}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+run_preflight review
+run_preflight audit
+assert_jq '.stats.review_shape.week | .reviews == 5 and .median.repeats == 5 and .median.peak_ctx == 60000' 'this week: count and medians'
+assert_jq '.stats.review_shape.previous | .reviews == 3 and .median.repeats == 2 and .median.peak_ctx == 40000' 'the week before, from the retained log'
+assert_jq '.stats.review_shape.anomalies == 2' 'the week counts the reviews its anomaly alerts named'
+assert_jq '.stats.review_shape.baseline == {"claude-opus-5-5": 8} and .stats.review_shape.baseline_min == 10' \
+  'the stored baseline per model, seeded from every retained event, against the minimum'
 
 finish
