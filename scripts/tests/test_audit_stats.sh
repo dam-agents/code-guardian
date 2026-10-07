@@ -779,4 +779,129 @@ run_preflight audit
 assert_jq '.stats.artifacts == null' 'the feature off is unmeasured, never a zero'
 assert_jq '[.checks[] | select(.id == "artifacts")] | length == 0' 'no check for a feature that is off'
 
+# --- disk: every volume a run writes to (docs/audit.md task 4) -----------------
+# work/ and the review clones share one filesystem here, so they report once;
+# the backup's tmpfs is too small to re-clone work/ and warns on its own.
+TMP_FOR_TEST="${TMPDIR:-/tmp}"
+disk_fx() { # <path> <used%> <avail KiB> <mount> [inode%]
+  printf 'Pk\t%s\t/dev/x 1000000 1 %s %s%% %s\n' "$1" "$3" "$2" "$4" >> "$CG_TEST_DF"
+  [ -n "${5:-}" ] && printf 'Pi\t%s\t/dev/x 1000 1 1 %s%% %s\n' "$1" "$5" "$4" >> "$CG_TEST_DF"
+  return 0
+}
+new_case audit_disk_volumes
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+export CG_TEST_DF="$SANDBOX/df.tsv" WORK_BACKUP_LOCAL="$SANDBOX/shm/cg-work-backup"
+mkdir -p "$SANDBOX/shm"; : > "$CG_TEST_DF"
+disk_fx "$WORK" 62 4000000 /workspace 3
+disk_fx "$TMP_FOR_TEST" 62 4000000 /workspace 3
+disk_fx "$SANDBOX/shm" 1 1 /dev/shm
+run_preflight audit
+assert_jq '.stats.disk.volumes | map(.role) == ["work","backup"]' 'one line per filesystem: the clones share the work volume'
+assert_jq '.stats.disk.volumes[0] | .used_pct == 62 and .inode_pct == 3 and .avail_kb == 4000000' 'space, free and inode use recorded'
+assert_jq '.stats.disk.work_kb > 0' 'the size of work/ is recorded'
+assert_jq '.checks[] | select(.id == "disk") | .status == "warn" and (.detail | test("backup clone may not fit"))' 'a tmpfs under twice work/ warns'
+
+new_case audit_disk_full
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+export CG_TEST_DF="$SANDBOX/df.tsv" WORK_BACKUP_LOCAL="$SANDBOX/shm/cg-work-backup"
+mkdir -p "$SANDBOX/shm"; : > "$CG_TEST_DF"
+disk_fx "$WORK" 96 40000 /workspace
+disk_fx "$TMP_FOR_TEST" 70 4000000 /tmpvol 90
+run_preflight audit
+assert_jq '.checks[] | select(.id == "disk") | .status == "fail" and (.detail | test("work /workspace 96% used")) and (.detail | test("tmp /tmpvol 70% used, 3.8G free, inodes 90%"))' \
+  'a volume past 95 % fails, inode use is judged too, and the unread backup volume is named'
+assert_jq '.checks[] | select(.id == "disk") | .detail | test("backup unmeasured")' 'a volume df cannot read is unmeasured'
+
+new_case audit_disk_unreported
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+export CG_TEST_DF="$SANDBOX/df.tsv"; : > "$CG_TEST_DF"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "disk") | .status == "ok" and (.detail | test("not reported on this platform"))' 'no readable volume is unmeasured, never a fault'
+assert_jq '.stats.disk.volumes == []' 'an unmeasured disk records no volume'
+unset CG_TEST_DF WORK_BACKUP_LOCAL
+
+# --- verdict shift against the recorded weeks (docs/audit.md task 24) ----------
+# The baseline is read from work/audit/weeks/, never recounted; the week is the
+# ledger. Labels from 2020 sort before any current ISO week.
+base_weeks() { # <approve of 15, per week> [<first_approve of 10>]
+  mkdir -p "$WORK/audit/weeks"
+  for w in 01 02 03 04; do
+    jq -n --arg w "2020-W$w" --argjson a "$1" --argjson fa "${2:-null}" \
+      '{ts:"2020-01-01T00:00:00Z", week:$w, source:"audit", definition_version:"9.1.0",
+        stats:{reviews:({total:15, first:10, re_review:5, approve:$a, comment:(15 - $a), request_changes:0, defs:["9.1.0"]}
+                        + (if $fa == null then {} else {first_approve:$fa, first_request_changes:0} end))},
+        checks:{ok:1, warn:0, fail:0}, extras:{}}' > "$WORK/audit/weeks/2020W$w.json"
+  done
+}
+week_ledger() { # <approve> <comment> — first reviews, written by 9.9.0
+  local i=0
+  while [ "$i" -lt "$(( $1 + $2 ))" ]; do
+    v=APPROVE; [ "$i" -ge "$1" ] && v=COMMENT
+    jq -nc --argjson pr "$((100 + i))" --arg ts "$(iso_ago $((3600 + i * 60)))" --arg v "$v" \
+      '{src:"ledger", pr:$pr, ts:$ts, sha:"abc1234", kind:"first", verdict:$v, def:"9.9.0",
+        bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+    i=$((i + 1))
+  done
+}
+
+new_case audit_verdict_shift
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks 6 3
+week_ledger 11 1
+run_preflight audit
+assert_jq '.stats.reviews | .first_approve == 11 and .first_request_changes == 0 and .defs == ["9.9.0"]' 'the week counts first-review verdicts and the definitions behind them'
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "warn"' 'APPROVE 92 % against 40 % warns'
+assert_jq '.checks[] | select(.id == "verdict_shift") | .detail | test("all reviews: APPROVE 92% of 12 this week vs 40% of 60 in 2020-W01…2020-W04")' 'the detail names both shares and the baseline weeks'
+assert_jq '.checks[] | select(.id == "verdict_shift") | .detail | test("first reviews: APPROVE 92% of 12 this week vs 30% of 40")' 'first reviews are compared on their own'
+assert_jq '.checks[] | select(.id == "verdict_shift") | .detail | test("definition this week: 9.9.0, before: 9.1.0")' 'the detail names the definitions on both sides'
+
+new_case audit_verdict_steady
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks 6
+week_ledger 5 7
+run_preflight audit
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "ok" and (.detail | test("no significant shift"))' 'a share inside the noise passes'
+assert_jq '.checks[] | select(.id == "verdict_shift") | .detail | test("first reviews") | not' 'weeks without first-review counts are no first-review baseline'
+
+new_case audit_verdict_few
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+base_weeks 6
+week_ledger 3 0
+run_preflight audit
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "ok" and (.detail | test("too few reviews"))' 'a quiet week is not compared'
+
+new_case audit_verdict_no_history
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+week_ledger 11 1
+run_preflight audit
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "ok" and (.detail | test("no earlier week on record"))' 'without trend history the check waits for it'
+
+# --- session records for the trend's run figures (docs/trends.md → Runs) -------
+new_case audit_sessions
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+sev() { # <run> <job> <event> <msg> <ago>
+  jq -nc --arg r "$1" --arg j "$2" --arg e "$3" --arg m "$4" --arg t "$(iso_ago "$5")" \
+    '{ts:$t, run:$r, job:$j, level:"info", event:$e, msg:$m}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+sev s1 review review_step "PR #4 abc1234 locked" 7200
+sev s1 review review_step "PR #4 abc1234 posted APPROVE" 7000
+sev s1 session tokens "input=10 output=2000 cache_read=500 cache_creation=30 msgs=20 model=claude-opus-5 subagents=0 secs=420" 6900
+sev s2 shepherd preflight "sweep" 3600
+sev s2 shepherd tokens "input=1 output=100 cache_read=5 cache_creation=7 msgs=2 model=claude-opus-5 subagents=0" 3420
+sev s3 review review_step "PR #5 locked" 600
+run_preflight audit
+assert_jq '.stats.sessions | length == 2' 'only finished sessions (a tokens event) are recorded'
+assert_jq '.stats.sessions[] | select(.job == "review") | .min == 7 and .reviews == 1 and .output == 2000 and .model == "claude-opus-5"' 'the transcript wall time wins; posted PRs and tokens are kept'
+assert_jq '.stats.sessions[] | select(.job == "shepherd") | .min == 3' 'without secs the run spans its own events'
+
 finish

@@ -50,7 +50,9 @@ skipped task is an incomplete audit — a task that is impossible this week
      the audit's *only* definition-repo write; the fix itself takes the
      operator ([self-modification.md](self-modification.md)).
 4. Everything else the script checks is already in `checks[]` — connectivity,
-   scopes, CLI deps, state consistency, logs, hygiene, skills, roster,
+   scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
+   of every volume a run writes to (work/, the review clones, the backup's
+   tmpfs), skills, roster,
    definition currency, benchmark fixture and results integrity, the memory
    budget, artifact outcome logging, the profile's currency, the definition
    repo's open-issue backlog
@@ -177,9 +179,19 @@ measurement.
     the `skills` median mean the review spent its time on bookkeeping, not on
     the code — record it per [preferences.md](preferences.md) and raise it with
     the operator.
-24. **Verdict distribution** — ~100 % APPROVE across a busy week is possible
-    rubber-stamping; ~100 % REQUEST_CHANGES is possible over-strictness. Either
-    extreme → flag it with examples.
+24. **Verdict distribution** — the `verdict_shift` check compares the week's
+    APPROVE and REQUEST_CHANGES shares, all reviews and first reviews apart,
+    with the four weeks before it on record in the trend history
+    ([trends.md](trends.md)). It warns on a shift of 20 pp or more that a
+    two-proportion z-test (|z| ≥ 2) does not explain as noise, and names the
+    definition versions on both sides. On a warn, read up to 3 reviews of the
+    week on the moved side and decide whether the review changed (APPROVE over
+    open findings, fewer findings at equal PR size) or the PRs did (size, the
+    first/re-review mix); name the likely cause — a definition version, the
+    production model (task 27), a rule this week promoted — in *Action
+    needed*. Without a warn, ~100 % APPROVE across a busy week is still
+    possible rubber-stamping and ~100 % REQUEST_CHANGES over-strictness: flag
+    either with examples.
 25. **`awaiting_label` backlog** — `stats.awaiting_label`: how many rows wait
     for a trigger and how old the oldest is. A large or old backlog means the
     team is not requesting re-reviews; suggest it in the report as a process

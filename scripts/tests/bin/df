@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fake `df` for scripts/tests — with CG_TEST_DF set, answers from that file,
+# one line per answer: "<flag>\t<path>\t<df data line>" (flag Pk or Pi). A path
+# with no line fails like an unreadable volume. Without it, the real df runs.
+if [ -z "${CG_TEST_DF:-}" ]; then
+  for d in /bin /usr/bin; do [ -x "$d/df" ] && exec "$d/df" "$@"; done
+  exit 127
+fi
+line="$(grep -F "$(printf '%s\t%s\t' "${1#-}" "${2:-}")" "$CG_TEST_DF" 2>/dev/null | head -1 | cut -f3-)"
+[ -n "$line" ] || exit 1
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n%s\n' "$line"

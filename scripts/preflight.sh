@@ -2210,8 +2210,52 @@ if [ "$MODE" = "audit" ]; then
   [ "$tmp_live" -gt 0 ] && sw_note="$sw_note ($tmp_live of a live review)"
   [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left dead /tmp/review-pr-* entries the sweep could not remove$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
 
-  disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
-  if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
+  # --- disk: every volume a run writes to ---------------------------------
+  # work/ (the home volume), the review clones under $TMP_ROOT and the backup's
+  # tmpfs clone; one line per filesystem. A volume df cannot read is reported
+  # as unmeasured, never as full or empty.
+  hsize() { # <KiB> -> 1.5G / 512M / 64K
+    if [ "$1" -ge 1048576 ]; then printf '%d.%dG' $(($1/1048576)) $(( ($1%1048576)*10/1048576 ))
+    elif [ "$1" -ge 1024 ]; then printf '%dM' $(($1/1024)); else printf '%dK' "$1"; fi
+  }
+  DISK_JSON='[]'; disk_status=ok; disk_detail=""; disk_seen=" "
+  work_kb="$(du -sk "$WORK" 2>/dev/null | cut -f1)"; case "$work_kb" in (''|*[!0-9]*) work_kb="";; esac
+  backup_dir="$(dirname "${WORK_BACKUP_LOCAL:-/dev/shm/cg-work-backup}")"
+  for spec in "work:$WORK" "tmp:$TMP_ROOT" "backup:$backup_dir"; do
+    role="${spec%%:*}"; dpath="${spec#*:}"
+    [ -d "$dpath" ] || continue
+    # -Pk: device 1K-blocks used avail capacity mount, the same on GNU and BSD
+    d_f=( $(df -Pk "$dpath" 2>/dev/null | tail -n +2 | tail -1) )
+    if [ "${#d_f[@]}" -lt 6 ] || ! [ "${d_f[1]}" -gt 0 ] 2>/dev/null; then
+      disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue
+    fi
+    d_total="${d_f[1]}"; d_avail="${d_f[3]}"; d_pct="${d_f[4]%\%}"; d_mnt="${d_f[*]:5}"
+    case "$disk_seen" in (*" $d_mnt "*) continue;; esac   # one filesystem, one line
+    disk_seen="$disk_seen$d_mnt "
+    # inode use is the last percent field of -Pi on both GNU and BSD; a
+    # filesystem without fixed inodes prints "-"
+    d_ipct="$(df -Pi "$dpath" 2>/dev/null | tail -n +2 | tail -1 | tr -s ' ' '\n' | grep -E '^[0-9]+%$' | tail -1 | tr -d '%')"
+    d_st=ok
+    if [ "$d_pct" -ge 95 ] || [ "${d_ipct:-0}" -ge 95 ]; then d_st=fail
+    elif [ "$d_pct" -ge 85 ] || [ "${d_ipct:-0}" -ge 85 ]; then d_st=warn; fi
+    d_line="$role $d_mnt ${d_pct}% used, $(hsize "$d_avail") free"
+    [ -n "$d_ipct" ] && d_line="$d_line, inodes ${d_ipct}%"
+    # the backup re-clones work/ into tmpfs on every persist (docs/persistence.md)
+    if [ "$role" = backup ] && [ -n "$work_kb" ] && [ "$d_avail" -lt $((work_kb * 2)) ]; then
+      [ "$d_st" = fail ] || d_st=warn
+      d_line="$d_line — under twice work/ ($(hsize "$work_kb")), the backup clone may not fit"
+    fi
+    case "$d_st" in (fail) disk_status=fail;; (warn) [ "$disk_status" = fail ] || disk_status=warn;; esac
+    disk_detail="${disk_detail:+$disk_detail · }$d_line"
+    DISK_JSON="$(printf '%s' "$DISK_JSON" | jq -c --arg r "$role" --arg m "$d_mnt" --argjson t "$d_total" \
+      --argjson a "$d_avail" --argjson p "$d_pct" --arg i "${d_ipct:-}" \
+      '. + [{role:$r, mount:$m, size_kb:$t, avail_kb:$a, used_pct:$p,
+             inode_pct:(if $i == "" then null else ($i | tonumber) end)}]')"
+  done
+  [ -n "$work_kb" ] && disk_detail="${disk_detail:+$disk_detail · }work/ holds $(hsize "$work_kb")"
+  if [ "$DISK_JSON" = '[]' ]; then check disk ok "disk usage not reported on this platform${disk_detail:+ ($disk_detail)}"
+  else check disk "$disk_status" "$disk_detail"; fi
+  DISK_JSON="$(jq -nc --argjson v "$DISK_JSON" --arg w "${work_kb:-}" '{volumes:$v, work_kb:(if $w == "" then null else ($w | tonumber) end)}')"
 
   while IFS=$'\t' read -r skill src; do
     remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
@@ -2340,6 +2384,30 @@ if [ "$MODE" = "audit" ]; then
     | sums + {by_model: (group_by(.m // "unknown")
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
+
+  # One record per finished session (a run with a `tokens` event), the facts
+  # the trend derives run length and run cost per day from (docs/trends.md →
+  # Runs). Kept raw so a price-table change reprices the history. `min` is the
+  # transcript's wall time (`secs=`), else the span of the run's own events;
+  # `job` is the run's most common job; `reviews` counts the PRs it posted.
+  SESSIONS_WEEK="$(week_events | jq -cs --arg s "$SINCE_ISO" "$STATS_JQ"'
+    [ .[] | select(.ts >= $s and (.run // "") != "") ] | group_by(.run)
+    | map( (map(select(.event == "tokens")) | last) as $t
+      | select($t != null)
+      | ($t.msg | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?( +subagents=[0-9]+)?( +secs=(?<sec>[0-9]+))?")?) as $k
+      | (if $k.sec != null then ($k.sec | tonumber)
+         else (($t.ts | epoch) - (map(.ts) | min | epoch)) end) as $secs
+      | { day: $t.ts[0:10],
+          job: (([ .[] | .job // empty | select(. != "session") ] | group_by(.) | max_by(length) | .[0]) // "session"),
+          min: ($secs / 60 * 10 | round / 10),
+          model: ($k.m // "unknown"),
+          input: ($k.i | tonumber), output: ($k.o | tonumber),
+          cache_read: ($k.cr | tonumber), cache_creation: ($k.cc | tonumber),
+          reviews: ([ .[] | select(.event == "review_step") | .msg
+                      | select(test("^PR #[0-9]+:? +([0-9a-f]{7,40} +)?posted"))
+                      | capture("^PR #(?<n>[0-9]+)").n ] | unique | length) } )
+    | sort_by(.day)' 2>/dev/null)"
+  [ -n "$SESSIONS_WEEK" ] || SESSIONS_WEEK='null'
 
   # Wake-ups — the preflight passes that found work, from the `heartbeat`
   # events emit(), survey_out() and bench_out() write: a gated fire that started
@@ -2527,9 +2595,54 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
     # the lib is what defines RR_AGG_ZERO, so this branch carries its own copy
-    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
     logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
   fi
+  # --- verdict shift (docs/audit.md task 24) ---------------------------------
+  # this week's verdict shares against the four recorded weeks before it. The
+  # baseline is read from the trend history (docs/trends.md), never recounted;
+  # a shift is a warn only when it is both large and unlikely to be noise
+  # (two-proportion z-test).
+  TREND_ROWS="$(TREND_CONFIG="$CONFIG" bash "$SCRIPT_DIR/audit-trend.sh" index "$WORK/audit" 2>/dev/null)"
+  printf '%s' "$TREND_ROWS" | jq -e 'type == "array"' >/dev/null 2>&1 || TREND_ROWS='[]'
+  shift_out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+    --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" '
+    def absv: if . < 0 then -. else . end;
+    def pc: (. * 100 | round | tostring) + "%";
+    def z($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
+      | ($p * (1 - $p) * (1 / $n1 + 1 / $n2)) as $v
+      | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
+    ($rows | map(select(.week < $wk)) | .[-4:]) as $base
+    | $ra.reviews as $c
+    | [ {pop: "all reviews", v: "APPROVE", x1: $c.approve, n1: $c.total,
+         b: [$base[] | {x: .approve, n: .reviews}]},
+        {pop: "all reviews", v: "REQUEST_CHANGES", x1: $c.request_changes, n1: $c.total,
+         b: [$base[] | {x: .request_changes, n: .reviews}]},
+        {pop: "first reviews", v: "APPROVE", x1: ($c.first_approve // 0), n1: $c.first,
+         b: [$base[] | select(.first_approve != null) | {x: .first_approve, n: .first}]},
+        {pop: "first reviews", v: "REQUEST_CHANGES", x1: ($c.first_request_changes // 0), n1: $c.first,
+         b: [$base[] | select(.first_request_changes != null) | {x: .first_request_changes, n: .first}]} ]
+    | map(. + {x2: ([.b[].x] | add // 0), n2: ([.b[].n] | add // 0)} | del(.b)) as $all
+    | [ $all[] | select(.n1 >= 6 and .n2 >= 12)
+        | . + {p1: (.x1 / .n1), p2: (.x2 / .n2), z: z(.x1; .n1; .x2; .n2)} ] as $cmp
+    | [ $cmp[] | select(((.p1 - .p2) | absv) >= 0.2 and (.z | absv) >= 2) ] as $hit
+    | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
+    | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
+    | (($c.defs // []) | join(", ")) as $dcur
+    | if ($base | length) == 0 then
+        "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history"
+      elif ($cmp | length) == 0 then
+        "ok\ttoo few reviews to compare: \($c.total) this week (\($c.first) first), \($all[0].n2) in \($span) — needs 6 and 12"
+      elif ($hit | length) > 0 then
+        "warn\t" + ([ $hit[] | "\(.pop): \(.v) \(.p1 | pc) of \(.n1) this week vs \(.p2 | pc) of \(.n2) in \($span) (z \(.z * 10 | round / 10))" ] | join("; "))
+        + " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)"
+      else
+        "ok\t" + ([ $cmp[] | select(.v == "APPROVE") | "\(.pop): APPROVE \(.p1 | pc) of \(.n1) vs \(.p2 | pc) of \(.n2)" ] | join("; "))
+        + " in \($span) — no significant shift"
+      end' 2>/dev/null)"
+  if [ -n "$shift_out" ]; then check verdict_shift "${shift_out%%$'\t'*}" "${shift_out#*$'\t'}"
+  else check verdict_shift warn "verdict shares could not be compared — trend history unreadable"; fi
+
   # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
   # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
   # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
@@ -2745,14 +2858,15 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" \
+    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson disk "$DISK_JSON" \
+    --argjson ses "$SESSIONS_WEEK" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
-      project:$proj}')"
+      project:$proj, disk:$disk, sessions:$ses}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

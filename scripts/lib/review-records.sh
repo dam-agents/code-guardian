@@ -6,6 +6,7 @@
 #   rr_posted <history file>             # true when it holds a posted review
 #
 # Record: {src, pr, ts, sha, kind, verdict, size:{files,additions,deletions} | null,
+#          def (the definition version that wrote it) | null,
 #          bullets:{fixed,still},
 #          suppressed:{overrides,context,decisions,total} | null,
 #          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
@@ -88,6 +89,7 @@ RR_MERGE_JQ='
   | { src: (.src // "ledger"), pr: .pr, ts: .ts, sha: (.sha // null),
       kind: (.kind // null), verdict: (.verdict // null),
       size: (if (.size | type) == "object" then .size else null end),
+      def: (if (.def | type) == "string" then .def else null end),
       bullets: { fixed: (.bullets.fixed? // 0), still: (.bullets.still? // 0) },
       suppressed: (if (.suppressed | type) == "object" then .suppressed else null end),
       ste: (if (.ste | type) == "object" then .ste else null end),
@@ -114,7 +116,10 @@ RR_AGG_JQ='
              prs: ([.[] | .pr] | unique | length),
              approve: ([.[] | select(.verdict == "APPROVE")] | length),
              comment: ([.[] | select(.verdict == "COMMENT")] | length),
-             request_changes: ([.[] | select(.verdict == "REQUEST_CHANGES")] | length) },
+             request_changes: ([.[] | select(.verdict == "REQUEST_CHANGES")] | length),
+             first_approve: ([.[] | select(.kind == "first" and .verdict == "APPROVE")] | length),
+             first_request_changes: ([.[] | select(.kind == "first" and .verdict == "REQUEST_CHANGES")] | length),
+             defs: ([.[] | .def | strings] | unique) },
   findings: ([.[] | .findings | select(type == "array")] as $r
     | ([$r[] | .[]]) as $e
     | { fixed: ([.[] | .bullets.fixed] | add // 0),
@@ -154,7 +159,7 @@ RR_AGG_JQ='
 
 # the zero row of RR_AGG_JQ — a week that measured nothing, and the fallback a
 # reader prints when the aggregation itself could not run
-RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
 
 # A posted review in a history file is a `## Review at` section or a
 # findings-json line. The file alone is none: the urgent alert, an artifact or a

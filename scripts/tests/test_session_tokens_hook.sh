@@ -41,6 +41,13 @@ expect_msg '^input=15 output=150 cache_read=3000 cache_creation=500 msgs=2 model
 if [ "$(missing_warns)" = 0 ]; then printf 'ok   %s: no Agent call, no subagents warn\n' "$CASE"
 else printf 'FAIL %s: subagents warn without an Agent call\n' "$CASE"; FAILED=1; fi
 
+# --- the transcript's wall time: first to last timestamp ------------------------
+setup tokens_wall_time
+{ usage_line m1 10 100 1000 500 | jq -c '. + {timestamp:"2026-10-06T09:00:00.250Z"}'
+  usage_line m2 5 50 2000 0 | jq -c '. + {timestamp:"2026-10-06T09:07:05.900Z"}'; } > "$TP"
+run_hook "$TP"
+expect_msg ' subagents=0 secs=425$' 'secs is the span of the transcript timestamps'
+
 # --- Agent calls, but no subagent transcript beside the session: a warn ---------
 setup tokens_subagents_missing
 { usage_line m1 10 100 1000 500; agent_call_line; agent_call_line; } > "$TP"

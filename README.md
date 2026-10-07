@@ -77,8 +77,9 @@ quick check.
 enabled (the default).
 `preflight.sh audit` computes 7-day statistics and deterministic health checks
 (auth and rate limit, missed heartbeats, error log lines, state consistency
-against the GitHub markers, stale locks, disk usage, skill
-freshness, roster sanity, 👍/👎 reactions). The agent adds the judgment checks —
+against the GitHub markers, stale locks, disk space per volume, a verdict
+shift against the recorded weeks, skill freshness, roster sanity, 👍/👎
+reactions). The agent adds the judgment checks —
 schedules, memory-rule compliance, nudge integrity, lessons from 👎-flagged
 findings — and sends a traffic-light report to Slack when enabled, and to the
 chat UI always ([`docs/audit.md`](docs/audit.md)).
@@ -91,9 +92,9 @@ the history accumulates in one artifact with a stable URL
 ([`docs/survey.md`](docs/survey.md)).
 
 **Weekly trends** — every audit also appends its measured week to
-`work/audit/` and republishes one accumulated artifact: volume, findings and
-their acceptance, latency, spend per week and per review, stalls and error
-counts, plus the repository's own health — how much of what merged was
+`work/audit/` and republishes one accumulated artifact: volume, verdict
+shares, findings and their acceptance, latency, run length and cost per day,
+spend per week and per review, stalls, error counts and disk use, plus the repository's own health — how much of what merged was
 reviewed, median PR size, how long a PR waits for its first **human** review,
 and which areas carry the findings — as a summary against the previous week
 and the 4-week average, inline charts and one row per week. The history is

@@ -216,13 +216,15 @@ together with the history section above:
 ```json
 {"src":"ledger","pr":42,"ts":"<ISO>","sha":"<short>","kind":"first|re-review",
  "verdict":"APPROVE|COMMENT|REQUEST_CHANGES","size":{"files":3,"additions":40,"deletions":5},
+ "def":"<definition VERSION>",
  "bullets":{"fixed":0,"still":0},
  "suppressed":{"overrides":0,"context":0,"decisions":0,"total":0},
  "ste":{"sentences":0,"avg_sentence_words":null,"sentences_over_20":0,"v":2},
  "findings":[{"status":"new","severity":"critical"}]}
 ```
 
-`suppressed` counts the audit note ([review.md](review.md) → **PR context**),
+`def` is the definition version that wrote the review, `suppressed` counts
+the audit note ([review.md](review.md) → **PR context**),
 `ste` measures the posted
 prose against the sentence bar, and `size` is the PR itself — a count GitHub
 had not finished computing is `null`, never `0` ([audit.md](audit.md) → task
