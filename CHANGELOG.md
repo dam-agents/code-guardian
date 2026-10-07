@@ -13,9 +13,10 @@ they are released history and stay as written.
 
 ## 8.11.0 — 2026-10-07
 
-**Upgrade:** Nothing required — the review cost alert is on at the default
-`cost_alert_factor` of 4 and judges reviews from the first one measured after
-the update; set `- cost_alert_factor: off` in `work/CONFIG.md` to opt out.
+**Upgrade:** Nothing required — the review anomaly alert is on at the default
+`review_anomaly_factor` of 4 and judges reviews from the first one measured
+after the update; set `- review_anomaly_factor: off` in `work/CONFIG.md` to
+opt out.
 
 ## 8.10.0 — 2026-10-07
 

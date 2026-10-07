@@ -201,7 +201,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold cost_alert_factor log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -261,7 +261,7 @@ EOF
     chk_enum benchmark_report 'dam|off' 'dam | off'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
-    chk_enum cost_alert_factor '[0-9]+(\.[0-9]+)?|off' 'a number | 0 | off'
+    chk_enum review_anomaly_factor '[0-9]+(\.[0-9]+)?|off' 'a number | 0 | off'
     # Review cadence (docs/config.md). Both intervals must
     # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
     # window that wraps midnight is not expressible as a single cron.

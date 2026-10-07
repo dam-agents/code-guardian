@@ -2,7 +2,7 @@
 
 Read when the worklist's `read_set` names this file: `selfheals_due`,
 `label_cleanups_due`, `prunes_due` or `status_resets_due` is non-empty, or a
-`stall_alert` or `cost_alert` is present. A `housekeeping_only` run reads this
+`stall_alert` or `review_anomaly` is present. A `housekeeping_only` run reads this
 file alone.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
@@ -126,36 +126,45 @@ change the threshold in response. Investigate per [logging.md](logging.md) →
 triage; record a recurring cause as an operational lesson
 ([preferences.md](preferences.md)).
 
-## Review cost alert (`cost_alert`)
+## Review anomaly alert (`review_anomaly`)
 
 The harness adapter logs one `review_cost` event per finished review: the API
-usage between its `locked` and `done` steps, subagents included
+usage between its `locked` and `done` steps, subagents included, and the shape
+of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
 ([logging.md](logging.md) → **Harness adapters**). Preflight judges every
-event newer than `work/.cost-alert-seen` once (first contact: the last 24 h),
-under a `mkdir` claim:
+event newer than `work/.review-anomaly-seen` once (first contact: the last
+24 h), under a `mkdir` claim. A review that breaks any rule is an entry:
 
-- **Cost** — the tokens priced by `## Benchmark model prices`
-  ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; a model
-  without a row is weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read /
-  cache write), `unit: weighted_tokens`.
-- **Baseline** — the median cost of the same model's last 30 reviews before
-  this one; no alert below 10 of them.
-- **Alert** — cost above `cost_alert_factor` × the median (missing = `4`;
-  `0`/`off` disables) puts the review in `cost_alert: {factor, reviews: [{pr,
-  sha, ts, model, unit, cost, median, ratio, samples, secs, msgs, subagents,
-  input, output, cache_read, cache_creation, kind, size}]}`; `kind` and `size`
-  come from the review ledger, `null` when it has no row.
+| Rule | Field | Breaks when |
+| --- | --- | --- |
+| `cost` | tokens priced by `## Benchmark model prices` ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; without a row weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read / cache write), `unit: weighted_tokens` | above factor × median |
+| `time` | `secs` | above factor × median |
+| `context` | `peak_ctx` — the largest single API call's context | above factor × median |
+| `repeats` | the most repeated identical tool call | 8 or more |
+| `failures` | `tool_failure` events in the window | 5 or more |
+| `output` | `max_out` — the largest tool result, in characters | 200 000 or more |
+
+The factor is `review_anomaly_factor` (missing = `4`; `0`/`off` disables the
+whole alert). The median is the same model's last 30 reviews before this one;
+a median rule needs 10 of them, the absolute rules none. The worklist carries
+`review_anomaly: {factor, reviews: [{pr, sha, ts, model, reasons: [{rule,
+value, median, ratio} | {rule, value, limit}], unit, cost, samples, secs, msgs,
+subagents, input, output, cache_read, cache_creation, peak_ctx, repeats,
+repeat_tool, max_out, failures, kind, size}]}`; `kind` and `size` come from the
+review ledger, `null` when it has no row.
 
 Deliver it **once, after the run's review work**, like the stall alert:
 
-1. Chat UI: per review the PR, ratio, cost and median, time, and the breakdown
-   that names the likely cause — many `msgs` with a small diff is a loop, high
-   `cache_read` per message is a large context or memory, many `subagents` is
-   fan-out, a large `size` or a `first` review of a large PR is a legitimate
-   cost.
+1. Chat UI: per review the PR, each broken rule with its value and median or
+   limit, and the likely cause — `repeats` or many `msgs` on a small diff is a
+   loop, `context` or high `cache_read` per message is a large context or
+   memory, `output` is a huge file or API dump read whole, `failures` is a
+   broken tool, many `subagents` is fan-out, a large `size` or a `first`
+   review of a large PR is a legitimate cost.
 2. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
    that person the same lines — never the shared channel.
-3. Log `cost_alert_sent <n>`. A failed send is logged, never retried this run.
+3. Log `review_anomaly_sent <n>`. A failed send is logged, never retried this
+   run.
 
 The alert is a signal, not a repair: never change the factor, memory or skills
 in response. Investigate the run's events and transcript per
@@ -167,7 +176,7 @@ in response. Investigate the run's events and transcript per
 - **Bookkeeping** — every `selfheals_due` / `label_cleanups_due` /
   `prunes_due` / `status_resets_due` entry executed and logged; every status
   reset on its terminal `success` row, its REVIEWS.md row deleted.
-- **`cost_alert`** — every review reported, DM'd under Slack,
-  `cost_alert_sent` logged, nothing changed in response.
+- **`review_anomaly`** — every review reported with its rules, DM'd under
+  Slack, `review_anomaly_sent` logged, nothing changed in response.
 - **`stall_alert`** — reported, DM'd under Slack, `stall_alert_sent` logged, no
   state "repaired".

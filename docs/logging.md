@@ -30,7 +30,7 @@ file per UTC day), one JSON object per line:
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
   `artifact`, `stall_rate`, `stall_alert_sent`, `review_cost`,
-  `cost_outlier`, `cost_alert_sent`, `pod_boot`, `log_cleanup`,
+  `review_anomaly`, `review_anomaly_sent`, `pod_boot`, `log_cleanup`,
   `profile`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
@@ -159,10 +159,11 @@ adapter active, duty 4 above extends to logging tool failures manually.
   `aborted <reason>`) stay manual. It also logs one **`review_cost`** event
   per review, whoever logged its steps: the usage between this run's
   `<sha7> locked` and `<sha7> done` steps of the PR, summed like the `tokens`
-  event — `PR #<n> <sha7> secs=… input=… output=… cache_read=…
-  cache_creation=… msgs=… model=… subagents=<n new>`. An aborted review has
-  none. Preflight judges it ([review-bookkeeping.md](review-bookkeeping.md) →
-  **Review cost alert**).
+  event, and the window's shape (`review-window.jq`, `tool_failure` events) —
+  `PR #<n> <sha7> secs=… input=… output=… cache_read=… cache_creation=… msgs=…
+  model=… subagents=<n new> peak_ctx=… repeats=… repeat_tool=… max_out=…
+  failures=…`. An aborted review has none. Preflight judges it
+  ([review-bookkeeping.md](review-bookkeeping.md) → **Review anomaly alert**).
 - `enforce-review-completion.sh` — `Stop` target: refuses a stop that would
   leave a PR locked without a terminal `review_step`, logging a
   `review_incomplete` warn per block ([review.md](review.md) → **Completion
