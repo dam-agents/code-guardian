@@ -7,6 +7,11 @@
 # when CLAUDE.md, AGENTS.md, ONBOARDING.md, README.md, docs/, scripts/templates/
 # or a bundled skill names one of them. To use a tool again, remove its line;
 # the next install.sh run removes it from settings.json.
+#
+# The platform's own prompts call tools too, and these stay available: a Kit
+# Update calls list_schedules, create_schedule, report_kit_updated and
+# cancel_kit_update, and install_skill once kit.yaml declares external
+# `skills` (test_install_hook.sh fails when one of them is listed here).
 
 # platform-outbound — artifact folders (artifacts themselves stay available)
 mcp__platform-outbound__create_artifact_folder

@@ -168,7 +168,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
   the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of
-  `denied-tools.txt` — tools no procedure calls — to `permissions.deny`, which
+  `denied-tools.txt` — tools neither a procedure nor a platform prompt (Kit
+  Update: `report_kit_updated`, `cancel_kit_update`) calls — to
+  `permissions.deny`, which
   removes their definitions from every request of every session and subagent,
   replacing only its own entries; and it installs `agents/review-skill.md` as
   `~/.claude/agents/review-skill.md`, the subagent type of the skill fan-out

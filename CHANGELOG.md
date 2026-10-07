@@ -15,6 +15,10 @@ they are released history and stay as written.
 
 **Upgrade:** Nothing — docs are re-read per run.
 
+## 8.9.1 — 2026-10-06
+
+**Upgrade:** Nothing — the deny list is unchanged.
+
 ## 8.9.0 — 2026-10-06
 
 **Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`

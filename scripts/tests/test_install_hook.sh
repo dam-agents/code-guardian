@@ -139,4 +139,17 @@ for t in $(printf '%s' "$DENY_JSON" | jq -r '.[]'); do names_tool "$t" && named=
 if [ -z "$named" ]; then printf 'ok   %s: no doc names a denied tool\n' "$CASE"
 else printf 'FAIL %s: denied tools named by a procedure:%s\n' "$CASE" "$named"; FAILED=1; fi
 
+# --- the platform's prompts keep their tools ---------------------------------------
+# a Kit Update prompt (DAM kit-update-prompt.ts) calls these; no doc names them,
+# so the scan above cannot protect them
+new_case trim_platform_tools
+PLATFORM_TOOLS=(list_schedules create_schedule report_kit_updated cancel_kit_update)
+grep -qE '^skills:' "$REPO_ROOT/kit.yaml" && PLATFORM_TOOLS+=(install_skill)
+denied=""
+for t in "${PLATFORM_TOOLS[@]}"; do
+  printf '%s' "$DENY_JSON" | jq -e --arg t "mcp__platform-outbound__$t" 'index($t)' >/dev/null && denied="$denied $t"
+done
+if [ -z "$denied" ]; then printf 'ok   %s: the Kit Update tools stay available\n' "$CASE"
+else printf 'FAIL %s: denied tools a platform prompt calls:%s\n' "$CASE" "$denied"; FAILED=1; fi
+
 exit "$FAILED"
