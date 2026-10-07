@@ -22,7 +22,7 @@ model call at all. A started run receives the gate's stdout: the
   the next run that has work of its own, and start a run of their own only after
   6 hours of waiting or 10 pending items. That run's worklist carries
   `housekeeping_only: true` and reads the short set ([runbook.md](runbook.md) →
-  **Review run** step 2). A `stall_alert` never waits — its once-per-UTC-day
+  **Review run** step 2). A `stall_alert` or `cost_alert` never waits — its
   claim is spent the moment preflight detects it.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), and the audit's heartbeat-gap
@@ -110,6 +110,7 @@ changes", then end the run the same way.
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` | [benchmark.md](benchmark.md) |
 | `survey_due` | survey mode: the area to read this run, with its caps and history slice | [survey.md](survey.md) |
 | `stall_alert` | `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24 h reached `stall_alert_threshold` (once per UTC day) → report it after the review work | review-bookkeeping.md → **Stalled-review rate alert** |
+| `cost_alert` | `{factor, reviews}`, present only when a review finished since the last pass cost more than `cost_alert_factor` × the median of its model's recent reviews (each review judged once) → report it after the review work | review-bookkeeping.md → **Review cost alert** |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |

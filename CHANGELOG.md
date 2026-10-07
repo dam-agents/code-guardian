@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.11.0 — 2026-10-07
+
+**Upgrade:** Nothing required — the review cost alert is on at the default
+`cost_alert_factor` of 4 and judges reviews from the first one measured after
+the update; set `- cost_alert_factor: off` in `work/CONFIG.md` to opt out.
+
 ## 8.10.0 — 2026-10-07
 
 **Upgrade:** Nothing — docs are re-read per run.

@@ -2,7 +2,8 @@
 
 Read when the worklist's `read_set` names this file: `selfheals_due`,
 `label_cleanups_due`, `prunes_due` or `status_resets_due` is non-empty, or a
-`stall_alert` is present. A `housekeeping_only` run reads this file alone.
+`stall_alert` or `cost_alert` is present. A `housekeeping_only` run reads this
+file alone.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
 
@@ -125,10 +126,48 @@ change the threshold in response. Investigate per [logging.md](logging.md) →
 triage; record a recurring cause as an operational lesson
 ([preferences.md](preferences.md)).
 
+## Review cost alert (`cost_alert`)
+
+The harness adapter logs one `review_cost` event per finished review: the API
+usage between its `locked` and `done` steps, subagents included
+([logging.md](logging.md) → **Harness adapters**). Preflight judges every
+event newer than `work/.cost-alert-seen` once (first contact: the last 24 h),
+under a `mkdir` claim:
+
+- **Cost** — the tokens priced by `## Benchmark model prices`
+  ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; a model
+  without a row is weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read /
+  cache write), `unit: weighted_tokens`.
+- **Baseline** — the median cost of the same model's last 30 reviews before
+  this one; no alert below 10 of them.
+- **Alert** — cost above `cost_alert_factor` × the median (missing = `4`;
+  `0`/`off` disables) puts the review in `cost_alert: {factor, reviews: [{pr,
+  sha, ts, model, unit, cost, median, ratio, samples, secs, msgs, subagents,
+  input, output, cache_read, cache_creation, kind, size}]}`; `kind` and `size`
+  come from the review ledger, `null` when it has no row.
+
+Deliver it **once, after the run's review work**, like the stall alert:
+
+1. Chat UI: per review the PR, ratio, cost and median, time, and the breakdown
+   that names the likely cause — many `msgs` with a small diff is a loop, high
+   `cache_read` per message is a large context or memory, many `subagents` is
+   fan-out, a large `size` or a `first` review of a large PR is a legitimate
+   cost.
+2. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
+   that person the same lines — never the shared channel.
+3. Log `cost_alert_sent <n>`. A failed send is logged, never retried this run.
+
+The alert is a signal, not a repair: never change the factor, memory or skills
+in response. Investigate the run's events and transcript per
+[logging.md](logging.md); record a verified cause as an operational lesson
+([preferences.md](preferences.md)).
+
 ## Self-check
 
 - **Bookkeeping** — every `selfheals_due` / `label_cleanups_due` /
   `prunes_due` / `status_resets_due` entry executed and logged; every status
   reset on its terminal `success` row, its REVIEWS.md row deleted.
+- **`cost_alert`** — every review reported, DM'd under Slack,
+  `cost_alert_sent` logged, nothing changed in response.
 - **`stall_alert`** — reported, DM'd under Slack, `stall_alert_sent` logged, no
   state "repaired".

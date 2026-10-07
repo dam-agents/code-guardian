@@ -29,7 +29,8 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `artifact`, `stall_rate`, `stall_alert_sent`, `pod_boot`, `log_cleanup`,
+  `artifact`, `stall_rate`, `stall_alert_sent`, `review_cost`,
+  `cost_outlier`, `cost_alert_sent`, `pod_boot`, `log_cleanup`,
   `profile`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
@@ -155,7 +156,13 @@ adapter active, duty 4 above extends to logging tool failures manually.
   Idempotent per (run, PR, step) via a `/tmp/.cg-steps-<session>` marker dir;
   lock refreshes are logged every time, because they are the liveness signal.
   The steps needing agent knowledge (`fanned out`, `verified`,
-  `aborted <reason>`) stay manual.
+  `aborted <reason>`) stay manual. It also logs one **`review_cost`** event
+  per review, whoever logged its steps: the usage between this run's
+  `<sha7> locked` and `<sha7> done` steps of the PR, summed like the `tokens`
+  event — `PR #<n> <sha7> secs=… input=… output=… cache_read=…
+  cache_creation=… msgs=… model=… subagents=<n new>`. An aborted review has
+  none. Preflight judges it ([review-bookkeeping.md](review-bookkeeping.md) →
+  **Review cost alert**).
 - `enforce-review-completion.sh` — `Stop` target: refuses a stop that would
   leave a PR locked without a terminal `review_step`, logging a
   `review_incomplete` warn per block ([review.md](review.md) → **Completion

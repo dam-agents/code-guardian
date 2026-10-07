@@ -197,4 +197,57 @@ step_case awaiting_without_lock
 run_bash "$SID" "printf '| 42 | $SHA | $TS | COMMENT | awaiting_label |\n' >> work/REVIEWS.md"
 assert_count 'review_step' 0 'an awaiting_label row without a lock in this run logs nothing'
 
+# --- review_cost: the usage between this run's locked and done steps ----------
+usage_line() { # <id> <input> <output>
+  jq -nc --arg id "$1" --argjson i "$2" --argjson o "$3" \
+    '{type:"assistant", message:{id:$id, model:"claude-opus-5-5",
+      usage:{input_tokens:$i, output_tokens:$o, cache_read_input_tokens:100, cache_creation_input_tokens:10}}}'
+}
+step_ev() { # <session> <msg> <ts> — a review_step the script itself logged
+  jq -nc --arg r "$1" --arg m "$2" --arg ts "$3" \
+    '{ts:$ts, run:$r, job:"review", level:"info", event:"review_step", msg:$m}' >> "$EVENTS"
+}
+run_bash_tp() { # <session> <command> <transcript>
+  jq -nc --arg s "$1" --arg c "$2" --arg t "$3" \
+    '{hook_event_name:"PostToolUse", session_id:$s, tool_name:"Bash",
+      tool_input:{command:$c}, transcript_path:$t}' \
+    | WORK_DIR="$WORK" bash "$HOOK" >/dev/null 2>&1
+}
+cost_msgs() { jq -r 'select(.event=="review_cost") | .msg' "$EVENTS" 2>/dev/null; }
+
+step_case review_cost_script_path
+TP="$SANDBOX/$SID.jsonl"
+usage_line m1 5 50 > "$TP"
+step_ev "$SID" "PR #42 1111111 locked" "2026-10-07T10:00:00.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh prepare 42" "$TP"
+usage_line m2 7 70 >> "$TP"
+mkdir -p "${TP%.jsonl}/subagents"; usage_line a1 3 30 > "${TP%.jsonl}/subagents/agent-a1.jsonl"
+step_ev "$SID" "PR #42 1111111 locked (refresh, verified)" "2026-10-07T10:05:00.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh step 42 verified" "$TP"
+step_ev "$SID" "PR #42 1111111 done" "2026-10-07T10:13:20.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh post 42 --verdict APPROVE" "$TP"
+run_bash_tp "$SID" "bash scripts/review-pr.sh verify 42" "$TP"
+if [ "$(cost_msgs)" = "PR #42 1111111 secs=800 input=10 output=100 cache_read=200 cache_creation=20 msgs=2 model=claude-opus-5-5 subagents=1" ]; then
+  printf 'ok   %s: one review_cost event with the lock-to-done delta\n' "$CASE"
+else printf 'FAIL %s: review_cost wrong: %s\n' "$CASE" "$(cost_msgs)"; FAILED=1; fi
+
+step_case review_cost_other_run_ignored
+TP="$SANDBOX/$SID.jsonl"
+usage_line m1 5 50 > "$TP"
+step_ev "other-run" "PR #42 1111111 locked" "2026-10-07T10:00:00.000Z"
+step_ev "other-run" "PR #42 1111111 done" "2026-10-07T10:10:00.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh post 42" "$TP"
+if [ -z "$(cost_msgs)" ]; then printf 'ok   %s: steps of another run are not measured\n' "$CASE"
+else printf 'FAIL %s: measured a foreign run: %s\n' "$CASE" "$(cost_msgs)"; FAILED=1; fi
+
+step_case review_cost_abort_silent
+TP="$SANDBOX/$SID.jsonl"
+usage_line m1 5 50 > "$TP"
+step_ev "$SID" "PR #42 1111111 locked" "2026-10-07T10:00:00.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh prepare 42" "$TP"
+step_ev "$SID" "PR #42 1111111 aborted head moved" "2026-10-07T10:03:00.000Z"
+run_bash_tp "$SID" "bash scripts/review-pr.sh abort 42 head moved" "$TP"
+if [ -z "$(cost_msgs)" ]; then printf 'ok   %s: an aborted review logs no review_cost\n' "$CASE"
+else printf 'FAIL %s: an abort was measured: %s\n' "$CASE" "$(cost_msgs)"; FAILED=1; fi
+
 finish
