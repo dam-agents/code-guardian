@@ -54,6 +54,22 @@ epoch2iso() { # <epoch> [date format]
   date -u -d "@$1" +"$f" 2>/dev/null || date -u -r "$1" +"$f" 2>/dev/null
 }
 
+# Runs <command…> as the one writer of <file>, a state file several runs
+# rewrite in place (work/REVIEWS.md): `mkdir` of `<file>.lock` is atomic, and a
+# lock older than a minute is a dead writer's. After ten seconds of waiting the
+# command runs anyway, so a review never stalls on the lock.
+with_state_lock() { # <file> <command…>
+  local l="$1.lock" i=0 rc; shift
+  until mkdir "$l" 2>/dev/null; do
+    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then rmdir "$l" 2>/dev/null; continue; fi
+    i=$((i + 1)); [ "$i" -ge 100 ] && { "$@"; return; }
+    sleep 0.1
+  done
+  "$@"; rc=$?
+  rmdir "$l" 2>/dev/null
+  return "$rc"
+}
+
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
 # leave. LOG_DIR comes from log.sh.

@@ -657,9 +657,10 @@ sweep_stale_clones() {
 
 # the ONE local REVIEWS.md write the script performs: done -> awaiting_label
 # (keeps the last review's SHA/verdict/timestamp; only the status cell changes)
-flip_awaiting_label() { # number
+flip_awaiting_label() { with_state_lock "$REVIEWS" flip_awaiting_label_held "$1"; }
+flip_awaiting_label_held() { # number
   sed -E "s/^(\| *$1 *\|.*\|) *done *\|[[:space:]]*$/\1 awaiting_label |/" "$REVIEWS" \
-    > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
+    > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS"
 }
 
 # marker scans distinguish three outcomes: a timestamp (marker found), ""

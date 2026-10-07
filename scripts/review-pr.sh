@@ -156,17 +156,21 @@ fail() { logev error review_pr "PR #$N: $CMD — $1"; out "$(jq -nc --arg e "$1"
 logstep() { logev info review_step "PR #$N $1"; }
 
 # ------------------------------------------------------ REVIEWS.md rows ----
+# Concurrent runs rewrite the file, so every write holds its lock
+# (lib/common.sh → with_state_lock) and uses a temp file of its own.
 row_for()   { grep -E "^\| *$N *\|" "$REVIEWS" 2>/dev/null | head -1; }
-write_row() { # sha ts verdict status — replace in place, else append
+write_row() { with_state_lock "$REVIEWS" write_row_held "$@"; }
+write_row_held() { # sha ts verdict status — replace in place, else append
   local line="| $N | $1 | $2 | $3 | $4 |"
   if [ -n "$(row_for)" ]; then
-    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
+    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS"
   else
     [ -f "$REVIEWS" ] || printf '# Reviewed PRs\n\n| PR | Commit | Timestamp | Verdict | Status |\n|----|--------|-----------|---------|--------|\n' > "$REVIEWS"
     printf '%s\n' "$line" >> "$REVIEWS"
   fi
 }
-delete_row() { grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.tmp" 2>/dev/null && mv "$REVIEWS.tmp" "$REVIEWS"; }
+delete_row() { with_state_lock "$REVIEWS" delete_row_held; }
+delete_row_held() { grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.$$.tmp" 2>/dev/null && mv "$REVIEWS.$$.tmp" "$REVIEWS"; }
 
 # --------------------------------------------------------- state files ----
 ctx_get() { jq -r "$1" "$CTX/pr.json" 2>/dev/null; }

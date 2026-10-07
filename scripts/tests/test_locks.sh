@@ -188,4 +188,31 @@ REPO_ROOT="$SANDBOX" run_preflight review
 assert_jq '.error | contains("lib/holds.sh unreadable")' 'the error names the missing lib'
 assert_jq '.reviews_due == null' 'and no lock is taken over'
 
+# --- REVIEWS.md has one writer at a time (lib/common.sh → with_state_lock) ----
+# concurrent runs rewrite the file in place; twenty read-modify-write writers
+# racing on it keep every row
+new_case state_lock_concurrent_writers
+F="$WORK/REVIEWS.md"
+(
+  . "$REPO_ROOT/scripts/lib/common.sh"
+  add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
+  for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
+  wait
+)
+rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
+if [ "$rows" = 20 ]; then printf 'ok   %s: twenty concurrent writers keep twenty rows\n' "$CASE"
+else printf 'FAIL %s: twenty concurrent writers left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
+if [ -e "$F.lock" ]; then printf 'FAIL %s: the lock is left behind\n' "$CASE"; FAILED=1
+else printf 'ok   %s: the lock is given back\n' "$CASE"; fi
+
+new_case state_lock_dead_writer
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+s=$(( $(date +%s) - 300 ))
+touch -t "$(date -d "@$s" +%Y%m%d%H%M 2>/dev/null || date -r "$s" +%Y%m%d%H%M)" "$F.lock"
+start=$(date +%s)
+( . "$REPO_ROOT/scripts/lib/common.sh"; with_state_lock "$F" true )
+if [ $(( $(date +%s) - start )) -lt 5 ] && [ ! -e "$F.lock" ]; then
+  printf 'ok   %s: a dead writer'"'"'s lock is broken at once\n' "$CASE"
+else printf 'FAIL %s: a dead writer'"'"'s lock held the write\n' "$CASE"; FAILED=1; fi
+
 finish
