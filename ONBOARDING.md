@@ -543,7 +543,7 @@ Final shape:
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
-- review_anomaly_factor: 4             # review cost/time/context over N × its model's median alerts; omit = 4; 0/off disables
+- review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) alerts; omit = 4; 0/off disables
 - log_level: info                      # or: debug (diagnostic only); omit = info
 - active_hours: 08-21                  # platform timezone, both ends inclusive; missing = 00-23
 - active_days: Mon-Fri                 # or: Mon-Sun / a comma list; missing = Mon-Sun

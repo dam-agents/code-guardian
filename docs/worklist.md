@@ -110,7 +110,7 @@ changes", then end the run the same way.
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` | [benchmark.md](benchmark.md) |
 | `survey_due` | survey mode: the area to read this run, with its caps and history slice | [survey.md](survey.md) |
 | `stall_alert` | `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24 h reached `stall_alert_threshold` (once per UTC day) → report it after the review work | review-bookkeeping.md → **Stalled-review rate alert** |
-| `review_anomaly` | `{factor, reviews}`, present only when a review finished since the last pass broke a rule — cost, time or peak context over `review_anomaly_factor` × its model's median, or repeats, failures or a tool result over an absolute limit (each review judged once) → report it after the review work | review-bookkeeping.md → **Review anomaly alert** |
+| `review_anomaly` | `{factor, reviews}`, present only when a review finished since the last pass broke a rule — a metric at or over max(floor, `review_anomaly_factor` × its model's median) (each review judged once) → report it after the review work | review-bookkeeping.md → **Review anomaly alert** |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |

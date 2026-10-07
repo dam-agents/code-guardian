@@ -110,11 +110,12 @@ below is for the manual fallback and the direct session.
   h that trigger one alert, at most once per UTC day. **Missing = `4`**;
   `0`/`off` disables; an unparseable value falls back to `4`
   (review-bookkeeping.md → **Stalled-review rate alert**).
-- **`review_anomaly_factor`** — a review whose cost, time or peak context
-  exceeds this × the median of its model's recent reviews alerts once.
-  **Missing = `4`**; `0`/`off` disables the whole anomaly alert; a decimal is
-  allowed; an unparseable value falls back to `4` (review-bookkeeping.md →
-  **Review anomaly alert**).
+- **`review_anomaly_factor`** — a review whose cost, time, peak context,
+  repeated calls, failures or largest tool result reaches max(floor, this ×
+  the median of its model's recent reviews) alerts once. **Missing = `4`**;
+  `0`/`off` disables the whole anomaly alert; a decimal is allowed; an
+  unparseable value falls back to `4` (review-bookkeeping.md → **Review
+  anomaly alert**).
 
 ### Skills, artifacts, watches
 

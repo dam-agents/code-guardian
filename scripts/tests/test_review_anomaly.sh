@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# review_anomaly: a review whose cost, time or peak context exceeds factor ×
-# the median of its model's previous reviews, or whose repeats, failures or
-# largest tool result cross an absolute limit — baseline size, per-model
-# grouping, pricing, the judged-once marker, the ledger join and the off switch.
+# review_anomaly: a review whose metric reaches max(floor, factor × the median
+# of its model's previous reviews) — floors without a baseline, the repo's own
+# median above them, baseline size, per-model grouping, pricing, the durable
+# baseline, the judged-once marker, the ledger join, the audit's review shape
+# and the off switch.
 # Contract: docs/review-bookkeeping.md → Review anomaly alert.
 . "$(dirname "$0")/helpers.sh"
 
@@ -68,12 +69,12 @@ cost_event 600 42 1000 '' secs=3000 peak_ctx=250000
 run_preflight review
 assert_rules '["time","context"]' 'time and peak context over 4× their medians'
 
-# --- the absolute rules apply without a baseline --------------------------------
-anomaly_case anomaly_absolute
+# --- the floors apply without a baseline ---------------------------------------
+anomaly_case anomaly_floors
 cost_event 600 42 1000 '' repeats=8 failures=5 max_out=200000
 run_preflight review
-assert_rules '["repeats","failures","output"]' 'repeats, failures and output at their limits, no baseline needed'
-assert_jq '.review_anomaly.reviews[0].reasons[0].limit == 8' 'an absolute reason carries its limit'
+assert_rules '["repeats","failures","output"]' 'repeats, failures and output at their floors, no baseline needed'
+assert_jq '.review_anomaly.reviews[0].reasons[0] | .limit == 8 and .median == null' 'a floor reason carries its limit and no median'
 
 # --- a repo whose norm is higher raises the limit above the floor -------------
 anomaly_case anomaly_adaptive
