@@ -251,8 +251,9 @@ what it can and asking for the rest. Per-key semantics are in
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
+| `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one alert; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
-| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the stalled-review alert. |
+| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the stalled-review and review anomaly alerts. |
 
 ### Runtime requirements
 

@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 8.12.0 — 2026-10-07
+## 8.13.0 — 2026-10-08
 
 **Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
 (idempotent; a no-op on another harness). It adds the auto-mode rule that lets
@@ -20,6 +20,13 @@ effective from the next session. Without that tool on the platform a run keeps
 every PR, as before. The new `review_dispatch` key needs no edit: missing means
 `enabled`; write `review_dispatch: disabled` to keep every PR in the run that
 found it.
+
+## 8.12.0 — 2026-10-07
+
+**Upgrade:** Nothing required — the review anomaly alert is on at the default
+`review_anomaly_factor` of 4 and judges reviews from the first one measured
+after the update; set `- review_anomaly_factor: off` in `work/CONFIG.md` to
+opt out.
 
 ## 8.11.0 — 2026-10-07
 

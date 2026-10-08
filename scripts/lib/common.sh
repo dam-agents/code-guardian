@@ -93,8 +93,12 @@ with_state_lock() { # <file> <command…>
 
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
-# leave. LOG_DIR comes from log.sh.
-events_jsonl() { cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | jq -c -R 'fromjson? // empty' 2>/dev/null; }
+# leave. With an event name, a fixed-string grep keeps that event's lines
+# before jq parses them (log.sh writes compact JSON). LOG_DIR comes from log.sh.
+events_jsonl() { # [event]
+  if [ -n "${1:-}" ]; then grep -hF "\"event\":\"$1\"" "$LOG_DIR"/events-*.jsonl 2>/dev/null
+  else cat "$LOG_DIR"/events-*.jsonl 2>/dev/null; fi | jq -c -R 'fromjson? // empty' 2>/dev/null
+}
 
 # the payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
 # line of a history file or section on stdin (docs/review-mechanics.md →
@@ -138,7 +142,7 @@ READ_SET_JQ='def read_set:
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
        then ["docs/review-urgent.md"] else [] end)
     + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
-          or .stall_alert != null
+          or .stall_alert != null or .review_anomaly != null
        then ["docs/review-bookkeeping.md"] else [] end)
     + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
           and ((.config.watch_rules // []) | length) > 0
