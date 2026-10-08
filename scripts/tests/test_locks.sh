@@ -188,4 +188,112 @@ REPO_ROOT="$SANDBOX" run_preflight review
 assert_jq '.error | contains("lib/holds.sh unreadable")' 'the error names the missing lib'
 assert_jq '.reviews_due == null' 'and no lock is taken over'
 
+# --- REVIEWS.md has one writer at a time (lib/common.sh → with_state_lock) ----
+# concurrent runs rewrite the file in place; twenty read-modify-write writers
+# racing on it keep every row
+new_case state_lock_concurrent_writers
+F="$WORK/REVIEWS.md"
+(
+  . "$REPO_ROOT/scripts/lib/common.sh"
+  add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
+  for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
+  wait
+)
+rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
+if [ "$rows" = 20 ]; then printf 'ok   %s: twenty concurrent writers keep twenty rows\n' "$CASE"
+else printf 'FAIL %s: twenty concurrent writers left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
+if [ -e "$F.lock" ]; then printf 'FAIL %s: the lock is left behind\n' "$CASE"; FAILED=1
+else printf 'ok   %s: the lock is given back\n' "$CASE"; fi
+
+new_case state_lock_dead_writer
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+s=$(( $(date +%s) - 300 ))
+touch -t "$(date -d "@$s" +%Y%m%d%H%M 2>/dev/null || date -r "$s" +%Y%m%d%H%M)" "$F.lock"
+start=$(date +%s)
+( . "$REPO_ROOT/scripts/lib/common.sh"; with_state_lock "$F" true )
+if [ $(( $(date +%s) - start )) -lt 5 ] && [ ! -e "$F.lock" ]; then
+  printf 'ok   %s: a dead writer'"'"'s lock is broken at once\n' "$CASE"
+else printf 'FAIL %s: a dead writer'"'"'s lock held the write\n' "$CASE"; FAILED=1; fi
+
+# a dead writer's lock that is a file, not a directory, is taken over too —
+# never a wait without end
+new_case state_lock_stale_file
+F="$WORK/REVIEWS.md"; : > "$F.lock"
+touch -t "$(date -d "@$s" +%Y%m%d%H%M 2>/dev/null || date -r "$s" +%Y%m%d%H%M)" "$F.lock"
+start=$(date +%s)
+( . "$REPO_ROOT/scripts/lib/common.sh"; with_state_lock "$F" true )
+if [ $(( $(date +%s) - start )) -lt 5 ] && [ ! -e "$F.lock" ]; then
+  printf 'ok   %s: a stale lock file is taken over at once\n' "$CASE"
+else printf 'FAIL %s: a stale lock file held the write\n' "$CASE"; FAILED=1; fi
+
+# twenty writers that all find a dead writer's lock: one takes it over, the
+# rest wait their turn
+new_case state_lock_concurrent_takeover
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+touch -t "$(date -d "@$s" +%Y%m%d%H%M 2>/dev/null || date -r "$s" +%Y%m%d%H%M)" "$F.lock"
+(
+  . "$REPO_ROOT/scripts/lib/common.sh"
+  add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
+  for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
+  wait
+)
+rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
+if [ "$rows" = 20 ]; then printf 'ok   %s: twenty writers behind a dead lock keep twenty rows\n' "$CASE"
+else printf 'FAIL %s: twenty writers behind a dead lock left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
+
+# a lock that is not yet dead is waited out and then broken, never bypassed:
+# the bypass comes later than a dead lock lives
+new_case state_lock_waits_for_dead
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+start=$(date +%s)
+( export WORK_DIR="$WORK" STATE_LOCK_DEAD_S=2 STATE_LOCK_WAIT_S=20; . "$REPO_ROOT/scripts/log.sh"; . "$REPO_ROOT/scripts/lib/common.sh"
+  with_state_lock "$F" true )
+el=$(( $(date +%s) - start ))
+if [ "$el" -ge 2 ] && [ "$el" -lt 10 ] && [ ! -e "$F.lock" ]; then
+  printf 'ok   %s: a young lock is waited out until it is dead, then broken (%ss)\n' "$CASE" "$el"
+else printf 'FAIL %s: a young lock took %ss, lock left: %s\n' "$CASE" "$el" "$([ -e "$F.lock" ] && echo yes || echo no)"; FAILED=1; fi
+if grep -q '"event":"state_lock"' "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 2>/dev/null; then
+  printf 'FAIL %s: the write bypassed the lock\n' "$CASE"; FAILED=1
+else printf 'ok   %s: and no write went past the lock\n' "$CASE"; fi
+
+# a holder whose lock was taken over leaves the next holder's lock alone
+new_case state_lock_owner_guard
+F="$WORK/REVIEWS.md"
+( . "$REPO_ROOT/scripts/lib/common.sh"
+  taken_over() { rm -rf "$F.lock"; mkdir "$F.lock"; printf '99999\n' > "$F.lock/owner"; }
+  with_state_lock "$F" taken_over )
+if [ "$(cat "$F.lock/owner" 2>/dev/null)" = 99999 ]; then printf 'ok   %s: only the owner gives a lock back\n' "$CASE"
+else printf 'FAIL %s: the previous holder removed another holder'"'"'s lock\n' "$CASE"; FAILED=1; fi
+rm -rf "$F.lock"
+
+# a live writer that holds on past the wait: the write goes ahead, and says so
+new_case state_lock_bypass_logged
+F="$WORK/REVIEWS.md"; mkdir "$F.lock"
+( export WORK_DIR="$WORK" STATE_LOCK_DEAD_S=600 STATE_LOCK_WAIT_S=1; . "$REPO_ROOT/scripts/log.sh"; . "$REPO_ROOT/scripts/lib/common.sh"
+  with_state_lock "$F" true )
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"state_lock"' 'a write past a held lock is logged'
+rm -rf "$F.lock"
+
+# --- review-pr.sh row: the bookkeeping rows under the same lock ---------------
+new_case review_pr_row
+rp_row() { OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/review-pr.sh" row "$@" 2>/dev/null)"; }
+rp_row 5 "$SHA1" 2026-10-01T10:00:00Z SEE-GITHUB done
+assert_jq '.outcome == "written"' 'a self-heal row is written'
+assert_file_contains "$WORK/REVIEWS.md" "^| 5 | $SHA1 | 2026-10-01T10:00:00Z | SEE-GITHUB | done |\$" 'in the row shape'
+rp_row 5 "$SHA1" 2026-10-01T11:00:00Z SEE-GITHUB awaiting_label
+if [ "$(grep -c '^| 5 |' "$WORK/REVIEWS.md")" = 1 ]; then printf 'ok   %s: a second write replaces the row\n' "$CASE"
+else printf 'FAIL %s: a second write left %s rows\n' "$CASE" "$(grep -c '^| 5 |' "$WORK/REVIEWS.md")"; FAILED=1; fi
+rp_row 5 --delete
+assert_jq '.outcome == "deleted"' 'a row is deleted'
+if grep -q '^| 5 |' "$WORK/REVIEWS.md"; then printf 'FAIL %s: the row is still there\n' "$CASE"; FAILED=1
+else printf 'ok   %s: and is gone\n' "$CASE"; fi
+for bad in "nothex 2026-10-01T10:00:00Z SEE-GITHUB done" "$SHA1 yesterday SEE-GITHUB done" \
+           "$SHA1 2026-10-01T10:00:00Z A&B done" "$SHA1 2026-10-01T10:00:00Z SEE-GITHUB merged"; do
+  # shellcheck disable=SC2086
+  rp_row 6 $bad
+  assert_jq '.outcome == "error"' "a malformed row is refused: $bad"
+done
+if grep -q '^| 6 |' "$WORK/REVIEWS.md"; then printf 'FAIL %s: a refused row was written\n' "$CASE"; FAILED=1
+else printf 'ok   %s: and nothing is written\n' "$CASE"; fi
+
 finish

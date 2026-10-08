@@ -103,7 +103,7 @@ changes", then end the run the same way.
 | `fixes_due` | `{number, sha, findings}` — a labeled PR whose current review left blocking findings with a fix (only under `agent_fixes: enabled`) → one fix round | [agent-fixes.md](agent-fixes.md) + [review.md](review.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
 | `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
-| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any other run work** | review-urgent.md → **Urgent PRs** |
+| `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any PR work** | review-urgent.md → **Urgent PRs** |
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
@@ -112,6 +112,7 @@ changes", then end the run the same way.
 | `stall_alert` | `{count, threshold, prs, window_hours, per_day_7d}`, present only when stalled reviews in the last 24 h reached `stall_alert_threshold` (once per UTC day) → report it after the review work | review-bookkeeping.md → **Stalled-review rate alert** |
 | `review_anomaly` | `{factor, reviews}`, present only when a review finished since the last pass broke a rule — a metric at or over max(floor, `review_anomaly_factor` × its model's median) (each review judged once) → report it after the review work | review-bookkeeping.md → **Review anomaly alert** |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |
+| `dispatched` | `{number, by}`, present in a worklist `dispatch.sh plan` cut for one PR → the session takes that PR's hold first | [runbook.md](runbook.md) → **Review run** step 1 |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |
 | `config` | every `work/CONFIG.md` key resolved with its default, plus the `skills_table` and `watch_rules` rows; present in a review or shepherd worklist with work | [config.md](config.md) |
@@ -125,10 +126,27 @@ by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh));
 one PR.
 Preflight drops the `reviews_due` and `mentions_due` entries of a PR another
 live run holds, and logs why; the first run after the release serves them. A
+run dispatches every PR after its first to a session of its own
+([runbook.md](runbook.md) → **Review run** step 1); a PR whose session never
+starts is the next heartbeat's. A
 hold whose run is quiet by the **Live holder** windows
 ([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
 hook releases the holds a finished run still owns ([logging.md](logging.md) →
 **Harness adapters**).
+
+**Dispatch** — under `review_dispatch: enabled` (the default), the run that
+receives a worklist with several PRs keeps its first PR, in the order of
+[runbook.md](runbook.md) → **Review run** steps 5 to 10, and starts every other
+PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
+worklist per PR next to the gate's file — that PR's entries from every per-PR
+key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
+by}`, and a `read_set` of its own — and prints the exact `name`
+(`code-guardian-review-pr-<n>`) and `task` of each
+`mcp__platform-outbound__schedule_once` call. The task carries the PR number and
+the unit's path alone. `dispatch.sh rest` then writes the run's own worklist
+without the PRs the platform accepted; a PR it refused stays in the run. The
+new session takes its PR's hold first; a PR whose session never starts is the
+next heartbeat's ([scripts/dispatch.sh](../scripts/dispatch.sh)).
 
 ## Runtime configuration: `work/CONFIG.md`
 

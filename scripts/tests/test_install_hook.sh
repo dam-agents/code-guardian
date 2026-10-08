@@ -41,6 +41,7 @@ assert_settings '.autoMode.environment[0] == "$defaults" and .autoMode.allow[0] 
 assert_settings '.autoMode.environment | any(startswith("[code-guardian]") and contains("acme/widgets") and contains("acme/guardian"))' 'environment names target and definition repo'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("gh issue create") and contains("acme/guardian"))' 'tracking-issue rule names the definition repo'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("curl -X PUT"))' 'artifact upload rule present'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("schedule_once") and contains("scripts/dispatch.sh plan"))' 'review dispatch rule present'
 assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'hooks still registered'
 run_install
 assert_out "already installed" 'second run is a no-op'
@@ -54,7 +55,7 @@ assert_settings '.autoMode.allow[0] == "operator rule" and (.autoMode.allow | in
 assert_settings '.theme == "dark"' 'other keys stay'
 printf -- '- github_repo: acme/widgets\n- definition_repo: acme/guardian2\n' > "$FAKE_HOME/work/CONFIG.md"
 run_install
-assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 2 and all(contains("acme/guardian2") or contains("curl"))' 'changed definition_repo replaces own rules'
+assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 3 and all(contains("acme/guardian2") or contains("curl") or contains("schedule_once"))' 'changed definition_repo replaces own rules'
 assert_settings '[.autoMode.environment[] | select(startswith("[code-guardian]"))] | length == 2' 'environment rules not duplicated'
 
 # --- no CONFIG.md yet: definition repo from $HOME's origin ------------------------

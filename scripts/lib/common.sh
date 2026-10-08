@@ -54,6 +54,43 @@ epoch2iso() { # <epoch> [date format]
   date -u -d "@$1" +"$f" 2>/dev/null || date -u -r "$1" +"$f" 2>/dev/null
 }
 
+# Runs <command…> as the one writer of <file>, a state file several runs
+# rewrite in place (work/REVIEWS.md). `mkdir` of `<file>.lock` is atomic; the
+# holder writes its pid inside as `owner`, and only the owner gives the lock
+# back. A lock older than STATE_LOCK_DEAD_S is a dead writer's: one waiter at a
+# time removes it — the one that holds `<file>.break.lock`, and only while the
+# lock is still old. A waiter still waiting after STATE_LOCK_WAIT_S, longer than
+# a dead lock lives, runs the command anyway with a warn, so a review never
+# stalls on the lock. Tests shorten both.
+STATE_LOCK_DEAD_S="${STATE_LOCK_DEAD_S:-60}"
+STATE_LOCK_WAIT_S="${STATE_LOCK_WAIT_S:-120}"
+state_lock_age() { # <path> → seconds since its last change
+  local m; m="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" && [ -n "$m" ] || return 1
+  printf '%s' $(( $(date +%s) - m ))
+}
+state_lock_old() { local a; a="$(state_lock_age "$1")" && [ "$a" -ge "$STATE_LOCK_DEAD_S" ]; }
+with_state_lock() { # <file> <command…>
+  local f="$1" l="$1.lock" b="$1.break.lock" me="${BASHPID:-$$}" start rc; shift
+  start=$(date +%s)
+  until mkdir "$l" 2>/dev/null; do
+    if [ $(( $(date +%s) - start )) -ge "$STATE_LOCK_WAIT_S" ]; then
+      command -v logev >/dev/null 2>&1 && logev warn state_lock "${f##*/}: lock held for $STATE_LOCK_WAIT_S s — written without it"
+      "$@"; return
+    fi
+    if state_lock_old "$l" && mkdir "$b" 2>/dev/null; then
+      state_lock_old "$l" && rm -rf "$l"
+      rmdir "$b" 2>/dev/null
+      continue
+    fi
+    state_lock_old "$b" && rmdir "$b" 2>/dev/null
+    sleep 0.1
+  done
+  printf '%s\n' "$me" > "$l/owner" 2>/dev/null
+  "$@"; rc=$?
+  [ "$(cat "$l/owner" 2>/dev/null)" = "$me" ] && rm -rf "$l"
+  return "$rc"
+}
+
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
 # leave. With an event name, a fixed-string grep keeps that event's lines
@@ -89,3 +126,31 @@ origin_ref() { # <checkout dir>
   git -C "$1" remote get-url origin 2>/dev/null \
     | sed -e 's#^git@\([^:]*\):#\1/#' -e 's#^[a-z]*://##' -e 's#^[^@/]*@##' -e 's#\.git$##'
 }
+
+# The files a review-mode run reads before acting (docs/runbook.md → Review
+# run, step 2): the core per due key, the rare cases only when an entry needs
+# them. A mention reply and a CI triage comment write outward prose, so they
+# read review.md for its style rules and PR-context calls. A file the run needs
+# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
+# trigger, not here. preflight.sh applies it to the worklist, dispatch.sh to
+# each worklist it cuts from one.
+READ_SET_JQ='def read_set:
+  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
+    (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
+    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
+    + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
+    + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
+       then ["docs/review-urgent.md"] else [] end)
+    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
+          or .stall_alert != null or .review_anomaly != null
+       then ["docs/review-bookkeeping.md"] else [] end)
+    + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
+          and ((.config.watch_rules // []) | length) > 0
+       then ["docs/watches.md"] else [] end)
+    + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
+    + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
+    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
+    + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
+    + ["work/MEMORY.md", "work/LESSONS.md"]
+  end;'

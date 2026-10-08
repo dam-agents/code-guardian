@@ -499,7 +499,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
@@ -515,7 +515,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
-   review_progress:$prog, ci_triage:$ci, mention_replies:(if $mr=="" then "enabled" else $mr end),
+   review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
+   mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
@@ -679,9 +680,11 @@ sweep_stale_clones() {
 
 # the ONE local REVIEWS.md write the script performs: done -> awaiting_label
 # (keeps the last review's SHA/verdict/timestamp; only the status cell changes)
-flip_awaiting_label() { # number
+flip_awaiting_label() { with_state_lock "$REVIEWS" flip_awaiting_label_held "$1"; }
+flip_awaiting_label_held() { # number
   sed -E "s/^(\| *$1 *\|.*\|) *done *\|[[:space:]]*$/\1 awaiting_label |/" "$REVIEWS" \
-    > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
+    > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+  rm -f "$REVIEWS.$$.tmp"; return 1
 }
 
 # marker scans distinguish three outcomes: a timestamp (marker found), ""
@@ -866,33 +869,6 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
      + (if $profile == null then {} else {profile:$profile} end)
      | if .mode == "review" and (.nothing_to_do | not) then . + {read_set: read_set} else . end'
 }
-
-# The files a review-mode run reads before acting (docs/runbook.md → Review
-# run, step 2): the core per due key, the rare cases only when an entry needs
-# them. A mention reply and a CI triage comment write outward prose, so they
-# read review.md for its style rules and PR-context calls. A file the run needs
-# later — a `carry`, a `closed_*` post, an on-demand ask — is read on that
-# trigger, not here.
-READ_SET_JQ='def read_set:
-  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
-    (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
-    + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
-    + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
-    + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
-       then ["docs/review-urgent.md"] else [] end)
-    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
-          or .stall_alert != null or .review_anomaly != null
-       then ["docs/review-bookkeeping.md"] else [] end)
-    + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
-          and ((.config.watch_rules // []) | length) > 0
-       then ["docs/watches.md"] else [] end)
-    + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
-    + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
-    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
-    + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
-    + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
-    + ["work/MEMORY.md", "work/LESSONS.md"]
-  end;'
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then

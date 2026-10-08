@@ -14,7 +14,7 @@ Check 1 re-verifies the label and reviews normally when it is gone.
 **Immediate Slack alert (`urgent_alerts_due`, once per PR).** Preflight emits
 `{number, title, author, url}` for every open urgent PR whose history file
 lacks an `urgent-announced` marker, only under
-`slack_notifications: enabled`. Send these **before any other run work**:
+`slack_notifications: enabled`. Send these **before any PR work**:
 
 1. `mcp__platform-outbound__send_channel_message`, addressed to the channel
    alone — the alert carries no @-mention: `🚨 **<bot_display_name>** — URGENT:

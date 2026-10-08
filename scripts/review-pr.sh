@@ -59,6 +59,9 @@
 #                                          are given back (docs/worklist.md →
 #                                          PR holds)
 #   release <n>                            give the PR hold back
+#   row <n> <sha> <ts> <verdict> <status>  a bookkeeping REVIEWS.md row write —
+#   row <n> --delete                       self-heal, prune, status reset — or its
+#                                          deletion, under the row lock
 #   fix-start <n> --sha <sha>              start a `fixes_due` entry: re-read the PR
 #                                          (open, head = <sha>, label present, branch in
 #                                          the target repo), remove the label, clone the
@@ -97,8 +100,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#$/p' "$0" | sed -e '/^#$/d' -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|fix-start|fix-push|merge) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|fix-start|fix-push|merge) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -156,17 +159,25 @@ fail() { logev error review_pr "PR #$N: $CMD — $1"; out "$(jq -nc --arg e "$1"
 logstep() { logev info review_step "PR #$N $1"; }
 
 # ------------------------------------------------------ REVIEWS.md rows ----
+# Concurrent runs rewrite the file, so every write holds its lock
+# (lib/common.sh → with_state_lock) and uses a temp file of its own.
 row_for()   { grep -E "^\| *$N *\|" "$REVIEWS" 2>/dev/null | head -1; }
-write_row() { # sha ts verdict status — replace in place, else append
+write_row() { with_state_lock "$REVIEWS" write_row_held "$@"; }
+write_row_held() { # sha ts verdict status — replace in place, else append
   local line="| $N | $1 | $2 | $3 | $4 |"
   if [ -n "$(row_for)" ]; then
-    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.tmp" && mv "$REVIEWS.tmp" "$REVIEWS"
+    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+    rm -f "$REVIEWS.$$.tmp"; return 1
   else
     [ -f "$REVIEWS" ] || printf '# Reviewed PRs\n\n| PR | Commit | Timestamp | Verdict | Status |\n|----|--------|-----------|---------|--------|\n' > "$REVIEWS"
     printf '%s\n' "$line" >> "$REVIEWS"
   fi
 }
-delete_row() { grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.tmp" 2>/dev/null && mv "$REVIEWS.tmp" "$REVIEWS"; }
+delete_row() { with_state_lock "$REVIEWS" delete_row_held; }
+delete_row_held() {
+  grep -vE "^\| *$N *\|" "$REVIEWS" > "$REVIEWS.$$.tmp" 2>/dev/null && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+  rm -f "$REVIEWS.$$.tmp"; return 1
+}
 
 # --------------------------------------------------------- state files ----
 ctx_get() { jq -r "$1" "$CTX/pr.json" 2>/dev/null; }
@@ -1887,6 +1898,21 @@ cmd_hold() {
   out "$(jq -nc --arg w "$why" '{outcome:"held_elsewhere", why:$w}')"
 }
 
+# A bookkeeping row (docs/review-bookkeeping.md): written or deleted under the
+# same lock as every row the review steps write.
+cmd_row() {
+  [ "${1:-}" = "--delete" ] && { delete_row; out '{"outcome":"deleted"}'; }
+  case "${1:-}" in (''|*[!0-9a-f]*) fail "row: the sha is not hex";; esac
+  case "${2:-}" in
+    ([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    (*) fail "row: the timestamp is not ISO UTC to the second";;
+  esac
+  case "${3:-}" in (''|*[!A-Za-z_-]*) fail "row: the verdict is not a word (APPROVE, SEE-GITHUB, …)";; esac
+  case "${4:-}" in (in_progress|done|awaiting_label) ;; (*) fail "row: the status is not in_progress, done or awaiting_label";; esac
+  write_row "$1" "$2" "$3" "$4"
+  out '{"outcome":"written"}'
+}
+
 cmd_release() {
   if hold_release "$N" "${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"; then
     logev info hold "PR #$N: released"
@@ -2013,7 +2039,7 @@ case "$CMD" in
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
-  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;;
+  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;; (row) cmd_row "$@";;
   (fix-start) cmd_fix_start "$@";; (fix-push) cmd_fix_push "$@";;
   (merge) cmd_merge "$@";;
 esac

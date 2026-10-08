@@ -31,7 +31,7 @@ file per UTC day), one JSON object per line:
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
   `artifact`, `stall_rate`, `stall_alert_sent`, `review_cost`,
   `review_anomaly`, `review_anomaly_sent`, `pod_boot`, `log_cleanup`,
-  `profile`, …).
+  `profile`, `dispatch`, `state_lock`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 
@@ -174,7 +174,8 @@ adapter active, duty 4 above extends to logging tool failures manually.
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). It also keeps the auto-mode
   classifier rules for the agent's documented writes outside the target repo —
-  the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload —
+  the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload,
+  the review dispatch through `schedule_once` —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of
   `denied-tools.txt` — tools neither a procedure nor a platform prompt (Kit

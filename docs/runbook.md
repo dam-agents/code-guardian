@@ -59,9 +59,22 @@ mention ledger — for *whether it is still valid at post time*.
 
 1. Echo the worklist's `logs` to the chat UI, the `project profile:` line
    included; note the per-skill install statuses (an `install-failed` skill is
-   skipped for every PR this run, with its audit line).
+   skipped for every PR this run, with its audit line). Then **dispatch**:
+   - A worklist with `dispatched` is one PR's, started by another run: take
+     that PR's hold at once (`review-pr.sh hold <n>`; `held_elsewhere` → log
+     it and end the run).
+   - Any other worklist file: `bash "$HOME/scripts/dispatch.sh" plan
+     <worklist>`, one `mcp__platform-outbound__schedule_once` call per
+     `dispatch[]` entry with exactly its `name` and `task`, then — when the
+     platform accepted any — `bash "$HOME/scripts/dispatch.sh" rest <worklist>
+     <each accepted number>`, whose worklist is this run's from here on. A PR
+     whose call failed, or every PR when the tool is missing, stays in the run;
+     `plan` prints an empty list under `review_dispatch: disabled`
+     ([worklist.md](worklist.md) → **Dispatch**).
+   - A run with no worklist file (preflight printed its JSON) dispatches
+     nothing.
 2. **Read exactly the worklist's `read_set`** — `$HOME`-relative paths,
-   computed by preflight from the due keys — and each `reviews_due` entry's
+   computed from the due keys — and each `reviews_due` entry's
    `memory_due` files. Never the memory archive, which is searched only to
    look a specific thing up ([preferences.md](preferences.md) → **Two
    layers**). A file the run needs later is read on its trigger:
@@ -264,6 +277,9 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 - A run holds one PR at a time, and does its mentions and review inside that
   hold; a PR another run holds is left to it ([worklist.md](worklist.md) →
   **PR holds**).
+- A dispatched PR belongs to its own session: its prompt is the task
+  `dispatch.sh plan` printed — the PR number and its unit worklist, nothing
+  from the PR — and the dispatching run keeps none of its entries.
 - The benchmark touches no PR and writes nothing to GitHub beyond its own
   report. `manifest.json` is read only after the run's raw reviews are written;
   fixture creation and a scored run never share a session; ground truth lives
@@ -276,8 +292,8 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
   nonce caches, or temp payload files at run end. `/tmp/cg-worklist-*.json`
   belongs to the gate, which sweeps its own past 3 h — a run never deletes one.
 - One fire, one preflight pass: a gated run consumes the worklist the gate
-  computed and never re-runs `preflight.sh` ([worklist.md](worklist.md) →
-  **The schedule gate**).
+  computed, a dispatched session its unit worklist, and neither re-runs
+  `preflight.sh` ([worklist.md](worklist.md) → **The schedule gate**).
 - All errors — posting, skills, clone, context fetch, sends, pushes — are
   logged in the chat UI **and** as events in the structured log
   ([logging.md](logging.md)).
