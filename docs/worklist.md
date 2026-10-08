@@ -142,7 +142,8 @@ PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
 worklist per PR next to the gate's file — that PR's entries from every per-PR
 key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
 by}`, and a `read_set` of its own — and prints the exact `name`
-(`code-guardian-review-pr-<n>`) and `task` of each
+(`code-guardian-review-pr-<n>`), `task` and `model` (the config's
+`review_model`, absent under `default`) of each
 `mcp__platform-outbound__schedule_once` call. The task carries the PR number and
 the unit's path alone. `dispatch.sh rest` then writes the run's own worklist
 without the PRs the platform accepted; a PR it refused stays in the run. The

@@ -419,6 +419,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      (`docs/worklist.md` → **Dispatch**). Mention that each such session pays
      its own session prefix. Default `enabled`; write the key only for
      `disabled`.
+   - **`review_model`** — the model every scheduled session runs on
+     (`docs/config.md`). Ask for a name from the agent's model settings;
+     default `opus`. Always write the key. Step 6 validates it: a
+     platform that refuses a chosen model for this harness → write
+     `review_model: default` and tell the operator; an unknown name → ask
+     again with the choices the platform lists.
    - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
      reply in its inline review threads, get handled every heartbeat:
      questions answered, review feedback recorded to memory, review requests
@@ -532,6 +538,7 @@ Final shape:
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
+- review_model: opus                   # model of every scheduled session; or another name from the model settings, or: default
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
@@ -640,7 +647,9 @@ visible to the operator.
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
 schedule gate**); the audit is ungated because its worklist carries work
-whenever `audit_report` is enabled.
+whenever `audit_report` is enabled. Every schedule here also carries
+**`model: <review_model>`**, none under `review_model: default`
+(`docs/config.md`).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
@@ -652,8 +661,8 @@ share one. For each schedule this step defines:
 | Registered state | Action |
 | --- | --- |
 | absent | create it |
-| same `name`, same cron, `task` and `precheck` as this step derives | keep it, and `toggle_schedule` it **enabled** |
-| same `name`, different cron, `task` or `precheck` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
+| same `name`, same cron, `task`, `precheck` and `model` as this step derives | keep it, and `toggle_schedule` it **enabled** |
+| same `name`, different cron, `task`, `precheck` or `model` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
 only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a create.
@@ -770,8 +779,9 @@ with the verification result (the `PASS` line plus any warnings):
 1. The final `work/CONFIG.md`, verbatim.
 2. What runs where: target repo, the review cadence (under an active window
    also the quiet-hour interval a night or weekend PR waits for), shepherd
-   cadence when Slack is on, audit day, benchmark day when enabled, and state
-   persistence (the `work_repo` backup or local-only).
+   cadence when Slack is on, audit day, benchmark day when enabled, the model
+   every scheduled session runs on (`review_model`), and state persistence (the
+   `work_repo` backup or local-only).
 3. Day-to-day usage:
    - The first review of every open non-draft PR lands automatically (chat UI +
      GitHub).

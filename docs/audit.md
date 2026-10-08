@@ -96,6 +96,12 @@ skipped task is an incomplete audit — a task that is impossible this week
      or wrong one → **warn**: that job wakes the model on idle ticks
      (worklist.md → **The schedule gate**). A `precheck` on the audit → **warn**
      too; the audit is ungated by design.
+   - **Models:** every Step 6 schedule carries `spec.model` = `review_model`,
+     none under `default` ([config.md](config.md)). A missing or different
+     one → **warn** naming the schedule and both values; the fix is Step 6's
+     re-registration. A dispatched one-time review due this week (`spec.at`)
+     on another model → **warn** too. What the week's runs actually ran on
+     is the script's `session_models` check — triage it with the others.
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
      temporary monitor is theirs to watch — report an unrecognised schedule as
      **info**, never a failure.
@@ -241,8 +247,8 @@ measurement.
       cannot name. Under 1 % of the week's `calls` it is the harness-internal
       model of the next bullet → one **info** line.
     - **Production model** — the `byModel` entry with the most `calls` is what
-      the week's runs actually ran on; report it, and **warn** when it is not
-      the model this deployment expects. The second low-call, low-cost model
+      the week's runs actually ran on; report it, and **warn** when it does not
+      match `review_model` (under `default`, report only). The second low-call, low-cost model
       beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
       deployment`, and task 36's extras omit the key. Never a fail.

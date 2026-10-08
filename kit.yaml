@@ -54,6 +54,9 @@ channels:
 # leaves the runs correct but ungated, and every idle tick pays for a session.
 # The crons hold the platform's own time. An instance's cadence, hours and days
 # are its own (`work/CONFIG.md`), and Step 6 registers them for that instance.
+# The kit schema has no `model` field yet, so these schedules start on the
+# platform's default model; Step 6 re-registers each with `review_model`. Once
+# the schema carries `model`, declare it here and drop this note.
 schedules:
   # Review heartbeat (Step 6a) — every 5 minutes, around the clock. An
   # instance that configures an active window gets its quiet-hour schedules
