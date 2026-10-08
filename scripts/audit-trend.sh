@@ -178,9 +178,33 @@ JQ_DERIVE="$PRICES_JQ"'
         | { usd: ([$c[] | select(. != null)] | if length == 0 then null else (add | r2) end),
             floor: ([$c[] | select(. == null)] | length > 0) }
       end;
+  def med: sort | if length == 0 then null elif (length % 2) == 1 then .[(length / 2) | floor]
+                   else ((.[length / 2 - 1] + .[length / 2]) / 2) end;
+  def avg: if length == 0 then null else (add / length) end;
+  def p90: sort | if length == 0 then null else .[((length - 1) * 0.9) | ceil] end;
+  # one week of session records (docs/trends.md → Runs), each priced by its own
+  # model; an unpriced session keeps usd null and leaves the cost figures
+  def sessions_priced($fallback):
+    [ (.stats.sessions // [])[]
+      | . as $r
+      | price_row(if ($r.model // "unknown") == "unknown" and $fallback != null then $fallback
+                  else ($r.model // "unknown") end) as $p
+      | $r + { usd: (if $p == null then null else ($r | token_usd($p)) end) } ];
+  def run_figures:
+    { runs: length,
+      min_median: ([.[].min | numbers] | med | r1), min_mean: ([.[].min | numbers] | avg | r1),
+      min_p90: ([.[].min | numbers] | p90 | r1),
+      usd_median: ([.[].usd | numbers] | med | if . == null then null else (. * 1000 | round) / 1000 end),
+      usd_mean: ([.[].usd | numbers] | avg | if . == null then null else (. * 1000 | round) / 1000 end),
+      usd_total: ([.[].usd | numbers] | if length == 0 then null else (add | r2) end),
+      unpriced: ([.[] | select(.usd == null)] | length),
+      reviews: ([.[].reviews // 0] | add // 0) };
   def derive:
     . as $w
     | (.stats // {}) as $s
+    | ((.stats.sessions | type) == "array") as $has_ses
+    | sessions_priced(.extras.model // null) as $ses
+    | ($ses | run_figures) as $rf
     | ($s.reviews // {}) as $rv
     | ($s.findings // {}) as $fd
     | (cost) as $cost
@@ -189,11 +213,34 @@ JQ_DERIVE="$PRICES_JQ"'
     | { week: .week, ts: .ts, source: (.source // "audit"), version: .definition_version,
         reviews: $rvn, first: ($rv.first // 0), re_review: ($rv.re_review // 0),
         approve: ($rv.approve // 0), comment: ($rv.comment // 0), request_changes: ($rv.request_changes // 0),
+        # verdict shares (docs/audit.md task 24): the first-review counts are
+        # absent in every week recorded before they existed
+        first_approve: ($rv.first_approve // null), first_request_changes: ($rv.first_request_changes // null),
+        defs: ($rv.defs // null),
+        approve_share: (if $rvn == 0 then null else (($rv.approve // 0) / $rvn | r2) end),
+        first_approve_share: (if $rv.first_approve == null or ($rv.first // 0) == 0 then null
+                              else ($rv.first_approve / $rv.first | r2) end),
+        request_changes_share: (if $rvn == 0 then null else (($rv.request_changes // 0) / $rvn | r2) end),
         findings_new: $fd.new,
         f_critical: (if $fd.new == null then null else sev($fd.new_by_severity; "critical") end),
         f_warning:  (if $fd.new == null then null else sev($fd.new_by_severity; "warning") end),
         f_suggestion: (if $fd.new == null then null else sev($fd.new_by_severity; "suggestion") end),
         findings_per_review: (if $fd.new == null or $rvn == 0 then null else ($fd.new / $rvn | r2) end),
+        # review-quality signals (docs/audit.md tasks 24, 28): the counts behind
+        # them stay in the row, so the audit pools a baseline from them
+        late: ($fd.late // null),
+        late_share: (if $fd.late == null or ($fd.new // 0) == 0 then null else ($fd.late / $fd.new | r2) end),
+        density_reviews: ($fd.density.reviews // null),
+        density_findings: ($fd.density.findings // null),
+        density_lines: ($fd.density.lines // null),
+        findings_per_100_lines: (if ($fd.density.lines // 0) == 0 then null
+                                 else ($fd.density.findings / $fd.density.lines * 100 | r2) end),
+        approved_prs: ($s.overruled.approved_prs // null),
+        overruled: (if ($s.overruled | type) != "object" then null
+                    else ([$s.overruled.changes_requested[]?.pr, $s.overruled.reverted[]?.pr] | unique | length) end),
+        overruled_share: (if ($s.overruled | type) != "object" or ($s.overruled.approved_prs // 0) == 0 then null
+                          else (([$s.overruled.changes_requested[]?.pr, $s.overruled.reverted[]?.pr] | unique | length)
+                                / $s.overruled.approved_prs | r2) end),
         acceptance: (if $accd == 0 then null else (($fd.fixed // 0) / $accd | r2) end),
         up: ($s.reactions.up // null), down: ($s.reactions.down // null),
         ttfr_min: (.extras.ttfr_median_min // null),
@@ -233,7 +280,30 @@ JQ_DERIVE="$PRICES_JQ"'
         human_ttfr_h: ($s.project.human_latency.median_hours // null),
         human_ttfr_n: ($s.project.human_latency.n // null),
         conflicts: ($s.project.conflicts // null),
-        hot_areas: ($s.project.hot_areas // null) };
+        hot_areas: ($s.project.hot_areas // null),
+        # disk (docs/audit.md task 4): the fullest volume a run writes to
+        disk_used_pct: ([($s.disk.volumes // [])[] | .used_pct | numbers] | max),
+        disk_inode_pct: ([($s.disk.volumes // [])[] | .inode_pct | numbers] | max),
+        work_mb: (if ($s.disk.work_kb | type) == "number" then ($s.disk.work_kb / 1024 | round) else null end),
+        # runs (docs/trends.md → Runs): length and cost per finished session,
+        # for the week and per day; absent before session records existed
+        runs: (if $has_ses then $rf.runs else null end),
+        run_min_median: (if $has_ses then $rf.min_median else null end),
+        run_min_mean: (if $has_ses then $rf.min_mean else null end),
+        run_min_p90: (if $has_ses then $rf.min_p90 else null end),
+        run_usd_median: (if $has_ses then $rf.usd_median else null end),
+        run_usd_mean: (if $has_ses then $rf.usd_mean else null end),
+        review_run_min_median: (if $has_ses then ([$ses[] | select(.reviews > 0) | .min | numbers] | med | r1) else null end),
+        cache_hit: (if $has_ses then
+                      ([$ses[] | (.input // 0) + (.cache_read // 0) + (.cache_creation // 0)] | add // 0) as $in
+                      | if $in == 0 then null else (([$ses[].cache_read // 0] | add) / $in | r2) end
+                    else null end),
+        days: (if $has_ses then
+                 ($ses | group_by(.day)
+                  | map(. as $d | ($d | run_figures)
+                        + { day: $d[0].day,
+                            by_job: ($d | group_by(.job) | map({key: .[0].job, value: length}) | from_entries) }))
+               else null end) };
 '
 DERIVED="$(printf '%s' "$ALL" | jq -c --argjson prices "$PRICES" "$JQ_DERIVE"'map(derive)' 2>/dev/null)"
 DERIVED="${DERIVED:-[]}"
@@ -254,16 +324,18 @@ write_trends() {
     [ -n "$markers" ] && printf '%s\n' "$markers"
     printf '\n_Derived view of `weeks/*.json` (append-only), regenerated by `scripts/audit-trend.sh`._\n'
     printf '_Semantics: `docs/trends.md`. "—" = not measured that week._\n\n'
-    printf '| week | src | reviews (1st/re) | ✅/⚠️/❌ | new 🔴/🟡/🟢 | f/rev | acc | cov | PR size | human | confl | ttfr | dur | idle | wake (r/m/a) | out-tok | est $ | act $ | $/rev | stalled | err/warn |\n'
-    printf '|------|-----|------------------|---------|--------------|-------|-----|-----|---------|-------|-------|------|-----|------|--------------|---------|-------|-------|-------|---------|----------|\n'
+    printf '| week | src | reviews (1st/re) | ✅/⚠️/❌ | ✅ 1st | ovr | new 🔴/🟡/🟢 | f/rev | f/100L | late | acc | cov | PR size | human | confl | ttfr | dur | idle | wake (r/m/a) | out-tok | est $ | act $ | $/rev | stalled | err/warn | disk |\n'
+    printf '|------|-----|------------------|---------|--------|-----|--------------|-------|--------|------|-----|-----|---------|-------|-------|------|-----|------|--------------|---------|-------|-------|-------|---------|----------|------|\n'
     printf '%s' "$DERIVED" | jq -r '
       def f: if . == null then "—" else tostring end;
       def pc: if . == null then "—" else ((. * 100 | round) | tostring + "%") end;
       .[] | "| \(.week) | \(if .source == "audit" then "audit" else "bf" end)"
         + " | \(.reviews|f) (\(.first|f)/\(.re_review|f))"
         + " | \(.approve|f)/\(.comment|f)/\(.request_changes|f)"
+        + " | \(.first_approve_share|pc)"
+        + " | \(if .overruled == null then "—" else "\(.overruled)/\(.approved_prs)" end)"
         + " | \(if .findings_new == null then "—" else "\(.findings_new) (\(.f_critical)/\(.f_warning)/\(.f_suggestion))" end)"
-        + " | \(.findings_per_review|f) | \(.acceptance|pc)"
+        + " | \(.findings_per_review|f) | \(.findings_per_100_lines|f) | \(.late_share|pc) | \(.acceptance|pc)"
         + " | \(if .coverage == null then "—" else "\(.coverage)% of \(.merged)" end)"
         + " | \(if .pr_files == null then "—" else "\(.pr_files)f/\(.pr_lines|f)L" end)"
         + " | \(if .human_ttfr_h == null then "—" else "\(.human_ttfr_h)h" end)"
@@ -276,7 +348,8 @@ write_trends() {
         + " | \(.actual_cost_usd|f)"
         + " | \(.cost_per_review|f)"
         + " | \(if .stalled == null then "—" else "\(.stalled)/\(.locked_runs)" end)"
-        + " | \(.errors|f)/\(.warns|f) |"'
+        + " | \(.errors|f)/\(.warns|f)"
+        + " | \(if .disk_used_pct == null then "—" else "\(.disk_used_pct)%" end) |"'
   } > "$DIR/TRENDS.md.tmp" && mv "$DIR/TRENDS.md.tmp" "$DIR/TRENDS.md"
 }
 
@@ -374,6 +447,28 @@ TIPS='{
 "Wake-ups": "Count of runs that found work. Each wake-up costs tokens. At equal work, lower is better: many wake-ups for few items means runs start for too little work.",
 "Stalled runs": "Count of runs that stopped before the end and were done again. Lower is better: each stalled run is wasted spend.",
 "Error events": "Count of error events in the agent logs. Lower is better.",
+"APPROVE share": "The share of all reviews of the week that approved. A sudden change against the 4-week average means the review became looser or stricter, or the PRs changed. The audit alerts on a large change.",
+"APPROVE share, first reviews": "The share of first reviews that approved. Re-reviews approve more often after fixes, so this share is the cleaner quality signal.",
+"REQUEST_CHANGES share": "The share of all reviews of the week that requested changes.",
+"Disk used (fullest volume)": "Used space of the fullest volume the agent writes to: work/, the review clones, the backup clone. The audit warns at 85 % and fails at 95 %.",
+"work/ size (MB)": "Size of the work/ data directory. The backup clones it into memory, so a fast growth needs attention.",
+"disk": "Used space of the fullest volume the agent writes to, and the size of work/.",
+"Findings per 100 changed lines": "New findings of first reviews per 100 changed lines of those PRs (a PR counts up to 1000 lines). It removes the PR size from the findings count. Half or double the 4-week value is a change of review depth; the audit alerts on it.",
+"Missed earlier": "The share of raised findings that an earlier review round of the same PR had missed. Lower is better. A rise means that the rounds read too narrowly.",
+"APPROVE overruled": "The share of PRs this agent approved that a person then overruled: changes requested on the approved commit, or a revert. Lower is better. Each case is a defect the review let through.",
+"Runs": "Count of finished agent sessions in the week: every gated fire that found work, the audit and the direct sessions. A crashed session has no record.",
+"Run length, median (min)": "Median wall time of one session, from the first to the last transcript line. Lower is better at equal work.",
+"Run length, mean (min)": "Mean wall time of one session. A mean far above the median means a few very long runs.",
+"Run length, p90 (min)": "Nine of ten sessions were this long or shorter. A rise here, with a flat median, means that some runs got stuck or slow.",
+"Review run length, median (min)": "Median wall time of the sessions that posted a review.",
+"Cost per run, median": "Median estimated spend of one session in US dollars, priced with the CONFIG table.",
+"Cost per run, mean": "Mean estimated spend of one session in US dollars. A mean far above the median means a few very expensive runs.",
+"Cache hit ratio": "The share of input tokens read from the prompt cache. Higher is better: cache reads cost a tenth of fresh input.",
+"day": "UTC day of the runs.",
+"runs": "Finished sessions of the day, and in brackets the count per job.",
+"length med/avg": "Median / mean minutes of one session that day.",
+"$ med/avg": "Median / mean estimated spend of one session that day, in US dollars.",
+"$ day": "Estimated spend of all sessions of the day, in US dollars. ≥ means that some sessions have no price row.",
 "awaiting_label backlog": "Count of reviewed PRs that wait for a re-review request. Lower is better. A large backlog means the team does not ask for re-reviews."
 }'
 
@@ -394,12 +489,13 @@ JQ_VIEW='
   def pc: if . == null then "—" else ((. * 100 | round) | tostring + "%") end;
   def cell: if . == null then "<td class=\"n dash\">—</td>" else "<td class=\"n\">\(.)</td>" end;
   # delta against the previous week; the arrow duplicates the sign, so color is
-  # never the only signal. $good = "up" when a rising value is the good news.
+  # never the only signal. $good = "up" when a rising value is the good news,
+  # "flat" when neither direction is (a verdict share), which stays neutral.
   def delta($cur; $prev; $good; $unit):
     if $cur == null or $prev == null then ""
     else (((($cur - $prev) * 100 | round) / 100)) as $x
       | if $x == 0 then " <span class=\"d z\">=</span>"
-        else (if ($x > 0) == ($good == "up") then "up" else "down" end) as $cls
+        else (if $good == "flat" then "z" elif ($x > 0) == ($good == "up") then "up" else "down" end) as $cls
           | " <span class=\"d \($cls)\">\(if $x > 0 then "▲" else "▼" end)\((if $x < 0 then -$x else $x end))\($unit)</span>"
         end
     end;
@@ -410,11 +506,11 @@ JQ_VIEW='
     if $cur == null or $prev == null then ""
     elif $cur == $prev then " <span class=\"d z\">=</span>"
     elif $prev == 0 then
-      (if ($cur > 0) == ($good == "up") then "up" else "down" end) as $cls
+      (if $good == "flat" then "z" elif ($cur > 0) == ($good == "up") then "up" else "down" end) as $cls
       | " <span class=\"d \($cls)\">\(if $cur > 0 then "▲" else "▼" end) from 0</span>"
     else ((((($cur - $prev) / (if $prev < 0 then -$prev else $prev end)) * 1000 | round) / 10)) as $x
       | if $x == 0 then " <span class=\"d z\">=</span>"
-        else (if ($x > 0) == ($good == "up") then "up" else "down" end) as $cls
+        else (if $good == "flat" then "z" elif ($x > 0) == ($good == "up") then "up" else "down" end) as $cls
           | " <span class=\"d \($cls)\">\(if $x > 0 then "▲" else "▼" end)\((if $x < 0 then -$x else $x end))%</span>"
         end
     end;
@@ -511,6 +607,12 @@ SUMMARY="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_TH
          srow($rows; "Findings raised"; "findings_new"; "up"; "num"),
          srow($rows; "Findings per review"; "findings_per_review"; "up"; "num"),
          srow($rows; "Findings acceptance"; "acceptance"; "up"; "pct"),
+         srow($rows; "APPROVE share"; "approve_share"; "flat"; "pct"),
+         srow($rows; "APPROVE share, first reviews"; "first_approve_share"; "flat"; "pct"),
+         srow($rows; "REQUEST_CHANGES share"; "request_changes_share"; "flat"; "pct"),
+         srow($rows; "Findings per 100 changed lines"; "findings_per_100_lines"; "flat"; "num"),
+         srow($rows; "Missed earlier"; "late_share"; "down"; "pct"),
+         srow($rows; "APPROVE overruled"; "overruled_share"; "down"; "pct"),
          srow($rows; "Review coverage of merged PRs"; "coverage"; "up"; "num"),
          srow($rows; "Median PR size (files)"; "pr_files"; "down"; "num"),
          srow($rows; "Time to first human review (h)"; "human_ttfr_h"; "down"; "num"),
@@ -521,11 +623,21 @@ SUMMARY="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_TH
          srow($rows; "Spend per week (actual)"; "actual_cost_usd"; "down"; "usd"),
          srow($rows; "Spend per review (est)"; "cost_per_review"; "down"; "usd"),
          srow($rows; "Output tokens"; "out_tokens"; "down"; "num"),
+         srow($rows; "Runs"; "runs"; "down"; "num"),
+         srow($rows; "Run length, median (min)"; "run_min_median"; "down"; "num"),
+         srow($rows; "Run length, mean (min)"; "run_min_mean"; "down"; "num"),
+         srow($rows; "Run length, p90 (min)"; "run_min_p90"; "down"; "num"),
+         srow($rows; "Review run length, median (min)"; "review_run_min_median"; "down"; "num"),
+         srow($rows; "Cost per run, median"; "run_usd_median"; "down"; "usd"),
+         srow($rows; "Cost per run, mean"; "run_usd_mean"; "down"; "usd"),
+         srow($rows; "Cache hit ratio"; "cache_hit"; "up"; "pct"),
          srow($rows; "Idle heartbeats"; "idle_ratio"; "up"; "pct"),
          srow($rows; "Wake-ups"; "wakeups"; "down"; "num"),
          srow($rows; "Stalled runs"; "stalled"; "down"; "num"),
          srow($rows; "Error events"; "errors"; "down"; "num"),
-         srow($rows; "awaiting_label backlog"; "awaiting"; "down"; "num") ] | join(""))
+         srow($rows; "awaiting_label backlog"; "awaiting"; "down"; "num"),
+         srow($rows; "Disk used (fullest volume)"; "disk_used_pct"; "down"; "num"),
+         srow($rows; "work/ size (MB)"; "work_mb"; "down"; "num") ] | join(""))
     + "</tbody></table></div>"
     + "<p class=\"note\">▲▼ are relative changes; a ratio row changes in percentage points."
     + " Green is the good direction for that row. The 4-week average covers the four weeks"
@@ -549,6 +661,25 @@ CHARTS="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
               {key:"duration_min", scale:1, color:"var(--c2)", name:"review duration"}])
     + figure($rows; "Findings acceptance (%)"; "Share of flagged findings fixed by the next re-review.";
              [{key:"acceptance", scale:100, color:"var(--c1)", name:"fixed / (fixed + still)"}])
+    + figure($rows; "Run length (minutes)"; "Wall time of one session: median, mean and the 90th percentile.";
+             [{key:"run_min_median", scale:1, color:"var(--c1)", name:"median"},
+              {key:"run_min_mean", scale:1, color:"var(--c2)", name:"mean"},
+              {key:"run_min_p90", scale:1, color:"var(--c3)", name:"p90"}])
+    + figure($rows; "Cost per run (USD)"; "Estimated spend of one session, priced with the CONFIG table.";
+             [{key:"run_usd_median", scale:1, color:"var(--c1)", name:"median"},
+              {key:"run_usd_mean", scale:1, color:"var(--c2)", name:"mean"}])
+    + figure($rows; "Verdicts (%)"; "Approve and request-changes shares. A step that stays after a definition or model change is a change of review quality.";
+             [{key:"approve_share", scale:100, color:"var(--c1)", name:"approve, all reviews"},
+              {key:"first_approve_share", scale:100, color:"var(--c2)", name:"approve, first reviews"},
+              {key:"request_changes_share", scale:100, color:"var(--c3)", name:"request changes"}])
+    + figure($rows; "Findings per 100 changed lines"; "New findings of first reviews against the size of those PRs. A step down at equal PR size is a shallower review.";
+             [{key:"findings_per_100_lines", scale:1, color:"var(--c1)", name:"findings / 100 lines"}])
+    + figure($rows; "Missed earlier & APPROVE overruled (%)"; "Findings an earlier round missed, and approvals a person overruled. Both are review misses; lower is better.";
+             [{key:"late_share", scale:100, color:"var(--c1)", name:"missed earlier"},
+              {key:"overruled_share", scale:100, color:"var(--c2)", name:"APPROVE overruled"}])
+    + figure($rows; "Disk (%)"; "The fullest volume the agent writes to: used space and used inodes.";
+             [{key:"disk_used_pct", scale:1, color:"var(--c1)", name:"space used %"},
+              {key:"disk_inode_pct", scale:1, color:"var(--c2)", name:"inodes used %"}])
     + figure($rows; "Wasted reviews & idle heartbeats (%)"; "Runs redone after a stall, and the idle share of heartbeats.";
              [{key:"stalled_ratio", scale:100, color:"var(--c2)", name:"stalled runs"},
               {key:"idle_ratio", scale:100, color:"var(--c1)", name:"idle heartbeats"}])
@@ -606,6 +737,8 @@ ROWS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW"'
         + (if $c.errors == null then "<td class=\"n dash\">—</td>" else "<td class=\"n\">\($c.errors)/\($c.warns)</td>" end)
         + (if $c.c_fail == null then "<td class=\"n dash\">—</td>"
            else "<td class=\"n\">\($c.c_fail)/\($c.c_warn)/\($c.c_ok)</td>" end)
+        + (if $c.disk_used_pct == null then "<td class=\"n dash\">—</td>"
+           else "<td class=\"n\">\($c.disk_used_pct)%\(if $c.work_mb == null then "" else " · \($c.work_mb) MB" end)</td>" end)
         + "</tr>" ] | reverse | join("\n")' 2>/dev/null)"
 
 # the header of the table above, in its column order; "n" marks the columns
@@ -618,8 +751,31 @@ HEAD_WEEKS="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
     ["👍/👎","n"], ["ttfr","n"], ["dur","n"], ["slowest phase",""], ["open","n"],
     ["awaiting","n"], ["artifacts","n"], ["heartbeats","n"], ["wake-ups","n"], ["out-tok","n"],
     ["est $","n"], ["act $","n"], ["$/rev","n"], ["stalled","n"], ["err/warn","n"],
-    ["🔴/🟡/🟢 checks","n"] ]
+    ["🔴/🟡/🟢 checks","n"], ["disk","n"] ]
   | map(th(.[0]; .[0]; .[1]; .[2] // "")) | join("")')"
+
+# runs per day over the latest four recorded weeks (docs/trends.md → Runs),
+# newest day first, plus one chart of the same days
+DAYS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_TH"'
+  [ .[-4:][] | (.days // [])[] ] | sort_by(.day) as $d
+  | if ($d | length) == 0 then "" else
+    "<h2>Runs by day</h2>"
+    + figure([ $d[] | . + {week: .day} ]; "Run length and cost per day"; "Median minutes of one session, and the median spend of one session in cents.";
+             [{key:"min_median", scale:1, color:"var(--c1)", name:"median minutes"},
+              {key:"usd_median", scale:100, color:"var(--c2)", name:"median cents"}])
+    + "<div class=\"scroll\"><table><thead><tr>"
+    + ([ ["day",""], ["runs","n"], ["reviews","n"], ["length med/avg","n"], ["$ med/avg","n"], ["$ day","n"] ]
+       | map(th(.[0]; .[0]; .[1])) | join(""))
+    + "</tr></thead><tbody>"
+    + ([ $d | reverse[]
+         | "<tr><td>\(.day)</td>"
+           + "<td class=\"n\">\(.runs) (\(.by_job | to_entries | map("\(.key) \(.value)") | join(", ")))</td>"
+           + "<td class=\"n\">\(.reviews)</td>"
+           + "<td class=\"n\">\(.min_median | f) / \(.min_mean | f)</td>"
+           + "<td class=\"n\">\(.usd_median | f) / \(.usd_mean | f)</td>"
+           + "<td class=\"n\">\(if .unpriced > 0 then "≥" else "" end)\(.usd_total | f)</td></tr>" ] | join(""))
+    + "</tbody></table></div>"
+  end' 2>/dev/null)"
 
 LATEST="$(printf '%s' "$DERIVED" | jq -r '(last // {}) | .week // "no weeks yet"')"
 PRICED="$(printf '%s' "$PRICES" | jq 'length')"
@@ -701,6 +857,7 @@ Semantics: docs/trends.md.</p>
 ${SUMMARY}
 <h2>Week over week</h2>
 ${CHARTS}
+${DAYS_HTML}
 <h2>Every week</h2>
 <div class=scroll>
 <table>

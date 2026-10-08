@@ -1689,7 +1689,7 @@ append_history() { # sha7 ts verdict body-file findings note kind — the body a
 # Best-effort by design: a row that cannot be built or written is logged and
 # never fails the post.
 append_ledger() { # sha7 ts verdict body-file findings kind
-  local fx sp sup ste size row
+  local fx sp sup ste size def row
   # a count GitHub has not finished computing reads as absent, never as zero
   num() { case "${1:-}" in (''|null|*[!0-9]*) printf null;; (*) printf '%s' "$1";; esac; }
   fx="$(grep -cE '^- ✅ \*\*Fixed:\*\*' "$4" 2>/dev/null || true)"
@@ -1704,11 +1704,15 @@ append_ledger() { # sha7 ts verdict body-file findings kind
     --argjson a "$(num "$(ctx_get '.changes.additions')")" \
     --argjson d "$(num "$(ctx_get '.changes.deletions')")" \
     '{files:$f, additions:$a, deletions:$d}' 2>/dev/null)"
-  row="$(jq -nc --argjson pr "$N" --arg sha "$1" --arg ts "$2" --arg v "$3" --arg k "${6:-}" \
+  # the definition version that wrote the review, so a verdict shift can be
+  # tied to the change behind it (docs/audit.md → task 24)
+  def="$(head -1 "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]')"
+  row="$(jq -nc --argjson pr "$N" --arg sha "$1" --arg ts "$2" --arg v "$3" --arg k "${6:-}" --arg def "$def" \
     --argjson fx "${fx:-0}" --argjson sp "${sp:-0}" --slurpfile f "$5" \
     --argjson sup "${sup:-null}" --argjson ste "${ste:-null}" --argjson size "${size:-null}" '
     { src: "ledger", pr: $pr, ts: $ts, sha: $sha,
       kind: (if $k == "" then "first" else $k end), verdict: $v, size: $size,
+      def: (if $def == "" then null else $def end),
       bullets: { fixed: $fx, still: $sp }, suppressed: $sup, ste: $ste,
       findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
                   | select(type == "object")
