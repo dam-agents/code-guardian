@@ -21,6 +21,10 @@ reconcile the review heartbeat per ONBOARDING Step 6a, which re-registers
 `code-guardian-review-active` and deletes `code-guardian-review-quiet` and
 `code-guardian-review-offdays`.
 
+## 8.14.1 — 2026-10-08
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 8.14.0 — 2026-10-08
 
 **Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
