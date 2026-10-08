@@ -357,6 +357,16 @@ measurement.
     artifact URL fill the report's *Trend* line. A failed append or publish is
     reported as `warn` with the reason; the audit is complete regardless.
 
+37. **Review shape** — `stats.review_shape`: the medians of each review's
+    `secs`, `msgs`, `peak_ctx`, `repeats`, `failures` and `max_out`, this week
+    against the week before, the reviews this week's anomaly alerts named, and
+    the stored baseline per model ([review-bookkeeping.md](review-bookkeeping.md)
+    → **Review anomaly alert**). The alert compares a review with the repo's
+    own median, so a slow rise moves the median with it: a median up by half
+    or more against the week before, with a similar review count, is a
+    **warn** naming the field. A model below `baseline_min` is reported as
+    `baseline n/10 — cost, time and context not judged yet`, never a warn.
+
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 
@@ -380,6 +390,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
 • Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27)
+• Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)

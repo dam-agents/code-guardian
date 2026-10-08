@@ -122,7 +122,7 @@ chmod 700 "$SANDBOX/tmp"
 assert_rc 0 'an unwritable worklist starts the session anyway'
 assert_out_absent '^worklist: ' 'and names no path'
 assert_out_contains 'could not be written' 'and says why the run recomputes it'
-assert_out_contains 'stall alert may be missing' 'and what the spent bookkeeping costs'
+assert_out_contains 'stall or anomaly alert may be missing' 'and what the spent bookkeeping costs'
 
 # --- the gate cleans up after itself ----------------------------------------
 # a skipped fire has no session to sweep its scratch, so the gate does it

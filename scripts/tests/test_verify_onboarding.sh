@@ -279,6 +279,23 @@ run_verify
 assert_rc 0 'unknown extras never block'
 assert_out 'warn work-layout .*UNEXPECTED.txt' 'extras are listed as a warning'
 
+new_case review_anomaly_state_known
+seed_home; seed_memory; seed_lessons
+verify_config '- review_anomaly_factor: 2.5'
+printf '{}\n' > "$WORK/REVIEW-USAGE.jsonl"
+printf '2026-10-07T10:00:00Z\n' > "$WORK/.review-anomaly-seen"
+mkdir "$WORK/.review-anomaly.lock"
+run_verify
+assert_out 'ok   work-layout' 'the review anomaly baseline, marker and claim are part of the layout'
+assert_out "ok   config-review_anomaly_factor — '2.5'" 'a decimal factor is valid'
+
+new_case review_anomaly_factor_below_one
+seed_home; seed_memory; seed_lessons
+verify_config '- review_anomaly_factor: 0.5'
+run_verify
+assert_rc 1 'a factor between 0 and 1 fails'
+assert_out 'FAIL config-review_anomaly_factor .*1 or more' 'and names the valid range'
+
 new_case missing_github_repo
 seed_home; seed_memory; seed_lessons
 {                                            # no github_repo anywhere

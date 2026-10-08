@@ -201,7 +201,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -261,6 +261,7 @@ EOF
     chk_enum benchmark_report 'dam|off' 'dam | off'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
+    chk_enum review_anomaly_factor '0+(\.0+)?|0*[1-9][0-9]*(\.[0-9]+)?|off' 'a number of 1 or more | 0 | off'
     # Review cadence (docs/config.md). Both intervals must
     # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
     # window that wraps midnight is not expressible as a single cron.
@@ -469,7 +470,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey .cache .gitignore .stall-alert-day .stall-alert.lock .housekeeping-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock .housekeeping-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

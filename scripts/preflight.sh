@@ -12,8 +12,9 @@
 #     flip (keeps the re-review trigger gate's transition logs one-shot),
 #     shepherd-ledger bookkeeping for rows with no nudge due, PR-EVENTS.jsonl
 #     facts, the housekeeping batch's wait marker, dead PR holds removed, the
-#     stall-alert day claim — plus HEARTBEAT.log / SHEPHERD.log lines,
-#     structured events in work/logs/ (scripts/log.sh — docs/logging.md), the
+#     stall-alert day claim, the anomaly-alert marker — plus HEARTBEAT.log /
+#     SHEPHERD.log lines, structured events in work/logs/ (scripts/log.sh —
+#     docs/logging.md), the
 #     per-pass /tmp scratch directory (removed on exit), the skill install
 #     cache, the git credential helper (`gh auth setup-git`, before the agent
 #     clones), the project profile refresh (work/PROFILE.{json,md} + its /tmp
@@ -24,7 +25,8 @@
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / status_resets_due / artifacts_due
 #                             / urgent_alerts_due / mentions_due / ci_failures_due
-#                             / merges_due / fixes_due / stall_alert, the
+#                             / merges_due / fixes_due / stall_alert
+#                             / review_anomaly, the
 #                             read_set, config (resolved keys) and memory
 #                             (budget) whenever there is work, plus the skill
 #                             install and the per-PR inventory when a review or
@@ -66,6 +68,7 @@ WORK="${WORK_DIR:-$HOME_DIR/work}"
 CONFIG="$WORK/CONFIG.md"
 REVIEWS="$WORK/REVIEWS.md"
 LEDGER="$WORK/REVIEW-LEDGER.jsonl"
+REVIEW_USAGE="$WORK/REVIEW-USAGE.jsonl"   # the anomaly baseline (docs/review-bookkeeping.md)
 SHEPHERD="$WORK/SHEPHERD.md"
 # Append-only PR facts the weekly project-health metrics are counted from.
 # The shepherd ledger cannot serve them: pruning deletes a merged PR's row,
@@ -416,6 +419,25 @@ case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
 esac
+# review anomaly alert (docs/review-bookkeeping.md → Review anomaly alert): a
+# review whose metric reaches max(floor, factor × the median of its model's
+# recent reviews) (0/off = disabled)
+ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
+case "$ANOMALY_FACTOR" in
+  (off|none) ANOMALY_FACTOR=0;;
+  ('') ANOMALY_FACTOR=4;;
+  (*) # 0 or a number of 1 or more, printed as a JSON number
+      ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
+        | awk '{ f = $1 + 0; if (f == 0 || f >= 1) print f }')"
+      if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
+      else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
+esac
+ANOMALY_MIN_SAMPLES=10     # baseline reviews of the same model before a median rule applies
+ANOMALY_WINDOW=30          # the baseline: that model's last N reviews before the one judged
+# floors: the least a count must reach to alert, whatever the repo's median
+ANOMALY_REPEATS=8          # one identical tool call this often in one review
+ANOMALY_FAILURES=5         # tool_failure events in one review
+ANOMALY_OUTPUT=200000      # characters of one tool result
 # Review cadence (docs/config.md). The crons themselves live
 # in the platform scheduler (ONBOARDING Step 6a); the only thing read here is
 # the quiet interval, because the audit's heartbeat-gap check is measured
@@ -479,7 +501,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
-  --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" \
+  --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
@@ -498,7 +520,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr,
-   escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall,
+   escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
    shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
@@ -803,6 +825,8 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   # otherwise idle heartbeat, and never deferred: this pass already spent its
   # once-per-UTC-day claim, so a skipped fire loses the alert
   [ -n "${STALL_ALERT:-}" ] && nothing=false
+  # the same for an anomaly alert: this pass already moved its marker
+  [ -n "${ANOMALY_ALERT:-}" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
   for a in "$3" "$4" "$resets"; do
     hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
@@ -822,12 +846,12 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) stall=$([ -n "${STALL_ALERT:-}" ] && echo 1 || echo 0) anomaly=$([ -n "${ANOMALY_ALERT:-}" ] && echo 1 || echo 0) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
     --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
     --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
     --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" --argjson stall "${STALL_ALERT:-null}" \
+    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" --argjson stall "${STALL_ALERT:-null}" --argjson anomaly "${ANOMALY_ALERT:-null}" \
     --argjson hkonly "$hk_only" \
     --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
     --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
@@ -836,6 +860,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
      + (if $stall == null then {} else {stall_alert:$stall} end)
+     + (if $anomaly == null then {} else {review_anomaly:$anomaly} end)
      + (if $hkonly then {housekeeping_only:true} else {} end)
      + (if $nothing then {} else {config:$config, memory:$memory} end)
      + (if $profile == null then {} else {profile:$profile} end)
@@ -856,7 +881,7 @@ READ_SET_JQ='def read_set:
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
        then ["docs/review-urgent.md"] else [] end)
     + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
-          or .stall_alert != null
+          or .stall_alert != null or .review_anomaly != null
        then ["docs/review-bookkeeping.md"] else [] end)
     + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
           and ((.config.watch_rules // []) | length) > 0
@@ -1472,6 +1497,101 @@ if [ "$MODE" = "review" ]; then
         logev warn stall_rate "$STALL_N stalled review(s) in 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS"
       fi
       rmdir "$WORK/.stall-alert.lock" 2>/dev/null
+    fi
+  fi
+
+  # ------------------------------------------------- review anomaly alert ----
+  # docs/review-bookkeeping.md → Review anomaly alert. Every `review_cost`
+  # event (one review's lock-to-done usage and shape, logged by the harness
+  # adapter) of the last 24 h newer than the marker is judged once: each
+  # metric against max(floor, factor × the median of the same model's previous
+  # reviews) — floors only for the counts and the largest tool result. The
+  # marker then moves to the newest event, under a mkdir claim. Local reads
+  # only, no extra run.
+  if [ "$ANOMALY_FACTOR" != 0 ]; then
+    find "$WORK/.review-anomaly.lock" -maxdepth 0 -mmin +5 -exec rmdir {} \; 2>/dev/null || true
+    if mkdir "$WORK/.review-anomaly.lock" 2>/dev/null; then
+      ANOMALY_MARKER="$WORK/.review-anomaly-seen"
+      # judged: the last 24 h after the marker — first contact, a re-enabled
+      # alert and a stale marker alike
+      ANOMALY_CUT="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
+      ANOMALY_SEEN="$(cat "$ANOMALY_MARKER" 2>/dev/null)"
+      [ "$ANOMALY_SEEN" \> "$ANOMALY_CUT" ] || ANOMALY_SEEN="$ANOMALY_CUT"
+      ANOMALY_EVENTS="$(events_jsonl review_cost | jq -sc '[ .[] | select(.event == "review_cost") | try (
+          .ts as $ts | .msg | capture("^PR #(?<pr>[0-9]+) (?<sha>[0-9a-f]{7}) ") as $c
+          | [scan("([a-z_]+)=([^ ]+)") | {(.[0]): (.[1] | tonumber? // .)}] | add
+          | . + {ts: $ts, pr: ($c.pr | tonumber), sha: $c.sha}) ] | sort_by(.ts)' 2>/dev/null)"
+      if [ -n "$ANOMALY_EVENTS" ] && [ "$(printf '%s' "$ANOMALY_EVENTS" | jq --arg s "$ANOMALY_SEEN" 'any(.[]; .ts > $s)')" = true ]; then
+        . "$SCRIPT_DIR/lib/prices.sh"
+        # the baseline outlives the 14-day event retention: the judged reviews
+        # of REVIEW-USAGE.jsonl (line by line, a broken line drops alone) plus
+        # the retained events, one row per review
+        ANOMALY_ALL="$( { jq -cR 'fromjson? // empty' "$REVIEW_USAGE" 2>/dev/null; printf '%s' "$ANOMALY_EVENTS" | jq -c '.[]'; } \
+          | jq -sc '[.[] | objects] | unique_by([.ts, .pr, .sha, .model]) | sort_by(.ts)' 2>/dev/null)"
+        # a failed merge judges on the retained events and keeps the stored baseline
+        ANOMALY_STORE=true
+        [ -n "$ANOMALY_ALL" ] || { ANOMALY_ALL="$ANOMALY_EVENTS"; ANOMALY_STORE=false; }
+        ANOMALY_JUDGED="$(printf '%s' "$ANOMALY_ALL" | jq -c --arg seen "$ANOMALY_SEEN" \
+          --argjson f "$ANOMALY_FACTOR" --argjson min "$ANOMALY_MIN_SAMPLES" --argjson w "$ANOMALY_WINDOW" \
+          --argjson lim "$(jq -nc --argjson r "$ANOMALY_REPEATS" --argjson fl "$ANOMALY_FAILURES" --argjson o "$ANOMALY_OUTPUT" \
+                           '{repeats: $r, failures: $fl, max_out: $o}')" \
+          --argjson prices "$(prices_json "$CONFIG")" "$PRICES_JQ"'
+          # unpriced model: tokens weighted by the usual Claude price ratios — a
+          # ratio within one model needs no absolute price
+          def cost: price_row(.model) as $p
+            | if $p then {v: token_usd($p), unit: "usd"}
+              else {v: ((.input // 0) + 5 * (.output // 0) + 0.1 * (.cache_read // 0) + 1.25 * (.cache_creation // 0)),
+                    unit: "weighted_tokens"} end;
+          def median: sort | if length % 2 == 1 then .[length / 2 | floor]
+                             else (.[length / 2 - 1] + .[length / 2]) / 2 end;
+          def r($d): . * $d | round / $d;
+          # one rule on field <k> of review $r: at or over max(floor, factor × the
+          # median of baseline $b) — the median counts from $min baseline
+          # reviews on, the floor (null = none) always, so a repo sets its own norm
+          def rule($r; $b; $rule; $k; $floor): [$b[] | .[$k] | numbers] as $x
+            | (if ($x | length) >= $min then ($x | median) else null end) as $m
+            | ([$floor, (if ($m // 0) > 0 then $f * $m else null end)] | map(numbers) | max) as $lim
+            | select($lim != null and ($r[$k] | type) == "number" and $r[$k] >= $lim)
+            | {rule: $rule, value: ($r[$k] | r(100)), limit: ($lim | r(100)), median: ($m | if . then r(100) else null end),
+               ratio: (if ($m // 0) > 0 then $r[$k] / $m | r(10) else null end)};
+          map(. + cost) as $all
+          | {newest: ($all | map(.ts) | max),
+             reviews: [$all[] | select(.ts > $seen) as $r
+               | [$all[] | select(.model == $r.model and .ts < $r.ts)][-$w:] as $b
+               | [rule($r; $b; "cost"; "v"; null), rule($r; $b; "time"; "secs"; null),
+                  rule($r; $b; "context"; "peak_ctx"; null), rule($r; $b; "repeats"; "repeats"; $lim.repeats),
+                  rule($r; $b; "failures"; "failures"; $lim.failures), rule($r; $b; "output"; "max_out"; $lim.max_out)] as $why
+               | select($why | length > 0)
+               | {pr: $r.pr, sha: $r.sha, ts: $r.ts, model: $r.model, reasons: $why,
+                  unit: $r.unit, cost: ($r.v | r(100)), samples: ($b | length),
+                  secs: $r.secs, msgs: $r.msgs, subagents: $r.subagents,
+                  input: $r.input, output: $r.output, cache_read: $r.cache_read, cache_creation: $r.cache_creation,
+                  peak_ctx: $r.peak_ctx, repeats: $r.repeats, repeat_tool: $r.repeat_tool,
+                  max_out: $r.max_out, failures: $r.failures}]}' 2>/dev/null)"
+        ANOMALY_NEWEST="$(printf '%s' "$ANOMALY_JUDGED" | jq -r '.newest // empty' 2>/dev/null)"
+        # keep the last $ANOMALY_WINDOW reviews per model, read -> tmp -> mv under the claim
+        if [ "$ANOMALY_STORE" = true ]; then
+          printf '%s' "$ANOMALY_ALL" | jq -c --argjson w "$ANOMALY_WINDOW" \
+            'group_by(.model) | map(.[-$w:]) | add // [] | sort_by(.ts) | .[]' \
+            > "$REVIEW_USAGE.tmp" 2>/dev/null && mv "$REVIEW_USAGE.tmp" "$REVIEW_USAGE" 2>/dev/null
+          rm -f "$REVIEW_USAGE.tmp" 2>/dev/null
+        fi
+        [ -n "$ANOMALY_NEWEST" ] && printf '%s\n' "$ANOMALY_NEWEST" > "$ANOMALY_MARKER" 2>/dev/null
+        if [ "$(printf '%s' "$ANOMALY_JUDGED" | jq '.reviews | length' 2>/dev/null)" -gt 0 ] 2>/dev/null; then
+          # kind and size from the review ledger, which grows with every review:
+          # it reaches jq on stdin, after the judged reviews
+          ANOMALY_ALERT="$( { printf '%s\n' "$ANOMALY_JUDGED"; jq -cR 'fromjson? // empty | select(.src == "ledger")' "$LEDGER" 2>/dev/null; } \
+            | jq -nc --argjson f "$ANOMALY_FACTOR" 'input as $j | [inputs] as $ledger
+                | {factor: $f, reviews: [$j.reviews[] | . as $r
+                    | ([$ledger[] | select(.pr == $r.pr and ((.sha // "") | startswith($r.sha)))] | last) as $l
+                    | . + {kind: ($l.kind // null), size: ($l.size // null)}]}' 2>/dev/null)"
+          [ -n "$ANOMALY_ALERT" ] || ANOMALY_ALERT="$(printf '%s' "$ANOMALY_JUDGED" | jq -c --argjson f "$ANOMALY_FACTOR" '{factor: $f, reviews}')"
+          ANOMALY_LIST="$(printf '%s' "$ANOMALY_ALERT" | jq -r '[.reviews[] | "PR #\(.pr) (\([.reasons[].rule] | join("+")))"] | join(", ")')"
+          log "review anomaly: $ANOMALY_LIST — alert due"
+          logev warn review_anomaly "$ANOMALY_LIST"
+        fi
+      fi
+      rmdir "$WORK/.review-anomaly.lock" 2>/dev/null
     fi
   fi
 
@@ -2437,7 +2557,7 @@ if [ "$MODE" = "audit" ]; then
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","stall",
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","stall","anomaly",
        "housekeeping","survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
@@ -2535,6 +2655,29 @@ if [ "$MODE" = "audit" ]; then
                           wasted_output_tokens: (map(select(.cause != "ok") | .out) | add // 0) })) }' \
     2>/dev/null)"
   [ -n "$STALLS_WEEK" ] || STALLS_WEEK='{"total":0,"stalled":0}'
+
+  # Review shape (docs/audit.md task 37): the medians of the `review_cost`
+  # fields this week and the week before — the 14-day retention holds both —
+  # so a slow drift that the anomaly alert's own median absorbs still shows;
+  # the week's anomaly alerts; and the stored baseline per model, which says
+  # whether the median rules apply yet (REVIEW-USAGE.jsonl).
+  REVIEW_SHAPE="$(events_jsonl | jq -sc --arg s "$SINCE_ISO" --arg p "$(epoch2iso $(( SINCE_EPOCH - 7*86400 )))" \
+      --argjson base "$(jq -cR 'fromjson? // empty' "$REVIEW_USAGE" 2>/dev/null \
+                        | jq -sc 'map(objects) | group_by(.model)
+                          | map({key: (.[0].model // "unknown"), value: length}) | from_entries' 2>/dev/null)" \
+      --argjson min "$ANOMALY_MIN_SAMPLES" '
+    def median: sort | if length == 0 then null elif length % 2 == 1 then .[length / 2 | floor]
+                       else (.[length / 2 - 1] + .[length / 2]) / 2 end;
+    def shape: . as $r | {reviews: length, median: (reduce ("secs", "msgs", "peak_ctx", "repeats", "failures", "max_out") as $f
+                 ({}; . + {($f): ([$r[] | .[$f] | numbers] | median)}))};
+    [.[] | select(.ts >= $p)] as $e
+    | [$e[] | select(.event == "review_cost") | try (.ts as $ts
+        | .msg | [scan("([a-z_]+)=([^ ]+)") | {(.[0]): (.[1] | tonumber? // .)}] | add + {ts: $ts})] as $all
+    | {week: ($all | map(select(.ts >= $s)) | shape),
+       previous: ($all | map(select(.ts < $s)) | shape),
+       anomalies: ([$e[] | select(.event == "review_anomaly" and .ts >= $s) | .msg | scan("PR #")] | length),
+       baseline: $base, baseline_min: $min}' 2>/dev/null)"
+  [ -n "$REVIEW_SHAPE" ] || REVIEW_SHAPE='null'
 
   if [ "${CLAUDECODE:-}" = "1" ]; then
     hooks_missing=""
@@ -2985,15 +3128,15 @@ if [ "$MODE" = "audit" ]; then
     --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson disk "$DISK_JSON" \
-    --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
+    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson rs "$REVIEW_SHAPE" \
+    --argjson disk "$DISK_JSON" --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
-      project:$proj, disk:$disk, sessions:$ses, overruled:$ovr}')"
+      review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
