@@ -30,8 +30,9 @@ model call at all. A started run receives the gate's stdout: the
   the preflight pass it drives carry their own run id and the session carries
   another — read one fire as that pair ([logging.md](logging.md) → **The events
   log**).
-- The gate broke — a crash, the platform's two-minute limit, or a preflight that
-  could not decide (no target repo, no answer from the GitHub API) — and the
+- The gate broke — a crash, a pass over the gate's own 100 s budget (its prompt
+  names the last logged step), the platform's two-minute limit, or a preflight
+  that could not decide (no target repo, no answer from the GitHub API) — and the
   session starts anyway; its prompt names the reason. Run the entry command
   yourself.
 - **An agent runtime older than the platform's precheck support ignores the

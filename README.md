@@ -24,8 +24,8 @@ self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
 ([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**).
 
-**Review heartbeat** — every 5 minutes inside the active window (default
-Mon–Fri 08–21 platform time), hourly in the quiet hours outside it.
+**Review heartbeat** — every 5 minutes, around the clock by default. An
+optional active window checks hourly in the quiet hours outside it.
 `preflight.sh review` lists open non-draft PRs in one REST call and decides per
 PR what is due:
 
@@ -164,7 +164,7 @@ Bringing it up by hand:
 That is a complete initialization. The agent checks out its own definition,
 wires up `work/`, walks you through a short configuration dialog (bot name,
 review marker, skills repo, Slack — each value lands in `work/CONFIG.md`),
-registers the schedules (the review heartbeat on its two cadences, the Friday
+registers the schedules (the review heartbeat, the Friday
 audit, plus the hourly shepherd sweep, the monthly benchmark and the weekly
 survey when their keys are enabled), and marks itself
 onboarded so it never repeats the process.
@@ -252,7 +252,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
-| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default Mon–Fri `08-21`, 5 min active / 60 min quiet) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
+| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 60 min quiet under a window) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one alert; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |

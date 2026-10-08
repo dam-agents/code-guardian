@@ -355,4 +355,36 @@ printf -- '- project_profile: disabled\n' >> "$WORK/CONFIG.md"
 run_preflight audit
 assert_jq '.checks[] | select(.id == "profile_fresh") | .status == "ok" and (.detail | contains("disabled"))' 'disabled is reported ok'
 
+# --- a blob-less mirror prefetches what generate reads, in one fetch --------
+# each blob read from a partial clone is a request of its own; the profile's
+# reads are batched before generate runs, and code blobs stay on the remote.
+# GIT_NO_LAZY_FETCH (git >= 2.45) turns the per-blob fallback off, so a read
+# the prefetch missed leaves a hole in the profile
+new_case profile_prefetch
+base_config; mk_fixture
+# a doc page under an EXCL_RE name (gen_docs reads it) and Markdown no reader reads
+mkdir -p "$FX/docs/build"
+printf '# Setup\n\nRun the build.\n' > "$FX/docs/build/setup.md"
+printf '# Changelog\n' > "$FX/packages/a/CHANGELOG.md"
+fx_commit 'docs and changelog'
+GIT_NO_LAZY_FETCH=1 PROFILE_REMOTE="file://$FX" run_profile check
+assert_jq '.status == "regenerated" and .mode == "mirror"' 'a partial-clone mirror regenerates'
+assert_profile '(.modules | length == 3) and (.modules[] | select(.path == "packages/b") | .role | startswith("Web client"))' 'manifests and READMEs read without a lazy fetch'
+assert_profile '[.docs[].title] == ["Metrics", "Web", "Setup"] and (.decisions | length == 1)' 'docs (one under docs/build/) and decision records too'
+assert_profile '(.conventions | length == 1) and (.ownership | length == 1) and (.checks.workflows[0].name == "ci") and ([.noise[] | select(.src == ".gitattributes")] | length == 1)' 'conventions, owners, workflows and .gitattributes too'
+MIR="$SANDBOX/mirror/github.com/acme/widgets.git"
+MISSING="$(git -C "$MIR" rev-list --objects --missing=print "$FX_SHA" 2>/dev/null | sed -n 's/^?//p')"
+if [ -n "$MISSING" ]; then printf 'ok   %s: the mirror is blob-less\n' "$CASE"
+else printf 'FAIL %s: the mirror holds every blob — the test exercises no partial clone\n' "$CASE"; FAILED=1; fi
+for f in docs/adrs/0031-read-models.md docs/architecture/web.md docs/build/setup.md packages/a/package.json packages/b/README.md .github/workflows/ci.yml CODEOWNERS .gitattributes CLAUDE.md; do
+  oid="$(git -C "$FX" rev-parse "HEAD:$f")"
+  if ! printf '%s\n' "$MISSING" | grep -qxF "$oid"; then printf 'ok   %s: %s was prefetched\n' "$CASE" "$f"
+  else printf 'FAIL %s: %s is still missing from the mirror\n' "$CASE" "$f"; FAILED=1; fi
+done
+for f in packages/a/src/index.ts packages/a/CHANGELOG.md; do
+  oid="$(git -C "$FX" rev-parse "HEAD:$f")"
+  if printf '%s\n' "$MISSING" | grep -qxF "$oid"; then printf 'ok   %s: %s is not fetched\n' "$CASE" "$f"
+  else printf 'FAIL %s: the prefetch pulled %s, which the profile never reads\n' "$CASE" "$f"; FAILED=1; fi
+done
+
 finish

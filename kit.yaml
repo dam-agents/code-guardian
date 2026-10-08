@@ -58,14 +58,14 @@ channels:
 # platform's default model; Step 6 re-registers each with `review_model`. Once
 # the schema carries `model`, declare it here and drop this note.
 schedules:
-  # Review heartbeat (Step 6a) — the active window, plus one quiet schedule per
-  # part of the week it leaves uncovered. Same task; the cadence is the only
-  # difference, and it follows the cadence keys in work/CONFIG.md.
+  # Review heartbeat (Step 6a) — every 5 minutes, around the clock. An
+  # instance that configures an active window gets its quiet-hour schedules
+  # from Step 6a, which follows the cadence keys in work/CONFIG.md.
   - name: code-guardian-review-active
-    cron: "*/5 8-21 * * 1-5"
+    cron: "*/5 * * * *"
     sessionMode: fresh
     precheck: bash "$HOME/scripts/precheck.sh" review
-    task: &review-task >-
+    task: >-
       Review heartbeat. The precheck already ran preflight and found work: read
       the worklist JSON at the path its output names, and never run preflight.sh
       again this run. If the prompt carries no worklist path, run `bash
@@ -76,16 +76,6 @@ schedules:
       locks, and the re-review label gate, removing the label after posting),
       handle artifacts_due per docs/artifact.md, and back up work/ at the end
       (`scripts/work-backup.sh persist`).
-  - name: code-guardian-review-quiet
-    cron: "0 22-23,0-7 * * 1-5"
-    sessionMode: fresh
-    precheck: bash "$HOME/scripts/precheck.sh" review
-    task: *review-task
-  - name: code-guardian-review-offdays
-    cron: "0 * * * 6,0"
-    sessionMode: fresh
-    precheck: bash "$HOME/scripts/precheck.sh" review
-    task: *review-task
   # Shepherd sweep (Step 6b) — Slack only.
   - name: code-guardian-shepherd-1h-workdays
     cron: "0 7-18 * * 1-5"
