@@ -8,9 +8,10 @@
 #       Cuts one unit worklist per PR to dispatch — that PR's entries alone,
 #       its bookkeeping included, `dispatched: {number, by}`, its own read_set
 #       — next to <worklist>, and prints
-#       {"dispatch": [{number, worklist, name, task}]}: every PR after the first
-#       in run order, each with the exact `name` and `task` of its
-#       mcp__platform-outbound__schedule_once call. The platform's own limits on
+#       {"dispatch": [{number, worklist, name, task, model?}]}: every PR after
+#       the first in run order, each with the exact `name`, `task` and `model`
+#       of its mcp__platform-outbound__schedule_once call — `model` is the
+#       config's `review_model`, absent under `default` (docs/config.md). The platform's own limits on
 #       one-time tasks bound how many start; a refused PR stays with the run.
 #       Prints an empty list for one PR, a housekeeping-only run, or
 #       `review_dispatch: disabled` in the worklist's config.
@@ -73,6 +74,7 @@ case "$CMD" in
          or (.config.review_dispatch // "enabled") == "disabled" then empty
       else units[1:][] end' "$WL")" \
       || die "the worklist could not be read"
+    MODEL="$(jq -r '.config.review_model // "default"' "$WL")"
     OUT='[]'
     for n in $NUMS; do
       case "$n" in (''|*[!0-9]*) continue;; esac
@@ -88,8 +90,9 @@ case "$CMD" in
       TASK="Review PR #$n — a review heartbeat dispatched by one that found several PRs.
 worklist: $UNIT
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
-      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" \
-        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t}]')"
+      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" \
+        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t}
+              + (if $m == "default" or $m == "" then {} else {model:$m} end)]')"
     done
     printf '%s' "$OUT" | jq '{dispatch: .}'
     ;;

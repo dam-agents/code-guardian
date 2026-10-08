@@ -499,7 +499,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
@@ -516,6 +516,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
+   review_model:(if $rmod=="" then "default" else $rmod end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end),
@@ -2522,6 +2523,31 @@ if [ "$MODE" = "audit" ]; then
       | select(((.msg | strings | test("input=[0-9]+ output=[0-9]+ cache_read=[0-9]+ cache_creation=[0-9]+")) // false) | not)
       | .run ] | unique | join(" ")' 2>/dev/null)"
   [ -n "$ses_unparsed" ] && logev warn sessions_unparsed "$(printf '%s' "$ses_unparsed" | wc -w | tr -d ' ') session(s) with a tokens event the audit could not read, left out of stats.sessions: $ses_unparsed"
+
+  # Session models (docs/audit.md task 5): the model each job's sessions ran on
+  # this week, from the same records, against `review_model`. A run matches
+  # when its recorded model id contains the configured name (`opus` matches
+  # `claude-opus-5-5`); direct sessions (job `session`) and unrecorded models
+  # are left out. Under `default` no schedule pins a model, so any recorded
+  # run is a warn: the platform's default decided what it ran on.
+  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" '
+    ($rm | if . == "" then "default" else . end) as $rm
+    | ($rm | ascii_downcase | sub("^claude/"; "")) as $want
+    | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
+    | ($runs | group_by([.job, .model])
+       | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
+    | if ($runs | length) == 0 then "ok\tno scheduled run recorded a model this week"
+      elif $rm == "default" then
+        "warn\treview_model is default — no schedule pins a model; this week ran on: \($all) (docs/config.md → review_model)"
+      else
+        [ $runs[] | select(.model | ascii_downcase | contains($want) | not) ] as $off
+        | if ($off | length) == 0 then "ok\t\($runs | length) scheduled run(s), all on \($rm)"
+          else "warn\t\($off | length) run(s) off review_model \($rm): \($off | group_by([.job, .model])
+                 | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
+          end
+      end' 2>/dev/null)"
+  if [ -n "$SM_OUT" ]; then check session_models "${SM_OUT%%$'\t'*}" "${SM_OUT#*$'\t'}"
+  else check session_models warn "session models could not be compared — stats.sessions unreadable"; fi
 
   # Wake-ups — the preflight passes that found work, from the `heartbeat`
   # events emit(), survey_out() and bench_out() write: a gated fire that started

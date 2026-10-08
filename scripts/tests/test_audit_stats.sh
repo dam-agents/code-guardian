@@ -919,6 +919,45 @@ assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"se
 assert_jq '.stats.sessions[] | select(.job == "review") | .min == 7 and .reviews == 1 and .output == 2000 and .model == "claude-opus-5"' 'the transcript wall time wins; posted PRs and tokens are kept'
 assert_jq '.stats.sessions[] | select(.job == "shepherd") | .min == 3' 'without secs the run spans its own events'
 
+# --- session models against review_model (docs/audit.md task 5) ---------------
+sm_runs() { # review on opus, shepherd on sonnet, a direct session on haiku
+  mkdir -p "$WORK/logs"
+  sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0 secs=60" 3000
+  sev m2 shepherd tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-sonnet-5-5 subagents=0 secs=60" 2000
+  sev m3 session tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-haiku-4-5 subagents=0 secs=60" 1000
+}
+new_case audit_session_models_off
+base_config '- review_model: opus'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+sm_runs
+run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model opus: shepherd claude-sonnet-5-5 ×1$"))' \
+  'a scheduled run on another model warns; a direct session is left out'
+
+new_case audit_session_models_match
+base_config '- review_model: Opus'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 3000
+sev m2 audit tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 2000
+run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and .detail == "2 scheduled run(s), all on Opus"' \
+  'runs whose model id contains the configured name match, case aside'
+
+new_case audit_session_models_default
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+sm_runs
+run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^review_model is default")) and (.detail | test("review claude-opus-5-5 ×1, shepherd claude-sonnet-5-5 ×1"))' \
+  'without a pinned model the week names what each job ran on'
+
+new_case audit_session_models_none
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok"' 'a week without recorded runs has nothing to compare'
+
 # --- findings density and missed-earlier share (docs/audit.md task 28) ---------
 base_weeks_findings() { # <findings per week> <late per week> — 15 sized first reviews, 1500 lines
   mkdir -p "$WORK/audit/weeks"

@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.15.0 — 2026-10-08
+
+**Upgrade:** When `work/CONFIG.md` has no `review_model` key, call
+`mcp__platform-outbound__list_schedules` and read `spec.model` of the
+`code-guardian-review-*` schedules. One shared value → write `- review_model:
+<value>`; none carries a model → write `- review_model: default`; different
+values → write nothing and ask the operator which model to use. Then reconcile
+the schedules per ONBOARDING Step 6 (its table now compares `model` too) and
+tell the operator in chat which model every schedule runs on.
+
 ## 8.14.0 — 2026-10-08
 
 **Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
