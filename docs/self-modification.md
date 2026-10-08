@@ -180,10 +180,12 @@ image, the harness, an external service — instead of fixing it at its source:
   (`grep -l <file-name> scripts/tests/test_*.sh`; a change to `helpers.sh`
   or `tests/bin/` names them all). **CI runs the full suite** on the PR, and
   its green run is the full-suite pass. Run the full suite locally (`run.sh`
-  with no arguments) only on the operator's request; on a developer machine,
-  `scripts/tests/docker.sh` runs it (same arguments) in a CI-like container.
-  **Read the last line** — `ALL TESTS PASSED` is the only pass; a truncated
-  run is not a pass. One suite runs per host at a time: `run.sh` and
+  with no arguments) only on the operator's request. On macOS, `run.sh` runs
+  in a CI-like container through `scripts/tests/docker.sh` (Docker or Rancher
+  Desktop; a stopped Rancher Desktop is started), and on the host only when no
+  engine answers or with `CG_TEST_DOCKER=0`. **Read the last line** —
+  `ALL TESTS PASSED` is the only pass; a truncated run is not a pass. One
+  suite runs per host at a time: `run.sh` and
   `docker.sh` wait for a run that holds the lock and name it on stderr.
   `CG_TEST_JOBS=1` forces serial execution when a failure needs isolating.
   Then a **read-only sanity run** of `scripts/preflight.sh` in both modes

@@ -2,7 +2,8 @@
 # The suite lock (suite-lock.sh) and run.sh's file selection: one suite per
 # host, a live holder is waited for or named, a dead one is reclaimed, an
 # undeletable one is waited for, docker.sh holds the lock too, and named files
-# run alone.
+# run alone. On macOS run.sh moves into docker.sh, which starts a stopped
+# Rancher Desktop and, with no engine, runs on the host.
 # Every case points CG_TEST_LOCK into its sandbox — the suite running this file
 # holds the host lock itself.
 . "$(dirname "$0")/helpers.sh"
@@ -140,5 +141,69 @@ assert_rc 1 'docker.sh fails on a live holder with no wait budget'
 assert_out_contains "pid $$, checkout /checkouts/other" 'the failure names the holder'
 assert_path gone "$SANDBOX/docker-ran" 'no container starts under a held lock'
 assert_path kept "$SANDBOX/lock/owner" 'the holder keeps its lock'
+
+# A macOS host for run.sh: uname says Darwin, docker answers once
+# $SANDBOX/engine-up exists and records the args of a run, and rdctl reports
+# the VM state of $SANDBOX/vm-state (none = the app is down) and brings the
+# engine up on start.
+mac_stubs() { # up|down
+  mkdir -p "$SANDBOX/dbin"
+  printf '#!/usr/bin/env bash\necho Darwin\n' > "$SANDBOX/dbin/uname"
+  printf '#!/usr/bin/env bash\ncase "$1" in\n  (info) [ -f "%s/engine-up" ];;\n  (run) shift; printf "%%s\\n" "$*" > "%s/docker-args"; cat >/dev/null; echo "ALL TESTS PASSED";;\nesac\n' \
+    "$SANDBOX" "$SANDBOX" > "$SANDBOX/dbin/docker"
+  printf '#!/usr/bin/env bash\ncase "$1" in\n  (api) [ -f "%s/vm-state" ] && cat "%s/vm-state";;\n  (start) touch "%s/rdctl-started" "%s/engine-up";;\nesac\n' \
+    "$SANDBOX" "$SANDBOX" "$SANDBOX" "$SANDBOX" > "$SANDBOX/dbin/rdctl"
+  chmod +x "$SANDBOX/dbin/uname" "$SANDBOX/dbin/docker" "$SANDBOX/dbin/rdctl"
+  [ "$1" = up ] && touch "$SANDBOX/engine-up"
+  return 0
+}
+
+run_mac() { # <CG_TEST_DOCKER value> <run.sh args…>
+  local d="$1"; shift
+  OUT="$(PATH="$SANDBOX/dbin:$PATH" HOME="$FAKE_HOME" CG_TEST_DOCKER="$d" \
+    CG_TEST_ENGINE_WAIT=4 CG_TEST_LOCK="$SANDBOX/lock" CG_TEST_LOCK_WAIT=0 \
+    bash "$T_DIR/run.sh" "$@" 2>"$STDERR_LOG")"; RC=$?
+}
+
+new_case mac_runs_in_container
+mac_stubs up
+run_mac '' test_ste.sh
+assert_rc 0 'run.sh on macOS passes when the container passes'
+assert_file_contains "$SANDBOX/docker-args" 'run.sh test_ste.sh' 'the named file reaches run.sh in the container'
+assert_path gone "$SANDBOX/rdctl-started" 'an answering engine is not started again'
+
+new_case mac_opt_out
+mac_stubs up
+f="$(dummy_test ok 0)"
+run_mac 0 "$f"
+assert_rc 0 'CG_TEST_DOCKER=0 runs on the host'
+assert_path kept "$SANDBOX/ok.ran" 'the named file ran on the host'
+assert_path gone "$SANDBOX/docker-args" 'no container starts'
+
+new_case mac_starts_rancher
+mac_stubs down
+run_mac '' test_ste.sh
+assert_rc 0 'the run passes in the container once the engine is up'
+assert_path kept "$SANDBOX/rdctl-started" 'a Rancher Desktop that does not answer is started'
+assert_file_contains "$STDERR_LOG" 'starting Rancher Desktop' 'the start is announced'
+assert_path kept "$SANDBOX/docker-args" 'the container runs after the start'
+
+new_case mac_vm_started_no_daemon
+mac_stubs down
+printf '{"vmState":"STARTED","locked":false}' > "$SANDBOX/vm-state"
+f="$(dummy_test ok 0)"
+run_mac '' "$f"
+assert_rc 0 'a started VM with no daemon falls back to the host'
+assert_path gone "$SANDBOX/rdctl-started" 'a started VM is never started again'
+assert_file_contains "$STDERR_LOG" 'the suite runs on the host' 'the fallback is announced'
+assert_path kept "$SANDBOX/ok.ran" 'the named file ran on the host'
+
+new_case docker_no_engine_fails
+mac_stubs down
+printf '{"vmState":"STARTED","locked":false}' > "$SANDBOX/vm-state"
+OUT="$(PATH="$SANDBOX/dbin:$PATH" HOME="$FAKE_HOME" CG_TEST_LOCK="$SANDBOX/lock" \
+  bash "$T_DIR/docker.sh" 2>"$STDERR_LOG")"; RC=$?
+assert_rc 1 'docker.sh without --or-native fails with no engine'
+assert_out_contains 'TESTS FAILED: the docker daemon does not answer' 'the failure names the cause'
 
 finish

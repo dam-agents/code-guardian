@@ -17,6 +17,15 @@
 # so the tail does not decide the wall clock. Each worker announces its file on
 # stderr as it starts, so a run that hangs still names the file it waits for.
 # CG_TEST_JOBS=1 restores fully serial execution for debugging.
+#
+# On macOS the run moves into docker.sh's container, where the suite runs at CI
+# speed. It stays on the host when no container engine answers, or with
+# CG_TEST_DOCKER=0. A run on the host exports CG_TEST_DOCKER=0, so a run.sh
+# that a test starts stays on the host too.
+if [ "${CG_TEST_DOCKER:-1}" != 0 ] && [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+  exec bash "$(dirname "$0")/docker.sh" --or-native "$@"
+fi
+export CG_TEST_DOCKER=0
 CALLER_DIR="$(pwd)"
 cd "$(dirname "$0")" || exit 1
 CHECKOUT="$(cd ../.. && pwd)"
