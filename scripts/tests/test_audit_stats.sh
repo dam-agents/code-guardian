@@ -994,4 +994,15 @@ jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", 
 run_preflight audit
 assert_jq '.checks[] | select(.id == "approve_overruled") | .status == "ok" and (.detail | test("1 approved PRs"))' 'an APPROVE nobody overruled passes'
 
+new_case audit_approve_unread
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
+fx_fail 'api repos/acme/widgets/pulls/7/reviews?per_page=100'
+fx_fail 'api repos/acme/widgets/pulls?state=closed&sort=updated&direction=desc&per_page=100'
+run_preflight audit
+assert_jq '.stats.overruled | .scanned == 0 and .unread == ["7"] and .reverts_read == false' 'what could not be read is recorded'
+assert_jq '.checks[] | select(.id == "approve_overruled") | .status == "warn" and (.detail | test("reviews unreadable for #7")) and (.detail | test("reverts not checked"))' \
+  'an unread scan warns instead of passing'
+
 finish

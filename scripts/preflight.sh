@@ -2230,6 +2230,7 @@ if [ "$MODE" = "audit" ]; then
       disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue
     fi
     d_total="${d_f[1]}"; d_avail="${d_f[3]}"; d_pct="${d_f[4]%\%}"; d_mnt="${d_f[*]:5}"
+    case "$d_avail$d_pct" in (*[!0-9]*) disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue;; esac
     case "$disk_seen" in (*" $d_mnt "*) continue;; esac   # one filesystem, one line
     disk_seen="$disk_seen$d_mnt "
     # inode use is the last percent field of -Pi on both GNU and BSD; a
@@ -2604,7 +2605,9 @@ if [ "$MODE" = "audit" ]; then
   # when it is both large and unlikely to be noise (a z-test on the pooled
   # counts); each check names the definition versions on both sides.
   TREND_ROWS="$(TREND_CONFIG="$CONFIG" bash "$SCRIPT_DIR/audit-trend.sh" index "$WORK/audit" 2>/dev/null)"
-  printf '%s' "$TREND_ROWS" | jq -e 'type == "array"' >/dev/null 2>&1 || TREND_ROWS='[]'
+  # an unreadable history is not an empty one: null fails every shift_check
+  # below into its "could not be compared" warn
+  printf '%s' "$TREND_ROWS" | jq -e 'type == "array"' >/dev/null 2>&1 || TREND_ROWS='null'
   SHIFT_DEFS='
     def absv: if . < 0 then -. else . end;
     def pc: (. * 100 | round | tostring) + "%";
@@ -2845,10 +2848,13 @@ if [ "$MODE" = "audit" ]; then
   }
   # coverage — PRs merged this week against the ones this agent reviewed; the
   # same list call feeds the revert scan below
-  MERGED_WEEK="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null \
-    | jq -c --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s)
-                                   | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)"
-  [ -n "$MERGED_WEEK" ] || MERGED_WEEK='[]'
+  MERGED_READ=false
+  merged_raw="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null)" \
+    && MERGED_WEEK="$(printf '%s' "$merged_raw" | jq -c --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s)
+                                   | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)" \
+    && [ -n "$MERGED_WEEK" ] && MERGED_READ=true
+  [ "$MERGED_READ" = true ] || MERGED_WEEK='[]'
+  unset merged_raw
   merged_nums="$(printf '%s' "$MERGED_WEEK" | jq -r '.[].number' 2>/dev/null)"
   if [ -n "$merged_nums" ]; then
     reviewed_list="$(rr_week | jq -rs '[.[] | .pr] | unique | .[]' 2>/dev/null)"
@@ -2873,7 +2879,7 @@ if [ "$MODE" = "audit" ]; then
   ov_cr='[]'; ov_read=0; ov_unread=""
   for ap in $(printf '%s' "$APPROVED_WEEK" | jq -r '[.[].pr] | unique | .[:30] | .[]' 2>/dev/null); do
     if ! ap_rv="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)"; then
-      ov_unread="$ov_unread #$ap"; continue
+      ov_unread="$ov_unread $ap"; continue
     fi
     ov_read=$((ov_read + 1))
     ap_hit="$(printf '%s' "$ap_rv" | jq -c --argjson a "$APPROVED_WEEK" --argjson n "$ap" --arg bot "$BOT_LOGIN" '
@@ -2889,9 +2895,11 @@ if [ "$MODE" = "audit" ]; then
   approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
   OVERRULED="$(printf '%s' "$MERGED_WEEK" | jq -c --argjson ever "${approved_ever:-[]}" --argjson cr "$ov_cr" \
-    --argjson aw "$APPROVED_WEEK" --argjson read "$ov_read" --arg unread "${ov_unread# }" '
+    --argjson aw "$APPROVED_WEEK" --argjson read "$ov_read" --arg unread "${ov_unread# }" \
+    --argjson mr "$MERGED_READ" '
     { approved_prs: ([$aw[].pr] | unique | length), scanned: $read,
       unread: ($unread | split(" ") | map(select(. != ""))),
+      reverts_read: $mr,
       changes_requested: $cr,
       reverted: [ .[] | select(.title | test("^Revert\\b"))
                   | . as $p | (.body | [scan("Reverts +[^ #]*#([0-9]+)")[0] | tonumber]) as $ns
@@ -2903,7 +2911,13 @@ if [ "$MODE" = "audit" ]; then
     ov_detail="$(printf '%s' "$OVERRULED" | jq -r '
       ([ .changes_requested[] | "#\(.pr) changes requested by \(.by) on the approved commit" ]
        + [ .reverted[] | "#\(.pr) reverted by #\(.by_pr)" ]) | join("; ")')"
-    ov_note="$(printf '%s' "$OVERRULED" | jq -r 'if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end')"
+    # every part that was not read is named: an unread PR, the PRs past the
+    # call cap, the merged list the revert scan needs
+    ov_note="$(printf '%s' "$OVERRULED" | jq -r '
+      (if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end)
+      + ((.approved_prs - .scanned - (.unread | length)) as $cap
+         | if $cap > 0 then " · \($cap) approved PR(s) past the 30-call cap not read" else "" end)
+      + (if .reverts_read then "" else " · merged PR list unreadable, reverts not checked" end)')"
     ov_total="$(printf '%s' "$OVERRULED" | jq '.approved_prs')"
     if [ "$ov_n" -gt 0 ]; then check approve_overruled warn "$ov_n PR(s) a person overruled after my APPROVE: $ov_detail$ov_note"
     elif [ -n "$ov_note" ]; then check approve_overruled warn "no overruled APPROVE among $ov_read of $ov_total approved PRs read$ov_note"
