@@ -2306,8 +2306,63 @@ if [ "$MODE" = "audit" ]; then
   [ "$tmp_live" -gt 0 ] && sw_note="$sw_note ($tmp_live of a live review)"
   [ "$tmp_left" -gt 0 ] && check tmp_leftovers warn "$tmp_left dead /tmp/review-pr-* entries the sweep could not remove$sw_note" || check tmp_leftovers ok "no clone leftovers$sw_note"
 
-  disk="$(df -P "$WORK" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f5 | tr -d '%')"
-  if [ -n "$disk" ] && [ "$disk" -gt 85 ]; then check disk warn "work volume ${disk}% full"; else check disk ok "work volume ${disk:-?}% used"; fi
+  # --- disk: every volume a run writes to ---------------------------------
+  # work/ (the home volume), the review clones under $TMP_ROOT and the backup's
+  # tmpfs clone; one line per filesystem. A volume df cannot read is reported
+  # as unmeasured, never as full or empty.
+  hsize() { # <KiB> -> 1.5G / 512M / 64K
+    if [ "$1" -ge 1048576 ]; then printf '%d.%dG' $(($1/1048576)) $(( ($1%1048576)*10/1048576 ))
+    elif [ "$1" -ge 1024 ]; then printf '%dM' $(($1/1024)); else printf '%dK' "$1"; fi
+  }
+  DISK_JSON='[]'; disk_status=ok; disk_detail=""; disk_seen=" "
+  work_kb="$(du -sk "$WORK" 2>/dev/null | cut -f1)"; case "$work_kb" in (''|*[!0-9]*) work_kb="";; esac
+  backup_dir="$(dirname "${WORK_BACKUP_LOCAL:-/dev/shm/cg-work-backup}")"
+  for spec in "work:$WORK" "tmp:$TMP_ROOT" "backup:$backup_dir"; do
+    role="${spec%%:*}"; dpath="${spec#*:}"
+    [ -d "$dpath" ] || continue
+    # -Pk: device 1K-blocks used avail capacity mount, the same on GNU and BSD
+    d_f=( $(df -Pk "$dpath" 2>/dev/null | tail -n +2 | tail -1) )
+    if [ "${#d_f[@]}" -lt 6 ] || ! [ "${d_f[1]}" -gt 0 ] 2>/dev/null; then
+      disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue
+    fi
+    d_total="${d_f[1]}"; d_avail="${d_f[3]}"; d_pct="${d_f[4]%\%}"; d_mnt="${d_f[*]:5}"
+    case "$d_avail$d_pct" in (*[!0-9]*) disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue;; esac
+    d_shared=false; case "$disk_seen" in (*" $d_mnt "*) d_shared=true;; esac
+    disk_seen="$disk_seen$d_mnt "
+    # the backup re-clones work/ into its volume on every persist
+    # (docs/persistence.md), so its free space is judged against work/ even
+    # when that volume is already on the list
+    d_fit=""
+    [ "$role" = backup ] && [ -n "$work_kb" ] && [ "$d_avail" -lt $((work_kb * 2)) ] \
+      && d_fit=" — under twice work/ ($(hsize "$work_kb")), the backup clone may not fit"
+    if [ "$d_shared" = true ]; then
+      # one filesystem, one line: a volume already reported adds only the
+      # backup's fit verdict, when it has one
+      [ -n "$d_fit" ] || continue
+      [ "$disk_status" = fail ] || disk_status=warn
+      disk_detail="${disk_detail:+$disk_detail · }backup shares $d_mnt$d_fit"
+      continue
+    fi
+    # inode use is the last percent field of -Pi on both GNU and BSD; a
+    # filesystem without fixed inodes prints "-"
+    d_ipct="$(df -Pi "$dpath" 2>/dev/null | tail -n +2 | tail -1 | tr -s ' ' '\n' | grep -E '^[0-9]+%$' | tail -1 | tr -d '%')"
+    d_st=ok
+    if [ "$d_pct" -ge 95 ] || [ "${d_ipct:-0}" -ge 95 ]; then d_st=fail
+    elif [ "$d_pct" -ge 85 ] || [ "${d_ipct:-0}" -ge 85 ]; then d_st=warn; fi
+    d_line="$role $d_mnt ${d_pct}% used, $(hsize "$d_avail") free"
+    [ -n "$d_ipct" ] && d_line="$d_line, inodes ${d_ipct}%"
+    if [ -n "$d_fit" ]; then [ "$d_st" = fail ] || d_st=warn; d_line="$d_line$d_fit"; fi
+    case "$d_st" in (fail) disk_status=fail;; (warn) [ "$disk_status" = fail ] || disk_status=warn;; esac
+    disk_detail="${disk_detail:+$disk_detail · }$d_line"
+    DISK_JSON="$(printf '%s' "$DISK_JSON" | jq -c --arg r "$role" --arg m "$d_mnt" --argjson t "$d_total" \
+      --argjson a "$d_avail" --argjson p "$d_pct" --arg i "${d_ipct:-}" \
+      '. + [{role:$r, mount:$m, size_kb:$t, avail_kb:$a, used_pct:$p,
+             inode_pct:(if $i == "" then null else ($i | tonumber) end)}]')"
+  done
+  [ -n "$work_kb" ] && disk_detail="${disk_detail:+$disk_detail · }work/ holds $(hsize "$work_kb")"
+  if [ "$DISK_JSON" = '[]' ]; then check disk ok "disk usage not reported on this platform${disk_detail:+ ($disk_detail)}"
+  else check disk "$disk_status" "$disk_detail"; fi
+  DISK_JSON="$(jq -nc --argjson v "$DISK_JSON" --arg w "${work_kb:-}" '{volumes:$v, work_kb:(if $w == "" then null else ($w | tonumber) end)}')"
 
   while IFS=$'\t' read -r skill src; do
     remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
@@ -2436,6 +2491,37 @@ if [ "$MODE" = "audit" ]; then
     | sums + {by_model: (group_by(.m // "unknown")
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
+
+  # One record per finished session (a run with a `tokens` event), the facts
+  # the trend derives run length and run cost per day from (docs/trends.md →
+  # Runs). Kept raw so a price-table change reprices the history. `min` is the
+  # transcript's wall time (`secs=`), else the span of the run's own events;
+  # `job` is the run's most common job; `reviews` counts the PRs it posted.
+  SESSIONS_WEEK="$(week_events | jq -cs --arg s "$SINCE_ISO" "$STATS_JQ"'
+    [ .[] | select(.ts >= $s and (.run // "") != "") ] | group_by(.run)
+    | map( (map(select(.event == "tokens")) | last) as $t
+      | select($t != null)
+      | ($t.msg | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?( +subagents=[0-9]+)?( +secs=(?<sec>[0-9]+))?")?) as $k
+      | (if $k.sec != null then ($k.sec | tonumber)
+         else (($t.ts | epoch) - (map(.ts) | min | epoch)) end) as $secs
+      | { day: $t.ts[0:10],
+          job: (([ .[] | .job // empty | select(. != "session") ] | group_by(.) | max_by(length) | .[0]) // "session"),
+          min: ($secs / 60 * 10 | round / 10),
+          model: ($k.m // "unknown"),
+          input: ($k.i | tonumber), output: ($k.o | tonumber),
+          cache_read: ($k.cr | tonumber), cache_creation: ($k.cc | tonumber),
+          reviews: ([ .[] | select(.event == "review_step") | .msg
+                      | select(test("^PR #[0-9]+:? +([0-9a-f]{7,40} +)?posted"))
+                      | capture("^PR #(?<n>[0-9]+)").n ] | unique | length) } )
+    | sort_by(.day)' 2>/dev/null)"
+  [ -n "$SESSIONS_WEEK" ] || SESSIONS_WEEK='null'
+  # a `tokens` event the capture above does not read leaves its session out of
+  # the records; the run is named here so the gap in stats.sessions is traceable
+  ses_unparsed="$(week_events | jq -rs --arg s "$SINCE_ISO" '
+    [ .[] | select(.ts >= $s and (.run // "") != "" and .event == "tokens")
+      | select(((.msg | strings | test("input=[0-9]+ output=[0-9]+ cache_read=[0-9]+ cache_creation=[0-9]+")) // false) | not)
+      | .run ] | unique | join(" ")' 2>/dev/null)"
+  [ -n "$ses_unparsed" ] && logev warn sessions_unparsed "$(printf '%s' "$ses_unparsed" | wc -w | tr -d ' ') session(s) with a tokens event the audit could not read, left out of stats.sessions: $ses_unparsed"
 
   # Wake-ups — the preflight passes that found work, from the `heartbeat`
   # events emit(), survey_out() and bench_out() write: a gated fire that started
@@ -2646,9 +2732,101 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
     # the lib is what defines RR_AGG_ZERO, so this branch carries its own copy
-    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
     logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
   fi
+  # --- shifts against the recorded weeks (docs/audit.md tasks 24, 28) -------
+  # This week against the four weeks before it on record in the trend history
+  # (docs/trends.md) — the baseline is read, never recounted. A shift warns only
+  # when it is both large and unlikely to be noise (a z-test on the pooled
+  # counts); each check names the definition versions on both sides.
+  TREND_ROWS="$(TREND_CONFIG="$CONFIG" bash "$SCRIPT_DIR/audit-trend.sh" index "$WORK/audit" 2>/dev/null)"
+  # an unreadable history is not an empty one: null fails every shift_check
+  # below into its "could not be compared" warn
+  printf '%s' "$TREND_ROWS" | jq -e 'type == "array"' >/dev/null 2>&1 || TREND_ROWS='null'
+  SHIFT_DEFS='
+    def absv: if . < 0 then -. else . end;
+    def pc: (. * 100 | round | tostring) + "%";
+    def r1: (. * 10 | round) / 10;
+    # two proportions, or two rates when $n is an exposure (changed lines)
+    def z($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
+      | ($p * (1 - $p) * (1 / $n1 + 1 / $n2)) as $v
+      | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
+    def zrate($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
+      | ($p * (1 / $n1 + 1 / $n2)) as $v
+      | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
+    ($rows | map(select(.week < $wk)) | .[-4:]) as $base
+    | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
+    | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
+    | (($ra.reviews.defs // []) | join(", ")) as $dcur
+    | " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)" as $defs
+    | "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history" as $nohist
+    |'
+  shift_check() { # <check id> <jq program after SHIFT_DEFS> <what failed>
+    local out
+    out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+      --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" "$SHIFT_DEFS$2" 2>/dev/null)"
+    if [ -n "$out" ]; then check "$1" "${out%%$'\t'*}" "${out#*$'\t'}"
+    else check "$1" warn "$3 could not be compared — trend history unreadable"; fi
+  }
+  # task 24: APPROVE and REQUEST_CHANGES shares, all and first reviews apart
+  shift_check verdict_shift '
+    $ra.reviews as $c
+    | [ {pop: "all reviews", v: "APPROVE", x1: $c.approve, n1: $c.total,
+         b: [$base[] | {x: .approve, n: .reviews}]},
+        {pop: "all reviews", v: "REQUEST_CHANGES", x1: $c.request_changes, n1: $c.total,
+         b: [$base[] | {x: .request_changes, n: .reviews}]},
+        {pop: "first reviews", v: "APPROVE", x1: ($c.first_approve // 0), n1: $c.first,
+         b: [$base[] | select(.first_approve != null) | {x: .first_approve, n: .first}]},
+        {pop: "first reviews", v: "REQUEST_CHANGES", x1: ($c.first_request_changes // 0), n1: $c.first,
+         b: [$base[] | select(.first_request_changes != null) | {x: .first_request_changes, n: .first}]} ]
+    | map(. + {x2: ([.b[].x] | add // 0), n2: ([.b[].n] | add // 0)} | del(.b)) as $all
+    | [ $all[] | select(.n1 >= 6 and .n2 >= 12)
+        | . + {p1: (.x1 / .n1), p2: (.x2 / .n2), z: z(.x1; .n1; .x2; .n2)} ] as $cmp
+    | [ $cmp[] | select(((.p1 - .p2) | absv) >= 0.2 and (.z | absv) >= 2) ] as $hit
+    | if ($base | length) == 0 then $nohist
+      elif ($cmp | length) == 0 then
+        "ok\ttoo few reviews to compare: \($c.total) this week (\($c.first) first), \($all[0].n2) in \($span) — needs 6 and 12"
+      elif ($hit | length) > 0 then
+        "warn\t" + ([ $hit[] | "\(.pop): \(.v) \(.p1 | pc) of \(.n1) this week vs \(.p2 | pc) of \(.n2) in \($span) (z \(.z | r1))" ] | join("; ")) + $defs
+      else
+        "ok\t" + ([ $cmp[] | select(.v == "APPROVE") | "\(.pop): APPROVE \(.p1 | pc) of \(.n1) vs \(.p2 | pc) of \(.n2)" ] | join("; "))
+        + " in \($span) — no significant shift"
+      end' "verdict shares"
+  # task 28: new findings per 100 changed lines of first reviews — halved or
+  # doubled at equal PR size means the review reads looser or stricter
+  shift_check findings_shift '
+    ($ra.findings.density // {reviews: 0, findings: 0, lines: 0}) as $c
+    | [ $base[] | select(.density_reviews != null) ] as $b
+    | { n2: ([$b[].density_reviews] | add // 0), x2: ([$b[].density_findings] | add // 0),
+        l2: ([$b[].density_lines] | add // 0) } as $o
+    | if ($base | length) == 0 then $nohist
+      elif $c.reviews < 6 or $o.n2 < 12 or $c.lines == 0 or $o.l2 == 0 or $o.x2 == 0 then
+        "ok\ttoo few sized first reviews to compare: \($c.reviews) this week, \($o.n2) in \($span) — needs 6 and 12"
+      else
+        ($c.findings / $c.lines * 100) as $r1 | ($o.x2 / $o.l2 * 100) as $r2
+        | zrate($c.findings; $c.lines; $o.x2; $o.l2) as $z
+        | "\($r1 * 100 | round / 100) findings per 100 changed lines this week (\($c.reviews) first reviews, \($c.lines) lines) vs \($r2 * 100 | round / 100) in \($span) (\($o.n2) reviews)" as $txt
+        | if ($r1 <= $r2 / 2 or $r1 >= $r2 * 2) and ($z | absv) >= 2 then "warn\t\($txt) (z \($z | r1))" + $defs
+          else "ok\t\($txt) — no significant shift" end
+      end' "findings density"
+  # task 28: the share of raised findings an earlier round had missed — only a
+  # rise is a warn, a fall is the review reading wider
+  shift_check late_shift '
+    ($ra.findings // {}) as $c
+    | [ $base[] | select(.late != null and .findings_new != null) ] as $b
+    | { n2: ([$b[].findings_new] | add // 0), x2: ([$b[].late] | add // 0) } as $o
+    | ($c.new // 0) as $n1 | ($c.late // 0) as $x1
+    | if ($base | length) == 0 then $nohist
+      elif $n1 < 10 or $o.n2 < 20 then
+        "ok\ttoo few raised findings to compare: \($n1) this week, \($o.n2) in \($span) — needs 10 and 20"
+      else
+        ($x1 / $n1) as $p1 | ($o.x2 / $o.n2) as $p2 | z($x1; $n1; $o.x2; $o.n2) as $z
+        | "missed earlier: \($x1) of \($n1) raised findings (\($p1 | pc)) this week vs \($o.x2) of \($o.n2) (\($p2 | pc)) in \($span)" as $txt
+        | if ($p1 - $p2) >= 0.1 and $p1 >= $p2 * 2 and $z >= 2 then "warn\t\($txt) (z \($z | r1))" + $defs
+          else "ok\t\($txt) — no significant rise" end
+      end' "missed-earlier share"
+
   # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
   # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
   # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
@@ -2804,9 +2982,16 @@ if [ "$MODE" = "audit" ]; then
     command -v review_records >/dev/null 2>&1 || return 0
     review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" 2>/dev/null
   }
-  # coverage — PRs merged this week against the ones this agent reviewed
-  merged_nums="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null \
-    | jq -r --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s) | .number] | .[]' 2>/dev/null)"
+  # coverage — PRs merged this week against the ones this agent reviewed; the
+  # same list call feeds the revert scan below
+  MERGED_READ=false
+  merged_raw="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null)" \
+    && MERGED_WEEK="$(printf '%s' "$merged_raw" | jq -c --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s)
+                                   | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)" \
+    && [ -n "$MERGED_WEEK" ] && MERGED_READ=true
+  [ "$MERGED_READ" = true ] || MERGED_WEEK='[]'
+  unset merged_raw
+  merged_nums="$(printf '%s' "$MERGED_WEEK" | jq -r '.[].number' 2>/dev/null)"
   if [ -n "$merged_nums" ]; then
     reviewed_list="$(rr_week | jq -rs '[.[] | .pr] | unique | .[]' 2>/dev/null)"
     m_total=0; m_reviewed=0
@@ -2818,6 +3003,61 @@ if [ "$MODE" = "audit" ]; then
       '{merged:$m, reviewed:$r, share:(if $m == 0 then null else (($r / $m * 100) | round) end)}')"
   else
     COVERAGE='{"merged":0,"reviewed":0,"share":null}'
+  fi
+
+  # --- our APPROVE overruled (docs/audit.md task 24) -------------------------
+  # A person requested changes on the very commit this agent approved, or a PR
+  # merged this week reverts a PR it approved: the review let something
+  # through. One reviews call per PR approved this week (at most 30); the
+  # reverted PR is read from GitHub's own revert body ("Reverts <repo>#<n>").
+  APPROVED_WEEK="$(rr_week | jq -sc '[.[] | select(.verdict == "APPROVE" and (.sha // "") != "") | {pr, sha, ts}]' 2>/dev/null)"
+  [ -n "$APPROVED_WEEK" ] || APPROVED_WEEK='[]'
+  ov_cr='[]'; ov_read=0; ov_unread=""
+  for ap in $(printf '%s' "$APPROVED_WEEK" | jq -r '[.[].pr] | unique | .[:30] | .[]' 2>/dev/null); do
+    if ! ap_rv="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)"; then
+      ov_unread="$ov_unread $ap"; continue
+    fi
+    ov_read=$((ov_read + 1))
+    ap_hit="$(printf '%s' "$ap_rv" | jq -c --argjson a "$APPROVED_WEEK" --argjson n "$ap" --arg bot "$BOT_LOGIN" '
+      [ $a[] | select(.pr == $n) ] as $mine
+      | [ .[]? | select(.state == "CHANGES_REQUESTED" and (.user.login // "") != $bot
+                        and (.user.type // "User") != "Bot")
+          | . as $r
+          | select(any($mine[]; . as $m | (($r.commit_id // "") | startswith($m.sha))
+                                         and (($r.submitted_at // "") >= $m.ts)))
+          | {pr: $n, by: .user.login, at: .submitted_at} ] | first // empty' 2>/dev/null)"
+    [ -n "$ap_hit" ] && ov_cr="$(printf '%s' "$ov_cr" | jq -c --argjson h "$ap_hit" '. + [$h]')"
+  done
+  approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
+    | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
+  OVERRULED="$(printf '%s' "$MERGED_WEEK" | jq -c --argjson ever "${approved_ever:-[]}" --argjson cr "$ov_cr" \
+    --argjson aw "$APPROVED_WEEK" --argjson read "$ov_read" --arg unread "${ov_unread# }" \
+    --argjson mr "$MERGED_READ" '
+    { approved_prs: ([$aw[].pr] | unique | length), scanned: $read,
+      unread: ($unread | split(" ") | map(select(. != ""))),
+      reverts_read: $mr,
+      changes_requested: $cr,
+      reverted: [ .[] | select(.title | test("^Revert\\b"))
+                  | . as $p | (.body | [scan("Reverts +[^ #]*#([0-9]+)")[0] | tonumber]) as $ns
+                  | $ns[] | select(IN($ever[])) | {pr: ., by_pr: $p.number} ] }' 2>/dev/null)"
+  [ -n "$OVERRULED" ] || OVERRULED='null'
+  if [ "$OVERRULED" = null ]; then check approve_overruled warn "overruled approvals could not be counted"
+  else
+    ov_n="$(printf '%s' "$OVERRULED" | jq '[.changes_requested[].pr, .reverted[].pr] | unique | length')"
+    ov_detail="$(printf '%s' "$OVERRULED" | jq -r '
+      ([ .changes_requested[] | "#\(.pr) changes requested by \(.by) on the approved commit" ]
+       + [ .reverted[] | "#\(.pr) reverted by #\(.by_pr)" ]) | join("; ")')"
+    # every part that was not read is named: an unread PR, the PRs past the
+    # call cap, the merged list the revert scan needs
+    ov_note="$(printf '%s' "$OVERRULED" | jq -r '
+      (if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end)
+      + ((.approved_prs - .scanned - (.unread | length)) as $cap
+         | if $cap > 0 then " · \($cap) approved PR(s) past the 30-call cap not read" else "" end)
+      + (if .reverts_read then "" else " · merged PR list unreadable, reverts not checked" end)')"
+    ov_total="$(printf '%s' "$OVERRULED" | jq '.approved_prs')"
+    if [ "$ov_n" -gt 0 ]; then check approve_overruled warn "$ov_n PR(s) a person overruled after my APPROVE: $ov_detail$ov_note"
+    elif [ -n "$ov_note" ]; then check approve_overruled warn "no overruled APPROVE among $ov_read of $ov_total approved PRs read$ov_note"
+    else check approve_overruled ok "no overruled APPROVE ($ov_total approved PRs this week, reverts checked)"; fi
   fi
 
   # PR size — from the ledger rows of the week, first reviews only, so a PR is
@@ -2865,13 +3105,14 @@ if [ "$MODE" = "audit" ]; then
     --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
     --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
     --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson rs "$REVIEW_SHAPE" \
+    --argjson disk "$DISK_JSON" --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
     '{since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       artifacts:$art,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
-      review_shape:$rs, project:$proj}')"
+      review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr}')"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive

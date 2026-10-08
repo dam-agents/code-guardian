@@ -108,7 +108,8 @@ function calling the binary directly.
    result. At session end one **`tokens`** event records the run's API usage
    (`input=… output=… cache_read=… cache_creation=… msgs=… model=…`, summed
    from the session transcript and its subagents' transcripts, deduped by
-   message id, then `subagents=<n>` and, when n > 0, the subagents' share as
+   message id, then `subagents=<n>`, the transcript's wall time `secs=<n>`
+   and, when n > 0, the subagents' share as
    `sub_tokens=in:…,out:…,cr:…,cw:…`); one scheduled run is one fresh
    session, so this is per-job consumption — join on `run` with the
    `heartbeat` event for the mode. A session that called the Agent tool and

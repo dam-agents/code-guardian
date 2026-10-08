@@ -50,7 +50,9 @@ skipped task is an incomplete audit — a task that is impossible this week
      the audit's *only* definition-repo write; the fix itself takes the
      operator ([self-modification.md](self-modification.md)).
 4. Everything else the script checks is already in `checks[]` — connectivity,
-   scopes, CLI deps, state consistency, logs, hygiene, skills, roster,
+   scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
+   of every volume a run writes to (work/, the review clones, the backup's
+   tmpfs), skills, roster,
    definition currency, benchmark fixture and results integrity, the memory
    budget, artifact outcome logging, the profile's currency, the definition
    repo's open-issue backlog
@@ -181,9 +183,27 @@ measurement.
     the `skills` median mean the review spent its time on bookkeeping, not on
     the code — record it per [preferences.md](preferences.md) and raise it with
     the operator.
-24. **Verdict distribution** — ~100 % APPROVE across a busy week is possible
-    rubber-stamping; ~100 % REQUEST_CHANGES is possible over-strictness. Either
-    extreme → flag it with examples.
+24. **Verdict distribution** — the `verdict_shift` check compares the week's
+    APPROVE and REQUEST_CHANGES shares, all reviews and first reviews apart,
+    with the four weeks before it on record in the trend history
+    ([trends.md](trends.md)). It warns on a shift of 20 pp or more that a
+    two-proportion z-test (|z| ≥ 2) does not explain as noise, and names the
+    definition versions on both sides. On a warn, read up to 3 reviews of the
+    week on the moved side and decide whether the review changed (APPROVE over
+    open findings, fewer findings at equal PR size) or the PRs did (size, the
+    first/re-review mix); name the likely cause — a definition version, the
+    production model (task 27), a rule this week promoted — in *Action
+    needed*. Without a warn, ~100 % APPROVE across a busy week is still
+    possible rubber-stamping and ~100 % REQUEST_CHANGES over-strictness: flag
+    either with examples.
+    **Overruled approvals** — `stats.overruled` and the `approve_overruled`
+    check: PRs approved this week on which a person then requested changes
+    on the approved commit, and merged reverts of an approved PR. Each one is
+    a defect the review let through: read the person's comment or the revert,
+    name the missed defect class, record it per
+    [preferences.md](preferences.md), and list the PRs in *Action needed*.
+    A change request that is not about a defect (scope, product) is reported
+    as such and records nothing.
 25. **`awaiting_label` backlog** — `stats.awaiting_label`: how many rows wait
     for a trigger and how old the oldest is. A large or old backlog means the
     team is not requesting re-reviews; suggest it in the report as a process
@@ -244,6 +264,13 @@ measurement.
     earlier`); a rising share means rounds read too narrow — flag it. A
     `late` finding in a file that a delta-scope round did not read is
     expected: delta scope reads the changed files only.
+    Two checks judge the week against the four recorded weeks before it
+    ([trends.md](trends.md)), like `verdict_shift`: `findings_shift` — new
+    findings of first reviews per 100 changed lines (`findings.density`, a
+    PR counted up to 1000 lines), a warn when the rate halves or doubles and
+    |z| ≥ 2; `late_shift` — the `late` share of `new`, a warn when it rises
+    by 10 pp or more to at least double the baseline and z ≥ 2. On either
+    warn, read two reviews of the week and name the cause as task 24 does.
 29. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
     `by_cause` (`pod_restart` / `hard_kill` / `terminated`),

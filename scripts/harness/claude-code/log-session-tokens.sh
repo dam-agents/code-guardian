@@ -4,7 +4,8 @@
 # Sums the per-message API usage of the session transcript and of its
 # subagents' transcripts (`<session>/subagents/*.jsonl` beside it), deduped by
 # message id, into: input / output / cache_read / cache_creation / msgs, then
-# appends `subagents=<n>` and, when n > 0, the subagents' own share as
+# appends `subagents=<n>`, the session's wall time `secs=<n>` and, when n > 0,
+# the subagents' own share as
 # `sub_tokens=in:…,out:…,cr:…,cw:…`. The run id is the session id, so the event
 # joins 1:1 with the run's other events. A session with Agent calls and no
 # subagent transcript beside it also logs one `tokens_subagents_missing` warn.
@@ -36,13 +37,19 @@ SUBS=()
 for f in "${tp%.jsonl}"/subagents/*.jsonl; do [ -f "$f" ] && SUBS+=("$f"); done
 all="$(jq -nR -f "$SUM" "$tp" ${SUBS[@]+"${SUBS[@]}"} 2>/dev/null)"
 [ -n "$all" ] || exit 0
+# the session's wall time, first to last transcript timestamp — the run length
+# the trend reports per day (docs/trends.md); empty when no line carries one
+secs="$(jq -nrR '[inputs | fromjson? // empty | .timestamp | strings
+  | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // empty]
+  | if length < 2 then empty else (max - min | floor) end' "$tp" 2>/dev/null)"
 # the subagents' share is the total minus the main transcript, so a message
 # both files carry counts once, on the main side
 main=''
 [ "${#SUBS[@]}" -gt 0 ] && main="$(jq -nR -f "$SUM" "$tp" 2>/dev/null)"
 [ -n "$main" ] || main='{}'
-msg="$(jq -rn --argjson a "$all" --argjson m "$main" --argjson n "${#SUBS[@]}" '
+msg="$(jq -rn --argjson a "$all" --argjson m "$main" --argjson n "${#SUBS[@]}" --arg secs "${secs:-}" '
   "input=\($a.input) output=\($a.output) cache_read=\($a.cache_read) cache_creation=\($a.cache_creation) msgs=\($a.msgs) model=\($a.model // "unknown") subagents=\($n)"
+  + (if $secs == "" then "" else " secs=\($secs)" end)
   + (if $n > 0 then
        " sub_tokens=in:\($a.input - ($m.input // 0)),out:\($a.output - ($m.output // 0)),cr:\($a.cache_read - ($m.cache_read // 0)),cw:\($a.cache_creation - ($m.cache_creation // 0))"
      else "" end)' 2>/dev/null)"
