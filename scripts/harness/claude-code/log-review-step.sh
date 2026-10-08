@@ -17,6 +17,8 @@
 # `done`, `aborted <reason>`) stay the agent's duty — the row write is a file
 # edit whose PR and verdict are not recoverable from the payload.
 #
+# It also writes each review's `review_cost` event (cost_track below).
+#
 # Never blocks the agent and never fails a run: all error paths exit 0.
 set -u
 INPUT="$(cat 2>/dev/null || true)"
@@ -44,6 +46,66 @@ emit() { # <pr> <step-for-msg> <marker-key>
   # mkdir is the atomic test-and-set: concurrent hook invocations can't double-log
   mkdir "$d/$pr-$key" 2>/dev/null || return 0
   LOG_JOB=review logev info review_step "PR #$pr $step"
+}
+
+# review_cost — one review's usage and shape between its `<sha7> locked` and
+# `<sha7> done` steps of this run, from whichever writer logged them (the
+# script or emit above): a snapshot of the session's cumulative usage when the
+# lock is first seen, the delta when the done step is, plus the review window's
+# peak context, most repeated tool call, largest tool result (review-window.jq)
+# and this run's `tool_failure` events in the window (docs/logging.md →
+# Harness adapters). Summed by the shared usage-sum.jq over the transcript and
+# its subagents', so the event counts like the run-level `tokens` event.
+TP="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)"
+transcripts() { # the session transcript, then its subagents'
+  local f; printf '%s\n' "$TP"
+  for f in "${TP%.jsonl}"/subagents/*.jsonl; do [ -f "$f" ] && printf '%s\n' "$f"; done
+}
+usage_now() { # → {input, output, cache_read, cache_creation, msgs, model, subs}
+  local t=(); while IFS= read -r f; do t+=("$f"); done < <(transcripts)
+  jq -nR -f "$(cd "$(dirname "$0")" && pwd)/usage-sum.jq" "${t[@]}" 2>/dev/null \
+    | jq -c --argjson n "$(( ${#t[@]} - 1 ))" '. + {subs: $n}' 2>/dev/null
+}
+cost_track() {
+  { [ -n "$TP" ] && [ -f "$TP" ]; } || return 0
+  local d="/tmp/.cg-steps-$sid" pr sha st ts end win msg run f=("$LOG_DIR"/events-*.jsonl) t=()
+  mkdir -p "$d" 2>/dev/null || return 0
+  # this run's events, from the two newest daily files
+  [ -f "${f[0]}" ] || return 0
+  [ "${#f[@]}" -gt 2 ] && f=("${f[@]: -2}")
+  run="$(cat "${f[@]}" 2>/dev/null | grep -F "\"run\":\"$sid\"")"
+  printf '%s\n' "$run" | jq -r 'select(.event == "review_step") | . as $e
+        | .msg | capture("^PR #(?<pr>[0-9]+) (?<sha>[0-9a-f]{7}) (?<st>locked|done)$")?
+        | "\(.pr) \(.sha) \(.st) \($e.ts)"' 2>/dev/null \
+    | while read -r pr sha st ts; do
+        case "$st" in
+          (locked)
+            mkdir "$d/cost-$pr-$sha-s" 2>/dev/null || continue
+            usage_now | jq -c --arg ts "$ts" '{ts: $ts, u: .}' > "$d/cost-$pr-$sha.json" 2>/dev/null;;
+          (done)
+            [ -s "$d/cost-$pr-$sha.json" ] || continue
+            mkdir "$d/cost-$pr-$sha-e" 2>/dev/null || continue
+            end="$(usage_now)"; [ -n "$end" ] || continue
+            t=(); while IFS= read -r f; do t+=("$f"); done < <(transcripts)
+            win="$(jq -nR --arg since "$(jq -r '.ts' "$d/cost-$pr-$sha.json")" \
+                     -f "$(cd "$(dirname "$0")" && pwd)/review-window.jq" "${t[@]}" 2>/dev/null)"
+            [ -n "$win" ] || win='{}'
+            msg="$(printf '%s\n' "$run" | jq -rnR --slurpfile s "$d/cost-$pr-$sha.json" --argjson e "$end" \
+                     --argjson w "$win" --arg ts "$ts" '
+              def ep: .[0:19] + "Z" | fromdateiso8601;
+              $s[0] as $s | $s.u as $a
+              | ([inputs | fromjson? // empty
+                  | select(.event == "tool_failure" and .ts[0:19] >= $s.ts[0:19] and .ts[0:19] <= $ts[0:19])]
+                 | length) as $fail
+              | "secs=\(($ts | ep) - ($s.ts | ep)) input=\($e.input - $a.input)"
+                + " output=\($e.output - $a.output) cache_read=\($e.cache_read - $a.cache_read)"
+                + " cache_creation=\($e.cache_creation - $a.cache_creation) msgs=\($e.msgs - $a.msgs)"
+                + " model=\($e.model // "unknown") subagents=\($e.subs - $a.subs)"
+                + " peak_ctx=\($w.peak_ctx // 0) repeats=\($w.repeats // 0) repeat_tool=\($w.repeat_tool // "-")"
+                + " max_out=\($w.max_out // 0) failures=\($fail)"' 2>/dev/null)"
+            [ -n "$msg" ] && LOG_JOB=review logev info review_cost "PR #$pr $sha $msg";;
+        esac
+      done
 }
 
 case "$tool" in
@@ -147,6 +209,7 @@ case "$tool" in
         fi
         ;;
     esac
+    case "$cmd" in (*review-pr.sh*|*REVIEWS.md*) cost_track;; esac
     ;;
 esac
 exit 0
