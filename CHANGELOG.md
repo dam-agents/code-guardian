@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.15.0 — 2026-10-08
+
+**Upgrade:** Nothing required — an instance keeps the cadence its
+`work/CONFIG.md` sets. The default is now 24/7 at the active interval. When
+`active_hours` ≠ `00-23` or `active_days` ≠ `Mon-Sun`, offer the operator the
+switch; on a yes, set `active_hours: 00-23` and `active_days: Mon-Sun`, then
+reconcile the review heartbeat per ONBOARDING Step 6a, which re-registers
+`code-guardian-review-active` and deletes `code-guardian-review-quiet` and
+`code-guardian-review-offdays`.
+
 ## 8.14.1 — 2026-10-08
 
 **Upgrade:** Nothing — docs are re-read per run.
