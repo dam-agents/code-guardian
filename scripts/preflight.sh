@@ -516,7 +516,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
-   review_model:(if $rmod=="" then "default" else $rmod end),
+   review_model:(if $rmod=="" or ($rmod|ascii_downcase)=="default" then "default" else $rmod end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end),
@@ -2531,7 +2531,7 @@ if [ "$MODE" = "audit" ]; then
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
   SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" '
-    ($rm | if . == "" then "default" else . end) as $rm
+    ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
     | ($rm | ascii_downcase | sub("^claude/"; "")) as $want
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])

@@ -118,6 +118,15 @@ assert_rc 0 'two first reviews start the session'
 run_ds plan "$WORKLIST"
 assert_jq '[.dispatch[] | {number, model}] == [{number: 8, model: "sonnet"}]' 'each call carries the configured review_model'
 
+new_case dispatch_model_default_any_case
+base_config '- review_model: Default'
+{ pr_json 7 "first PR" '[]' "$SHA1"; pr_json 8 "second PR" '[]' "$SHA1"; } | open_prs_fx
+run_precheck review
+assert_rc 0 'two first reviews start the session'
+assert_file_jq "$WORKLIST" '.config.review_model == "default"' 'the worklist reads default in any letter case'
+run_ds plan "$WORKLIST"
+assert_jq '.dispatch | length == 1 and all(has("model") | not)' 'under Default no call names a model'
+
 # --- nothing to start ---------------------------------------------------------
 new_case dispatch_nothing_to_start
 mkdir -p "$SANDBOX/tmp"; WL="$SANDBOX/tmp/cg-worklist-review-y.json"

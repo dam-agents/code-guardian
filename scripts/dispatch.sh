@@ -92,7 +92,7 @@ worklist: $UNIT
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
       OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" \
         '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t}
-              + (if $m == "default" or $m == "" then {} else {model:$m} end)]')"
+              + (if ($m | ascii_downcase) == "default" or $m == "" then {} else {model:$m} end)]')"
     done
     printf '%s' "$OUT" | jq '{dispatch: .}'
     ;;

@@ -15,11 +15,13 @@ they are released history and stay as written.
 
 **Upgrade:** When `work/CONFIG.md` has no `review_model` key, call
 `mcp__platform-outbound__list_schedules` and read `spec.model` of the
-`code-guardian-review-*` schedules. One shared value → write `- review_model:
-<value>`; none carries a model → write `- review_model: default`; different
-values → write nothing and ask the operator which model to use. Then reconcile
-the schedules per ONBOARDING Step 6 (its table now compares `model` too) and
-tell the operator in chat which model every schedule runs on. Run
+schedules ONBOARDING Step 6 defines (6a–6e; never a one-time
+`code-guardian-review-pr-<n>`, which carries none from before this version).
+One shared value → write `- review_model: <value>`; none carries a model →
+write `- review_model: default`; different values → write nothing and ask the
+operator which model to use. Then reconcile the schedules per ONBOARDING Step
+6 (its table now compares `model` too) and tell the operator in chat which
+model every schedule runs on. Run
 `bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
 another harness): its dispatch auto-mode rule now names the `model` too.
 

@@ -945,12 +945,12 @@ assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and .de
   'runs whose model id contains the configured name match, case aside'
 
 new_case audit_session_models_default
-base_config
+base_config '- review_model: Default'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 sm_runs
 run_preflight audit
 assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^review_model is default")) and (.detail | test("review claude-opus-5-5 ×1, shepherd claude-sonnet-5-5 ×1"))' \
-  'without a pinned model the week names what each job ran on'
+  'without a pinned model, in any letter case, the week names what each job ran on'
 
 new_case audit_session_models_none
 base_config
