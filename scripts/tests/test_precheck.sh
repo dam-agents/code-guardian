@@ -120,14 +120,14 @@ logev info preflight "project profile: regenerating"
 sleep 30
 PF
 T0=$(date +%s)
-CLAUDE_CODE_SESSION_ID="" CG_PRECHECK_BUDGET_S=1 run_precheck review "$SANDBOX/scripts"
+CLAUDE_CODE_SESSION_ID="" CG_PRECHECK_BUDGET_S=3 run_precheck review "$SANDBOX/scripts"
 if [ $(( $(date +%s) - T0 )) -lt 15 ]; then printf 'ok   %s: the pass is stopped at its budget\n' "$CASE"
 else printf 'FAIL %s: the gate waited for the whole pass\n' "$CASE"; FAILED=1; fi
 assert_rc 2 'a pass over budget never skips the fire'
-assert_out_contains 'did not finish in its 1s budget' 'the prompt says the budget ran out'
+assert_out_contains 'did not finish in its 3s budget' 'the prompt says the budget ran out'
 assert_out_contains 'last logged step: preflight: project profile: regenerating' 'and names the step it had reached'
 assert_out_contains 'manually' 'and tells the run to do the work itself'
-assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'stopped at its 1s budget' \
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'stopped at its 3s budget' \
   'the cause also reaches the structured log'
 
 # --- work is due but the worklist cannot be written --------------------------

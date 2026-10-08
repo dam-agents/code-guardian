@@ -78,25 +78,29 @@ find "$TMP" -maxdepth 1 -type d -name 'cg-pf.*' -mmin +180 -exec rm -rf {} + >/d
 # The pass gets its own budget, under the platform's two-minute limit: a pass
 # the platform stops leaves no trace of why, one stopped here names its last
 # logged step. `timeout` signals the whole process group, so profile.sh's
-# lock trap still runs.
+# lock trap still runs. A host without `timeout` runs the pass without a budget
+# (`${LIMIT[@]+…}`: bash before 4.4 treats an empty array as unset under `set -u`).
 BUDGET="${CG_PRECHECK_BUDGET_S:-100}"
 START="$(date -u +%Y-%m-%dT%H:%M:%S)"
 LIMIT=(); command -v timeout >/dev/null 2>&1 && LIMIT=(timeout -k 5 "$BUDGET")
 ERR="$TMP/cg-precheck-err-$$.log"
 WHY=""
 if ( umask 077; : > "$ERR" ) 2>/dev/null; then
-  JSON="$("${LIMIT[@]}" bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
+  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
   WHY="$(log_redact "$(tail -c 400 "$ERR" 2>/dev/null | tr '\n' ' ')")"
   rm -f "$ERR" 2>/dev/null || true
 else
-  JSON="$("${LIMIT[@]}" bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
+  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
 fi
 
 if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ]; }; then
-  # the last line a gated pass (run id <start>-<pid>, never this gate's) logged
-  LAST="$(jq -r --arg job "$MODE" --arg since "$START" --arg me "${LOG_RUN:-}" '
+  # the last line a gated pass (run id <start>-<pid>, never this gate's) logged;
+  # a pass across 00:00 UTC logged into two daily files
+  DAYS=("${START%%T*}"); [ "$(date -u +%Y-%m-%d)" = "${START%%T*}" ] || DAYS+=("$(date -u +%Y-%m-%d)")
+  LAST="$(for d in "${DAYS[@]}"; do cat "${LOG_DIR:-/nonexistent}/events-$d.jsonl" 2>/dev/null; done \
+    | jq -r --arg job "$MODE" --arg since "$START" --arg me "${LOG_RUN:-}" '
       select(.job == $job and .ts >= $since and .run != $me and (.run | test("^[0-9]{8}T[0-9]{6}Z-[0-9]+$")))
-      | "\(.event): \(.msg)"' "${LOG_DIR:-/nonexistent}/events-$(date -u +%Y-%m-%d).jsonl" 2>/dev/null \
+      | "\(.event): \(.msg)"' 2>/dev/null \
     | tail -1 | cut -c1-200)"
   LAST="$(log_redact "${LAST:-none}")"
   logev error precheck "$MODE gate: preflight stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"

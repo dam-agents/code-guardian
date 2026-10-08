@@ -77,9 +77,10 @@ The mirror is a bare, blob-less, depth-1 clone of the default branch under
 shared home volume ([persistence.md](persistence.md)) — created under a `mkdir`
 lock when missing, so a fresh pod rebuilds it on its first review. Tree
 listings are local `git` calls. Before a regeneration reads files, one batched
-fetch pulls the missing blobs it can read (Markdown, manifests, workflows,
-convention and owner files); a blob outside that set, or a failed batch, is
-fetched on its own read.
+fetch pulls the missing blobs that its readers read: doc-root pages, the
+records directly under an ADR directory, manifests and the README beside each,
+workflows, and the convention, owner and workspace files. A blob outside that
+set, or a failed batch, is fetched on its own read.
 
 - Mirror unavailable (no `git`, clone or fetch failed) → the GitHub tree and
   contents API, capped at 80 reads per regeneration. A `truncated: true` tree
