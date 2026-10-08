@@ -85,7 +85,9 @@ session's `tokens` event and its own events ([logging.md](logging.md)). `min`
 is the transcript's wall time (`secs=`), else the span of the run's events;
 `reviews` counts the PRs it posted. The records stay raw, so every run figure
 and the per-day table derive at render time and reprice with the table. A
-session that crashed has no `tokens` event and no record.
+session that crashed has no `tokens` event and no record; a `tokens` event the
+audit cannot read leaves its session out and logs a `sessions_unparsed` warn
+that names the run.
 
 The audit reads its baselines from this history instead of recounting them:
 `verdict_shift`, `findings_shift` and `late_shift` compare the week with the

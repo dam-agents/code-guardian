@@ -821,6 +821,18 @@ export CG_TEST_DF="$SANDBOX/df.tsv"; : > "$CG_TEST_DF"
 run_preflight audit
 assert_jq '.checks[] | select(.id == "disk") | .status == "ok" and (.detail | test("not reported on this platform"))' 'no readable volume is unmeasured, never a fault'
 assert_jq '.stats.disk.volumes == []' 'an unmeasured disk records no volume'
+
+new_case audit_disk_backup_shared
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+export CG_TEST_DF="$SANDBOX/df.tsv" WORK_BACKUP_LOCAL="$SANDBOX/shm/cg-work-backup"
+mkdir -p "$SANDBOX/shm"; : > "$CG_TEST_DF"
+disk_fx "$WORK" 62 4000000 /workspace 3
+disk_fx "$SANDBOX/shm" 62 1 /workspace 3
+run_preflight audit
+assert_jq '.stats.disk.volumes | map(.role) == ["work"]' 'a backup on the work volume adds no second volume'
+assert_jq '.checks[] | select(.id == "disk") | .status == "warn" and (.detail | test("backup shares /workspace — under twice work/"))' \
+  'the backup fit is judged on a shared volume too'
 unset CG_TEST_DF WORK_BACKUP_LOCAL
 
 # --- verdict shift against the recorded weeks (docs/audit.md task 24) ----------
@@ -899,8 +911,11 @@ sev s1 session tokens "input=10 output=2000 cache_read=500 cache_creation=30 msg
 sev s2 shepherd preflight "sweep" 3600
 sev s2 shepherd tokens "input=1 output=100 cache_read=5 cache_creation=7 msgs=2 model=claude-opus-5 subagents=0" 3420
 sev s3 review review_step "PR #5 locked" 600
+sev s4 review tokens "usage unavailable" 300
 run_preflight audit
 assert_jq '.stats.sessions | length == 2' 'only finished sessions (a tokens event) are recorded'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"sessions_unparsed".*left out of stats.sessions: s4' \
+  'a tokens event the audit cannot read names its run in a warn'
 assert_jq '.stats.sessions[] | select(.job == "review") | .min == 7 and .reviews == 1 and .output == 2000 and .model == "claude-opus-5"' 'the transcript wall time wins; posted PRs and tokens are kept'
 assert_jq '.stats.sessions[] | select(.job == "shepherd") | .min == 3' 'without secs the run spans its own events'
 

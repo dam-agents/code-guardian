@@ -2231,8 +2231,22 @@ if [ "$MODE" = "audit" ]; then
     fi
     d_total="${d_f[1]}"; d_avail="${d_f[3]}"; d_pct="${d_f[4]%\%}"; d_mnt="${d_f[*]:5}"
     case "$d_avail$d_pct" in (*[!0-9]*) disk_detail="${disk_detail:+$disk_detail · }$role unmeasured"; continue;; esac
-    case "$disk_seen" in (*" $d_mnt "*) continue;; esac   # one filesystem, one line
+    d_shared=false; case "$disk_seen" in (*" $d_mnt "*) d_shared=true;; esac
     disk_seen="$disk_seen$d_mnt "
+    # the backup re-clones work/ into its volume on every persist
+    # (docs/persistence.md), so its free space is judged against work/ even
+    # when that volume is already on the list
+    d_fit=""
+    [ "$role" = backup ] && [ -n "$work_kb" ] && [ "$d_avail" -lt $((work_kb * 2)) ] \
+      && d_fit=" — under twice work/ ($(hsize "$work_kb")), the backup clone may not fit"
+    if [ "$d_shared" = true ]; then
+      # one filesystem, one line: a volume already reported adds only the
+      # backup's fit verdict, when it has one
+      [ -n "$d_fit" ] || continue
+      [ "$disk_status" = fail ] || disk_status=warn
+      disk_detail="${disk_detail:+$disk_detail · }backup shares $d_mnt$d_fit"
+      continue
+    fi
     # inode use is the last percent field of -Pi on both GNU and BSD; a
     # filesystem without fixed inodes prints "-"
     d_ipct="$(df -Pi "$dpath" 2>/dev/null | tail -n +2 | tail -1 | tr -s ' ' '\n' | grep -E '^[0-9]+%$' | tail -1 | tr -d '%')"
@@ -2241,11 +2255,7 @@ if [ "$MODE" = "audit" ]; then
     elif [ "$d_pct" -ge 85 ] || [ "${d_ipct:-0}" -ge 85 ]; then d_st=warn; fi
     d_line="$role $d_mnt ${d_pct}% used, $(hsize "$d_avail") free"
     [ -n "$d_ipct" ] && d_line="$d_line, inodes ${d_ipct}%"
-    # the backup re-clones work/ into tmpfs on every persist (docs/persistence.md)
-    if [ "$role" = backup ] && [ -n "$work_kb" ] && [ "$d_avail" -lt $((work_kb * 2)) ]; then
-      [ "$d_st" = fail ] || d_st=warn
-      d_line="$d_line — under twice work/ ($(hsize "$work_kb")), the backup clone may not fit"
-    fi
+    if [ -n "$d_fit" ]; then [ "$d_st" = fail ] || d_st=warn; d_line="$d_line$d_fit"; fi
     case "$d_st" in (fail) disk_status=fail;; (warn) [ "$disk_status" = fail ] || disk_status=warn;; esac
     disk_detail="${disk_detail:+$disk_detail · }$d_line"
     DISK_JSON="$(printf '%s' "$DISK_JSON" | jq -c --arg r "$role" --arg m "$d_mnt" --argjson t "$d_total" \
@@ -2409,6 +2419,13 @@ if [ "$MODE" = "audit" ]; then
                       | capture("^PR #(?<n>[0-9]+)").n ] | unique | length) } )
     | sort_by(.day)' 2>/dev/null)"
   [ -n "$SESSIONS_WEEK" ] || SESSIONS_WEEK='null'
+  # a `tokens` event the capture above does not read leaves its session out of
+  # the records; the run is named here so the gap in stats.sessions is traceable
+  ses_unparsed="$(week_events | jq -rs --arg s "$SINCE_ISO" '
+    [ .[] | select(.ts >= $s and (.run // "") != "" and .event == "tokens")
+      | select(((.msg | strings | test("input=[0-9]+ output=[0-9]+ cache_read=[0-9]+ cache_creation=[0-9]+")) // false) | not)
+      | .run ] | unique | join(" ")' 2>/dev/null)"
+  [ -n "$ses_unparsed" ] && logev warn sessions_unparsed "$(printf '%s' "$ses_unparsed" | wc -w | tr -d ' ') session(s) with a tokens event the audit could not read, left out of stats.sessions: $ses_unparsed"
 
   # Wake-ups — the preflight passes that found work, from the `heartbeat`
   # events emit(), survey_out() and bench_out() write: a gated fire that started
