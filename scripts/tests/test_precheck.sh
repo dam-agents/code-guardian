@@ -105,6 +105,31 @@ printf '[]' | fx 'api repos/acme/widgets/pulls?state=open&per_page=100'
 run_precheck review
 assert_rc 1 'an empty PR list is a real answer: the idle fire is skipped'
 
+# --- a pass over its budget is stopped by the gate, with its last step -------
+# the platform stops a gate at two minutes and logs no reason; the gate's own
+# budget stops it first and names the step preflight had reached
+new_case precheck_over_budget
+base_config
+mkdir -p "$SANDBOX/scripts/lib"
+cp "$REPO_ROOT/scripts/precheck.sh" "$REPO_ROOT/scripts/log.sh" "$SANDBOX/scripts/"
+cp "$REPO_ROOT/scripts/lib/toolpath.sh" "$SANDBOX/scripts/lib/"
+cat > "$SANDBOX/scripts/preflight.sh" <<'PF'
+#!/usr/bin/env bash
+LOG_JOB=review; . "$(dirname "$0")/log.sh"
+logev info preflight "project profile: regenerating"
+sleep 30
+PF
+T0=$(date +%s)
+CLAUDE_CODE_SESSION_ID="" CG_PRECHECK_BUDGET_S=3 run_precheck review "$SANDBOX/scripts"
+if [ $(( $(date +%s) - T0 )) -lt 15 ]; then printf 'ok   %s: the pass is stopped at its budget\n' "$CASE"
+else printf 'FAIL %s: the gate waited for the whole pass\n' "$CASE"; FAILED=1; fi
+assert_rc 2 'a pass over budget never skips the fire'
+assert_out_contains 'did not finish in its 3s budget' 'the prompt says the budget ran out'
+assert_out_contains 'last logged step: preflight: project profile: regenerating' 'and names the step it had reached'
+assert_out_contains 'manually' 'and tells the run to do the work itself'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'stopped at its 3s budget' \
+  'the cause also reaches the structured log'
+
 # --- work is due but the worklist cannot be written --------------------------
 # the bookkeeping of this pass is already spent, so the gate must start the
 # session (exit 0) and name no path, never skip the fire

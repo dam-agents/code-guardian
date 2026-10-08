@@ -53,6 +53,8 @@ MAX_CONVENTION_BYTES=12288; MAX_API_READS=80; MAX_HISTORY_ROWS=40
 GENERATOR="$(head -1 "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]')"
 GENERATOR="${GENERATOR:-unknown}"
 TAB="$(printf '\t')"
+NL='
+'
 
 LOG_JOB="${LOG_JOB:-review}"
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
@@ -177,6 +179,47 @@ load_tree() { # fills TREE_FILE/PATHS_FILE from the mirror, else the API; sets M
   cut -f3 "$TREE_FILE" > "$PATHS_FILE"
 }
 
+# A blob-less mirror fetches each missing blob in a request of its own (~0.7 s
+# against GitHub), and a fresh pod starts with an empty /tmp: one read per doc,
+# decision and manifest took a regeneration past the gate's two-minute limit.
+# One batched fetch of every blob the gen_* readers below may read costs about
+# a second; when it fails, the reads fall back to the per-blob fetches. The set
+# follows the readers: doc-root pages (no EXCL_RE, as gen_docs), the records
+# directly under an ADR dir, manifests and the README beside each, workflows
+# and the named files. Runs after detect_doc_dirs.
+prefetch_blobs() {
+  [ "$MODE" = mirror ] || return 0
+  local want="$TMP/prefetch.want" missing="$TMP/prefetch.missing" objs="$TMP/prefetch.objs" n
+  if ! jq -Rsr --arg man "$MANIFEST_RE" --arg excl "$EXCL_RE" --arg wf "$WORKFLOW_RE" \
+    --arg named "^(${CONVENTION_FILES// /|}|${OWNER_FILES// /|}|\\.gitattributes|pnpm-workspace\\.yaml|go\\.work)\$" \
+    --arg docs "$DOC_ROOTS" --arg adrs "$ADR_DIRS" '
+    ($docs | split("\n") | map(select(length > 0))) as $docs
+    | ($adrs | split("\n") | map(select(length > 0))) as $adrs
+    | [ split("\n")[] | split("\t") | select(.[0] == "blob")
+        | {oid: .[1], p: .[2], dir: (.[2] | split("/") | .[:-1] | join("/")),
+           md: (.[2] | test("\\.mdx?$")), man: ((.[2] | test($man)) and ((.[2] | test($excl)) | not))} ] as $b
+    | ([ $b[] | select(.man) | .dir ] | unique) as $mdirs
+    | $b[] | . as $f
+    | select(
+        ($f.md and any($docs[]; . as $d | $f.p | startswith($d + "/")))
+        or ($f.md and any($adrs[]; . == $f.dir))
+        or $f.man
+        or (($f.p | split("/") | last) == "README.md" and any($mdirs[]; . == $f.dir))
+        or ($f.p | test($wf)) or ($f.p | test($named)))
+    | .oid' "$TREE_FILE" > "$want" 2>/dev/null \
+     || ! git -C "$MIRROR" rev-list --objects --missing=print "$REMOTE_SHA" > "$objs" 2>/dev/null; then
+    logev warn profile "blob prefetch skipped: the wanted or missing blob list did not build — the reads fetch one blob at a time"
+    return 0
+  fi
+  sed -n 's/^?//p' "$objs" > "$missing"
+  n="$(grep -cFxf "$missing" "$want" 2>/dev/null)"
+  [ "${n:-0}" -gt 0 ] || return 0
+  grep -Fxf "$missing" "$want" \
+    | xargs -n 500 git -C "$MIRROR" -c fetch.negotiationAlgorithm=noop fetch -q --no-tags \
+        --no-write-fetch-head --recurse-submodules=no --filter=blob:none origin >/dev/null 2>&1 \
+    || logev warn profile "batched blob prefetch failed ($n blobs) — the reads fetch one blob at a time"
+}
+
 blobs()  { grep "^blob${TAB}" "$TREE_FILE" | cut -f3; }
 trees()  { grep "^tree${TAB}" "$TREE_FILE" | cut -f3; }
 blob_sha() { grep "^blob${TAB}[0-9a-f]*${TAB}$1\$" "$TREE_FILE" | head -1 | cut -f2; }
@@ -213,9 +256,14 @@ front_matter() { # <text> → the YAML block between the leading --- fences, or 
   local first; first="$(printf '%s\n' "$1" | head -1)"
   case "$first" in (---|---[[:space:]]*) printf '%s\n' "$1" | sed -n '2,/^---[[:space:]]*$/p' | sed '$d';; esac
 }
-fm_raw() { printf '%s\n' "$1" | sed -nE "s/^$2:[[:space:]]*(.*)$/\1/p" | head -1; }
-fm_scalar() { fm_raw "$1" "$2" | tr -d '[]' | cut -d',' -f1 | unquote; }
+# fm_has: a pattern test in the shell — most lookups ask for a key that is
+# absent, and that lookup then starts no sed pipeline (a process costs ~6 ms in
+# the pod, ~1500 lookups per regeneration)
+fm_has() { case "$NL$1" in (*"$NL$2:"*) return 0;; esac; return 1; }
+fm_raw() { fm_has "$1" "$2" || return 0; printf '%s\n' "$1" | sed -nE "s/^$2:[[:space:]]*(.*)$/\1/p" | head -1; }
+fm_scalar() { fm_has "$1" "$2" || return 0; fm_raw "$1" "$2" | tr -d '[]' | cut -d',' -f1 | unquote; }
 fm_list() { # <fm> <key> → items, one per line
+  fm_has "$1" "$2" || return 0
   local v; v="$(fm_raw "$1" "$2")"
   case "$v" in
     ('['*) printf '%s\n' "$v" | tr -d '[]' | tr ',' '\n' | unquote | grep -v '^$';;
@@ -556,7 +604,8 @@ render_md() { # PROFILE.json → PROFILE.md
 generate() { # tree already loaded; writes PROFILE.json + PROFILE.md
   local fp trunc
   fp="$(fingerprint)"
-  gen_modules; detect_doc_dirs; gen_docs; gen_decisions; gen_conventions; gen_ownership; gen_checks; gen_noise; gen_history; gen_notes
+  detect_doc_dirs; prefetch_blobs
+  gen_modules; gen_docs; gen_decisions; gen_conventions; gen_ownership; gen_checks; gen_noise; gen_history; gen_notes
   [ "$API_TRUNCATED" -eq 1 ] && { note_trunc "tree listing truncated by the API — fingerprint unavailable, ttl-only refresh"; fp=""; }
   [ -s "$TMP/api_capped" ] && note_trunc "contents cap reached ($MAX_API_READS API reads) — some rows read their source shallowly"
   trunc="$(sort -u "$NOTE_TRUNC" | jq -R . | jq -s .)"
