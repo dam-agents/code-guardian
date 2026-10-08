@@ -18,6 +18,8 @@
 #   no JSON       -> exit 2 with the reason, preflight's exit code and the tail
 #                    of its stderr: the session starts and does the equivalent
 #                    work manually (docs/runbook.md).
+#   over budget   -> exit 2 with preflight's last logged step: the pass ran past
+#                    the gate's own budget (below the platform's limit).
 #   error         -> exit 2 with preflight's `error`: it could not decide (no
 #                    target repo, no answer from the API), which is a broken
 #                    gate, never an idle tick.
@@ -72,14 +74,35 @@ find "$TMP" -maxdepth 1 -type d -name 'cg-pf.*' -mmin +180 -exec rm -rf {} + >/d
 # prompt, so it passes the same credential masking as a log line (log.sh ->
 # log_redact), and a scratch file that cannot be created costs the cause, never
 # the pass.
+#
+# The pass gets its own budget, under the platform's two-minute limit: a pass
+# the platform stops leaves no trace of why, one stopped here names its last
+# logged step. `timeout` signals the whole process group, so profile.sh's
+# lock trap still runs.
+BUDGET="${CG_PRECHECK_BUDGET_S:-100}"
+START="$(date -u +%Y-%m-%dT%H:%M:%S)"
+LIMIT=(); command -v timeout >/dev/null 2>&1 && LIMIT=(timeout -k 5 "$BUDGET")
 ERR="$TMP/cg-precheck-err-$$.log"
 WHY=""
 if ( umask 077; : > "$ERR" ) 2>/dev/null; then
-  JSON="$(bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
+  JSON="$("${LIMIT[@]}" bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
   WHY="$(log_redact "$(tail -c 400 "$ERR" 2>/dev/null | tr '\n' ' ')")"
   rm -f "$ERR" 2>/dev/null || true
 else
-  JSON="$(bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
+  JSON="$("${LIMIT[@]}" bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
+fi
+
+if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ]; }; then
+  # the last line a gated pass (run id <start>-<pid>, never this gate's) logged
+  LAST="$(jq -r --arg job "$MODE" --arg since "$START" --arg me "${LOG_RUN:-}" '
+      select(.job == $job and .ts >= $since and .run != $me and (.run | test("^[0-9]{8}T[0-9]{6}Z-[0-9]+$")))
+      | "\(.event): \(.msg)"' "${LOG_DIR:-/nonexistent}/events-$(date -u +%Y-%m-%d).jsonl" 2>/dev/null \
+    | tail -1 | cut -c1-200)"
+  LAST="$(log_redact "${LAST:-none}")"
+  logev error precheck "$MODE gate: preflight stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
+  printf 'precheck (%s): scripts/preflight.sh did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) may be spent, so a stall or anomaly alert may be missing from your worklist.\n' \
+    "$MODE" "$BUDGET" "$LAST"
+  exit 2
 fi
 
 if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/dev/null 2>&1; then
