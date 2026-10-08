@@ -419,6 +419,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      (`docs/worklist.md` → **Dispatch**). Mention that each such session pays
      its own session prefix. Default `enabled`; write the key only for
      `disabled`.
+   - **`review_model`** — the model every scheduled session runs on
+     (`docs/config.md`). Ask for a name from the agent's model settings;
+     default `opus`. Always write the key. Step 6 validates it: a
+     platform that refuses a chosen model for this harness → write
+     `review_model: default` and tell the operator; an unknown name → ask
+     again with the choices the platform lists.
    - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
      reply in its inline review threads, get handled every heartbeat:
      questions answered, review feedback recorded to memory, review requests
@@ -496,16 +502,17 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
-    > When is this repo actively worked on? During those hours I check for new PRs every 5 minutes; outside them (nights, weekends) I check once an hour, so a PR opened at night waits up to an hour; a check that finds nothing starts no session. Default: **Mon–Fri, 08–21 (platform timezone)**. Answer `24/7` and I keep the 5-minute cadence around the clock.
+    > I check for new PRs every 5 minutes, around the clock; a check that finds nothing starts no session and costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want fewer checks outside them; I then check once an hour there, so a PR opened at night waits up to an hour.
 
     Write all four keys explicitly, even at the default, because the audit
     compares the registered crons against them. Validate before writing: both
     intervals must be divisors of 60 (`1 2 3 4 5 6 10 12 15 20 30 60`), and
     `active_hours` must be an ascending `HH-HH` range — a window spanning
     midnight is not expressible as one cron, so express it as two
-    operator-managed schedules and leave the keys at their 24/7 values. Tell
-    the operator the trade the quiet cadence makes: a PR opened at 02:00 waits
-    up to `review_interval_quiet` minutes, an `urgent_label` one included.
+    operator-managed schedules and leave the keys at their 24/7 values. For a
+    window, tell the operator the trade the quiet cadence makes: a PR opened
+    at 02:00 waits up to `review_interval_quiet` minutes, an `urgent_label` one
+    included.
 
 Final shape:
 
@@ -531,6 +538,7 @@ Final shape:
 - review_progress: enabled             # commit-status progress on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
+- review_model: opus                   # model of every scheduled session; or another name from the model settings, or: default
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
@@ -551,8 +559,8 @@ Final shape:
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
 - review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) alerts; omit = 4; 0/off disables
 - log_level: info                      # or: debug (diagnostic only); omit = info
-- active_hours: 08-21                  # platform timezone, both ends inclusive; missing = 00-23
-- active_days: Mon-Fri                 # or: Mon-Sun / a comma list; missing = Mon-Sun
+- active_hours: 00-23                  # platform timezone, both ends inclusive; missing = 00-23
+- active_days: Mon-Sun                 # or: Mon-Fri / a comma list; missing = Mon-Sun
 - review_interval_active: 5            # minutes in the active window; divisor of 60
 - review_interval_quiet: 60            # minutes in quiet hours (nights, weekends)
 
@@ -639,7 +647,9 @@ visible to the operator.
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
 schedule gate**); the audit is ungated because its worklist carries work
-whenever `audit_report` is enabled.
+whenever `audit_report` is enabled. Every schedule here also carries
+**`model: <review_model>`**, none under `review_model: default`
+(`docs/config.md`).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
@@ -651,8 +661,8 @@ share one. For each schedule this step defines:
 | Registered state | Action |
 | --- | --- |
 | absent | create it |
-| same `name`, same cron, `task` and `precheck` as this step derives | keep it, and `toggle_schedule` it **enabled** |
-| same `name`, different cron, `task` or `precheck` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
+| same `name`, same cron, `task`, `precheck` and `model` as this step derives | keep it, and `toggle_schedule` it **enabled** |
+| same `name`, different cron, `task`, `precheck` or `model` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
 only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a create.
@@ -668,17 +678,17 @@ only difference. With `A` = `review_interval_active`, `Q` =
 `review_interval_quiet`, `H1-H2` = `active_hours`, and `D` = `active_days` as
 cron day numbers (`Mon-Fri` → `1-5`):
 
-| `name` | exists when | cron | example (`A=5`, `Q=60`, `08-21`, `Mon-Fri`) |
+| `name` | exists when | cron | default (`A=5`, 24/7) |
 | --- | --- | --- | --- |
-| `code-guardian-review-active` | always | `*/A H1-H2 * * D` | `*/5 8-21 * * 1-5` |
-| `code-guardian-review-quiet` | `active_hours` ≠ `00-23` | `M Hq * * D` | `0 22-23,0-7 * * 1-5` |
-| `code-guardian-review-offdays` | `active_days` ≠ `Mon-Sun` | `M * * * Dq` | `0 * * * 6,0` |
+| `code-guardian-review-active` | always | `*/A H1-H2 * * D` | `*/5 * * * *` |
+| `code-guardian-review-quiet` | `active_hours` ≠ `00-23` | `M Hq * * D` | not created |
+| `code-guardian-review-offdays` | `active_days` ≠ `Mon-Sun` | `M * * * Dq` | not created |
 
 `M` is the quiet interval's minute field — `0` at 60 minutes, `*/Q` below it.
 `Hq` is the hour complement of `H1-H2` and `Dq` the day complement of `D`, both
 written as ascending cron ranges, because cron has no wrap-around: `08-21`
-becomes `22-23,0-7`. Keys left at their 24/7 defaults (`00-23` + `Mon-Sun`)
-produce the active schedule alone. Each carries
+becomes `22-23,0-7`. A full range is written `*`, so keys at their 24/7
+defaults (`00-23` + `Mon-Sun`) produce the active schedule alone. Each carries
 `precheck: bash "$HOME/scripts/precheck.sh" review` and this `task`:
 
 > Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read exactly the worklist's read_set, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`).
@@ -767,10 +777,11 @@ Then give the operator a short **onboarding summary** in the chat UI, starting
 with the verification result (the `PASS` line plus any warnings):
 
 1. The final `work/CONFIG.md`, verbatim.
-2. What runs where: target repo, both review cadences (the active window and
-   the quiet-hour interval a night or weekend PR waits for), shepherd cadence
-   when Slack is on, audit day, benchmark day when enabled, and state
-   persistence (the `work_repo` backup or local-only).
+2. What runs where: target repo, the review cadence (under an active window
+   also the quiet-hour interval a night or weekend PR waits for), shepherd
+   cadence when Slack is on, audit day, benchmark day when enabled, the model
+   every scheduled session runs on (`review_model`), and state persistence (the
+   `work_repo` backup or local-only).
 3. Day-to-day usage:
    - The first review of every open non-draft PR lands automatically (chat UI +
      GitHub).

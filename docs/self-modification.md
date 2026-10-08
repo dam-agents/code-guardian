@@ -91,8 +91,9 @@ records the ask; acting on it still takes the operator.
 
 - Assess every change for token cost **before implementing it**: what does it
   add to the always-loaded core, to per-run file reads, to per-PR API
-  round-trips, and does it wake the agent more often? The heartbeat runs
-  ~144×/day, so a small per-run addition is a large monthly bill.
+  round-trips, and does it wake the agent more often? The heartbeat gate fires
+  288×/day at the default cadence, so a small per-run addition is a large
+  monthly bill.
 - **A deterministic start decision belongs in the schedule's `precheck`, never
   in a session that ends immediately** ([worklist.md](worklist.md) → **The
   schedule gate**). This is the preferred shape of every scheduled job: a new one

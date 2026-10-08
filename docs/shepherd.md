@@ -101,10 +101,10 @@ for that approval, so the PR is told exactly once. An approval submitted after
 the message — the second one, once new commits dropped the first — is a new
 landing moment and is announced again.
 
-**Brief tail** — when `brief` is non-null, every reviewer-directed template
-ends, before `<url>`, with the parts that have a value:
-`≈ <minutes> min · Why: <why> · Checked: <verified>`. A `forced` match adds
-`· Sensitive path: <forced>`. With a brief, `Focus:` comes from `why` first.
+**Brief tail** — when `brief` is non-null, `Focus:` is `why`, and every
+reviewer-directed template ends, before `<url>`, with the parts that have a
+value: `≈ <minutes> min · Checked: <verified>`. A `forced` match adds
+`· Sensitive path: <forced>`.
 
 The focus line comes from the targets' expertise plus the PR content. Level 4 =
 widen and hold: include the `escalation` mention from the worklist when its

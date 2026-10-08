@@ -98,6 +98,17 @@ below is for the manual fallback and the direct session.
   `schedule_once` ([runbook.md](runbook.md) → **Review run** step 1,
   [worklist.md](worklist.md) → **Dispatch**). `disabled` keeps every PR in the
   run that found it, one after another.
+- **`review_model`** — a model name from the agent's model settings (Claude
+  Code: `fable` | `opus` | `sonnet` | `haiku`) | `default`. **Missing =
+  `default`.** The model of every session this agent's schedules start: each
+  ONBOARDING Step 6 schedule and each dispatched review carries it as its
+  `model`. `default` pins none, and the platform decides — on DAM the
+  harness Default where the harness has one, else the agent's current model;
+  it is the only value on a harness that cannot switch a session's model, and
+  it is read in any letter case. A name the harness refuses when a schedule
+  fires fails that run after its gate ran, and the audit reports the failing
+  last result ([audit.md](audit.md) task 5). The audit compares the registered
+  schedules and the week's recorded runs against the key (task 5).
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served

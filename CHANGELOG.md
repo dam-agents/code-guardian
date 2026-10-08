@@ -11,6 +11,38 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.16.1 — 2026-10-08
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.16.0 — 2026-10-08
+
+**Upgrade:** When `work/CONFIG.md` has no `review_model` key, call
+`mcp__platform-outbound__list_schedules` and read `spec.model` of the
+schedules ONBOARDING Step 6 defines (6a–6e; never a one-time
+`code-guardian-review-pr-<n>`, which carries none from before this version).
+One shared value → write `- review_model: <value>`; none carries a model →
+write `- review_model: default`; different values → write nothing and ask the
+operator which model to use. Then reconcile the schedules per ONBOARDING Step
+6 (its table now compares `model` too) and tell the operator in chat which
+model every schedule runs on. Run
+`bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
+another harness): its dispatch auto-mode rule now names the `model` too.
+
+## 8.15.1 — 2026-10-08
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.15.0 — 2026-10-08
+
+**Upgrade:** Nothing required — an instance keeps the cadence its
+`work/CONFIG.md` sets. The default is now 24/7 at the active interval. When
+`active_hours` ≠ `00-23` or `active_days` ≠ `Mon-Sun`, offer the operator the
+switch; on a yes, set `active_hours: 00-23` and `active_days: Mon-Sun`, then
+reconcile the review heartbeat per ONBOARDING Step 6a, which re-registers
+`code-guardian-review-active` and deletes `code-guardian-review-quiet` and
+`code-guardian-review-offdays`.
+
 ## 8.14.1 — 2026-10-08
 
 **Upgrade:** Nothing — docs are re-read per run.
