@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# docker.sh [--rebuild] [test-file…] — run the stub tests (run.sh, same
-# arguments) in an ubuntu:24.04 container, close to the CI runner. For a
-# developer machine; CI and the pod run run.sh directly.
+# docker.sh [--rebuild] [--or-native] [test-file…] — run the stub tests
+# (run.sh, same arguments) in an ubuntu:24.04 container, close to the CI runner.
+# For a developer machine: run.sh on macOS comes here itself; CI and the pod run
+# run.sh directly.
 #
 # Environment workaround: on a macOS host whose endpoint security agent
 # authorizes every exec, one process start costs ~100 ms and the exec-bound
@@ -9,7 +10,13 @@
 # there (an exclusion for the cg-test.* temp dirs, or a faster agent). In the
 # container's VM the execs do not reach that agent. The container also removes
 # the host's own git config (gpgsign), version-manager shims and jq version.
-# Delete this script when the host runs the suite at CI speed again.
+# Delete this script and run.sh's delegation to it when the host runs the suite
+# at CI speed again.
+#
+# The engine is the docker CLI's daemon. A Rancher Desktop that is not running
+# is started (rdctl from PATH or ~/.rd/bin), and the run waits for its daemon up
+# to CG_TEST_ENGINE_WAIT seconds (default 180). With no answering daemon the
+# run fails — or, with --or-native, runs run.sh on the host instead.
 #
 # The image is built once and tagged with the hash of its Dockerfile, so a
 # change to the Dockerfile builds a new one; --rebuild forces a fresh build.
@@ -22,13 +29,50 @@ CALLER_DIR="$(pwd)"
 cd "$(dirname "$0")" || exit 1
 CHECKOUT="$(cd ../.. && pwd)"
 
-REBUILD=0
-[ "${1:-}" = "--rebuild" ] && { REBUILD=1; shift; }
+REBUILD=0 OR_NATIVE=0
+while :; do
+  case "${1:-}" in
+    (--rebuild) REBUILD=1; shift;;
+    (--or-native) OR_NATIVE=1; shift;;
+    (*) break;;
+  esac
+done
 
-command -v docker >/dev/null 2>&1 \
-  || { echo "TESTS FAILED: docker is not installed"; exit 1; }
-docker info >/dev/null 2>&1 \
-  || { echo "TESTS FAILED: the docker daemon does not answer (start Docker / Rancher Desktop)"; exit 1; }
+# Rancher Desktop's CLIs live in ~/.rd/bin, which a non-login shell can lack
+if [ -d "$HOME/.rd/bin" ]; then
+  case ":$PATH:" in (*":$HOME/.rd/bin:"*) ;; (*) PATH="$PATH:$HOME/.rd/bin";; esac
+fi
+
+engine_up() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+
+# Start Rancher Desktop only when its VM is down: `rdctl start` on a started VM
+# restarts the backend under any container another run has open.
+if ! engine_up && command -v rdctl >/dev/null 2>&1; then
+  state="$(rdctl api /v1/backend_state 2>/dev/null)" || state=""
+  case "$state" in
+    (*STARTED*|*ERROR*) ;;   # the VM is up and its daemon still does not answer
+    (*)
+      case "$state" in
+        (*STARTING*) ;;
+        (*) echo ".. starting Rancher Desktop" >&2; (rdctl start >/dev/null 2>&1 &);;
+      esac
+      limit="${CG_TEST_ENGINE_WAIT:-180}"
+      case "$limit" in (''|*[!0-9]*) limit=180;; esac
+      waited=0
+      until engine_up || [ "$waited" -ge "$limit" ]; do sleep 2; waited=$((waited + 2)); done;;
+  esac
+fi
+
+if ! engine_up; then
+  if [ "$OR_NATIVE" -eq 1 ]; then
+    echo "warning: no container engine answers; the suite runs on the host, which on macOS can be ~30x slower" >&2
+    cd "$CALLER_DIR" || exit 1
+    CG_TEST_DOCKER=0 exec bash "$CHECKOUT/scripts/tests/run.sh" "$@"
+  fi
+  command -v docker >/dev/null 2>&1 \
+    || { echo "TESTS FAILED: docker is not installed"; exit 1; }
+  echo "TESTS FAILED: the docker daemon does not answer (start Docker / Rancher Desktop)"; exit 1
+fi
 
 # A path argument becomes a path inside the container's copy of the checkout.
 ARGS=""
