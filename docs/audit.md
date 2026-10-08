@@ -248,7 +248,7 @@ measurement.
       model of the next bullet → one **info** line.
     - **Production model** — the `byModel` entry with the most `calls` is what
       the week's runs actually ran on; report it, and **warn** when it does not
-      match `review_model`. The second low-call, low-cost model
+      match `review_model` (under `default`, report only). The second low-call, low-cost model
       beside it is harness-internal (session titles), not a model change.
     - `available: false` → one **info** line, `spend not measured on this
       deployment`, and task 36's extras omit the key. Never a fail.

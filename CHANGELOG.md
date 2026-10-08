@@ -19,7 +19,9 @@ they are released history and stay as written.
 <value>`; none carries a model → write `- review_model: default`; different
 values → write nothing and ask the operator which model to use. Then reconcile
 the schedules per ONBOARDING Step 6 (its table now compares `model` too) and
-tell the operator in chat which model every schedule runs on.
+tell the operator in chat which model every schedule runs on. Run
+`bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
+another harness): its dispatch auto-mode rule now names the `model` too.
 
 ## 8.14.0 — 2026-10-08
 

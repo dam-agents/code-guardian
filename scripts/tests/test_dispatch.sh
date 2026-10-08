@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch (scripts/dispatch.sh): a review worklist with several PRs starts the
 # PRs after its first in sessions of their own — one unit worklist per PR, the
-# exact schedule_once name and task, the run's own worklist without them.
+# exact schedule_once name, task and model, the run's own worklist without them.
 # Contract: docs/worklist.md → Dispatch.
 . "$(dirname "$0")/helpers.sh"
 
