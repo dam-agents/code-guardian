@@ -30,7 +30,7 @@ post-send record step.
   verbatim from the entry (`mentions`, `candidates`, `escalation`) — never
   composed. A person without one (non-roster, no valid `slack_id`) is named in
   plain text. Before each send, run `. "$HOME/scripts/lib/common.sh" &&
-  mentions_check work/DEVELOPERS.md` with the final text on stdin (a quoted
+  mentions_check "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted
   heredoc): it must exit 0; a failure names the bad tokens — fix the message,
   never send it. Seed expertise in the roster is operator-authored: never
   overwrite it, only append to "Observed areas".
@@ -49,10 +49,11 @@ with no current triage counts as one that needs a person.
 
 ## Target selection (`needs_target_selection: true`)
 
-When a reviewer-directed nudge has no persisted targets and no requested
-reviewer intersects the roster, pick **2 of the entry's `candidates`** (1 if
-that is all there is; the mentionable roster minus the author) and mark them
-`*` — a Slack-only suggestion, never requested on GitHub:
+When a reviewer-directed nudge has no target with a valid `slack_id` — no
+persisted target and no requested reviewer is mentionable — pick **2 of the
+entry's `candidates`** (1 if that is all there is; the mentionable roster
+minus the author) and mark them `*` — a Slack-only suggestion, never requested
+on GitHub:
 
 - Build keywords from the PR title plus changed paths and extensions
   (`gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'`).
