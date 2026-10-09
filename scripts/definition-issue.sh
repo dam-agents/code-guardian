@@ -31,17 +31,21 @@
 #     IPv4 addresses, and the credential shapes of lib/redact.sh;
 #   - foreign terms: every path or dotted name, every token in backticks or in
 #     a fenced block, and every capitalized word of the draft must occur in the
-#     definition's own text — the root documents, docs/, scripts/ without its
-#     tests, .agents/ — or in a path of that tree. A term the definition does
-#     not know (a product, a person, a module, a file or a branch of the
-#     target repo) names the instance.
+#     definition's own text — the tracked root documents, docs/, scripts/
+#     without its tests, .agents/ — or in a path of that tree. A term the
+#     definition does not know (a product, a person, a module, a file or a
+#     branch of the target repo) names the instance.
 # The definition repo's own reference and URLs are removed before the scan, so
 # an instance whose definition repo shares the target's owner can still link
-# to it. A value of the documentation placeholders (docs/self-modification.md
-# §1) never matches a shape and is part of the definition's text.
+# to it; a reference that extends it (acme/guardian-web) stays. A one-word
+# instance value that is also a word of the definition (a target repo named
+# `docs`, a label named `urgent`) is left to the foreign-term scan; its slug,
+# host and owner still block. A value of the documentation placeholders
+# (docs/self-modification.md §1) never matches a shape and is part of the
+# definition's text.
 #
 # The scan backs the agent's own composition rules up; it never replaces them.
-# Requires bash, jq, gh (file only), sed, grep, tr, find, xargs, sort, comm.
+# Requires bash, jq, gh (file only), git, sed, grep, tr, find, xargs, sort, comm.
 
 set -u
 export LC_ALL=C
@@ -96,19 +100,60 @@ DRAFT="$TMP/draft.txt"
 { printf '%s\n' "$TITLE"; cat "$BODY_FILE"; } > "$DRAFT"
 
 # the definition repo's own URLs and reference are the one sanctioned
-# reference; drop them so they neither hit the URL shape nor an owner term
+# reference; drop them so they neither hit the URL shape nor an owner term.
+# Each removal is bounded by non-identifier characters, so a reference that
+# extends it (acme/guardian-web) stays whole; it repeats until stable, as one
+# boundary character can close one match and open the next.
 SCAN="$TMP/scan.txt"
+cp "$DRAFT" "$SCAN"
 if [ -n "$DEFINITION_REPO" ]; then
   def_re="$(printf '%s' "$DEF_HOST/$DEFINITION_REPO" | sed 's/[.[\*^$/]/\\&/g')"
   slug_re="$(printf '%s' "$DEFINITION_REPO" | sed 's/[.[\*^$/]/\\&/g')"
-  sed -E -e "s/https?:\/\/$def_re([\/#?][^[:space:])>\"'\`]*)?//gI" \
-         -e "s/$def_re//gI" -e "s/$slug_re//gI" "$DRAFT" > "$SCAN"
-else
-  cp "$DRAFT" "$SCAN"
+  B='[^A-Za-z0-9_.-]'
+  i=0
+  while [ "$i" -lt 8 ]; do
+    sed -E -e "s/https?:\/\/$def_re([\/#?][^[:space:])>\"'\`]*)?($B|\$)/\2/gI" \
+           -e "s/(^|$B)$def_re($B|\$)/\1\2/gI" -e "s/(^|$B)$slug_re($B|\$)/\1\2/gI" \
+           "$SCAN" > "$TMP/scan.next"
+    [ "$(cat "$TMP/scan.next")" = "$(cat "$SCAN")" ] && break
+    mv "$TMP/scan.next" "$SCAN"; i=$((i + 1))
+  done
 fi
 
 HITS="$TMP/hits.jsonl"; : > "$HITS"
 hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
+
+# --- the definition's own vocabulary --------------------------------------------
+# Every token of its tracked text, and every path of its tree with each parent
+# directory and each of their suffixes, lower-cased. work/, the harness state
+# under $HOME, a runtime skill install, any other untracked file and the tests'
+# fixtures are no part of it, so a word the vocabulary lacks is one the
+# definition never wrote. A copy without git metadata reads the tree as is.
+DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TC="A-Za-z0-9_.~/@\$'-"
+tokens() { grep -oE "[$TC]+" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
+VOCAB="$TMP/vocab.txt"
+git -C "$DEF_ROOT" ls-files -z -- ':(glob)*.md' VERSION ':(glob)*.yaml' docs scripts .agents \
+    ':(exclude)scripts/tests' 2>/dev/null \
+  | while IFS= read -r -d '' f; do printf '%s/%s\0' "$DEF_ROOT" "$f"; done > "$TMP/files.z"
+if [ ! -s "$TMP/files.z" ]; then
+  find "$DEF_ROOT" -maxdepth 1 -type f \( -name '*.md' -o -name VERSION -o -name '*.yaml' \) -print0 2>/dev/null
+  find "$DEF_ROOT/docs" "$DEF_ROOT/scripts" "$DEF_ROOT/.agents" \
+    -path "$DEF_ROOT/scripts/tests" -prune -o -type f -print0 2>/dev/null
+fi >> "$TMP/files.z"
+[ -s "$TMP/files.z" ] || fail "definition text unreadable — the foreign-term scan cannot run"
+{
+  xargs -0 grep -ohIE "[$TC]+" < "$TMP/files.z" 2>/dev/null | tokens
+  tr '\0' '\n' < "$TMP/files.z" | while IFS= read -r p; do
+    p="${p#"$DEF_ROOT/"}"
+    while :; do
+      q="$p"
+      while :; do printf '%s\n' "$q"; case "$q" in (*/*) q="${q#*/}";; (*) break;; esac; done
+      case "$p" in (*/*) p="${p%/*}";; (*) break;; esac
+    done
+  done
+} | tr 'A-Z' 'a-z' | sort -u > "$VOCAB"
+[ -s "$VOCAB" ] || fail "definition vocabulary empty — the foreign-term scan cannot run"
 
 # --- instance terms -------------------------------------------------------------
 TERMS="$TMP/terms.txt"; : > "$TERMS"
@@ -165,8 +210,14 @@ if [ -f "$DEVELOPERS" ]; then
   done
 fi
 
+# a one-word value that is also a word of the definition (`docs`, `urgent`)
+# is left to the foreign-term scan; slugs, hosts and multi-word values stay
 while IFS="$(printf '\t')" read -r rule val; do
   [ -n "$val" ] || continue
+  case "$val" in
+    (*[!A-Za-z0-9_-]*) ;;
+    (*) grep -qxF -- "$(printf '%s' "$val" | tr 'A-Z' 'a-z')" "$VOCAB" && continue;;
+  esac
   grep -qiF -- "$val" "$SCAN" && hit "$rule" "$val"
 done < "$TERMS"
 
@@ -196,33 +247,6 @@ n="$(redact_file "$TMP/redact.txt")" || n=1
 [ "${n:-0}" -gt 0 ] && hit credential "$n credential-shaped value(s)"
 
 # --- foreign terms ----------------------------------------------------------------
-# The definition's own vocabulary: every token of its text, and every path of
-# its tree with each parent directory and each of their suffixes, lower-cased.
-# work/, the harness state under $HOME and the tests' fixtures are no part of
-# it, so a word the vocabulary lacks is one the definition never wrote.
-DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TC="A-Za-z0-9_.~/@\$'-"
-tokens() { grep -oE "[$TC]+" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
-VOCAB="$TMP/vocab.txt"
-{
-  find "$DEF_ROOT" -maxdepth 1 -type f \( -name '*.md' -o -name VERSION -o -name '*.yaml' \) -print0 2>/dev/null
-  find "$DEF_ROOT/docs" "$DEF_ROOT/scripts" "$DEF_ROOT/.agents" \
-    -path "$DEF_ROOT/scripts/tests" -prune -o -type f -print0 2>/dev/null
-} > "$TMP/files.z"
-[ -s "$TMP/files.z" ] || fail "definition text unreadable — the foreign-term scan cannot run"
-{
-  xargs -0 grep -ohIE "[$TC]+" < "$TMP/files.z" 2>/dev/null | tokens
-  tr '\0' '\n' < "$TMP/files.z" | while IFS= read -r p; do
-    p="${p#"$DEF_ROOT/"}"
-    while :; do
-      q="$p"
-      while :; do printf '%s\n' "$q"; case "$q" in (*/*) q="${q#*/}";; (*) break;; esac; done
-      case "$p" in (*/*) p="${p%/*}";; (*) break;; esac
-    done
-  done
-} | tr 'A-Z' 'a-z' | sort -u > "$VOCAB"
-[ -s "$VOCAB" ] || fail "definition vocabulary empty — the foreign-term scan cannot run"
-
 # the draft's candidates: paths and dotted names, inline and fenced code, and
 # capitalized words. A version number, a one-character token and a home-path
 # prefix pass; a documentation placeholder is in the vocabulary.
@@ -244,10 +268,10 @@ fi
 
 # --- duplicate check, then the issue ------------------------------------------
 [ -n "$DEFINITION_REPO" ] || fail "definition_repo unresolved"
-OPEN="$(gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/issues?state=open&per_page=100" 2>/dev/null)" \
+OPEN="$(gh api --paginate --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/issues?state=open&per_page=100" 2>/dev/null)" \
   || fail "open issues unreadable"
-DUP="$(printf '%s' "$OPEN" | jq -r --arg t "$TITLE" \
-  '[.[]? | select((.pull_request | not) and .title == $t) | .html_url][0] // empty' 2>/dev/null)"
+DUP="$(printf '%s' "$OPEN" | jq -rs --arg t "$TITLE" \
+  '[.[] | arrays | .[] | objects | select((.pull_request | not) and .title == $t) | .html_url][0] // empty' 2>/dev/null)"
 [ -n "$DUP" ] && out "$(jq -nc --arg u "$DUP" '{outcome:"exists", url:$u}')"
 
 jq -n --arg t "$TITLE" --rawfile b "$BODY_FILE" '{title:$t, body:$b}' > "$TMP/issue.json" \

@@ -105,14 +105,10 @@ repository, organization, project or people.
 
   The scan is the backstop of the closed list: compose to the list first.
   `definition-issue.sh check` runs the scan alone and sends nothing.
-- **No other path exists.** On the Claude Code harness the `PreToolUse` hook
-  `scripts/harness/claude-code/guard-definition-issue.sh` refuses a Bash
-  command that creates, comments on or edits an issue of `$DEFINITION_REPO`
-  through `gh issue`, `gh api`, the `createIssue` mutation or `curl`
-  ([logging.md](logging.md) → **Harness adapters**); the refusal names the
-  script. A `gh issue` write without `--repo` is refused too: from `$HOME`
-  it would land on the definition repo. Issues and comments on the target
-  repo pass untouched.
+- **No other path exists.** On the Claude Code harness a `PreToolUse` hook
+  refuses every other issue write on `$DEFINITION_REPO`, and every `gh issue`
+  write without `--repo`, with a reason that names the script
+  ([logging.md](logging.md) → **Harness adapters**).
 
 ## Review run
 

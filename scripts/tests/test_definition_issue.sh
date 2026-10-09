@@ -5,19 +5,19 @@
 . "$(dirname "$0")/helpers.sh"
 
 DEF="acme/guardian"
-LIST="api --hostname github.com repos/$DEF/issues?state=open&per_page=100"
+LIST="api --paginate --hostname github.com repos/$DEF/issues?state=open&per_page=100"
 CREATE="api --hostname github.com -X POST repos/$DEF/issues --input -"
 
 # an instance unlike the fixtures' acme/widgets, so every identifying value is
 # its own and the placeholders stay placeholders
-instance() { # [extra CONFIG lines…]
+instance() { # [extra CONFIG lines…] — $TARGET and $URGENT override two values
   {
-    printf -- '- github_repo: globex/payroll-core\n'
+    printf -- '- github_repo: %s\n' "${TARGET:-globex/payroll-core}"
     printf -- '- work_repo: globex/cg-state\n'
     printf -- '- definition_repo: %s\n' "$DEF"
     printf -- '- bot_login: globex-review-bot\n'
     printf -- '- review_marker: globex:review\n'
-    printf -- '- urgent_label: hotfix-now\n'
+    printf -- '- urgent_label: %s\n' "${URGENT:-hotfix-now}"
     printf -- '- human_review_paths: `billing/ledger/*, src/auth/*`\n'
     for l in "$@"; do printf -- '%s\n' "$l"; done
   } > "$WORK/CONFIG.md"
@@ -30,10 +30,10 @@ instance() { # [extra CONFIG lines…]
 
 body() { printf '%s\n' "$@" > "$SANDBOX/body.md"; }
 
-run_issue() { # <check|file> <title>
+run_issue() { # <check|file> <title> — $DEF_ROOT runs another copy of the definition
   : > "$SANDBOX/calls.log"
   OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" GH_CALLS_LOG="$SANDBOX/calls.log" \
-         PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/definition-issue.sh" "$1" "$2" "$SANDBOX/body.md" 2>>"$STDERR_LOG")"
+         PATH="$T_DIR/bin:$PATH" bash "${DEF_ROOT:-$REPO_ROOT}/scripts/definition-issue.sh" "$1" "$2" "$SANDBOX/body.md" 2>>"$STDERR_LOG")"
 }
 
 no_calls() { # <description>
@@ -141,8 +141,8 @@ instance '- definition_issues: enabled' '- artifact_skill: pr-artifact@initech/r
   '## Review skills' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
   '| license-check | initech/skills | always | License Check |' '' \
   '## Watch rules' '| id | watch for | notify | note |' '| --- | --- | --- | --- |' \
-  '| db-migration | adds a migration | slack:C0123ABCD | asked by hpatel |'
-body "${CLEAN[@]}" 'The db-migration watch fired; see initech/skills and initech/review-tools.'
+  '| ledger-schema | adds a migration | slack:C0123ABCD | asked by hpatel |'
+body "${CLEAN[@]}" 'The ledger-schema watch fired; see initech/skills and initech/review-tools.'
 run_issue file '[audit] Skipped tick counted as an error'
 assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "watch_rule") and any(.hits[]; .rule == "skill_source") and any(.hits[]; .rule == "artifact_skill")' 'watch-rule ids and the skill and artifact repositories block'
 no_calls 'config tables: nothing reaches GitHub'
@@ -166,6 +166,37 @@ instance '- definition_issues: enabled'
 body "${CLEAN[@]}" 'Reproduction: target acme/widgets, member alice with Slack id U0123ABCD.'
 run_issue check '[channel request] Per-team quiet hours'
 assert_jq '.outcome == "clean"' 'the documentation placeholders pass'
+
+# a target whose name extends the definition's keeps its whole reference
+new_case target_extends_definition
+TARGET=acme/guardian-web instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'Seen on acme/guardian-web only.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "target_repo" and .match == "acme/guardian-web")' 'acme/guardian-web is not the definition acme/guardian'
+
+# a one-word instance value that is a word of the definition does not block it
+new_case definition_word_as_value
+TARGET=globex/docs URGENT=urgent instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'Proposed fix: name the label by its key, `urgent_label`.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "clean"' 'docs/audit.md and `urgent_label` pass under target globex/docs and label urgent'
+body "${CLEAN[@]}" 'Seen on globex/docs.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "target_repo" and .match == "globex/docs")' 'the slug globex/docs still blocks'
+
+# the vocabulary is the tracked definition: an untracked file adds no word
+new_case vocabulary_tracked_only
+instance '- definition_issues: enabled'
+COPY="$SANDBOX/definition"
+mkdir -p "$COPY"
+cp -R "$REPO_ROOT/docs" "$REPO_ROOT/scripts" "$REPO_ROOT/.agents" "$REPO_ROOT"/*.md "$REPO_ROOT"/*.yaml "$REPO_ROOT/VERSION" "$COPY/"
+git -C "$COPY" init -q && git -C "$COPY" add -A
+mkdir -p "$COPY/.agents/skills/zz"
+printf 'The Initech importer reads src/billing/ledger.ts.\n' > "$COPY/.agents/skills/zz/SKILL.md"
+printf 'Initech: src/billing/ledger.ts\n' > "$COPY/NOTES.md"
+body "${CLEAN[@]}" 'The Initech importer in `src/billing/ledger.ts` fails.'
+DEF_ROOT="$COPY" run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "foreign_term" and .match == "initech")' 'a word of an untracked file is foreign'
 
 # --- the resolved key travels in the worklist's config object -------------------
 SHA="1111111111111111111111111111111111111111"

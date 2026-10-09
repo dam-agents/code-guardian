@@ -217,10 +217,10 @@ below is for the manual fallback and the direct session.
   weekly audit's definition bugs ([audit.md](audit.md) task 3) and the
   channel-refused change requests ([runbook.md](runbook.md) → **Instruction
   sources & trust boundary**). Every issue goes through
-  `scripts/definition-issue.sh`, which reads this key first and sends nothing
-  while it is off, and holds the closed content list of runbook.md →
-  **Definition-repo issues**. Off, the findings stay in the audit report and
-  the chat UI.
+  `scripts/definition-issue.sh`, which reads this key first, sends nothing
+  while it is off, and scans each draft for instance data
+  ([runbook.md](runbook.md) → **Definition-repo issues**). Off, the findings
+  stay in the audit report and the chat UI.
 - **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
   deep pass over one area of the repository: what a diff cannot show —
   unreachable code, duplicated logic, untested paths, drift from the

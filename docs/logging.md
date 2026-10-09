@@ -171,14 +171,24 @@ adapter active, duty 4 above extends to logging tool failures manually.
   enforcement**); a stop it lets through releases the run's own PR holds
   ([worklist.md](worklist.md) → **PR holds**).
 - `guard-definition-issue.sh` — `PreToolUse` (`Bash`) target: refuses, with
-  exit 2 and the reason on stderr, a command that creates, comments on or
-  edits an issue of `definition_repo` by any path other than
-  `scripts/definition-issue.sh` — `gh issue` writes on that repo or without
-  `--repo`, `gh api` and `curl` writes to its `issues` endpoints, the
-  `createIssue` mutation — and logs a `definition_issue` warn per block
-  ([runbook.md](runbook.md) → **Definition-repo issues**). Reads, the target
-  repo's issues and every other tool pass; an unresolved definition repo
-  guards nothing.
+  exit 2 and the reason on stderr, a command that writes an issue of
+  `definition_repo` by any path other than `scripts/definition-issue.sh`, and
+  logs a `definition_issue` warn per block ([runbook.md](runbook.md) →
+  **Definition-repo issues**). The definition repo is its slug as
+  `work/CONFIG.md` (or `$HOME`'s origin) resolves it, a shell variable named
+  after it (`$DEF`, `$DEFINITION_REPO`, `${DEF_REF#*/}`) or gh's
+  `{owner}/{repo}`. It refuses a `gh issue` write (`create`, `comment`,
+  `edit`, `close`, `reopen`, `delete`, `transfer`, `pin`, `unpin`, `lock`,
+  `unlock`, `develop`) in any simple command of a compound one whose
+  `-R`/`--repo` names that repo or that has no repository flag (gh resolves
+  the checkout under `$HOME`); a `gh api` write to its `issues` endpoints
+  (`-X`/`--method` `POST`, `PATCH`, `PUT` or `DELETE`, or fields without an
+  explicit `GET`); a `curl` write to them (a write method or a data option);
+  and an issue GraphQL mutation (`createIssue`, `updateIssue`, `addComment`,
+  `closeIssue`, `reopenIssue`, `deleteIssue`, `transferIssue`) that names
+  that repo, by slug or by owner and name, or no repository at all. Reads,
+  the target repo's issues and every other tool pass; an unresolved
+  definition repo guards nothing.
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). It also keeps the auto-mode
@@ -201,6 +211,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
 
 Registration is user-global, so every hook script no-ops unless
 `$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
+`guard-definition-issue.sh` is the exception: it guards wherever it resolves a
+definition repo, `$HOME`'s origin included, because onboarding runs from that
+checkout before `CONFIG.md` exists.
 Messages pass `log_redact` (log.sh) before writing — well-known credential
 shapes (GitHub/Slack tokens, bearer headers) are masked, per the
 no-secrets-in-logs invariant.
