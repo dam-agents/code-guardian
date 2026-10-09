@@ -112,12 +112,12 @@ hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
 
 # --- instance terms -------------------------------------------------------------
 TERMS="$TMP/terms.txt"; : > "$TERMS"
-term() { # <rule> <value> — one identifying value, at least 3 characters
+term() { # <value> <rule> — one identifying value, at least 3 characters
   local v; v="$(trim "$1")"
   [ "${#v}" -ge 3 ] || return 0
   printf '%s\t%s\n' "$2" "$v" >> "$TERMS"
 }
-ref_terms() { # <rule> <[host/]owner/repo>
+ref_terms() { # <[host/]owner/repo> <rule>
   local ref="$1" host slug
   [ -n "$ref" ] || return 0
   host="$(refhost "$ref")"; slug="$(refslug "$ref")"
