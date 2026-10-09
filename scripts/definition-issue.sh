@@ -30,11 +30,13 @@
 #     SHAs, dates and times of day, e-mail addresses, @-mentions, Slack ids,
 #     IPv4 addresses, and the credential shapes of lib/redact.sh;
 #   - foreign terms: every path or dotted name, every token in backticks or in
-#     a fenced block, and every capitalized word of the draft must occur in the
-#     definition's own text — the tracked root documents, docs/, scripts/
-#     without its tests, .agents/ — or in a path of that tree. A term the
-#     definition does not know (a product, a person, a module, a file or a
-#     branch of the target repo) names the instance.
+#     a fenced block, every capitalized word and every identifier-shaped word
+#     (snake_case, a hyphenated compound with a part the definition never
+#     uses, a letter followed by a digit, a Latin letter outside ASCII) of the
+#     draft must occur in the definition's own text — the tracked root
+#     documents, docs/, scripts/ without its tests, .agents/ — or in a path of
+#     that tree. A term the definition does not know (a product, a person, a
+#     module, a file or a branch of the target repo) names the instance.
 # The definition repo's own reference and URLs are removed before the scan, so
 # an instance whose definition repo shares the target's owner can still link
 # to it; a reference that extends it (acme/guardian-web) stays. A one-word
@@ -130,8 +132,12 @@ hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
 # fixtures are no part of it, so a word the vocabulary lacks is one the
 # definition never wrote. A copy without git metadata reads the tree as is.
 DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# a token is ASCII word characters and UTF-8 Latin letters (U+00C0–U+017F), so
+# a name with an accented letter stays one token under LC_ALL=C
 TC="A-Za-z0-9_.~/@\$'-"
-tokens() { grep -oE "[$TC]+" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
+LAT1="$(printf '[\303-\305]')"; LAT="$LAT1$(printf '[\200-\277]')"
+TOK="([$TC]|$LAT)+"
+tokens() { grep -oE "$TOK" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
 VOCAB="$TMP/vocab.txt"
 git -C "$DEF_ROOT" ls-files -z -- ':(glob)*.md' VERSION ':(glob)*.yaml' docs scripts .agents \
     ':(exclude)scripts/tests' 2>/dev/null \
@@ -143,7 +149,7 @@ if [ ! -s "$TMP/files.z" ]; then
 fi >> "$TMP/files.z"
 [ -s "$TMP/files.z" ] || fail "definition text unreadable — the foreign-term scan cannot run"
 {
-  xargs -0 grep -ohIE "[$TC]+" < "$TMP/files.z" 2>/dev/null | tokens
+  xargs -0 grep -ohIE "$TOK" < "$TMP/files.z" 2>/dev/null | tokens
   tr '\0' '\n' < "$TMP/files.z" | while IFS= read -r p; do
     p="${p#"$DEF_ROOT/"}"
     while :; do
@@ -247,17 +253,27 @@ n="$(redact_file "$TMP/redact.txt")" || n=1
 [ "${n:-0}" -gt 0 ] && hit credential "$n credential-shaped value(s)"
 
 # --- foreign terms ----------------------------------------------------------------
-# the draft's candidates: paths and dotted names, inline and fenced code, and
-# capitalized words. A version number, a one-character token and a home-path
-# prefix pass; a documentation placeholder is in the vocabulary.
+# the draft's candidates: paths and dotted names, inline and fenced code,
+# capitalized words and identifier-shaped words. A version number, a
+# one-character token and a home-path prefix pass; a documentation placeholder
+# is in the vocabulary.
 CANDS="$TMP/cands.txt"
 {
-  tokens < "$SCAN" | grep -E '/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+$|^[A-Z]'
+  tokens < "$SCAN" \
+    | grep -E "/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+\$|^[A-Z]|_|[A-Za-z]-[A-Za-z]|[A-Za-z][0-9]|$LAT1"
   grep -oE '`[^`]+`' "$SCAN" | tokens
   sed -n '/^[[:space:]]*```/,/^[[:space:]]*```/p' "$SCAN" | grep -vE '^[[:space:]]*```' | tokens
 } | sed -E 's#^(\$HOME|~|/home/[A-Za-z0-9_-]+|\.)/##' \
   | grep -vE '^[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$CANDS"
-comm -23 "$CANDS" "$VOCAB" | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
+# a hyphenated compound of plain words passes when every part is a word of the
+# definition; one unknown part names the instance
+known_compound() { # <token>
+  printf '%s' "$1" | grep -qE '^[a-z]+(-[a-z]+)+$' || return 1
+  printf '%s\n' "$1" | tr '-' '\n' | sort -u | comm -23 - "$VOCAB" | grep -q . && return 1
+  return 0
+}
+comm -23 "$CANDS" "$VOCAB" | while IFS= read -r t; do known_compound "$t" || printf '%s\n' "$t"; done \
+  | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
 
 HITS_JSON="$(jq -sc 'unique' "$HITS")"
 if [ "$(printf '%s' "$HITS_JSON" | jq length)" -gt 0 ]; then

@@ -128,6 +128,11 @@ blocks foreign_term  'Runner ci.initech.internal timed out.'
 blocks foreign_term  'Stripe rejected the payment.'
 blocks foreign_term  'The `invoice_total` field was wrong.'
 blocks foreign_term  'A branch named feature/sso-login was reviewed.'
+# identifier-shaped words outside backticks, and names with Latin letters
+blocks foreign_term  'The ledger_sync job of the invoicing-service fails.'
+blocks foreign_term  'The job on node svc01 fails.'
+blocks foreign_term  'Reported by Müller from Škoda.'
+blocks foreign_term  'the reporter was müller.'
 new_case blocks_fenced_block
 instance '- definition_issues: enabled'
 body "${CLEAN[@]}" '```' 'kubectl rollout status deploy/ledger' '```'
@@ -160,6 +165,12 @@ body "${CLEAN[@]}" 'Reproduction: set `review_model` to `default`, then run `bas
   '```' 'bash scripts/harness/claude-code/install.sh --check' '```' 'VERSION 8.17.0; see docs/runbook.md → Audit run.'
 run_issue check '[audit] Audit run reports the model as a mismatch'
 assert_jq '.outcome == "clean"' 'definition paths, keys, commands and words pass the foreign-term scan'
+
+new_case compounds_pass
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'A stand-by mode keeps the per-PR hold after a one-time re-review.'
+run_issue check '[audit] A dispatched re-review keeps its hold'
+assert_jq '.outcome == "clean"' 'a hyphenated compound of definition words passes'
 
 new_case placeholders_pass
 instance '- definition_issues: enabled'
