@@ -2567,13 +2567,13 @@ if [ "$MODE" = "audit" ]; then
 
   # Session models (docs/audit.md task 5): the model each job's sessions ran on
   # this week, from the same records, against `review_model`. A run matches
-  # when its recorded model id contains the configured name (`opus` matches
-  # `claude-opus-5-5`); direct sessions (job `session`) and unrecorded models
+  # on its recorded model id per MODEL_JQ (lib/common.sh): `opus` and
+  # `claude/aws/claude-opus-5-5` match `claude-opus-5-5`, `claude-opus-5` does
+  # not. Direct sessions (job `session`) and unrecorded models
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
-  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" '
+  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" "$MODEL_JQ"'
     ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
-    | ($rm | ascii_downcase | sub("^claude/"; "")) as $want
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])
        | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
@@ -2581,7 +2581,7 @@ if [ "$MODE" = "audit" ]; then
       elif $rm == "default" then
         "warn\treview_model is default — no schedule pins a model; this week ran on: \($all) (docs/config.md → review_model)"
       else
-        [ $runs[] | select(.model | ascii_downcase | contains($want) | not) ] as $off
+        [ $runs[] | select(.model | model_has($rm) | not) ] as $off
         | if ($off | length) == 0 then "ok\t\($runs | length) scheduled run(s), all on \($rm)"
           else "warn\t\($off | length) run(s) off review_model \($rm): \($off | group_by([.job, .model])
                  | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
