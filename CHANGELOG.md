@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.16.2 — 2026-10-09
+
+**Upgrade:** **Operator-only:** a `## Benchmark model prices` row in
+`work/CONFIG.md` no longer prices a later model version (`claude-opus-5` does
+not price `claude-opus-5-5`). When the audit's production model has no row of
+its own, add one with its current published prices
+([docs/benchmark.md](docs/benchmark.md) → **Model prices**).
+
 ## 8.16.1 — 2026-10-08
 
 **Upgrade:** Nothing — docs are re-read per run.

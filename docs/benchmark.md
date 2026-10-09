@@ -476,11 +476,13 @@ unmeasured tokens render "—", never a guess:
 
 | model substring | input | output | cache_read | cache_write |
 |---|---|---|---|---|
-| claude-opus-5 | 5 | 25 | 0.5 | 6.25 |
+| claude-opus-5-5 | 4 | 20 | 0.2 | 5 |
 ```
 
-USD per MTok. A row matches when its first cell is a substring of the run's
-recorded model id. The table holds the **current** prices and the report prices
+USD per MTok. A row matches when its first cell is part of the run's recorded
+model id, and the longest matching row prices it. A cell that ends in a version
+number never matches a later version: `claude-opus-5` leaves `claude-opus-5-5`
+unpriced, so each production model needs its own row. The table holds the **current** prices and the report prices
 all history with them, so cost deltas reflect token usage, not price moves.
 Update it in the direct session like any other config change.
 

@@ -81,6 +81,29 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == null and .[0].cost_per_review == nu
   || { printf 'FAIL %s: expected an unpriced week: %s\n' "$CASE" "$OUT"; FAILED=1; }
 assert_file_contains "$WORK/audit/TRENDS.md" '| — | — |' 'the unpriced week renders "—", not 0'
 
+# --- the longest matching row prices a model; an older version's row never does
+new_case trend_price_row_longest
+price_config
+printf '| claude-opus-5-5 | 4 | 20 | 0.2 | 5 |\n' >> "$WORK/CONFIG.md"
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 "us.anthropic.claude-opus-5-5-v1:0" > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+# 1000*4 + 2000*20 + 3000*0.2 + 4000*5 = 64,600 / 1e6 = 0.06 USD
+printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.06 and .[0].cost_floor == false' >/dev/null 2>&1 \
+  && printf 'ok   %s: the claude-opus-5-5 row prices its model, not the claude-opus-5 row\n' "$CASE" \
+  || { printf 'FAIL %s: expected the longer row: %s\n' "$CASE" "$OUT"; FAILED=1; }
+
+new_case trend_price_row_version
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 "claude-opus-5-5" > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].cost_usd == null' >/dev/null 2>&1 \
+  && printf 'ok   %s: a claude-opus-5 row leaves claude-opus-5-5 unpriced\n' "$CASE" \
+  || { printf 'FAIL %s: expected an unpriced week: %s\n' "$CASE" "$OUT"; FAILED=1; }
+
 # --- a mixed week is a floor -------------------------------------------------
 new_case trend_cost_partial
 price_config
