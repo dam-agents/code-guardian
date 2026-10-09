@@ -26,12 +26,14 @@ post-send record step.
   row untouched and is logged (chat UI + `nudge_send` error event —
   [logging.md](logging.md)); the next sweep re-emits and retries it. Never
   re-fire a nudge preflight did not emit.
-- **Roster-only tagging.** Never @-mention anyone not in
-  `work/DEVELOPERS.md`; the only `<@…>` ids ever emitted are roster `slack_id`
-  values (the worklist's `mentions` array). Non-roster people — a non-roster
-  author in an author-directed nudge included — are named in plain text, never
-  mentioned. Seed expertise in the roster is operator-authored: never overwrite
-  it, only append to "Observed areas".
+- **Roster-only tagging.** Every `<@…>` token is a `mention` string copied
+  verbatim from the entry (`mentions`, `candidates`, `escalation`) — never
+  composed; no `<!…>` broadcast (`here`, `channel`, `everyone`, a group). A person without one (non-roster, no valid `slack_id`) is named in
+  plain text. Before each send, run `. "$HOME/scripts/lib/common.sh" &&
+  mentions_check "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted
+  heredoc): it must exit 0; a failure names the bad tokens — fix the message,
+  never send it. Seed expertise in the roster is operator-authored: never
+  overwrite it, only append to "Observed areas".
 - **One shared channel, no DMs**: send via
   `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
   `chatId`).
@@ -47,51 +49,52 @@ with no current triage counts as one that needs a person.
 
 ## Target selection (`needs_target_selection: true`)
 
-When a reviewer-directed nudge has no persisted targets and no requested
-reviewer intersects the roster, pick **2 roster members** (1 if that is all
-there is) and mark them `*` — a Slack-only suggestion, never requested on
-GitHub:
+When a reviewer-directed nudge has no target with a valid `slack_id` — no
+persisted target and no requested reviewer is mentionable — pick **2 of the
+entry's `candidates`** (1 if that is all there is; the mentionable roster
+minus the author) and mark them `*` — a Slack-only suggestion, never requested
+on GitHub; with no candidate, send without mentions and persist nothing:
 
 - Build keywords from the PR title plus changed paths and extensions
   (`gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'`).
-- Score roster members by overlap with their expertise (seed + observed) and
-  exclude the author. Tie-break by contributor volume on the target repo,
-  roster members only. Nothing scores → the two highest-volume roster
-  contributors who are not the author.
+- Score candidates by overlap with their roster expertise (seed + observed).
+  Tie-break by contributor volume on the target repo. Nothing scores → the
+  two highest-volume candidates.
 - **Persist the chosen pair** into the ledger row's `reviewers` cell before
   sending, so later sweeps reuse the cell instead of recomputing.
 
 ## Message templates (tone rises with level; always link the PR)
 
 Wording follows ASD-STE100 ([review.md](review.md) → **Criteria & review
-style**).
+style**). `<m1>`/`<m2>`, `<author-m>`, `<escalation-m>` are that person's
+`mention` string (**Hard rules**).
 
 **Reviewer-directed** (`awaiting_review`):
 
-- L1: `👀 PR #<n> "<title>" by <author> has been open <age> with no review yet. <@id1> <@id2> could you take a look? Focus: <focus>. <url>`
-- L2: `⏰ Reminder — PR #<n> "<title>" is now <age> old and still unreviewed. <@id1> <@id2> a review would unblock <author>. Focus: <focus>. <url>`
-- L3: `🚨 PR #<n> "<title>" has waited <age> for review. <@id1> <@id2> please prioritise this when you can. Focus: <focus>. <url>`
-- L4: `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <@escalation-owner-slack-id> (<escalation_owner>) to help find a reviewer. Focus: <focus>. <url>`
+- L1: `👀 PR #<n> "<title>" by <author> has been open <age> with no review yet. <m1> <m2> could you take a look? Focus: <focus>. <url>`
+- L2: `⏰ Reminder — PR #<n> "<title>" is now <age> old and still unreviewed. <m1> <m2> a review would unblock <author>. Focus: <focus>. <url>`
+- L3: `🚨 PR #<n> "<title>" has waited <age> for review. <m1> <m2> please prioritise this when you can. Focus: <focus>. <url>`
+- L4: `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <escalation-m> (<escalation_owner>) to help find a reviewer. Focus: <focus>. <url>`
 
 **Author-directed** (`changes_requested`; never re-ping the reviewer):
 
-- L1: `🔧 PR #<n> "<title>" has changes requested by <reviewer>. <@author> could you address the feedback and re-request review when ready? <url>`
-- L2: `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <@author> a follow-up would move this forward. <url>`
-- L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <@author> please push an update or reply to the reviewer. <url>`
-- L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <@escalation-owner-slack-id> (<escalation_owner>). <@author> let's get this unblocked. <url>`
+- L1: `🔧 PR #<n> "<title>" has changes requested by <reviewer>. <author-m> could you address the feedback and re-request review when ready? <url>`
+- L2: `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <author-m> a follow-up would move this forward. <url>`
+- L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <author-m> please push an update or reply to the reviewer. <url>`
+- L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <escalation-m> (<escalation_owner>). <author-m> let's get this unblocked. <url>`
 
 **Ready to land** (`class: "ready_to_land"`, author-targeted, sent once) — an
 approved PR with no conflict, a green check rollup and no open critical of the
 agent's own. There is no ladder: silence after an approval reads the same as
 "still waiting", and one message fixes that.
 
-- `✅ PR #<n> "<title>" is approved, the checks pass and it has no conflicts. <@author> it is ready to land. <url>`
+- `✅ PR #<n> "<title>" is approved, the checks pass and it has no conflicts. <author-m> it is ready to land. <url>`
 
 **Conflict-directed** (`conflict: true`, any review class including approved;
 always author-targeted) — lead with the conflict fact, then the author-directed
 tone ladder:
 
-- L1: `🔀 PR #<n> "<title>" has merge conflicts with the base branch. <@author> please rebase or merge so it can land. <url>`
+- L1: `🔀 PR #<n> "<title>" has merge conflicts with the base branch. <author-m> please rebase or merge so it can land. <url>`
 - L2+: the author-directed templates' rising tone, keeping the conflict
   wording.
 
@@ -107,9 +110,9 @@ value: `≈ <minutes> min · Checked: <verified>`. A `forced` match adds
 `· Sensitive path: <forced>`.
 
 The focus line comes from the targets' expertise plus the PR content. Level 4 =
-widen and hold: include the `escalation` mention from the worklist when its
-`slack_id` is present (missing → send without it and log). Preflight marks the
-row `held` afterwards — no further messages until the class changes.
+widen and hold: include the `escalation` entry's `mention` (missing → send
+without it and log). Preflight marks the row `held` afterwards — no further
+messages until the class changes.
 
 ## Expertise auto-refinement
 
@@ -145,8 +148,8 @@ cell.
 Every send matched a `nudges_due` entry · every reviewer-directed nudge with a
 `brief` carried its tail · every sent nudge's `row_update` was
 written immediately AFTER the send, with a real UTC `last_nudge_at`, and a
-failed send left its row untouched · only roster `slack_id`s mentioned ·
-targets persisted when selected · a ready-to-land entry sent to its author
-alone, once · send failures logged · observed areas
-appended additively · `work/` backed up last
+failed send left its row untouched · only copied `mention` strings, and
+`mentions_check` passed before each send · targets persisted when selected · a
+ready-to-land entry sent to its author alone, once · send failures logged ·
+observed areas appended additively · `work/` backed up last
 ([persistence.md](persistence.md)).

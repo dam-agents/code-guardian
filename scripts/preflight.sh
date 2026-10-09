@@ -1780,26 +1780,13 @@ if [ "$MODE" = "shepherd" ]; then
       || printf 0
   }
 
-  # roster: login -> slack_id (table or bullet format)
-  ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
-      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
-      case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
-    done)"
-  if [ -z "$ROSTER" ]; then
-    ROSTER="$(login=""; while IFS= read -r line; do
-        case "$line" in
-          (*slack_id:*) sid="$(printf '%s' "${line#*slack_id:}" | tr -d '\` ')"
-                        [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
-          (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
-        esac
-      done < "$DEVELOPERS")"
-  fi
-  roster_has() { printf '%s\n' "$ROSTER" | cut -f1 | grep -qx "$1"; }
-  slack_id() {
-    while IFS=$'\t' read -r l sid; do
-      [ "$l" = "$1" ] && { printf '%s' "$sid"; return; }
-    done <<< "$ROSTER"
-  }
+  # roster (lib/common.sh → roster_tsv); ROSTER_JSON keeps the mentionable
+  # members, each with its ready-to-paste Slack mention (docs/shepherd.md)
+  ROSTER="$(roster_tsv "$DEVELOPERS")"
+  ROSTER_JSON="$(printf '%s\n' "$ROSTER" | jq -R --arg re "$SLACK_ID_RE" 'split("\t")
+      | select(length >= 2 and (.[1] | test($re)))
+      | {login:.[0], slack_id:.[1], mention:("<@" + .[1] + ">")}' | jq -sc .)"
+  roster_mentionable() { printf '%s' "$ROSTER_JSON" | jq -e --arg l "$1" 'any(.[]; .login == $l)' >/dev/null; }
 
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
 
@@ -1976,24 +1963,27 @@ if [ "$MODE" = "shepherd" ]; then
         targets=""
         for r in $(printf '%s' "$requested" | tr ',' ' '); do
           { [ "$r" = "-" ] || [ "$r" = "$author" ]; } && continue
-          roster_has "$r" && targets="${targets:+$targets, }$r"
+          roster_mentionable "$r" && targets="${targets:+$targets, }$r"
         done
         [ -z "$targets" ] && [ -n "$reviewers" ] && [ "$reviewers" != "-" ] && targets="$reviewers"
         nudge_status="nudging"
       fi
       [ "$nudge_class" != "ready_to_land" ] && [ "$next_level" -ge 4 ] && nudge_status="held"
-      esc_id=""; [ "$next_level" -ge 4 ] && [ -n "$ESCALATION_OWNER" ] && esc_id="$(slack_id "$ESCALATION_OWNER")"
-      mentions="$(for t in $(printf '%s' "$targets" | tr -d '!*' | tr ',' ' '); do id="$(slack_id "$t")"; [ -n "$id" ] && printf '%s\t%s\n' "$t" "$id"; done | jq -R 'split("\t") | {login:.[0], slack_id:.[1]}' | jq -s .)"
+      # every Slack mention the agent sends is a `mention` string of this entry:
+      # the targets', the candidates' it picks from, the escalation owner's
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
-        --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson m "$mentions" \
-        --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
+        --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson r "$ROSTER_JSON" \
+        --arg eo "$ESCALATION_OWNER" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
-        '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
-          conflict:$conf, brief:$br,
-          needs_target_selection: ($m|length==0 and $c!="changes_requested"
-                                   and $c!="ready_to_land" and ($conf|not)),
-          escalation:{login:$eo, slack_id:$eid},
-          row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
+        '[$tg | split(",")[] | gsub("[!* ]"; "") | select(. != "")] as $ts
+        | [$ts[] as $x | first($r[] | select(.login == $x))] as $m
+        | ($m|length==0 and $c!="changes_requested" and $c!="ready_to_land" and ($conf|not)) as $sel
+        | {number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
+           candidates:(if $sel then [$r[] | select(.login != $a)] else [] end),
+           conflict:$conf, brief:$br, needs_target_selection:$sel,
+           escalation:({login:$eo, slack_id:""}
+                       + (if $l >= 4 then (first($r[] | select(.login == $eo)) // {}) else {} end)),
+           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
       log "PR #$n: nudge L$next_level due ($nudge_class, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
       # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
