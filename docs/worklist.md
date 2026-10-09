@@ -142,13 +142,24 @@ PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
 worklist per PR next to the gate's file — that PR's entries from every per-PR
 key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
 by}`, and a `read_set` of its own — and prints the exact `name`
-(`code-guardian-review-pr-<n>`), `task` and `model` (the config's
-`review_model`, absent under `default`) of each
+(`code-guardian-review-pr-<n>`), `task`, `sessionTitle` and `model` (the
+config's `review_model`, absent under `default`) of each
 `mcp__platform-outbound__schedule_once` call. The task carries the PR number and
 the unit's path alone. `dispatch.sh rest` then writes the run's own worklist
-without the PRs the platform accepted; a PR it refused stays in the run. The
-new session takes its PR's hold first; a PR whose session never starts is the
-next heartbeat's ([scripts/dispatch.sh](../scripts/dispatch.sh)).
+without the PRs the platform accepted and prints its session title; a PR it
+refused stays in the run. The new session takes its PR's hold first; a PR whose
+session never starts is the next heartbeat's
+([scripts/dispatch.sh](../scripts/dispatch.sh)).
+
+**Session titles** — every scheduled session is titled `<Verb> <object>`, PR
+numbers its only variable part: a schedule carries the `sessionTitle` of its
+ONBOARDING Step 6 entry, and a review run renames itself to the work it keeps
+(`rename_session`). `dispatch.sh` derives a review title from the worklist
+alone — `Review PR #<n>` (`Re-review PR #<n>`, `Review urgent PR #<n>`),
+`Answer mention on PR #<n>`, `Publish artifact for PR #<n>`, `Triage CI on PR
+#<n>`, `Merge PR #<n>`, `Fix findings on PR #<n>`, `Review PRs #<n>, #<m>` for
+several kept PRs, `Report review alerts` or `Tidy review state` without one. A
+platform without `rename_session` keeps the schedule's title.
 
 ## Runtime configuration: `work/CONFIG.md`
 

@@ -65,12 +65,12 @@ mention ledger — for *whether it is still valid at post time*.
      it and end the run).
    - Any other worklist file: `bash "$HOME/scripts/dispatch.sh" plan
      <worklist>`, one `mcp__platform-outbound__schedule_once` call per
-     `dispatch[]` entry with exactly its `name`, `task` and `model` (when
-     present), then — when the
-     platform accepted any — `bash "$HOME/scripts/dispatch.sh" rest <worklist>
-     <each accepted number>`, whose worklist is this run's from here on. A PR
-     whose call failed, or every PR when the tool is missing, stays in the run;
-     `plan` prints an empty list under `review_dispatch: disabled`
+     `dispatch[]` entry with exactly its `name`, `task`, `sessionTitle` and
+     `model` (when present), then `bash "$HOME/scripts/dispatch.sh" rest
+     <worklist> <each accepted number>`, whose `worklist` is this run's from
+     here on, and `mcp__platform-outbound__rename_session` with its `title`. A
+     PR whose call failed, or every PR when the tool is missing, stays in the
+     run; `plan` prints an empty list under `review_dispatch: disabled`
      ([worklist.md](worklist.md) → **Dispatch**).
    - A run with no worklist file (preflight printed its JSON) dispatches
      nothing.

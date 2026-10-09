@@ -22,7 +22,10 @@ ticks — cost nothing, and a started run receives the worklist the gate already
 computed instead of recomputing it. Bookkeeping that nobody waits on — prunes,
 self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
-([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**).
+([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
+scheduled session carries a title that says what it does — `Review PR #1457`,
+`Triage CI on PR #1457`, `Audit agent health`
+([`docs/worklist.md`](docs/worklist.md) → **Session titles**).
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An
 optional active window checks hourly in the quiet hours outside it.
@@ -263,7 +266,7 @@ what it can and asking for the rest. Per-key semantics are in
 - **Platform:** the agent assumes the DAM agent infrastructure — `$HOME` at
   `/home/agent` on a persistent `/workspace` volume, the platform's outbound
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
-  schedules, one-time review sessions and Slack. Running elsewhere requires
+  schedules, one-time review sessions, session titles and Slack. Running elsewhere requires
   adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
   target repo, this definition, the skill sources and the `work_repo` backup may

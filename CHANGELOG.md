@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.17.0 — 2026-10-09
+
+**Upgrade:** Reconcile the schedules per ONBOARDING Step 6: its table now
+compares `sessionTitle` too, so each schedule of 6a–6e is re-registered with
+the title its step names. Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent; a no-op on another harness): its dispatch auto-mode rule now
+names the `sessionTitle` and the `rename_session` call.
+
 ## 8.16.1 — 2026-10-08
 
 **Upgrade:** Nothing — docs are re-read per run.
