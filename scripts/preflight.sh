@@ -2154,11 +2154,12 @@ if [ "$MODE" = "audit" ]; then
   fi
 
   # a zero count ("0 failed", "errors=0") is a success line: those phrases are
-  # dropped before the match, so "10 failed" or "failed=2" still counts
+  # dropped before the match, so "10 failed", "failed=2" or a SHA ending in 0
+  # ("9c1e2a0 failed") still counts
   err_lines="$( { cat "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
     | awk '{ l = tolower($0)
-             gsub(/(^|[^0-9.])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)/, " ", l)
-             gsub(/(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9.]|$)/, " ", l)
+             gsub(/(^|[^0-9a-z._#-])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)/, " ", l)
+             gsub(/(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9a-z.]|$)/, " ", l)
              if (l ~ /fail|error|anomal/) print }' \
     | while IFS= read -r l; do ts="${l%% *}"; e="$(iso2epoch "$ts")"; [ "$e" -ge "$SINCE_EPOCH" ] && printf '%s\n' "$l"; done)"
   err_count="$(printf '%s' "$err_lines" | grep -c . || true)"

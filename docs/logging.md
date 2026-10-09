@@ -113,11 +113,12 @@ function calling the binary directly.
    `sub_tokens=in:…,out:…,cr:…,cw:…`); one scheduled run is one fresh
    session, so this is per-job consumption — join on `run` with the
    `heartbeat` event for the mode. A resumed session ends again with its
-   cumulative totals, so a run's last `tokens` event is its usage. A session that called the Agent tool and
-   has no subagent transcript beside its own (`<session>/subagents/*.jsonl`)
-   also logs one warn **`tokens_subagents_missing`**: the subagents' usage is
-   then outside the event, and the audit's warn count shows it. Best-effort: a
-   hard-crashed session has no tokens event.
+   cumulative totals, so a run's last `tokens` event is its usage. A session
+   that called the Agent tool and has no subagent transcript beside its own
+   (`<session>/subagents/*.jsonl`) also logs one warn
+   **`tokens_subagents_missing`**: the subagents' usage is then outside the
+   event, and the audit's warn count shows it. Best-effort: a hard-crashed
+   session has no tokens event.
 3. **`scripts/review-pr.sh`** (automatic) — the review milestones its
    subcommands perform: `locked`, `cloned` (`prepare`), `locked (refresh, …)`
    and the milestone text (`step`), `rapid posted`, `posted <verdict>`, `done`,

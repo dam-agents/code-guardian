@@ -525,6 +525,10 @@ printf '%s shepherd run: 1 nudge sent, 10 failed\n' "$(iso_ago 1800)" >> "$WORK/
 run_preflight audit
 assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^1 error-ish log lines.*10 failed$"))' \
   'a non-zero failure count still matches'
+printf '%s PR #57 9c1e2a0 failed to post: 422\n%s review post failed: 0f3e2a1 is stale\n' "$(iso_ago 1200)" "$(iso_ago 600)" >> "$WORK/SHEPHERD.log"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
+  'a hex token next to a failure word is not a zero count'
 
 # --- wake-ups: the preflight passes that found work, by kind of work ---------
 new_case audit_wakeups

@@ -120,7 +120,7 @@ roster member, derive area keywords from its title plus changed paths and
 
 ## PR facts (`work/PR-EVENTS.jsonl`)
 
-Each sweep appends one line per PR the first time it sees a fact, and never
+Each sweep appends one line per fact the first time it sees it, and never
 rewrites one: `first_review` (the earliest independent review, with the hours
 from `eligible_since`) and `conflict`. The weekly audit counts project health
 from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
