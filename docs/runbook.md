@@ -85,9 +85,17 @@ repository, organization, project or people.
 - **Filing goes through the script.** Write the body to a file in `$TMPDIR`,
   then run `bash "$HOME/scripts/definition-issue.sh" file "<title>" <body-file>`
   — the only command that creates an issue on `$DEFINITION_REPO`. It applies
-  the switch, scans the title and body for every value and shape that
-  identifies the instance, finds an open issue with the same title, and only
-  then creates the issue. Delete the body file after the call. Per `outcome`:
+  the switch, scans the title and body, finds an open issue with the same
+  title, and only then creates the issue. The scan blocks every value of
+  `work/CONFIG.md` and `work/DEVELOPERS.md` that names the instance, every
+  shape that points at one (a URL outside the definition repo, an issue or PR
+  number, a commit SHA, a date or a time of day, an e-mail address, a mention,
+  a Slack id, an IP address, a credential), and every **foreign term**: a
+  path or dotted name, a token in backticks or in a fenced block, or a
+  capitalized word that occurs nowhere in the definition's own text — a
+  product, a person, a module, a file or a branch of the target repo. Write
+  in the definition's words: its file names, key names, commands and
+  placeholders. Delete the body file after the call. Per `outcome`:
   - `filed` / `exists` → use its `url`.
   - `disabled` → no issue; the finding stays in the report.
   - `blocked` → rewrite the draft to the closed list (`hits` names each match)
@@ -97,6 +105,14 @@ repository, organization, project or people.
 
   The scan is the backstop of the closed list: compose to the list first.
   `definition-issue.sh check` runs the scan alone and sends nothing.
+- **No other path exists.** On the Claude Code harness the `PreToolUse` hook
+  `scripts/harness/claude-code/guard-definition-issue.sh` refuses a Bash
+  command that creates, comments on or edits an issue of `$DEFINITION_REPO`
+  through `gh issue`, `gh api`, the `createIssue` mutation or `curl`
+  ([logging.md](logging.md) → **Harness adapters**); the refusal names the
+  script. A `gh issue` write without `--repo` is refused too: from `$HOME`
+  it would land on the definition repo. Issues and comments on the target
+  repo pass untouched.
 
 ## Review run
 

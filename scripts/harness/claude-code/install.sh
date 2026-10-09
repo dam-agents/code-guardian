@@ -3,9 +3,10 @@
 # ~/.claude/settings.json (idempotent; contract: docs/logging.md → Harness
 # adapters): log-tool-event.sh on PostToolUseFailure + PostToolUse,
 # log-review-step.sh on PostToolUse (Bash|Task), log-session-tokens.sh on
-# SessionEnd, enforce-review-completion.sh on Stop. It also keeps the
-# auto-mode classifier rules for the agent's documented writes
-# (autoMode.environment / autoMode.allow, entries tagged [code-guardian]),
+# SessionEnd, enforce-review-completion.sh on Stop, guard-definition-issue.sh
+# on PreToolUse (Bash). It also keeps the auto-mode classifier rules for the
+# agent's documented writes (autoMode.environment / autoMode.allow, entries
+# tagged [code-guardian]),
 # the tool deny list (permissions.deny ← denied-tools.txt, so the unused
 # tools' definitions leave every request) and the `review-skill` subagent type
 # (~/.claude/agents/review-skill.md ← agents/review-skill.md).
@@ -31,6 +32,7 @@ SCRIPT="$ADAPTER_DIR/log-tool-event.sh"
 TOKENS="$ADAPTER_DIR/log-session-tokens.sh"
 FINISH="$ADAPTER_DIR/enforce-review-completion.sh"
 STEPS="$ADAPTER_DIR/log-review-step.sh"
+GUARD="$ADAPTER_DIR/guard-definition-issue.sh"
 AGENT_SRC="$ADAPTER_DIR/agents/review-skill.md"
 AGENT_DST="$(dirname "$SETTINGS")/agents/review-skill.md"
 # the deny entries this script wrote last time, so a name dropped from
@@ -53,7 +55,7 @@ if [ "$CHECK" = 1 ]; then
   exit 0
 fi
 
-chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
+chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$GUARD" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
 
 mkdir -p "$(dirname "$SETTINGS")"
 [ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
@@ -81,7 +83,7 @@ AM_ALLOW="$(jq -nc --arg d "$DEF" --arg h "$HOME_DIR" '
 [ -n "$DEF" ] || echo "definition repo unresolved — tracking-issue rule left out; re-run once work/CONFIG.md has definition_repo"
 
 tmp="$(mktemp)"
-if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
+if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" --arg g "$GUARD" \
       --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" --argjson deny "$DENY" --argjson prev "$PREV" '
     # own entries are replaced, the operator'"'"'s kept; a new list keeps the
     # built-in rules through "$defaults"
@@ -103,6 +105,9 @@ if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" \
     .hooks.Stop = ([.hooks.Stop[]?
         | select([.hooks[]?.command] | index($f) | not)]
       + [{hooks:[{type:"command", command:$f, timeout:15}]}]) |
+    .hooks.PreToolUse = ([.hooks.PreToolUse[]?
+        | select([.hooks[]?.command] | index($g) | not)]
+      + [{matcher:"Bash", hooks:[{type:"command", command:$g, timeout:10}]}]) |
     # tool deny list: own entries (this and the previous install) are replaced
     # in place of their old position at the end, the operator'"'"'s kept in order
     if ($deny | length) > 0 or ((.permissions.deny // []) | any(. as $x | $prev | index([$x])))
@@ -133,6 +138,6 @@ fi
 if [ "$settings_same" = 1 ] && [ "$agent_same" = 1 ]; then
   echo "hooks, auto-mode rules, tool deny list and review-skill agent already installed ($SETTINGS)"
 else
-  echo "installed into $SETTINGS: hooks (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH), [code-guardian] rules -> autoMode.environment + autoMode.allow, $(printf '%s' "$DENY" | jq 'length') tools -> permissions.deny; review-skill agent -> $AGENT_DST"
+  echo "installed into $SETTINGS: hooks (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH; PreToolUse Bash -> $GUARD), [code-guardian] rules -> autoMode.environment + autoMode.allow, $(printf '%s' "$DENY" | jq 'length') tools -> permissions.deny; review-skill agent -> $AGENT_DST"
 fi
 exit 0

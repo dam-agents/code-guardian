@@ -134,7 +134,7 @@ if [ "${CLAUDECODE:-}" != "1" ]; then
 else
   SETTINGS="$HOME_DIR/.claude/settings.json"
   MISSING_HOOKS=""
-  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh; do
+  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh guard-definition-issue.sh; do
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
   grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS autoMode-rules"

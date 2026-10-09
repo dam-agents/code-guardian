@@ -374,7 +374,8 @@ write_settings <<'EOF'
 {"hooks":{"PostToolUseFailure":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-tool-event.sh"}]}],
           "PostToolUse":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-review-step.sh"}]}],
           "SessionEnd":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}],
-          "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}]},
+          "Stop":[{"hooks":[{"command":"/home/agent/scripts/harness/claude-code/enforce-review-completion.sh"}]}],
+          "PreToolUse":[{"matcher":"Bash","hooks":[{"command":"/home/agent/scripts/harness/claude-code/guard-definition-issue.sh"}]}]},
  "autoMode":{"environment":["$defaults","[code-guardian] This is an unattended code review agent."]}}
 EOF
 CLAUDECODE=1 run_preflight audit

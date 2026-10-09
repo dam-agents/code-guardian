@@ -117,6 +117,35 @@ blocks slack_id      'Channel C04ABCD1234 got the alert.'
 blocks ipv4          'Runner at 10.20.30.40 timed out.'
 blocks credential    'token=ghp_abcdefghijklmnopqrstuvwxyz0123'
 blocks target_repo   'body is generic' '[audit] payroll-core reviews stall'
+blocks number        'Seen on pull request 12.'
+blocks sha           'Head 3f9a2c4 was stale.'
+blocks date          'Seen on 2026-10-03.'
+blocks date          'Seen at 09:14:55.'
+# foreign terms: a path, a host, a product, an identifier, a fenced block —
+# none of them a word of the definition
+blocks foreign_term  'The file src/billing/ledger.ts was skipped.'
+blocks foreign_term  'Runner ci.initech.internal timed out.'
+blocks foreign_term  'Stripe rejected the payment.'
+blocks foreign_term  'The `invoice_total` field was wrong.'
+blocks foreign_term  'A branch named feature/sso-login was reviewed.'
+new_case blocks_fenced_block
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" '```' 'kubectl rollout status deploy/ledger' '```'
+run_issue file '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "foreign_term" and .match == "kubectl")' 'a fenced block of foreign tokens blocks'
+no_calls 'fenced block: nothing reaches GitHub'
+
+# the configured repositories and watch rules beyond the target
+new_case blocks_config_tables
+instance '- definition_issues: enabled' '- artifact_skill: pr-artifact@initech/review-tools' '' \
+  '## Review skills' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+  '| license-check | initech/skills | always | License Check |' '' \
+  '## Watch rules' '| id | watch for | notify | note |' '| --- | --- | --- | --- |' \
+  '| db-migration | adds a migration | slack:C0123ABCD | asked by hpatel |'
+body "${CLEAN[@]}" 'The db-migration watch fired; see initech/skills and initech/review-tools.'
+run_issue file '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "watch_rule") and any(.hits[]; .rule == "skill_source") and any(.hits[]; .rule == "artifact_skill")' 'watch-rule ids and the skill and artifact repositories block'
+no_calls 'config tables: nothing reaches GitHub'
 
 new_case title_prefix
 instance '- definition_issues: enabled'
@@ -125,9 +154,16 @@ run_issue file 'Skipped tick counted as an error'
 assert_jq '.outcome == "error"' 'a title without the kind prefix is refused'
 no_calls 'a refused title makes no call'
 
+new_case definition_terms_pass
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'Reproduction: set `review_model` to `default`, then run `bash "$HOME/scripts/preflight.sh" audit`.' \
+  '```' 'bash scripts/harness/claude-code/install.sh --check' '```' 'VERSION 8.17.0; see docs/runbook.md → Audit run.'
+run_issue check '[audit] Audit run reports the model as a mismatch'
+assert_jq '.outcome == "clean"' 'definition paths, keys, commands and words pass the foreign-term scan'
+
 new_case placeholders_pass
 instance '- definition_issues: enabled'
-body "${CLEAN[@]}" 'Repro: target acme/widgets, member alice with Slack id U0123ABCD.'
+body "${CLEAN[@]}" 'Reproduction: target acme/widgets, member alice with Slack id U0123ABCD.'
 run_issue check '[channel request] Per-team quiet hours'
 assert_jq '.outcome == "clean"' 'the documentation placeholders pass'
 

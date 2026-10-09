@@ -20,7 +20,9 @@ message of its own, and write `- definition_issues: enabled` or
 `- definition_issues: disabled` from the answer. Then run
 `bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
 another harness): its auto-mode rule for the tracking issue now names
-`scripts/definition-issue.sh`. No schedule changes.
+`scripts/definition-issue.sh`, and it registers the `PreToolUse` hook
+`guard-definition-issue.sh`, effective from the next session. No schedule
+changes.
 
 ## 8.16.1 — 2026-10-08
 

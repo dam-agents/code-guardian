@@ -170,6 +170,15 @@ adapter active, duty 4 above extends to logging tool failures manually.
   `review_incomplete` warn per block ([review.md](review.md) → **Completion
   enforcement**); a stop it lets through releases the run's own PR holds
   ([worklist.md](worklist.md) → **PR holds**).
+- `guard-definition-issue.sh` — `PreToolUse` (`Bash`) target: refuses, with
+  exit 2 and the reason on stderr, a command that creates, comments on or
+  edits an issue of `definition_repo` by any path other than
+  `scripts/definition-issue.sh` — `gh issue` writes on that repo or without
+  `--repo`, `gh api` and `curl` writes to its `issues` endpoints, the
+  `createIssue` mutation — and logs a `definition_issue` warn per block
+  ([runbook.md](runbook.md) → **Definition-repo issues**). Reads, the target
+  repo's issues and every other tool pass; an unresolved definition repo
+  guards nothing.
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). It also keeps the auto-mode

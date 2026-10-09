@@ -2684,7 +2684,7 @@ if [ "$MODE" = "audit" ]; then
 
   if [ "${CLAUDECODE:-}" = "1" ]; then
     hooks_missing=""
-    for h in log-tool-event.sh log-review-step.sh log-session-tokens.sh enforce-review-completion.sh; do
+    for h in log-tool-event.sh log-review-step.sh log-session-tokens.sh enforce-review-completion.sh guard-definition-issue.sh; do
       grep -q "harness/claude-code/$h" "$HOME_DIR/.claude/settings.json" 2>/dev/null \
         || hooks_missing="$hooks_missing $h"
     done

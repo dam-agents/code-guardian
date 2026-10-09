@@ -43,6 +43,7 @@ assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contain
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("curl -X PUT"))' 'artifact upload rule present'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("schedule_once") and contains("scripts/dispatch.sh plan"))' 'review dispatch rule present'
 assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'hooks still registered'
+assert_settings '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(endswith("guard-definition-issue.sh"))' 'definition-issue guard registered on PreToolUse Bash'
 run_install
 assert_out "already installed" 'second run is a no-op'
 
