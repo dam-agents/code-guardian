@@ -28,7 +28,7 @@ post-send record step.
   re-fire a nudge preflight did not emit.
 - **Roster-only tagging.** Every `<@…>` token is a `mention` string copied
   verbatim from the entry (`mentions`, `candidates`, `escalation`) — never
-  composed. A person without one (non-roster, no valid `slack_id`) is named in
+  composed; no `<!…>` broadcast (`here`, `channel`, `everyone`, a group). A person without one (non-roster, no valid `slack_id`) is named in
   plain text. Before each send, run `. "$HOME/scripts/lib/common.sh" &&
   mentions_check "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted
   heredoc): it must exit 0; a failure names the bad tokens — fix the message,
@@ -53,7 +53,7 @@ When a reviewer-directed nudge has no target with a valid `slack_id` — no
 persisted target and no requested reviewer is mentionable — pick **2 of the
 entry's `candidates`** (1 if that is all there is; the mentionable roster
 minus the author) and mark them `*` — a Slack-only suggestion, never requested
-on GitHub:
+on GitHub; with no candidate, send without mentions and persist nothing:
 
 - Build keywords from the PR title plus changed paths and extensions
   (`gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'`).

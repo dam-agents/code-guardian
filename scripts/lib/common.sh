@@ -37,8 +37,9 @@ skills_table_json() {
 SLACK_ID_RE='^U[A-Z0-9]{6,}$'
 roster_tsv() { # <DEVELOPERS.md>
   local out
-  out="$(grep -E '^\|' "$1" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
-      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
+  [ -r "$1" ] || return 0
+  out="$(grep -E '^\|' "$1" | while IFS='|' read -r _ l sid _rest; do
+      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d '\` ')"
       case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
     done)"
   [ -n "$out" ] || out="$(login=""; while IFS= read -r line; do
@@ -47,17 +48,19 @@ roster_tsv() { # <DEVELOPERS.md>
                       [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
         (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
       esac
-    done < "$1" 2>/dev/null)"
+    done < "$1")"
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 
 # The Slack send guard (docs/shepherd.md → Hard rules): rc 1, naming each one on
 # stderr, when the text on stdin holds a `<@…>` token that is not a valid roster
-# slack_id; rc 0 otherwise. A missing roster fails every token.
+# slack_id or any `<!…>` broadcast (here, channel, everyone, subteam); rc 0
+# otherwise. A missing roster fails every token.
 mentions_check() { # <DEVELOPERS.md>  < message text
   local ids bad
   ids="$(roster_tsv "$1" | cut -f2 | grep -E "$SLACK_ID_RE")"
-  bad="$(grep -oE '<@[^>]*>' | sort -u | while IFS= read -r t; do
+  bad="$(grep -oE '<[@!][^>]*>' | sort -u | while IFS= read -r t; do
+      case "$t" in ('<!'*) printf '%s\n' "$t"; continue;; esac
       id="${t#<@}"; id="${id%>}"; id="${id%%|*}"
       [ -n "$id" ] && printf '%s\n' "$ids" | grep -qxF "$id" || printf '%s\n' "$t"
     done)"

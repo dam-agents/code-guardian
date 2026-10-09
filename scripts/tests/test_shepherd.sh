@@ -317,5 +317,32 @@ assert_rc 1 'a login inside a mention fails, even a roster one'
 assert_out_contains 'not a roster slack_id: <@dave>' 'the failure names the bad token'
 mcheck 'PR #1 waits. <@U0CCCCCC> please look.'
 assert_rc 1 'a well-formed id outside the roster fails'
+mcheck 'PR #1 waits. <!here> <@U0AAAAAA> please look.'
+assert_rc 1 'a broadcast token fails'
+assert_out_contains '<!here>' 'the failure names the broadcast'
+
+# a requested reviewer nobody can mention is no target: the persisted pair is
+new_case shepherd_mention_unmentionable_requested
+shep_setup
+printf '| carol | - | Carol | docs | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | jq '.requested_reviewers = [{login:"carol"}]' | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob* | awaiting_review | 1 | $(iso_ago 259200) | 1 | nudging |
+EOF
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .needs_target_selection == false and .targets == "bob*"' 'the persisted pair stands in for an unmentionable reviewer'
+assert_jq '.nudges_due[0].mentions == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'the persisted target is mentioned'
+
+# a slack_id in backticks is still that member's id
+new_case shepherd_mention_backticked_id
+shep_setup
+printf '| dave | `U0DDDDDD` | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '[.nudges_due[0].candidates[].login] == ["bob", "dave"]' 'a backticked id is mentionable'
 
 finish

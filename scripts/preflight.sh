@@ -1758,10 +1758,10 @@ if [ "$MODE" = "shepherd" ]; then
   # roster (lib/common.sh → roster_tsv); ROSTER_JSON keeps the mentionable
   # members, each with its ready-to-paste Slack mention (docs/shepherd.md)
   ROSTER="$(roster_tsv "$DEVELOPERS")"
-  roster_has() { printf '%s\n' "$ROSTER" | cut -f1 | grep -qx "$1"; }
   ROSTER_JSON="$(printf '%s\n' "$ROSTER" | jq -R --arg re "$SLACK_ID_RE" 'split("\t")
       | select(length >= 2 and (.[1] | test($re)))
       | {login:.[0], slack_id:.[1], mention:("<@" + .[1] + ">")}' | jq -sc .)"
+  roster_mentionable() { printf '%s' "$ROSTER_JSON" | jq -e --arg l "$1" 'any(.[]; .login == $l)' >/dev/null; }
 
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
 
@@ -1935,7 +1935,7 @@ if [ "$MODE" = "shepherd" ]; then
         targets=""
         for r in $(printf '%s' "$requested" | tr ',' ' '); do
           { [ "$r" = "-" ] || [ "$r" = "$author" ]; } && continue
-          roster_has "$r" && targets="${targets:+$targets, }$r"
+          roster_mentionable "$r" && targets="${targets:+$targets, }$r"
         done
         [ -z "$targets" ] && [ -n "$reviewers" ] && [ "$reviewers" != "-" ] && targets="$reviewers"
         nudge_status="nudging"
