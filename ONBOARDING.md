@@ -650,7 +650,7 @@ schedule gate**); the audit is ungated because its worklist carries work
 whenever `audit_report` is enabled. Every schedule here also carries
 **`model: <review_model>`**, none under `review_model: default`
 (`docs/config.md`), and the **`sessionTitle`** its step names
-(`docs/worklist.md` → **Session titles**).
+(`docs/runbook.md` → **Session titles**).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already

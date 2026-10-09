@@ -73,7 +73,7 @@ TITLE_JQ='
         (if $r.kind == "re-review" then "Re-review PR #\($n)"
          elif $r.urgent == true then "Review urgent PR #\($n)"
          else "Review PR #\($n)" end)
-      elif has_pr("mentions_due"; $n) then "Answer mention on PR #\($n)"
+      elif has_pr("mentions_due"; $n) then "Answer mention on #\($n)"
       elif has_pr("artifacts_due"; $n) then "Publish artifact for PR #\($n)"
       elif has_pr("ci_failures_due"; $n) then "Triage CI on PR #\($n)"
       elif has_pr("merges_due"; $n) then "Merge PR #\($n)"

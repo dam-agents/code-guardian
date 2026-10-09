@@ -25,7 +25,7 @@ rides along with the next run that has real work
 ([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
 scheduled session carries a title that says what it does — `Review PR #1457`,
 `Triage CI on PR #1457`, `Audit agent health 2026-10-09`
-([`docs/worklist.md`](docs/worklist.md) → **Session titles**).
+([`docs/runbook.md`](docs/runbook.md) → **Session titles**).
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An
 optional active window checks hourly in the quiet hours outside it.

@@ -126,6 +126,9 @@ assert_out_contains '^title: Report review alerts$' 'a run with an urgent alert 
 jq '.urgent_alerts_due = [] | .stall_alert = {count:4}' "$WL" > "$WL.a" && mv "$WL.a" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Report review alerts$' 'a run with an alert and no PR work reports it'
+jq '.mentions_due = [{number:16, id:601}]' "$WL" > "$WL.m" && mv "$WL.m" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Answer mention on #16$' 'a mention names its number alone'
 
 # --- review_model pins every dispatched session ------------------------------
 new_case dispatch_model

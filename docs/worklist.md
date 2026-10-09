@@ -151,18 +151,14 @@ refused stays in the run. The new session takes its PR's hold first; a PR whose
 session never starts is the next heartbeat's
 ([scripts/dispatch.sh](../scripts/dispatch.sh)).
 
-**Session titles** — every scheduled session is titled `<Verb> <object>`: a
-schedule carries the `sessionTitle` of its ONBOARDING Step 6 entry, and each
-run renames itself to what it does (`rename_session`). A review run takes the
-title `dispatch.sh` derives from the work it keeps — `Review PR #<n>`
-(`Re-review PR #<n>`, `Review urgent PR #<n>`), `Answer mention on PR #<n>`,
-`Publish artifact for PR #<n>`, `Triage CI on PR #<n>`, `Merge PR #<n>`, `Fix
-findings on PR #<n>`, `Review PRs #<n>, #<m>` for several kept PRs; without
-one, `Report review alerts` when `urgent_alerts_due`, `stall_alert` or
-`review_anomaly` is due, else `Tidy review state`. Every other run takes its
-schedule's title plus the UTC date, `Audit agent health 2026-10-09`, and the
-hourly shepherd the UTC time too, `Nudge PR reviewers 2026-10-09 14:00`. A
-platform without `rename_session` keeps the schedule's title.
+`dispatch.sh` derives the titles from PR numbers and work alone, for a
+dispatched session's `sessionTitle` and the `title` of `rest`
+([runbook.md](runbook.md) → **Session titles**): `Review PR #<n>`
+(`Re-review PR #<n>`, `Review urgent PR #<n>`), `Answer mention on #<n>`,
+`Publish artifact for PR #<n>`, `Triage CI on PR #<n>`, `Merge PR #<n>`,
+`Fix findings on PR #<n>`; `Review PRs #<n>, #<m>` for several kept PRs;
+with none, `Report review alerts` when `urgent_alerts_due`, `stall_alert` or
+`review_anomaly` is due, else `Tidy review state`.
 
 ## Runtime configuration: `work/CONFIG.md`
 
