@@ -3115,21 +3115,23 @@ if [ "$MODE" = "audit" ]; then
     ov_unread="$ov_unread $(printf '%s' "$ov_res" | jq -r '.unread | map(tostring) | join(" ")')"
     ov_cr="$(printf '%s' "$ov_res" | jq -c --argjson cr "$ov_cr" '$cr + .hits')"
   done
-  # the REST fallback: the PRs the batches left unread, one call each
+  # the REST fallback: the PRs the batches left unread, one paginated call
+  # each, every page merged before the filter
   ov_left=""; ov_rest=0
   for ap in $ov_unread; do
     if [ "$ov_rest" -ge "$OV_REST_CAP" ]; then ov_left="$ov_left $ap"; continue; fi
     ov_rest=$((ov_rest + 1))
-    ov_hits="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null \
-      | jq -c --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --argjson n "$ap" '
+    ov_hits="$(gh api --paginate "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null \
+      | jq -sc --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --argjson n "$ap" '
+        if length == 0 or any(.[]; type != "array") then empty else
         ([ $a[] | select(.pr == $n) ]) as $mine
-        | [ .[]? | { state, by: (.user.login // ""), bot: ((.user.type // "") == "Bot"),
+        | [ add | .[] | { state, by: (.user.login // ""), bot: ((.user.type // "") == "Bot"),
                      commit_id: (.commit_id // ""), at: (.submitted_at // "") }
             | select(.state == "CHANGES_REQUESTED" and .by != $bot and (.bot | not))
             | . as $r
             | select(any($mine[]; . as $m | ($r.commit_id | startswith($m.sha))
                                            and ($r.at >= $m.ts)))
-            | {pr: $n, by, at} ] | .[:1]' 2>/dev/null)"
+            | {pr: $n, by, at} ] | .[:1] end' 2>/dev/null)"
     if [ -z "$ov_hits" ]; then ov_left="$ov_left $ap"; continue; fi
     ov_read=$((ov_read + 1))
     ov_cr="$(printf '%s' "$ov_hits" | jq -c --argjson cr "$ov_cr" '$cr + .')"
