@@ -5,8 +5,9 @@ Read this file on every **audit run** (`preflight.sh audit` returned
 `stats` + `checks`); you walk the task list — verify, add the judgment checks,
 compute the derived metrics, send the report.
 
-**The audit fixes nothing.** Its only GitHub writes are a tracking issue for a
-definition bug found in task 3 and the trend artifact's publish; its local
+**The audit fixes nothing.** Its only GitHub writes are an anonymous tracking
+issue for a definition bug found in task 3, under `definition_issues: enabled`,
+and the trend artifact's publish; its local
 writes beyond `AUDIT.log` are the memory consolidation of task 34 and the trend
 append of task 36. Routine findings (pending prunes, stale
 locks) heal on the next heartbeat; everything else goes to the operator. A
@@ -42,12 +43,16 @@ skipped task is an incomplete audit — a task that is impossible this week
    - Report one line per signature: count + what failed + cause + the fix.
      Unresolved after a genuine attempt → `cause unclear` with what you ruled
      out. Never pad the report with a guess.
-   - **A definition bug gets an issue on `$DEFINITION_REPO`** — title
-     `[audit] <short symptom>`, body: signature, count, window, the evidence,
-     the proposed fix, and that it came from the weekly audit. **Search open
-     issues first; one issue per signature, never a duplicate.** Best-effort: a
-     failure is logged and the report still carries the finding. This issue is
-     the audit's *only* definition-repo write; the fix itself takes the
+   - **A definition bug gets an anonymous issue on `$DEFINITION_REPO`** under
+     `definition_issues: enabled`, filed per [runbook.md](runbook.md) →
+     **Definition-repo issues**: title `[audit] <symptom>`, body in the closed
+     list — where, symptom, synthetic reproduction, count and window length,
+     proposed fix — and that it came from the weekly audit. One issue per
+     signature: the script returns the open one (`exists`). The report line
+     carries the finding with its evidence in full and the issue link, or
+     `issue withheld` with the reason (`disabled`, `blocked`). Best-effort: a
+     failure is logged and the report still carries the finding. This issue
+     is the audit's *only* definition-repo write; the fix itself takes the
      operator ([self-modification.md](self-modification.md)).
 4. Everything else the script checks is already in `checks[]` — connectivity,
    scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes

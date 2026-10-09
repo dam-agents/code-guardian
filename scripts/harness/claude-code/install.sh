@@ -75,7 +75,7 @@ AM_ENV="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '[
   "[code-guardian] The DAM Artifact Library is a publish surface the operator configured. Its create_artifact_upload_url tool returns a presigned upload URL for one file."]')"
 AM_ALLOW="$(jq -nc --arg d "$DEF" --arg h "$HOME_DIR" '
   (if $d == "" then [] else
-    ["[code-guardian] Opening a tracking issue on \($d) with gh issue create: the weekly audit and the channel-refused rule file them there."] end)
+    ["[code-guardian] Opening an anonymous tracking issue on \($d) with bash \($h)/scripts/definition-issue.sh file: the weekly audit and the channel-refused rule file them there, and the script checks the definition_issues switch and scans the draft for instance data before it sends anything."] end)
   + ["[code-guardian] Uploading a file under \($h)/work/audit/ or \($h)/work/reviews/pr-artifacts/ with curl -X PUT --data-binary to the URL that create_artifact_upload_url returned in the same session.",
      "[code-guardian] Starting a review of one pull request in a session of its own with mcp__platform-outbound__schedule_once, passing exactly the name, task and model that scripts/dispatch.sh plan printed in the same session: a review run hands every PR after its first to a one-time session that runs at once."]')"
 [ -n "$DEF" ] || echo "definition repo unresolved — tracking-issue rule left out; re-run once work/CONFIG.md has definition_repo"

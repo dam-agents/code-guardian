@@ -500,7 +500,7 @@ report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
-  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
@@ -521,7 +521,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
-   audit_trend:$atr,
+   audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
@@ -2380,7 +2380,8 @@ if [ "$MODE" = "audit" ]; then
   fi
 
   # open-issue backlog on the definition repo: tracking issues the agent files
-  # ([audit], [channel request]) wait for the operator — surface them weekly
+  # under definition_issues: enabled ([audit], [channel request]) and any the
+  # operator filed wait for the operator — surface them weekly
   if [ -z "$DEFINITION_REPO" ]; then
     check definition_issues warn "definition_repo unresolved — issue backlog not checked"
   else

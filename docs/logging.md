@@ -174,7 +174,8 @@ adapter active, duty 4 above extends to logging tool failures manually.
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). It also keeps the auto-mode
   classifier rules for the agent's documented writes outside the target repo —
-  the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload,
+  the anonymous tracking issue on `definition_repo` through
+  `scripts/definition-issue.sh`, the `curl -X PUT` artifact upload,
   the review dispatch through `schedule_once` —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of
@@ -231,8 +232,9 @@ a week is flagged) — and the report surfaces every one of them
 SHAs, numbers and `/tmp` paths so one root cause is one entry, and for
 `tool_failure` also stripping the command text and keeping the tool name.
 `first`/`last` date each signature: a `last` older than a shipped fix means it
-is already resolved. The agent diagnoses each and may file a tracking issue
-(audit.md task 3).
+is already resolved. The agent diagnoses each and, under
+`definition_issues: enabled`, may file an anonymous tracking issue (audit.md
+task 3).
 
 This is why **an error event's `msg` must carry its real error text**: a
 placeholder, or a bare `null`, makes the signature undiagnosable.

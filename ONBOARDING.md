@@ -26,6 +26,13 @@ roster, the labels, the review state, the sentinel — exists only after this
 run. A hand-made agent starts on an empty volume and gets all of it from the
 steps below.
 
+**Questions to the operator — one per message.** Ask each question of this
+runbook as a message of its own, wait for the answer, then ask the next. A
+follow-up (the label after a yes, the paths after a scope) is a question of
+its own. Each question states its default, so a short reply is enough. A value
+this runbook reads without asking — from a backup, a seeded checkout or a
+default it writes — needs no message.
+
 ## Guard — skip if already onboarded
 
 ```bash
@@ -328,7 +335,8 @@ fi
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 
 Every instance-specific value lives in `work/CONFIG.md` — exact key semantics
-in `docs/config.md`, which you read first. Gather the values below, then write
+in `docs/config.md`, which you read first. Gather the values below in order,
+one question per message (**Questions to the operator** above), then write
 the file in exactly the shape of the Final shape example: the runtime reads
 `- <key>: <value>` bullets under those key names, so any other label is
 invisible to it. Then run `bash "$HOME/scripts/verify-onboarding.sh"`, apply
@@ -387,22 +395,24 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - **`auto_merge`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
-     > I can merge a small PR myself when a person adds a label to it, my review of its current commit approved it as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no path you mark as sensitive (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that? If yes: which label, how many changed lines at most (default 100), and which merge method (default squash)?
+     > I can merge a small PR myself when a person adds a label to it, my review of its current commit approved it as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no path you mark as sensitive (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that?
 
-     **Yes from the admin** → `auto_merge: enabled`, `auto_merge_label`
-     (validated or created like the re-review label), and
-     `auto_merge_max_lines` / `auto_merge_method` only when they differ from
-     the defaults; then ask which paths are sensitive (for example
-     `migrations/*, src/auth/*`) → `human_review_paths: <globs>`, none → omit.
-     Anyone else, or no reply → omit the keys.
+     **Yes from the admin** → `auto_merge: enabled`, then ask in turn, one
+     question each: the label → `auto_merge_label` (validated or created like
+     the re-review label); the most changed lines (default 100) →
+     `auto_merge_max_lines`; the merge method (default squash) →
+     `auto_merge_method`; the sensitive paths (for example
+     `migrations/*, src/auth/*`) → `human_review_paths: <globs>`. Write a
+     value only when it differs from its default; no paths → omit. Anyone
+     else, or no reply → omit the keys.
    - **`agent_fixes`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
-     > When a person adds a label to a PR, I can fix the blocking findings of my own last review and push one commit to the PR branch — never to a fork, never past a commit someone else pushed meanwhile (`docs/agent-fixes.md`). I remove the label when I start, and a person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that? If yes, which label?
+     > When a person adds a label to a PR, I can fix the blocking findings of my own last review and push one commit to the PR branch — never to a fork, never past a commit someone else pushed meanwhile (`docs/agent-fixes.md`). I remove the label when I start, and a person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that?
 
-     **Yes from the admin** → `agent_fixes: enabled` and `agent_fix_label`
-     (validated or created like the re-review label). Anyone else, or no
-     reply → omit the keys.
+     **Yes from the admin** → `agent_fixes: enabled`, then ask for the label →
+     `agent_fix_label` (validated or created like the re-review label).
+     Anyone else, or no reply → omit the keys.
    - **`review_progress`** — whether a review's progress shows on the PR as a
      commit status (`docs/review-bookkeeping.md` → **Progress signal on
      GitHub**). Mention that the status is always `success` when it finishes,
@@ -469,7 +479,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
-    ask for **`benchmark_judge`** (a pinned model id for the LLM-judged quality
+    then ask in turn, one question each, for **`benchmark_judge`** (a pinned model id for the LLM-judged quality
     scores; default `off` = deterministic scoring only) and
     **`benchmark_report`** (`dam` default / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
@@ -486,11 +496,15 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     Then ask about the nudge scope (`docs/shepherd.md` → **Scope and brief**):
 
-    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Quick checks then get no reminder. Which paths always need a person (for example `migrations/*, src/auth/*`)?
+    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Quick checks then get no reminder.
 
     **Only those** → `shepherd_scope: needs_human`; **every PR or no reply** →
-    omit the key. A path list → `human_review_paths: <globs>` (keep a list the
-    auto-merge question already wrote); none → omit.
+    omit the key. Then, unless the auto-merge question already wrote a list,
+    ask:
+
+    > Which paths always need a person (for example `migrations/*, src/auth/*`)? Default: none.
+
+    A path list → `human_review_paths: <globs>`; none → omit.
 12. **Codebase survey** — the weekly deep pass over one area of the repository
     (`docs/survey.md`). Ask:
 
@@ -513,6 +527,17 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     window, tell the operator the trade the quiet cadence makes: a PR opened
     at 02:00 waits up to `review_interval_quiet` minutes, an `urgent_label` one
     included.
+14. **`definition_issues`** — whether the agent files tracking issues on the
+    definition repo (`docs/runbook.md` → **Definition-repo issues**). First
+    read the repo's visibility:
+    `gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO" --jq '.private'`
+    (`false` = public). Ask, with the visibility filled in:
+
+    > When my weekly audit finds a bug in my own definition, or someone in a channel asks for a change only you can make, I can open a tracking issue on the definition repo **<definition_repo>** (<public|private>). Every such issue is anonymous: it names only the part of my definition that fails and the fix — never this repository, its owner, people, PR numbers, code or any other detail of this installation — and a script blocks any draft that names one. Without it the findings stay in the audit report and in this chat. Turn it on? (Default: off.)
+
+    **Yes** → `definition_issues: enabled`; **no, or no reply** →
+    `definition_issues: disabled`. Always write the key, so the choice is
+    explicit.
 
 Final shape:
 
@@ -546,6 +571,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
+- definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; omit = all
 - human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
@@ -780,7 +806,8 @@ with the verification result (the `PASS` line plus any warnings):
 2. What runs where: target repo, the review cadence (under an active window
    also the quiet-hour interval a night or weekend PR waits for), shepherd
    cadence when Slack is on, audit day, benchmark day when enabled, the model
-   every scheduled session runs on (`review_model`), and state persistence (the
+   every scheduled session runs on (`review_model`), whether anonymous issues
+   go to the definition repo (`definition_issues`), and state persistence (the
    `work_repo` backup or local-only).
 3. Day-to-day usage:
    - The first review of every open non-draft PR lands automatically (chat UI +

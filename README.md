@@ -196,8 +196,9 @@ GitHub comment @-mentioning the bot, an account `mention_authors` admits — can
 ask the agent to review a specific PR, equivalent to adding the re-review
 label, including restarting a stuck review (`docs/review-on-demand.md` →
 **On-demand review**). Any other change
-request from a channel is declined and automatically filed as a tracking issue
-on the definition repo, with the link in the reply (`docs/runbook.md` →
+request from a channel is declined and reported to the operator; under
+`definition_issues: enabled` it is also filed as an anonymous tracking issue on
+the definition repo, with the link in the reply (`docs/runbook.md` →
 **Instruction sources & trust boundary**).
 
 ## Configuration
@@ -239,6 +240,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
+| `definition_issues` | asked (default `disabled`) | Whether the agent files tracking issues on the definition repo — audit-found definition bugs and refused channel requests. Every issue is anonymous: a closed content list, checked by `scripts/definition-issue.sh`, which blocks any draft that names the target repo, its owner, people or other instance data (`docs/runbook.md` → **Definition-repo issues**). |
 | `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures with known defects, time and tokens measured per review (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (default `off`) | Pinned model id for the LLM-judged quality scores; `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
