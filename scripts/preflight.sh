@@ -628,6 +628,29 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 # ------------------------------------------------------- REVIEWS.md access ----
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
+
+# A `nudged` PR fact per ledger `last_nudge_at` newer than the PR's last
+# recorded one (docs/shepherd.md → PR facts): the agent's post-send row_update
+# is the record, and pruning deletes the row with the merged PR, so the facts
+# file is what the audit counts nudges from.
+record_nudge_facts() {
+  [ -f "$SHEPHERD" ] || return 0
+  local new
+  new="$(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null \
+    | awk -F'|' '{ for (i = 2; i <= 8; i++) gsub(/^ +| +$/, "", $i)
+                   if ($7 != "" && $7 != "-") printf "%s\t%s\t%s\n", $2, $7, $8 }' \
+    | jq -cnR --rawfile ev <(cat "$PR_EVENTS" 2>/dev/null) '
+      def ep: sub("\\.[0-9]+Z$"; "Z") | (fromdateiso8601? // null);
+      ($ev | split("\n") | map(fromjson? // empty | select(type == "object" and .kind == "nudged"))
+       | group_by(.pr) | map({key: (.[0].pr | tostring), value: (map(.ts | ep) | max)})
+       | from_entries) as $last
+      | inputs | split("\t") | select(length == 3)
+      | {pr: (.[0] | tonumber), kind: "nudged", ts: .[1], level: (.[2] | tonumber? // null)}
+      | (.ts | ep) as $t
+      | select($t != null and (($last[.pr | tostring] // null) == null or $t > $last[.pr | tostring]))' 2>/dev/null)"
+  [ -n "$new" ] && printf '%s\n' "$new" >> "$PR_EVENTS" 2>/dev/null
+  return 0
+}
 # The newest `## Review at` section of PR <n>'s history file, only while it
 # reviewed <head-sha>: a call on older code never stands in for the current
 # one, and a rapid pass (no review-meta) never borrows an older section's.
@@ -970,6 +993,8 @@ if [ "$MODE" = "review" ]; then
       *) : ;;  # OPEN / API error -> leave the row alone
     esac
   done
+  # a pruned PR loses its shepherd row: its last nudge is recorded first
+  [ "$PRUNES_DUE" != "[]" ] && record_nudge_facts
 
   # --- per-open-PR decision ---
   while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
@@ -1809,6 +1834,9 @@ if [ "$MODE" = "shepherd" ]; then
         end' 2>/dev/null
   }
 
+  # the nudges the agent recorded since the last sweep, before any row changes
+  record_nudge_facts
+
   NEW_TABLE=""; NUDGES_DUE='[]'
   while IFS=$'\t' read -r n title author created head_sha labels requested url; do
     row="$(shep_row "$n")"
@@ -2125,7 +2153,13 @@ if [ "$MODE" = "audit" ]; then
     else check shepherd_sweeps ok "$sw shepherd sweeps this week"; fi
   fi
 
-  err_lines="$( { grep -hiE 'fail|error|anomal' "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
+  # a zero count ("0 failed", "errors=0") is a success line: those phrases are
+  # dropped before the match, so "10 failed" or "failed=2" still counts
+  err_lines="$( { cat "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
+    | awk '{ l = tolower($0)
+             gsub(/(^|[^0-9.])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)/, " ", l)
+             gsub(/(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9.]|$)/, " ", l)
+             if (l ~ /fail|error|anomal/) print }' \
     | while IFS= read -r l; do ts="${l%% *}"; e="$(iso2epoch "$ts")"; [ "$e" -ge "$SINCE_EPOCH" ] && printf '%s\n' "$l"; done)"
   err_count="$(printf '%s' "$err_lines" | grep -c . || true)"
   if [ "$err_count" -gt 0 ]; then check log_errors warn "$err_count error-ish log lines this week; last: $(printf '%s\n' "$err_lines" | tail -1 | cut -c1-160)"
@@ -2484,11 +2518,17 @@ if [ "$MODE" = "audit" ]; then
   # `by_model` splits the same counters per recorded model id, which is what
   # prices a week (docs/trends.md → Cost); events written before the hook
   # recorded a model land under "unknown" and price as "—", never as a guess.
+  # The event carries the transcript's cumulative totals and a resumed session
+  # ends more than once, so a run counts its last event alone; an event with
+  # no run id counts on its own.
   TOKENS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
     def sums: {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
                cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)};
-    [.[] | select(.ts >= $s and .event=="tokens") | .msg
-     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?")]
+    [.[] | select(.ts >= $s and .event=="tokens")
+     | (.run // "") as $r | .msg
+     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?")
+     | .r = $r] as $t
+    | [ ($t | map(select(.r != "")) | group_by(.r) | map(last)[]), ($t[] | select(.r == "")) ]
     | sums + {by_model: (group_by(.m // "unknown")
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
@@ -2631,7 +2671,7 @@ if [ "$MODE" = "audit" ]; then
                     | select(startswith("PR #"))],
             tokens: ([.[] | select(.event=="tokens")] | length),
             out: ([.[] | select(.event=="tokens") | .msg
-                   | capture("output=(?<o>[0-9]+)") | .o | tonumber] | add // 0) }
+                   | capture("output=(?<o>[0-9]+)") | .o | tonumber] | last // 0) }
         | select(.steps | any(test(" locked")))
         | select(.last <= $cut)
         | .first as $first_ts | .last as $last_ts
@@ -2853,18 +2893,21 @@ if [ "$MODE" = "audit" ]; then
           else "ok\t\($txt) — no significant rise" end
       end' "missed-earlier share"
 
-  # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
-  # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
-  # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
-  # due and count sends that failed, so they are not this number.
-  nudged_prs=""
+  # shepherd activity: the PRs with a `nudged` fact in the window, plus ledger
+  # rows whose `last_nudge_at` falls in it (a nudge no sweep recorded yet) —
+  # *PRs nudged*, the set task 15 measures against. The facts keep a merged PR
+  # that pruning removed from the ledger. SHEPHERD.log's "N nudges due" lines
+  # count a PR again on every sweep it stays due and count sends that failed,
+  # so they are not this number.
+  nudged_prs="$(jq -rR --arg s "$SINCE_ISO" 'fromjson? | select(type == "object" and .kind == "nudged"
+      and ((.ts // "") >= $s)) | .pr' "$PR_EVENTS" 2>/dev/null | tr '\n' ' ')"
   while IFS= read -r row; do
     ts="$(row_field "$row" 7)"
     case "$ts" in ('-'|'') continue;; esac
     [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
     nudged_prs="$nudged_prs $(row_field "$row" 2)"
   done < <(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true)
-  NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)]')"
+  NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)] | unique_by(tonumber? // .)')"
 
   # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
@@ -3034,25 +3077,49 @@ if [ "$MODE" = "audit" ]; then
   # --- our APPROVE overruled (docs/audit.md task 24) -------------------------
   # A person requested changes on the very commit this agent approved, or a PR
   # merged this week reverts a PR it approved: the review let something
-  # through. One reviews call per PR approved this week (at most 30); the
+  # through. The approved PRs' change requests are read in GraphQL batches of
+  # 50 aliased PRs, at most OV_CAP PRs, the query in a file; a PR the answer
+  # leaves null (a failed call, a number GitHub cannot resolve) is unread. The
   # reverted PR is read from GitHub's own revert body ("Reverts <repo>#<n>").
   APPROVED_WEEK="$(rr_week | jq -sc '[.[] | select(.verdict == "APPROVE" and (.sha // "") != "") | {pr, sha, ts}]' 2>/dev/null)"
   [ -n "$APPROVED_WEEK" ] || APPROVED_WEEK='[]'
+  OV_CAP=200
   ov_cr='[]'; ov_read=0; ov_unread=""
-  for ap in $(printf '%s' "$APPROVED_WEEK" | jq -r '[.[].pr] | unique | .[:30] | .[]' 2>/dev/null); do
-    if ! ap_rv="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)"; then
-      ov_unread="$ov_unread $ap"; continue
-    fi
-    ov_read=$((ov_read + 1))
-    ap_hit="$(printf '%s' "$ap_rv" | jq -c --argjson a "$APPROVED_WEEK" --argjson n "$ap" --arg bot "$BOT_LOGIN" '
-      [ $a[] | select(.pr == $n) ] as $mine
-      | [ .[]? | select(.state == "CHANGES_REQUESTED" and (.user.login // "") != $bot
-                        and (.user.type // "User") != "Bot")
-          | . as $r
-          | select(any($mine[]; . as $m | (($r.commit_id // "") | startswith($m.sha))
-                                         and (($r.submitted_at // "") >= $m.ts)))
-          | {pr: $n, by: .user.login, at: .submitted_at} ] | first // empty' 2>/dev/null)"
-    [ -n "$ap_hit" ] && ov_cr="$(printf '%s' "$ov_cr" | jq -c --argjson h "$ap_hit" '. + [$h]')"
+  ov_prs="$(printf '%s' "$APPROVED_WEEK" | jq -r --argjson c "$OV_CAP" '[.[].pr] | unique | .[:$c] | .[]' 2>/dev/null)"
+  ov_qf="$PF_TMP/approve-overruled.graphql"
+  while [ -n "$ov_prs" ]; do
+    ov_chunk="$(printf '%s\n' "$ov_prs" | head -50 | tr '\n' ' ')"
+    ov_prs="$(printf '%s\n' "$ov_prs" | tail -n +51)"
+    {
+      printf 'query ApproveOverruled($o:String!,$r:String!){repository(owner:$o,name:$r){\n'
+      for ap in $ov_chunk; do
+        printf ' p%s: pullRequest(number:%s){reviews(last:100,states:[CHANGES_REQUESTED]){nodes{state submittedAt commit{oid} author{__typename login}}}}\n' "$ap" "$ap"
+      done
+      printf '}}\n'
+    } > "$ov_qf"
+    # stdout is read whatever the exit code: a partial answer (one alias GitHub
+    # cannot resolve) still carries every other PR
+    ov_res="$(gh api graphql -F query=@"$ov_qf" -f o="${REPO%%/*}" -f r="${REPO#*/}" 2>/dev/null \
+      | jq -c --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --arg nums "$ov_chunk" '
+        (.data.repository // {}) as $repo
+        | [ $nums | split(" ")[] | select(. != "") | tonumber ] as $ns
+        | { read: [ $ns[] | select($repo["p\(.)"] != null) ],
+            unread: [ $ns[] | select($repo["p\(.)"] == null) ],
+            hits: [ $ns[] as $n
+                    | ($repo["p\($n)"] // empty)
+                    | ([ $a[] | select(.pr == $n) ]) as $mine
+                    | [ .reviews.nodes[]?
+                        | { state, by: (.author.login // ""), bot: (.author.__typename == "Bot"),
+                            commit_id: (.commit.oid // ""), at: (.submittedAt // "") }
+                        | select(.state == "CHANGES_REQUESTED" and .by != $bot and (.bot | not))
+                        | . as $r
+                        | select(any($mine[]; . as $m | ($r.commit_id | startswith($m.sha))
+                                                       and ($r.at >= $m.ts)))
+                        | {pr: $n, by, at} ] | first // empty ] }' 2>/dev/null)"
+    if [ -z "$ov_res" ]; then ov_unread="$ov_unread $ov_chunk"; continue; fi
+    ov_read=$((ov_read + $(printf '%s' "$ov_res" | jq '.read | length')))
+    ov_unread="$ov_unread $(printf '%s' "$ov_res" | jq -r '.unread | map(tostring) | join(" ")')"
+    ov_cr="$(printf '%s' "$ov_res" | jq -c --argjson cr "$ov_cr" '$cr + .hits')"
   done
   approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
@@ -3078,7 +3145,7 @@ if [ "$MODE" = "audit" ]; then
     ov_note="$(printf '%s' "$OVERRULED" | jq -r '
       (if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end)
       + ((.approved_prs - .scanned - (.unread | length)) as $cap
-         | if $cap > 0 then " · \($cap) approved PR(s) past the 30-call cap not read" else "" end)
+         | if $cap > 0 then " · \($cap) approved PR(s) past the '"$OV_CAP"'-PR cap not read" else "" end)
       + (if .reverts_read then "" else " · merged PR list unreadable, reverts not checked" end)')"
     ov_total="$(printf '%s' "$OVERRULED" | jq '.approved_prs')"
     if [ "$ov_n" -gt 0 ]; then check approve_overruled warn "$ov_n PR(s) a person overruled after my APPROVE: $ov_detail$ov_note"

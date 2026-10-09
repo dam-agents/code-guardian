@@ -128,7 +128,9 @@ from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
 latency median must keep. `first_review` carries the review's own
 `submitted_at`, so a PR reviewed before the file existed is still recorded
 correctly; a conflict is only observable while it lasts, so it is dated at the
-sweep that saw it.
+sweep that saw it. `nudged` (ts = the row's `last_nudge_at`, with its
+`level`) is written once per nudge the agent recorded, by the next sweep or
+before a prune.
 
 ## Ledger & history
 

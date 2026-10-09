@@ -263,6 +263,26 @@ assert_jq '.stats.nudges == {prs_nudged: 1, prs: ["22"]}' \
   'one PR nudged in the window, not the 9 the sweep log claims'
 assert_jq '.stats | has("nudges_claimed") == false' 'the overcounting field is gone'
 
+# --- nudges from the PR facts: a pruned PR still counts ------------------------
+new_case audit_nudges_from_facts
+base_config '- slack_notifications: enabled'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+  printf '|----|----|----|----|----|----|----|----|\n'
+  printf '| 22 | %s | bob | awaiting_review | 1 | %s | 2 | watching |\n' "$(iso_ago 500000)" "$(iso_ago 90000)"
+} > "$WORK/SHEPHERD.md"
+{
+  jq -nc --arg t "$(iso_ago 90000)" '{pr:22, kind:"nudged", ts:$t, level:2}'
+  jq -nc --arg t "$(iso_ago 200000)" '{pr:31, kind:"nudged", ts:$t, level:1}'
+  jq -nc --arg t "$(iso_ago 100000)" '{pr:31, kind:"nudged", ts:$t, level:2}'
+  jq -nc --arg t "$(iso_ago 1814400)" '{pr:40, kind:"nudged", ts:$t, level:1}'
+  printf 'not json\n'
+} > "$WORK/PR-EVENTS.jsonl"
+run_preflight audit
+assert_jq '.stats.nudges == {prs_nudged: 2, prs: ["22", "31"]}' \
+  'facts and ledger rows union per PR; a pruned PR counts, an old fact does not'
+
 # --- memory budget names the biggest sections ---------------------------------
 new_case audit_memory_sections
 base_config
@@ -472,6 +492,39 @@ ev r1 tokens "input=1 output=1000 cache_read=1 cache_creation=1 msgs=5"
 run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
+
+# --- weekly token totals: one count per run (stats.tokens) -------------------
+# the tokens event carries cumulative totals and a resumed session ends twice:
+# a run counts its last event alone, an event with no run id counts on its own
+new_case audit_tokens_per_run
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev t1 review_step "PR #10 abc1234 locked" "$(iso_ago 7300)"
+ev t1 tokens "input=1 output=100 cache_read=1000 cache_creation=10 msgs=5 model=claude-opus-5-5" "$(iso_ago 7200)"
+ev t1 tokens "input=2 output=300 cache_read=3000 cache_creation=30 msgs=9 model=claude-opus-5-5" "$(iso_ago 3600)"
+ev t2 tokens "input=4 output=50 cache_read=500 cache_creation=5 msgs=2 model=claude-sonnet-5-5"
+jq -nc --arg t "$(iso_ago 600)" '{ts:$t, level:"info", event:"tokens", msg:"input=8 output=7 cache_read=6 cache_creation=5 msgs=1"}' \
+  >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+run_preflight audit
+assert_jq '.stats.tokens | .runs == 3 and .input == 14 and .output == 357 and .cache_read == 3506 and .cache_creation == 40' \
+  'a run counts its last cumulative event once; an event without a run counts on its own'
+assert_jq '.stats.tokens.by_model["claude-opus-5-5"] | .runs == 1 and .output == 300' 'by_model counts the same set'
+assert_jq '.stats.tokens.by_model.unknown.runs == 1 and .stats.tokens.by_model["claude-sonnet-5-5"].output == 50' \
+  'every model row comes from the deduped set'
+assert_jq '.stats.stalls.wasted_output_tokens == 300' 'a stalled run wastes its last cumulative output, not the sum'
+
+# --- log_errors: a zero count is a success line --------------------------------
+new_case audit_log_errors_zero_count
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '%s shepherd run: 3 nudges sent, 0 failed\n%s shepherd run: errors=0\n' "$(iso_ago 3600)" "$(iso_ago 3000)" >> "$WORK/SHEPHERD.log"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "ok"' 'zero-count lines are not error lines'
+printf '%s shepherd run: 1 nudge sent, 10 failed\n' "$(iso_ago 1800)" >> "$WORK/SHEPHERD.log"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^1 error-ish log lines.*10 failed$"))' \
+  'a non-zero failure count still matches'
 
 # --- wake-ups: the preflight passes that found work, by kind of work ---------
 new_case audit_wakeups
@@ -1058,5 +1111,26 @@ run_preflight audit
 assert_jq '.stats.overruled | .scanned == 0 and .unread == ["7"] and .reverts_read == false' 'what could not be read is recorded'
 assert_jq '.checks[] | select(.id == "approve_overruled") | .status == "warn" and (.detail | test("reviews unreadable for #7")) and (.detail | test("reverts not checked"))' \
   'an unread scan warns instead of passing'
+
+# --- the approved PRs are read in batches of 50, at most 200 -------------------
+new_case audit_approve_batched
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+ts="$(iso_ago 86400)"
+jq -nc --arg ts "$ts" 'range(1; 206) | {src:"ledger", pr:., ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' \
+  >> "$WORK/REVIEW-LEDGER.jsonl"
+jq -n --arg at "$(iso_ago 3600)" '[{state:"CHANGES_REQUESTED", user:{login:"alice", type:"User"}, commit_id:"abc1234ffff", submitted_at:$at}]' \
+  | fx 'api repos/acme/widgets/pulls/170/reviews?per_page=100'
+fx_fail 'api repos/acme/widgets/pulls/42/reviews?per_page=100'
+GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight audit
+assert_jq '.stats.overruled | .approved_prs == 205 and .scanned == 199 and .unread == ["42"]' \
+  '200 PRs read, a PR the answer leaves null is unread'
+assert_jq '.stats.overruled.changes_requested == [{pr: 170, by: "alice", at: .stats.overruled.changes_requested[0].at}]' \
+  'a change request in a later batch is found'
+assert_jq '.checks[] | select(.id == "approve_overruled") | .detail | test("5 approved PR\\(s\\) past the 200-PR cap not read")' \
+  'the PRs past the cap are named'
+if [ "$(grep -c '^api graphql -F query=@' "$SANDBOX/calls.log")" = 4 ] && ! grep -q 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log"; then
+  printf 'ok   %s: four GraphQL calls, the query in a file, no per-PR REST call\n' "$CASE"
+else printf 'FAIL %s: calls: %s\n' "$CASE" "$(grep -c 'graphql' "$SANDBOX/calls.log")"; FAILED=1; fi
 
 finish
