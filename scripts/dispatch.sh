@@ -85,7 +85,7 @@ TITLE_JQ='
       elif ($u | length) > 1 then
         "Review PRs " + ([$u[:5][] | "#\(.)"] | join(", "))
         + (if ($u | length) > 5 then " +\(($u | length) - 5) more" else "" end)
-      elif .stall_alert != null or .review_anomaly != null then "Report review alerts"
+      elif .stall_alert != null or .review_anomaly != null or ((.urgent_alerts_due // []) | length) > 0 then "Report review alerts"
       else "Tidy review state" end;
 '
 

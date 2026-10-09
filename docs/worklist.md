@@ -157,8 +157,9 @@ run renames itself to what it does (`rename_session`). A review run takes the
 title `dispatch.sh` derives from the work it keeps — `Review PR #<n>`
 (`Re-review PR #<n>`, `Review urgent PR #<n>`), `Answer mention on PR #<n>`,
 `Publish artifact for PR #<n>`, `Triage CI on PR #<n>`, `Merge PR #<n>`, `Fix
-findings on PR #<n>`, `Review PRs #<n>, #<m>` for several kept PRs, `Report
-review alerts` or `Tidy review state` without one. Every other run takes its
+findings on PR #<n>`, `Review PRs #<n>, #<m>` for several kept PRs; without
+one, `Report review alerts` when `urgent_alerts_due`, `stall_alert` or
+`review_anomaly` is due, else `Tidy review state`. Every other run takes its
 schedule's title plus the UTC date, `Audit agent health 2026-10-09`, and the
 hourly shepherd the UTC time too, `Nudge PR reviewers 2026-10-09 14:00`. A
 platform without `rename_session` keeps the schedule's title.

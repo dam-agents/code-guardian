@@ -120,7 +120,10 @@ assert_out_contains '^title: Publish artifact for PR #14$' 'the kept artifact PR
 jq '.artifacts_due = [] | .ci_failures_due = [] | .merges_due = [] | .fixes_due = []' "$WL" > "$WL.e" && mv "$WL.e" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Tidy review state$' 'a run with no PR work tidies the review state'
-jq '.stall_alert = {count:4}' "$WL" > "$WL.a" && mv "$WL.a" "$WL"
+jq '.urgent_alerts_due = [{number:15}]' "$WL" > "$WL.u" && mv "$WL.u" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Report review alerts$' 'a run with an urgent alert and no PR work reports it'
+jq '.urgent_alerts_due = [] | .stall_alert = {count:4}' "$WL" > "$WL.a" && mv "$WL.a" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Report review alerts$' 'a run with an alert and no PR work reports it'
 
