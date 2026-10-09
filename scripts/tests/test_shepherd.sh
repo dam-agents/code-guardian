@@ -183,6 +183,34 @@ AFTER="$(grep -c '' "$WORK/PR-EVENTS.jsonl")"
 if [ "$BEFORE" = "$AFTER" ]; then printf 'ok   %s: a second sweep appends nothing\n' "$CASE"
 else printf 'FAIL %s: the second sweep re-appended (%s -> %s)\n' "$CASE" "$BEFORE" "$AFTER"; FAILED=1; fi
 
+# --- a recorded nudge becomes a `nudged` fact, once per nudge ------------------
+# the agent's post-send row_update writes last_nudge_at; the next sweep records
+# it, so the audit still counts the nudge after pruning drops the row
+nudge_row() { # <pr> <last_nudge_at> <level>
+  {
+    printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+    printf '|----|----|----|----|----|----|----|----|\n'
+    printf '| %s | 2026-09-01T00:00:00Z | bob | awaiting_review | 1 | %s | %s | nudging |\n' "$1" "$2" "$3"
+  } > "$WORK/SHEPHERD.md"
+}
+nudged_facts() { jq -cR 'fromjson? | select(.kind == "nudged")' "$WORK/PR-EVENTS.jsonl" 2>/dev/null; }
+new_case shepherd_nudged_fact
+shep_setup
+pr_json 1 "nudged PR" '[]' "$SHA1" | open_prs_fx
+printf '{"pr":1,"kind":"first_review","ts":"2026-09-01T00:00:00Z"}\nnot json\n' > "$WORK/PR-EVENTS.jsonl"
+nudge_row 1 "$(iso_ago 3600)" 2
+run_preflight shepherd
+if [ "$(nudged_facts | jq -s 'length == 1 and .[0].pr == 1 and .[0].level == 2')" = true ]; then
+  printf 'ok   %s: the recorded nudge is appended with its level, an old file without nudged facts is read\n' "$CASE"
+else printf 'FAIL %s: nudged facts: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
+run_preflight shepherd
+if [ "$(nudged_facts | grep -c '')" = 1 ]; then printf 'ok   %s: the same nudge is recorded once\n' "$CASE"
+else printf 'FAIL %s: the same nudge was recorded again\n' "$CASE"; FAILED=1; fi
+nudge_row 1 "$(iso_ago 60)" 3
+run_preflight shepherd
+if [ "$(nudged_facts | jq -s 'length == 2 and .[1].level == 3')" = true ]; then printf 'ok   %s: a later nudge is a new fact\n' "$CASE"
+else printf 'FAIL %s: nudged facts: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
+
 # --- the bot's own review is not a human review -------------------------------
 new_case shepherd_pr_facts_bot_excluded
 shep_setup

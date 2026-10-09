@@ -37,8 +37,8 @@
 #
 # The `est $` column prices each run's summed token counters with the
 # operator-maintained `## Benchmark model prices` table in work/CONFIG.md
-# (USD per MTok: input, output, cache_read, cache_write; rows matched as a
-# substring of the run's model id — docs/benchmark.md → Model prices). No
+# (USD per MTok: input, output, cache_read, cache_write; a row matches the
+# run's model id per docs/benchmark.md → Model prices). No
 # table, no matching row, or no measured tokens → "—", never a guess.
 # `BENCH_CONFIG` overrides the CONFIG.md path (tests).
 # `benchmark-report.sh index <dir>` prints the same per-run index (plus cost)

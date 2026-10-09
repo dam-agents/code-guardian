@@ -191,3 +191,19 @@ READ_SET_JQ='def read_set:
     + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
     + ["work/MEMORY.md", "work/LESSONS.md"]
   end;'
+
+# Model-id matching, shared by the price table (lib/prices.sh) and the audit's
+# session_models check. A configured name may carry a provider path
+# (`claude/aws/claude-opus-5-5`) and a context suffix (`[1m]`); a recorded id
+# may carry a platform prefix or suffix (`us.anthropic.claude-opus-5-5-v1:0`).
+# After a name that ends in a digit, a dash plus one or two digits reads as a
+# later version: `claude-opus-5` does not match `claude-opus-5-5`, `opus`
+# matches both. Other suffix forms (`.1`, `50`, `4o`, `-20260401`) still match.
+MODEL_JQ='
+  def model_key: ascii_downcase | sub("^.*/"; "") | sub("\\[[^]]*\\]$"; "");
+  def model_has($name): ($name | model_key) as $w | ascii_downcase as $m
+    | ($m | index($w)) as $i
+    | $w != "" and $i != null
+      and (($w | test("[0-9]$") | not)
+           or ($m[($i + ($w | length)):] | test("^-[0-9]{1,2}([^0-9]|$)") | not));
+'
