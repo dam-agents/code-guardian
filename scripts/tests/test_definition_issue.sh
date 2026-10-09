@@ -168,7 +168,7 @@ assert_jq '.outcome == "clean"' 'definition paths, keys, commands and words pass
 
 new_case compounds_pass
 instance '- definition_issues: enabled'
-body "${CLEAN[@]}" 'A long-running review run keeps the per-PR hold after a one-time re-review.'
+body "${CLEAN[@]}" 'A stand-by mode keeps the per-PR hold after a one-time re-review.'
 run_issue check '[audit] A dispatched re-review keeps its hold'
 assert_jq '.outcome == "clean"' 'a hyphenated compound of definition words passes'
 

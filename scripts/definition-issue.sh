@@ -31,12 +31,12 @@
 #     IPv4 addresses, and the credential shapes of lib/redact.sh;
 #   - foreign terms: every path or dotted name, every token in backticks or in
 #     a fenced block, every capitalized word and every identifier-shaped word
-#     (snake_case, kebab-case, a letter followed by a digit, a Latin letter
-#     outside ASCII) of the draft must occur in the definition's own text —
-#     the tracked root documents, docs/, scripts/ without its tests, .agents/
-#     — or in a path of that tree. A term the
-#     definition does not know (a product, a person, a module, a file or a
-#     branch of the target repo) names the instance.
+#     (snake_case, a hyphenated compound with a part the definition never
+#     uses, a letter followed by a digit, a Latin letter outside ASCII) of the
+#     draft must occur in the definition's own text — the tracked root
+#     documents, docs/, scripts/ without its tests, .agents/ — or in a path of
+#     that tree. A term the definition does not know (a product, a person, a
+#     module, a file or a branch of the target repo) names the instance.
 # The definition repo's own reference and URLs are removed before the scan, so
 # an instance whose definition repo shares the target's owner can still link
 # to it; a reference that extends it (acme/guardian-web) stays. A one-word
@@ -266,7 +266,7 @@ CANDS="$TMP/cands.txt"
 } | sed -E 's#^(\$HOME|~|/home/[A-Za-z0-9_-]+|\.)/##' \
   | grep -vE '^[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$CANDS"
 # a hyphenated compound of plain words passes when every part is a word of the
-# definition (long-running, stop-hook); one unknown part names the instance
+# definition; one unknown part names the instance
 known_compound() { # <token>
   printf '%s' "$1" | grep -qE '^[a-z]+(-[a-z]+)+$' || return 1
   printf '%s\n' "$1" | tr '-' '\n' | sort -u | comm -23 - "$VOCAB" | grep -q . && return 1
