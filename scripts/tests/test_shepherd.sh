@@ -183,6 +183,34 @@ AFTER="$(grep -c '' "$WORK/PR-EVENTS.jsonl")"
 if [ "$BEFORE" = "$AFTER" ]; then printf 'ok   %s: a second sweep appends nothing\n' "$CASE"
 else printf 'FAIL %s: the second sweep re-appended (%s -> %s)\n' "$CASE" "$BEFORE" "$AFTER"; FAILED=1; fi
 
+# --- a recorded nudge becomes a `nudged` fact, once per nudge ------------------
+# the agent's post-send row_update writes last_nudge_at; the next sweep records
+# it, so the audit still counts the nudge after pruning drops the row
+nudge_row() { # <pr> <last_nudge_at> <level>
+  {
+    printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+    printf '|----|----|----|----|----|----|----|----|\n'
+    printf '| %s | 2026-09-01T00:00:00Z | bob | awaiting_review | 1 | %s | %s | nudging |\n' "$1" "$2" "$3"
+  } > "$WORK/SHEPHERD.md"
+}
+nudged_facts() { jq -cR 'fromjson? | select(.kind == "nudged")' "$WORK/PR-EVENTS.jsonl" 2>/dev/null; }
+new_case shepherd_nudged_fact
+shep_setup
+pr_json 1 "nudged PR" '[]' "$SHA1" | open_prs_fx
+printf '{"pr":1,"kind":"first_review","ts":"2026-09-01T00:00:00Z"}\nnot json\n' > "$WORK/PR-EVENTS.jsonl"
+nudge_row 1 "$(iso_ago 3600)" 2
+run_preflight shepherd
+if [ "$(nudged_facts | jq -s 'length == 1 and .[0].pr == 1 and .[0].level == 2')" = true ]; then
+  printf 'ok   %s: the recorded nudge is appended with its level, an old file without nudged facts is read\n' "$CASE"
+else printf 'FAIL %s: nudged facts: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
+run_preflight shepherd
+if [ "$(nudged_facts | grep -c '')" = 1 ]; then printf 'ok   %s: the same nudge is recorded once\n' "$CASE"
+else printf 'FAIL %s: the same nudge was recorded again\n' "$CASE"; FAILED=1; fi
+nudge_row 1 "$(iso_ago 60)" 3
+run_preflight shepherd
+if [ "$(nudged_facts | jq -s 'length == 2 and .[1].level == 3')" = true ]; then printf 'ok   %s: a later nudge is a new fact\n' "$CASE"
+else printf 'FAIL %s: nudged facts: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
+
 # --- the bot's own review is not a human review -------------------------------
 new_case shepherd_pr_facts_bot_excluded
 shep_setup
@@ -281,5 +309,68 @@ approved_fx 1
 green_fx "$SHA1"
 run_preflight shepherd
 assert_jq '(.nudges_due | length) == 0' 'no announcement without the key'
+
+# --- mentions: preflight hands over ready strings, the agent never composes one
+new_case shepherd_mention_candidates
+shep_setup
+printf '| carol | - | Carol | docs | |\n| dave | dave | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .needs_target_selection == true and .mentions == []' 'no known target, so the agent picks'
+assert_jq '.nudges_due[0].candidates == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'candidates: the mentionable roster minus the author, each with its mention'
+
+new_case shepherd_mention_strings
+shep_setup '- escalation_owner: alice'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob* | awaiting_review | 3 | $(iso_ago 259200) | 3 | nudging |
+EOF
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .level == 4 and .needs_target_selection == false and .candidates == []' 'persisted targets need no selection'
+assert_jq '.nudges_due[0].mentions == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'each target mention carries its ready string'
+assert_jq '.nudges_due[0].escalation == {login:"alice", slack_id:"U0AAAAAA", mention:"<@U0AAAAAA>"}' 'the escalation carries its ready string'
+
+new_case shepherd_mentions_check
+shep_setup
+printf '| dave | dave | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+mcheck() { RC=0; OUT="$(printf '%s' "$1" | ( . "$REPO_ROOT/scripts/lib/common.sh"; mentions_check "$WORK/DEVELOPERS.md" ) 2>&1)" || RC=$?; }
+mcheck 'PR #1 waits. <@U0AAAAAA> <@U0BBBBBB> please look, bob.'
+assert_rc 0 'roster slack_ids pass'
+mcheck 'PR #1 waits. <@U0AAAAAA> <@dave> please look.'
+assert_rc 1 'a login inside a mention fails, even a roster one'
+assert_out_contains 'not a roster slack_id: <@dave>' 'the failure names the bad token'
+mcheck 'PR #1 waits. <@U0CCCCCC> please look.'
+assert_rc 1 'a well-formed id outside the roster fails'
+mcheck 'PR #1 waits. <!here> <@U0AAAAAA> please look.'
+assert_rc 1 'a broadcast token fails'
+assert_out_contains '<!here>' 'the failure names the broadcast'
+
+# a requested reviewer nobody can mention is no target: the persisted pair is
+new_case shepherd_mention_unmentionable_requested
+shep_setup
+printf '| carol | - | Carol | docs | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | jq '.requested_reviewers = [{login:"carol"}]' | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob* | awaiting_review | 1 | $(iso_ago 259200) | 1 | nudging |
+EOF
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .needs_target_selection == false and .targets == "bob*"' 'the persisted pair stands in for an unmentionable reviewer'
+assert_jq '.nudges_due[0].mentions == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'the persisted target is mentioned'
+
+# a slack_id in backticks is still that member's id
+new_case shepherd_mention_backticked_id
+shep_setup
+printf '| dave | `U0DDDDDD` | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '[.nudges_due[0].candidates[].login] == ["bob", "dave"]' 'a backticked id is mentionable'
 
 finish

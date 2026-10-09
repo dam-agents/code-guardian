@@ -476,12 +476,18 @@ unmeasured tokens render "—", never a guess:
 
 | model substring | input | output | cache_read | cache_write |
 |---|---|---|---|---|
-| claude-opus-5 | 5 | 25 | 0.5 | 6.25 |
+| claude-opus-5-5 | 4 | 20 | 0.2 | 5 |
 ```
 
-USD per MTok. A row matches when its first cell is a substring of the run's
-recorded model id. The table holds the **current** prices and the report prices
-all history with them, so cost deltas reflect token usage, not price moves.
+USD per MTok. A row matches when its first cell is part of the run's recorded
+model id, in any letter case; a provider path (`bedrock/`) or a `[…]` suffix in
+the cell is ignored. The longest matching cell prices the run, the first of
+equal ones. After a cell that ends in a digit, a dash plus one or two digits
+reads as a later version: `claude-opus-5` leaves `claude-opus-5-5` unpriced, so
+each production model needs its own row. Other suffix forms, such as `.1`,
+`50`, `4o` or a date (`-20260401`), still match the shorter cell. The table
+holds the **current** prices and the report prices all history with them, so
+cost deltas reflect token usage, not price moves.
 Update it in the direct session like any other config change.
 
 **A stale row is silent** — it misreports every cost figure in both reports by

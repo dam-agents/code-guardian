@@ -19,6 +19,22 @@ the title its step names. Run `bash "$HOME/scripts/harness/claude-code/install.s
 (idempotent; a no-op on another harness): its dispatch auto-mode rule now
 names the `sessionTitle` and the `rename_session` call.
 
+## 8.16.4 — 2026-10-09
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.16.3 — 2026-10-09
+
+**Upgrade:** **Operator-only:** a `## Benchmark model prices` row in
+`work/CONFIG.md` no longer prices a later version that follows a dash
+(`claude-opus-5` does not price `claude-opus-5-5`). When the audit's
+production model has no row of its own, add one with its current published
+prices ([docs/benchmark.md](docs/benchmark.md) → **Model prices**).
+
+## 8.16.2 — 2026-10-09
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 8.16.1 — 2026-10-08
 
 **Upgrade:** Nothing — docs are re-read per run.

@@ -628,6 +628,29 @@ open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. draf
 # ------------------------------------------------------- REVIEWS.md access ----
 reviews_rows() { grep -E '^\| *[0-9]+ *\|' "$REVIEWS" 2>/dev/null || true; }
 row_for()      { reviews_rows | grep -E "^\| *$1 *\|" | head -1; }
+
+# A `nudged` PR fact per ledger `last_nudge_at` newer than the PR's last
+# recorded one (docs/shepherd.md → PR facts): the agent's post-send row_update
+# is the record, and pruning deletes the row with the merged PR, so the facts
+# file is what the audit counts nudges from.
+record_nudge_facts() {
+  [ -f "$SHEPHERD" ] || return 0
+  local new
+  new="$(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null \
+    | awk -F'|' '{ for (i = 2; i <= 8; i++) gsub(/^ +| +$/, "", $i)
+                   if ($7 != "" && $7 != "-") printf "%s\t%s\t%s\n", $2, $7, $8 }' \
+    | jq -cnR --rawfile ev <(cat "$PR_EVENTS" 2>/dev/null) '
+      def ep: sub("\\.[0-9]+Z$"; "Z") | (fromdateiso8601? // null);
+      ($ev | split("\n") | map(fromjson? // empty | select(type == "object" and .kind == "nudged"))
+       | group_by(.pr) | map({key: (.[0].pr | tostring), value: (map(.ts | ep) | max)})
+       | from_entries) as $last
+      | inputs | split("\t") | select(length == 3)
+      | {pr: (.[0] | tonumber), kind: "nudged", ts: .[1], level: (.[2] | tonumber? // null)}
+      | (.ts | ep) as $t
+      | select($t != null and (($last[.pr | tostring] // null) == null or $t > $last[.pr | tostring]))' 2>/dev/null)"
+  [ -n "$new" ] && printf '%s\n' "$new" >> "$PR_EVENTS" 2>/dev/null
+  return 0
+}
 # The newest `## Review at` section of PR <n>'s history file, only while it
 # reviewed <head-sha>: a call on older code never stands in for the current
 # one, and a rapid pass (no review-meta) never borrows an older section's.
@@ -970,6 +993,8 @@ if [ "$MODE" = "review" ]; then
       *) : ;;  # OPEN / API error -> leave the row alone
     esac
   done
+  # a pruned PR loses its shepherd row: its last nudge is recorded first
+  [ "$PRUNES_DUE" != "[]" ] && record_nudge_facts
 
   # --- per-open-PR decision ---
   while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
@@ -1755,26 +1780,13 @@ if [ "$MODE" = "shepherd" ]; then
       || printf 0
   }
 
-  # roster: login -> slack_id (table or bullet format)
-  ROSTER="$(grep -E '^\|' "$DEVELOPERS" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
-      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
-      case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
-    done)"
-  if [ -z "$ROSTER" ]; then
-    ROSTER="$(login=""; while IFS= read -r line; do
-        case "$line" in
-          (*slack_id:*) sid="$(printf '%s' "${line#*slack_id:}" | tr -d '\` ')"
-                        [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
-          (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
-        esac
-      done < "$DEVELOPERS")"
-  fi
-  roster_has() { printf '%s\n' "$ROSTER" | cut -f1 | grep -qx "$1"; }
-  slack_id() {
-    while IFS=$'\t' read -r l sid; do
-      [ "$l" = "$1" ] && { printf '%s' "$sid"; return; }
-    done <<< "$ROSTER"
-  }
+  # roster (lib/common.sh → roster_tsv); ROSTER_JSON keeps the mentionable
+  # members, each with its ready-to-paste Slack mention (docs/shepherd.md)
+  ROSTER="$(roster_tsv "$DEVELOPERS")"
+  ROSTER_JSON="$(printf '%s\n' "$ROSTER" | jq -R --arg re "$SLACK_ID_RE" 'split("\t")
+      | select(length >= 2 and (.[1] | test($re)))
+      | {login:.[0], slack_id:.[1], mention:("<@" + .[1] + ">")}' | jq -sc .)"
+  roster_mentionable() { printf '%s' "$ROSTER_JSON" | jq -e --arg l "$1" 'any(.[]; .login == $l)' >/dev/null; }
 
   shep_rows() { grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true; }
 
@@ -1808,6 +1820,9 @@ if [ "$MODE" = "shepherd" ]; then
             else "awaiting_review" end
         end' 2>/dev/null
   }
+
+  # the nudges the agent recorded since the last sweep, before any row changes
+  record_nudge_facts
 
   NEW_TABLE=""; NUDGES_DUE='[]'
   while IFS=$'\t' read -r n title author created head_sha labels requested url; do
@@ -1948,24 +1963,27 @@ if [ "$MODE" = "shepherd" ]; then
         targets=""
         for r in $(printf '%s' "$requested" | tr ',' ' '); do
           { [ "$r" = "-" ] || [ "$r" = "$author" ]; } && continue
-          roster_has "$r" && targets="${targets:+$targets, }$r"
+          roster_mentionable "$r" && targets="${targets:+$targets, }$r"
         done
         [ -z "$targets" ] && [ -n "$reviewers" ] && [ "$reviewers" != "-" ] && targets="$reviewers"
         nudge_status="nudging"
       fi
       [ "$nudge_class" != "ready_to_land" ] && [ "$next_level" -ge 4 ] && nudge_status="held"
-      esc_id=""; [ "$next_level" -ge 4 ] && [ -n "$ESCALATION_OWNER" ] && esc_id="$(slack_id "$ESCALATION_OWNER")"
-      mentions="$(for t in $(printf '%s' "$targets" | tr -d '!*' | tr ',' ' '); do id="$(slack_id "$t")"; [ -n "$id" ] && printf '%s\t%s\n' "$t" "$id"; done | jq -R 'split("\t") | {login:.[0], slack_id:.[1]}' | jq -s .)"
+      # every Slack mention the agent sends is a `mention` string of this entry:
+      # the targets', the candidates' it picks from, the escalation owner's
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
-        --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson m "$mentions" \
-        --arg eo "$ESCALATION_OWNER" --arg eid "$esc_id" --arg tg "$targets" \
+        --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson r "$ROSTER_JSON" \
+        --arg eo "$ESCALATION_OWNER" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
-        '{number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
-          conflict:$conf, brief:$br,
-          needs_target_selection: ($m|length==0 and $c!="changes_requested"
-                                   and $c!="ready_to_land" and ($conf|not)),
-          escalation:{login:$eo, slack_id:$eid},
-          row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
+        '[$tg | split(",")[] | gsub("[!* ]"; "") | select(. != "")] as $ts
+        | [$ts[] as $x | first($r[] | select(.login == $x))] as $m
+        | ($m|length==0 and $c!="changes_requested" and $c!="ready_to_land" and ($conf|not)) as $sel
+        | {number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
+           candidates:(if $sel then [$r[] | select(.login != $a)] else [] end),
+           conflict:$conf, brief:$br, needs_target_selection:$sel,
+           escalation:({login:$eo, slack_id:""}
+                       + (if $l >= 4 then (first($r[] | select(.login == $eo)) // {}) else {} end)),
+           row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
       log "PR #$n: nudge L$next_level due ($nudge_class, ${age_h}h$([ "$dirty" = "true" ] && printf ', merge conflict'))"
       # send-then-record belongs to the agent: keep the row EXACTLY as-is
       new_status="${status:-watching}"; next_level="$level"
@@ -2125,7 +2143,14 @@ if [ "$MODE" = "audit" ]; then
     else check shepherd_sweeps ok "$sw shepherd sweeps this week"; fi
   fi
 
-  err_lines="$( { grep -hiE 'fail|error|anomal' "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
+  # a zero count ("0 failed", "errors=0") is a success line: those phrases are
+  # dropped before the match, so "10 failed", "failed=2" or a SHA ending in 0
+  # ("9c1e2a0 failed") still counts
+  err_lines="$( { cat "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
+    | awk '{ l = tolower($0)
+             gsub(/(^|[^0-9a-z._#-])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)/, " ", l)
+             gsub(/(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9a-z.]|$)/, " ", l)
+             if (l ~ /fail|error|anomal/) print }' \
     | while IFS= read -r l; do ts="${l%% *}"; e="$(iso2epoch "$ts")"; [ "$e" -ge "$SINCE_EPOCH" ] && printf '%s\n' "$l"; done)"
   err_count="$(printf '%s' "$err_lines" | grep -c . || true)"
   if [ "$err_count" -gt 0 ]; then check log_errors warn "$err_count error-ish log lines this week; last: $(printf '%s\n' "$err_lines" | tail -1 | cut -c1-160)"
@@ -2484,11 +2509,17 @@ if [ "$MODE" = "audit" ]; then
   # `by_model` splits the same counters per recorded model id, which is what
   # prices a week (docs/trends.md → Cost); events written before the hook
   # recorded a model land under "unknown" and price as "—", never as a guess.
+  # The event carries the transcript's cumulative totals and a resumed session
+  # ends more than once, so a run counts its last event alone; an event with
+  # no run id counts on its own.
   TOKENS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
     def sums: {runs: length, input: ([.[].i | tonumber] | add // 0), output: ([.[].o | tonumber] | add // 0),
                cache_read: ([.[].cr | tonumber] | add // 0), cache_creation: ([.[].cc | tonumber] | add // 0)};
-    [.[] | select(.ts >= $s and .event=="tokens") | .msg
-     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?")]
+    [.[] | select(.ts >= $s and .event=="tokens")
+     | (.run // "") as $r | .msg
+     | capture("input=(?<i>[0-9]+) output=(?<o>[0-9]+) cache_read=(?<cr>[0-9]+) cache_creation=(?<cc>[0-9]+)( +msgs=[0-9]+)?( +model=(?<m>[^ ]+))?")
+     | .r = $r] as $t
+    | [ ($t | map(select(.r != "")) | group_by(.r) | map(last)[]), ($t[] | select(.r == "")) ]
     | sums + {by_model: (group_by(.m // "unknown")
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
@@ -2526,13 +2557,13 @@ if [ "$MODE" = "audit" ]; then
 
   # Session models (docs/audit.md task 5): the model each job's sessions ran on
   # this week, from the same records, against `review_model`. A run matches
-  # when its recorded model id contains the configured name (`opus` matches
-  # `claude-opus-5-5`); direct sessions (job `session`) and unrecorded models
+  # on its recorded model id per MODEL_JQ (lib/common.sh): `opus` and
+  # `claude/aws/claude-opus-5-5` match `claude-opus-5-5`, `claude-opus-5` does
+  # not. Direct sessions (job `session`) and unrecorded models
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
-  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" '
+  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" "$MODEL_JQ"'
     ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
-    | ($rm | ascii_downcase | sub("^claude/"; "")) as $want
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])
        | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
@@ -2540,7 +2571,7 @@ if [ "$MODE" = "audit" ]; then
       elif $rm == "default" then
         "warn\treview_model is default — no schedule pins a model; this week ran on: \($all) (docs/config.md → review_model)"
       else
-        [ $runs[] | select(.model | ascii_downcase | contains($want) | not) ] as $off
+        [ $runs[] | select(.model | model_has($rm) | not) ] as $off
         | if ($off | length) == 0 then "ok\t\($runs | length) scheduled run(s), all on \($rm)"
           else "warn\t\($off | length) run(s) off review_model \($rm): \($off | group_by([.job, .model])
                  | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
@@ -2631,7 +2662,7 @@ if [ "$MODE" = "audit" ]; then
                     | select(startswith("PR #"))],
             tokens: ([.[] | select(.event=="tokens")] | length),
             out: ([.[] | select(.event=="tokens") | .msg
-                   | capture("output=(?<o>[0-9]+)") | .o | tonumber] | add // 0) }
+                   | capture("output=(?<o>[0-9]+)") | .o | tonumber] | last // 0) }
         | select(.steps | any(test(" locked")))
         | select(.last <= $cut)
         | .first as $first_ts | .last as $last_ts
@@ -2853,18 +2884,21 @@ if [ "$MODE" = "audit" ]; then
           else "ok\t\($txt) — no significant rise" end
       end' "missed-earlier share"
 
-  # shepherd activity: ledger rows whose `last_nudge_at` falls in the window —
-  # one row per PR, so this is *PRs nudged*, the set task 15 measures against.
-  # SHEPHERD.log's "N nudges due" lines count a PR again on every sweep it stays
-  # due and count sends that failed, so they are not this number.
-  nudged_prs=""
+  # shepherd activity: the PRs with a `nudged` fact in the window, plus ledger
+  # rows whose `last_nudge_at` falls in it (a nudge no sweep recorded yet) —
+  # *PRs nudged*, the set task 15 measures against. The facts keep a merged PR
+  # that pruning removed from the ledger. SHEPHERD.log's "N nudges due" lines
+  # count a PR again on every sweep it stays due and count sends that failed,
+  # so they are not this number.
+  nudged_prs="$(jq -rR --arg s "$SINCE_ISO" 'fromjson? | select(type == "object" and .kind == "nudged"
+      and ((.ts // "") >= $s)) | .pr' "$PR_EVENTS" 2>/dev/null | tr '\n' ' ')"
   while IFS= read -r row; do
     ts="$(row_field "$row" 7)"
     case "$ts" in ('-'|'') continue;; esac
     [ "$(iso2epoch "$ts")" -ge "$SINCE_EPOCH" ] || continue
     nudged_prs="$nudged_prs $(row_field "$row" 2)"
   done < <(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null || true)
-  NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)]')"
+  NUDGED_JSON="$(printf '%s\n' $nudged_prs | jq -R . | jq -sc '[.[] | select(length>0)] | unique_by(tonumber? // .)')"
 
   # review wall-clock per (run, PR): first `locked` -> `done`, from this week's
   # own review_step events. Time-to-first-review (docs/audit.md task 22) is
@@ -3034,25 +3068,49 @@ if [ "$MODE" = "audit" ]; then
   # --- our APPROVE overruled (docs/audit.md task 24) -------------------------
   # A person requested changes on the very commit this agent approved, or a PR
   # merged this week reverts a PR it approved: the review let something
-  # through. One reviews call per PR approved this week (at most 30); the
+  # through. The approved PRs' change requests are read in GraphQL batches of
+  # 50 aliased PRs, at most OV_CAP PRs, the query in a file; a PR the answer
+  # leaves null (a failed call, a number GitHub cannot resolve) is unread. The
   # reverted PR is read from GitHub's own revert body ("Reverts <repo>#<n>").
   APPROVED_WEEK="$(rr_week | jq -sc '[.[] | select(.verdict == "APPROVE" and (.sha // "") != "") | {pr, sha, ts}]' 2>/dev/null)"
   [ -n "$APPROVED_WEEK" ] || APPROVED_WEEK='[]'
+  OV_CAP=200
   ov_cr='[]'; ov_read=0; ov_unread=""
-  for ap in $(printf '%s' "$APPROVED_WEEK" | jq -r '[.[].pr] | unique | .[:30] | .[]' 2>/dev/null); do
-    if ! ap_rv="$(gh api "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)"; then
-      ov_unread="$ov_unread $ap"; continue
-    fi
-    ov_read=$((ov_read + 1))
-    ap_hit="$(printf '%s' "$ap_rv" | jq -c --argjson a "$APPROVED_WEEK" --argjson n "$ap" --arg bot "$BOT_LOGIN" '
-      [ $a[] | select(.pr == $n) ] as $mine
-      | [ .[]? | select(.state == "CHANGES_REQUESTED" and (.user.login // "") != $bot
-                        and (.user.type // "User") != "Bot")
-          | . as $r
-          | select(any($mine[]; . as $m | (($r.commit_id // "") | startswith($m.sha))
-                                         and (($r.submitted_at // "") >= $m.ts)))
-          | {pr: $n, by: .user.login, at: .submitted_at} ] | first // empty' 2>/dev/null)"
-    [ -n "$ap_hit" ] && ov_cr="$(printf '%s' "$ov_cr" | jq -c --argjson h "$ap_hit" '. + [$h]')"
+  ov_prs="$(printf '%s' "$APPROVED_WEEK" | jq -r --argjson c "$OV_CAP" '[.[].pr] | unique | .[:$c] | .[]' 2>/dev/null)"
+  ov_qf="$PF_TMP/approve-overruled.graphql"
+  while [ -n "$ov_prs" ]; do
+    ov_chunk="$(printf '%s\n' "$ov_prs" | head -50 | tr '\n' ' ')"
+    ov_prs="$(printf '%s\n' "$ov_prs" | tail -n +51)"
+    {
+      printf 'query ApproveOverruled($o:String!,$r:String!){repository(owner:$o,name:$r){\n'
+      for ap in $ov_chunk; do
+        printf ' p%s: pullRequest(number:%s){reviews(last:100,states:[CHANGES_REQUESTED]){nodes{state submittedAt commit{oid} author{__typename login}}}}\n' "$ap" "$ap"
+      done
+      printf '}}\n'
+    } > "$ov_qf"
+    # stdout is read whatever the exit code: a partial answer (one alias GitHub
+    # cannot resolve) still carries every other PR
+    ov_res="$(gh api graphql -F query=@"$ov_qf" -f o="${REPO%%/*}" -f r="${REPO#*/}" 2>/dev/null \
+      | jq -c --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --arg nums "$ov_chunk" '
+        (.data.repository // {}) as $repo
+        | [ $nums | split(" ")[] | select(. != "") | tonumber ] as $ns
+        | { read: [ $ns[] | select($repo["p\(.)"] != null) ],
+            unread: [ $ns[] | select($repo["p\(.)"] == null) ],
+            hits: [ $ns[] as $n
+                    | ($repo["p\($n)"] // empty)
+                    | ([ $a[] | select(.pr == $n) ]) as $mine
+                    | [ .reviews.nodes[]?
+                        | { state, by: (.author.login // ""), bot: (.author.__typename == "Bot"),
+                            commit_id: (.commit.oid // ""), at: (.submittedAt // "") }
+                        | select(.state == "CHANGES_REQUESTED" and .by != $bot and (.bot | not))
+                        | . as $r
+                        | select(any($mine[]; . as $m | ($r.commit_id | startswith($m.sha))
+                                                       and ($r.at >= $m.ts)))
+                        | {pr: $n, by, at} ] | first // empty ] }' 2>/dev/null)"
+    if [ -z "$ov_res" ]; then ov_unread="$ov_unread $ov_chunk"; continue; fi
+    ov_read=$((ov_read + $(printf '%s' "$ov_res" | jq '.read | length')))
+    ov_unread="$ov_unread $(printf '%s' "$ov_res" | jq -r '.unread | map(tostring) | join(" ")')"
+    ov_cr="$(printf '%s' "$ov_res" | jq -c --argjson cr "$ov_cr" '$cr + .hits')"
   done
   approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
@@ -3078,7 +3136,7 @@ if [ "$MODE" = "audit" ]; then
     ov_note="$(printf '%s' "$OVERRULED" | jq -r '
       (if (.unread | length) > 0 then " · reviews unreadable for \(.unread | map("#" + .) | join(" "))" else "" end)
       + ((.approved_prs - .scanned - (.unread | length)) as $cap
-         | if $cap > 0 then " · \($cap) approved PR(s) past the 30-call cap not read" else "" end)
+         | if $cap > 0 then " · \($cap) approved PR(s) past the '"$OV_CAP"'-PR cap not read" else "" end)
       + (if .reverts_read then "" else " · merged PR list unreadable, reverts not checked" end)')"
     ov_total="$(printf '%s' "$OVERRULED" | jq '.approved_prs')"
     if [ "$ov_n" -gt 0 ]; then check approve_overruled warn "$ov_n PR(s) a person overruled after my APPROVE: $ov_detail$ov_note"

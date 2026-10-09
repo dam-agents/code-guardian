@@ -346,7 +346,7 @@ measurement.
 
     Every figure the week did not measure is `null` and is reported as
     unmeasured, never as zero. `human_latency` and `conflicts` are counted from
-    `work/PR-EVENTS.jsonl`, which the shepherd appends to; without a shepherd
+    `work/PR-EVENTS.jsonl`, which the shepherd sweep fills; without a shepherd
     schedule both stay empty and the report says so once.
 
 ### H. Report & wrap-up

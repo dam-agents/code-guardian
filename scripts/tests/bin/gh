@@ -20,6 +20,14 @@ case "$args" in
     slug="graphql_pr_reviews_$(printf '%s' "$args" | tr ' ' '\n' \
             | grep -E '^n=[0-9]+$' | head -1 | cut -d= -f2)";;
 esac
+# a GraphQL query read from a file (`-F query=@<file>`) is matched on its text
+qtext=""
+for a in "$@"; do
+  case "$a" in (query=@*) [ -f "${a#query=@}" ] && qtext="$qtext$(cat "${a#query=@}")";; esac
+done
+case "$qtext" in
+  (*ApproveOverruled*) slug="graphql_approve_overruled";;
+esac
 [ -n "${GH_CALLS_LOG:-}" ] && printf '%s\n' "$args" >> "$GH_CALLS_LOG"
 # the body of every `--input <file>` call, one JSON document per line, in
 # $GH_CALLS_LOG.input — a case reads what a POST sent after the script deleted it
@@ -60,6 +68,26 @@ case "$args" in
                else {__typename: "User", login: .} end)} end)}' "$f"
       else
         jq -nc --arg k "p$n" '{($k): null}'
+      fi
+    done | jq -s '{data: {repository: (add // {})}}'
+    exit 0;;
+esac
+# The batched change-request query of the audit, likewise, from the per-PR REST
+# reviews fixtures: null for a failing one, no reviews for a missing one.
+case "$qtext" in
+  (*ApproveOverruled*)
+    o="$(printf '%s\n' "$@" | sed -n 's/^o=//p' | head -1)"
+    r="$(printf '%s\n' "$@" | sed -n 's/^r=//p' | head -1)"
+    for n in $(printf '%s' "$qtext" | grep -oE 'pullRequest\(number:[0-9]+\)' | grep -oE '[0-9]+'); do
+      f="$GH_FIXTURES/$(printf '%s' "api repos/$o/$r/pulls/$n/reviews?per_page=100" | tr -c 'A-Za-z0-9._-' '_')"
+      if [ -f "$f.rc" ]; then jq -nc --arg k "p$n" '{($k): null}'
+      elif [ -f "$f" ]; then
+        jq -c --arg k "p$n" '{($k): {reviews: {nodes: [ .[] | select(.state == "CHANGES_REQUESTED")
+            | {state, submittedAt: .submitted_at, commit: {oid: .commit_id},
+               author: (.user | if .type == "Bot" or (.login | endswith("[bot]"))
+                 then {__typename: "Bot", login: (.login | rtrimstr("[bot]"))}
+                 else {__typename: "User", login} end)} ]}}}' "$f"
+      else jq -nc --arg k "p$n" '{($k): {reviews: {nodes: []}}}'
       fi
     done | jq -s '{data: {repository: (add // {})}}'
     exit 0;;
