@@ -104,6 +104,16 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == null' >/dev/null 2>&1 \
   && printf 'ok   %s: a claude-opus-5 row leaves claude-opus-5-5 unpriced\n' "$CASE" \
   || { printf 'FAIL %s: expected an unpriced week: %s\n' "$CASE" "$OUT"; FAILED=1; }
 
+new_case trend_price_row_date
+price_config
+mkdir -p "$WORK/audit"
+worklist 4 8 2 2 "claude-opus-5-20260401" > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.24 and .[0].cost_floor == false' >/dev/null 2>&1 \
+  && printf 'ok   %s: a claude-opus-5 row prices the date-suffixed claude-opus-5-20260401\n' "$CASE" \
+  || { printf 'FAIL %s: expected the claude-opus-5 row: %s\n' "$CASE" "$OUT"; FAILED=1; }
+
 # --- a mixed week is a floor -------------------------------------------------
 new_case trend_cost_partial
 price_config

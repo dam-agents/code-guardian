@@ -954,6 +954,16 @@ run_preflight audit
 assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model claude/aws/claude-opus-5-5: review claude-opus-5 ×1$"))' \
   'a provider path in review_model matches the bare model id; an earlier version stays off-model'
 
+new_case audit_session_models_suffixes
+base_config '- review_model: claude-opus-5[1m]'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-20260401 subagents=0" 3000
+sev m2 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 2000
+run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model claude-opus-5\\[1m\\]: review claude-opus-5-5 ×1$"))' \
+  'a [1m] suffix in review_model drops out and a date-suffixed id matches; a dash-digit later version stays off-model'
+
 new_case audit_session_models_default
 base_config '- review_model: Default'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx

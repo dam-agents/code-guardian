@@ -14,8 +14,8 @@ they are released history and stay as written.
 ## 8.16.2 — 2026-10-09
 
 **Upgrade:** **Operator-only:** a `## Benchmark model prices` row in
-`work/CONFIG.md` no longer prices a later model version (`claude-opus-5` does
-not price `claude-opus-5-5`). When the audit's production model has no row of
+`work/CONFIG.md` no longer prices a later version that follows a dash
+(`claude-opus-5` does not price `claude-opus-5-5`). When the audit's production model has no row of
 its own, add one with its current published prices
 ([docs/benchmark.md](docs/benchmark.md) → **Model prices**).
 

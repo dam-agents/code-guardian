@@ -480,9 +480,11 @@ unmeasured tokens render "—", never a guess:
 ```
 
 USD per MTok. A row matches when its first cell is part of the run's recorded
-model id, and the longest matching row prices it. A cell that ends in a version
-number never matches a later version: `claude-opus-5` leaves `claude-opus-5-5`
-unpriced, so each production model needs its own row. The table holds the **current** prices and the report prices
+model id, and the longest matching row prices it. After a cell that ends in a
+digit, a dash plus one or two digits reads as a later version: `claude-opus-5`
+leaves `claude-opus-5-5` unpriced, so each production model needs its own row.
+Other suffix forms, such as `.1`, `50`, `4o` or a date (`-20260401`), still
+match the shorter cell. The table holds the **current** prices and the report prices
 all history with them, so cost deltas reflect token usage, not price moves.
 Update it in the direct session like any other config change.
 

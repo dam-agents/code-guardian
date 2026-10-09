@@ -159,8 +159,9 @@ READ_SET_JQ='def read_set:
 # session_models check. A configured name may carry a provider path
 # (`claude/aws/claude-opus-5-5`) and a context suffix (`[1m]`); a recorded id
 # may carry a platform prefix or suffix (`us.anthropic.claude-opus-5-5-v1:0`).
-# A name ending in a version number never matches a later version:
-# `claude-opus-5` does not match `claude-opus-5-5`, `opus` matches both.
+# After a name that ends in a digit, a dash plus one or two digits reads as a
+# later version: `claude-opus-5` does not match `claude-opus-5-5`, `opus`
+# matches both. Other suffix forms (`.1`, `50`, `4o`, `-20260401`) still match.
 MODEL_JQ='
   def model_key: ascii_downcase | sub("^.*/"; "") | sub("\\[[^]]*\\]$"; "");
   def model_has($name): ($name | model_key) as $w | ascii_downcase as $m
