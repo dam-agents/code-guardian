@@ -120,7 +120,7 @@ roster member, derive area keywords from its title plus changed paths and
 
 ## PR facts (`work/PR-EVENTS.jsonl`)
 
-Each sweep appends one line per PR the first time it sees a fact, and never
+Each sweep appends one line per fact the first time it sees it, and never
 rewrites one: `first_review` (the earliest independent review, with the hours
 from `eligible_since`) and `conflict`. The weekly audit counts project health
 from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
@@ -128,7 +128,9 @@ from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
 latency median must keep. `first_review` carries the review's own
 `submitted_at`, so a PR reviewed before the file existed is still recorded
 correctly; a conflict is only observable while it lasts, so it is dated at the
-sweep that saw it.
+sweep that saw it. `nudged` (ts = the row's `last_nudge_at`, with its
+`level`) is written once per nudge the agent recorded, by the next sweep or
+before a prune.
 
 ## Ledger & history
 

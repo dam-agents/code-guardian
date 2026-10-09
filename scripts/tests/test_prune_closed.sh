@@ -30,6 +30,21 @@ assert_jq '.prunes_due | length == 1' 'one prune due'
 assert_jq '.prunes_due[0] | .number == 5 and .state == "CLOSED" and .dam_id == "dam_1" and (has("gist_id") | not)' 'prune carries artifact ids'
 assert_jq '.reviews_due | length == 0' 'nothing to review'
 
+# --- a pruned PR's last nudge is recorded before its shepherd row goes --------
+new_case prune_records_nudge
+base_config '- slack_notifications: enabled'
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+closed_pr_fx 5 "$SHA5" true
+{
+  printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+  printf '|----|----|----|----|----|----|----|----|\n'
+  printf '| 5 | %s | bob | awaiting_review | 1 | %s | 1 | nudging |\n' "$(iso_ago 500000)" "$(iso_ago 1800)"
+} > "$WORK/SHEPHERD.md"
+run_preflight review
+assert_jq '.prunes_due | length == 1 and .[0].state == "MERGED"' 'the merged PR prunes'
+assert_file_contains "$WORK/PR-EVENTS.jsonl" '"pr":5,"kind":"nudged"' 'its nudge is a PR fact before the row is deleted'
+
 # --- a history file without a row: the alert marker of a PR closed before review --
 new_case prune_file_without_row
 base_config '- urgent_label: urgent' '- slack_notifications: enabled'
