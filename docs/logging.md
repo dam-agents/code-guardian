@@ -172,11 +172,31 @@ adapter active, duty 4 above extends to logging tool failures manually.
   `review_incomplete` warn per block ([review.md](review.md) → **Completion
   enforcement**); a stop it lets through releases the run's own PR holds
   ([worklist.md](worklist.md) → **PR holds**).
+- `guard-definition-issue.sh` — `PreToolUse` (`Bash`) target: refuses, with
+  exit 2 and the reason on stderr, a command that writes an issue of
+  `definition_repo` by any path other than `scripts/definition-issue.sh`, and
+  logs a `definition_issue` warn per block ([runbook.md](runbook.md) →
+  **Definition-repo issues**). The definition repo is its slug as
+  `work/CONFIG.md` (or `$HOME`'s origin) resolves it, a shell variable named
+  after it (`$DEF`, `$DEFINITION_REPO`, `${DEF_REF#*/}`) or gh's
+  `{owner}/{repo}`. It refuses a `gh issue` write (`create`, `comment`,
+  `edit`, `close`, `reopen`, `delete`, `transfer`, `pin`, `unpin`, `lock`,
+  `unlock`, `develop`) in any simple command of a compound one whose
+  `-R`/`--repo` names that repo or that has no repository flag (gh resolves
+  the checkout under `$HOME`); a `gh api` write to its `issues` endpoints
+  (`-X`/`--method` `POST`, `PATCH`, `PUT` or `DELETE`, or fields without an
+  explicit `GET`); a `curl` write to them (a write method or a data option);
+  and an issue GraphQL mutation (`createIssue`, `updateIssue`, `addComment`,
+  `closeIssue`, `reopenIssue`, `deleteIssue`, `transferIssue`) that names
+  that repo, by slug or by owner and name, or no repository at all. Reads,
+  the target repo's issues and every other tool pass; an unresolved
+  definition repo guards nothing.
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and after definition updates that change the
   adapter; effective from the next session). It also keeps the auto-mode
   classifier rules for the agent's documented writes outside the target repo —
-  the tracking issue on `definition_repo`, the `curl -X PUT` artifact upload,
+  the anonymous tracking issue on `definition_repo` through
+  `scripts/definition-issue.sh`, the `curl -X PUT` artifact upload,
   the review dispatch through `schedule_once` —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of
@@ -193,6 +213,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
 
 Registration is user-global, so every hook script no-ops unless
 `$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
+`guard-definition-issue.sh` is the exception: it guards wherever it resolves a
+definition repo, `$HOME`'s origin included, because onboarding runs from that
+checkout before `CONFIG.md` exists.
 Messages pass `log_redact` (log.sh) before writing — well-known credential
 shapes (GitHub/Slack tokens, bearer headers) are masked, per the
 no-secrets-in-logs invariant.
@@ -233,8 +256,9 @@ a week is flagged) — and the report surfaces every one of them
 SHAs, numbers and `/tmp` paths so one root cause is one entry, and for
 `tool_failure` also stripping the command text and keeping the tool name.
 `first`/`last` date each signature: a `last` older than a shipped fix means it
-is already resolved. The agent diagnoses each and may file a tracking issue
-(audit.md task 3).
+is already resolved. The agent diagnoses each and, under
+`definition_issues: enabled`, may file an anonymous tracking issue (audit.md
+task 3).
 
 This is why **an error event's `msg` must carry its real error text**: a
 placeholder, or a bare `null`, makes the signature undiagnosable.

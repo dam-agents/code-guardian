@@ -39,10 +39,11 @@ install_case fresh '- github_repo: acme/widgets' '- definition_repo: `acme/guard
 run_install
 assert_settings '.autoMode.environment[0] == "$defaults" and .autoMode.allow[0] == "$defaults"' 'new lists start with $defaults'
 assert_settings '.autoMode.environment | any(startswith("[code-guardian]") and contains("acme/widgets") and contains("acme/guardian"))' 'environment names target and definition repo'
-assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("gh issue create") and contains("acme/guardian"))' 'tracking-issue rule names the definition repo'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("definition-issue.sh file") and contains("acme/guardian"))' 'tracking-issue rule names the definition repo'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("curl -X PUT"))' 'artifact upload rule present'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("schedule_once") and contains("scripts/dispatch.sh plan"))' 'review dispatch rule present'
 assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'hooks still registered'
+assert_settings '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(endswith("guard-definition-issue.sh"))' 'definition-issue guard registered on PreToolUse Bash'
 run_install
 assert_out "already installed" 'second run is a no-op'
 
@@ -70,7 +71,7 @@ assert_settings '[.autoMode[][]] | all(contains("secret") | not)' 'no credential
 install_case unresolved
 run_install
 assert_out "definition repo unresolved" 'unresolved definition repo is reported'
-assert_settings '.autoMode.allow | all(contains("gh issue create") | not)' 'no tracking-issue rule without a slug'
+assert_settings '.autoMode.allow | all(contains("definition-issue.sh") | not)' 'no tracking-issue rule without a slug'
 
 # --- tool deny list and the review-skill agent --------------------------------------
 ADAPTER="$REPO_ROOT/scripts/harness/claude-code"

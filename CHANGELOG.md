@@ -11,6 +11,19 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.18.0 — 2026-10-09
+
+**Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent
+files no more issues on the definition repo — missing means `disabled`. Ask the
+operator the question of ONBOARDING Step 4 item 14 in the direct session, as a
+message of its own, and write `- definition_issues: enabled` or
+`- definition_issues: disabled` from the answer. Then run
+`bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
+another harness): its auto-mode rule for the tracking issue now names
+`scripts/definition-issue.sh`, and it registers the `PreToolUse` hook
+`guard-definition-issue.sh`, effective from the next session. No schedule
+changes.
+
 ## 8.17.0 — 2026-10-09
 
 **Upgrade:** Reconcile the schedules per ONBOARDING Step 6: its table now

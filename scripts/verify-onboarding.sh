@@ -134,7 +134,7 @@ if [ "${CLAUDECODE:-}" != "1" ]; then
 else
   SETTINGS="$HOME_DIR/.claude/settings.json"
   MISSING_HOOKS=""
-  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh; do
+  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh guard-definition-issue.sh; do
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
   grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS autoMode-rules"
@@ -201,7 +201,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -258,6 +258,7 @@ EOF
     chk_enum benchmark 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
+    chk_enum definition_issues 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_trend 'dam|off' 'dam | off'
     chk_enum survey_report 'dam|off' 'dam | off'
     chk_enum benchmark_report 'dam|off' 'dam | off'

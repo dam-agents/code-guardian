@@ -30,10 +30,14 @@ case "$qtext" in
 esac
 [ -n "${GH_CALLS_LOG:-}" ] && printf '%s\n' "$args" >> "$GH_CALLS_LOG"
 # the body of every `--input <file>` call, one JSON document per line, in
-# $GH_CALLS_LOG.input — a case reads what a POST sent after the script deleted it
+# $GH_CALLS_LOG.input — a case reads what a POST sent after the script deleted it.
+# `--input -` reads the body from stdin.
 if [ -n "${GH_CALLS_LOG:-}" ]; then
   prev=""; for a in "$@"; do
-    [ "$prev" = "--input" ] && [ -f "$a" ] && jq -c . "$a" >> "$GH_CALLS_LOG.input" 2>/dev/null
+    if [ "$prev" = "--input" ]; then
+      if [ "$a" = "-" ]; then jq -c . >> "$GH_CALLS_LOG.input" 2>/dev/null
+      elif [ -f "$a" ]; then jq -c . "$a" >> "$GH_CALLS_LOG.input" 2>/dev/null; fi
+    fi
     prev="$a"; done
 fi
 # <slug>.rc simulates a failing call (fx_fail / fx_fail_once in helpers.sh):

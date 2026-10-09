@@ -388,6 +388,20 @@ assert_out "ok   config-survey_report" 'the survey value is validated'
 assert_out "ok   config-benchmark_report" 'the benchmark value is validated'
 assert_not_out 'warn config-keys' 'the keys are never reported unknown'
 
+new_case definition_issues_key
+seed_home; seed_memory; seed_lessons
+verify_config '- definition_issues: enabled'
+run_verify
+assert_out "ok   config-definition_issues" 'the issue-filing switch is validated'
+assert_not_out 'warn config-keys' 'the switch is a known key'
+
+new_case definition_issues_invalid
+seed_home; seed_memory; seed_lessons
+verify_config '- definition_issues: yes'
+run_verify
+assert_rc 1 'an unknown switch value fails'
+assert_out 'FAIL config-definition_issues' 'names the key'
+
 new_case report_surface_legacy_gist
 seed_home; seed_memory; seed_lessons
 verify_config '- audit_trend: gist,dam'
