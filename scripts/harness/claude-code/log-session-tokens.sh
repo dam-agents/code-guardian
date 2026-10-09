@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Claude Code harness adapter — SessionEnd hook: one `tokens` event per run
-# (registered by install.sh; adapter contract: docs/logging.md).
+# Claude Code harness adapter — SessionEnd hook: one `tokens` event per session
+# end, the last one of a run is its usage (registered by install.sh; adapter contract: docs/logging.md).
 # Sums the per-message API usage of the session transcript and of its
 # subagents' transcripts (`<session>/subagents/*.jsonl` beside it), deduped by
 # message id, into: input / output / cache_read / cache_creation / msgs, then
