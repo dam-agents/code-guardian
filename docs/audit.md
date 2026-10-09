@@ -102,6 +102,10 @@ skipped task is an incomplete audit — a task that is impossible this week
      re-registration. A dispatched one-time review due this week (`spec.at`)
      on another model → **warn** too. What the week's runs actually ran on
      is the script's `session_models` check — triage it with the others.
+   - **Titles:** every Step 6 schedule carries the `spec.sessionTitle` its step
+     names ([runbook.md](runbook.md) → **Session titles**). A missing or
+     different one → **warn** naming the schedule and both values; the fix is
+     Step 6's re-registration.
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
      temporary monitor is theirs to watch — report an unrecognised schedule as
      **info**, never a failure.

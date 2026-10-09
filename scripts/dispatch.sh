@@ -8,23 +8,26 @@
 #       Cuts one unit worklist per PR to dispatch — that PR's entries alone,
 #       its bookkeeping included, `dispatched: {number, by}`, its own read_set
 #       — next to <worklist>, and prints
-#       {"dispatch": [{number, worklist, name, task, model?}]}: every PR after
-#       the first in run order, each with the exact `name`, `task` and `model`
-#       of its mcp__platform-outbound__schedule_once call — `model` is the
-#       config's `review_model`, absent under `default` (docs/config.md). The platform's own limits on
+#       {"dispatch": [{number, worklist, name, task, sessionTitle, model?}]}:
+#       every PR after the first in run order, each with the exact `name`,
+#       `task`, `sessionTitle` and `model` of its
+#       mcp__platform-outbound__schedule_once call — `model` is the config's
+#       `review_model`, absent under `default` (docs/config.md). The platform's own limits on
 #       one-time tasks bound how many start; a refused PR stays with the run.
 #       Prints an empty list for one PR, a housekeeping-only run, or
 #       `review_dispatch: disabled` in the worklist's config.
 #   dispatch.sh rest <worklist> [<n>…]
 #       Prints `worklist: <path>` — <worklist> without the entries of PRs <n>…,
-#       its read_set recomputed — the run's worklist from then on. A <n> with
+#       its read_set recomputed — the run's worklist from then on, and
+#       `title: <title>`, the session title of the work it keeps. A <n> with
 #       no unit worklist from `plan` is refused. With no <n> it prints
-#       <worklist> itself.
+#       <worklist> itself and its title.
 #
 # The task text is a fixed template carrying the PR number and the unit's path
 # and nothing from the PR, because it reaches the new session as its prompt.
-# Its first line names the PR: the platform lists a session under the title the
-# harness gives it, which falls back to the first prompt.
+# A session title names the work and PR numbers alone, in the form
+# `<Verb> <object>` (TITLE_JQ); the task's first line names the PR too, for a
+# platform that takes no sessionTitle.
 # Local writes only: the unit and rest files beside <worklist>, which the gate's
 # /tmp sweep removes with it (precheck.sh), and one `dispatch` event.
 
@@ -60,6 +63,32 @@ UNIT_JQ='
     | reduce .[] as $n ([]; if any(.[]; . == $n) then . else . + [$n] end);
 '
 
+# The session title of one PR names its main work — the review first, then the
+# run order of the other keys; a run keeping several PRs lists their numbers.
+TITLE_JQ='
+  def has_pr($k; $n): any((.[$k] // [])[]; .number == $n);
+  def unit_title($n):
+    ((.reviews_due // []) | map(select(.number == $n)) | first) as $r
+    | if $r != null then
+        (if $r.kind == "re-review" then "Re-review PR #\($n)"
+         elif $r.urgent == true then "Review urgent PR #\($n)"
+         else "Review PR #\($n)" end)
+      elif has_pr("mentions_due"; $n) then "Answer mention on #\($n)"
+      elif has_pr("artifacts_due"; $n) then "Publish artifact for PR #\($n)"
+      elif has_pr("ci_failures_due"; $n) then "Triage CI on PR #\($n)"
+      elif has_pr("merges_due"; $n) then "Merge PR #\($n)"
+      elif has_pr("fixes_due"; $n) then "Fix findings on PR #\($n)"
+      else "Review PR #\($n)" end;
+  def run_title:
+    units as $u
+    | if ($u | length) == 1 then unit_title($u[0])
+      elif ($u | length) > 1 then
+        "Review PRs " + ([$u[:5][] | "#\(.)"] | join(", "))
+        + (if ($u | length) > 5 then " +\(($u | length) - 5) more" else "" end)
+      elif .stall_alert != null or .review_anomaly != null or ((.urgent_alerts_due // []) | length) > 0 then "Report review alerts"
+      else "Tidy review state" end;
+'
+
 CMD="${1:-}"; WL="${2:-}"
 [ -n "$WL" ] || die "usage: dispatch.sh plan|rest <worklist> [<n>…]"
 [ -r "$WL" ] || die "no readable worklist at $WL"
@@ -90,15 +119,19 @@ case "$CMD" in
       TASK="Review PR #$n — a review heartbeat dispatched by one that found several PRs.
 worklist: $UNIT
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
-      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" \
-        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t}
+      TITLE="$(jq -r --argjson n "$n" "$UNIT_JQ$TITLE_JQ"'unit_title($n)' "$WL")"
+      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" --arg s "$TITLE" \
+        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t, sessionTitle:$s}
               + (if ($m | ascii_downcase) == "default" or $m == "" then {} else {model:$m} end)]')"
     done
     printf '%s' "$OUT" | jq '{dispatch: .}'
     ;;
   rest)
     shift 2
-    if [ "$#" -eq 0 ]; then printf 'worklist: %s\n' "$WL"; exit 0; fi
+    if [ "$#" -eq 0 ]; then
+      printf 'worklist: %s\ntitle: %s\n' "$WL" "$(jq -r "$UNIT_JQ$TITLE_JQ"'run_title' "$WL")"
+      exit 0
+    fi
     for n in "$@"; do
       case "$n" in (''|*[!0-9]*) die "not a PR number: $n";; esac
       [ -f "$BASE-pr$n.json" ] || die "PR #$n has no unit worklist from plan — it stays in $WL"
@@ -113,7 +146,7 @@ worklist: $UNIT
     fi
     KEPT="$(jq -r "$UNIT_JQ"'[units[] | "#\(.)"] | join(", ")' "$REST")"
     logev info dispatch "$STARTED dispatched to sessions of their own; this run keeps ${KEPT:-no PR}"
-    printf 'worklist: %s\n' "$REST"
+    printf 'worklist: %s\ntitle: %s\n' "$REST" "$(jq -r "$UNIT_JQ$TITLE_JQ"'run_title' "$REST")"
     ;;
   *) die "usage: dispatch.sh plan|rest <worklist> [<n>…]";;
 esac

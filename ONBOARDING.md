@@ -649,7 +649,8 @@ decides whether a fire starts a session at all (`docs/worklist.md` → **The
 schedule gate**); the audit is ungated because its worklist carries work
 whenever `audit_report` is enabled. Every schedule here also carries
 **`model: <review_model>`**, none under `review_model: default`
-(`docs/config.md`).
+(`docs/config.md`), and the **`sessionTitle`** its step names
+(`docs/runbook.md` → **Session titles**).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
@@ -661,8 +662,8 @@ share one. For each schedule this step defines:
 | Registered state | Action |
 | --- | --- |
 | absent | create it |
-| same `name`, same cron, `task`, `precheck` and `model` as this step derives | keep it, and `toggle_schedule` it **enabled** |
-| same `name`, different cron, `task`, `precheck` or `model` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
+| same `name`, same cron, `task`, `precheck`, `model` and `sessionTitle` as this step derives | keep it, and `toggle_schedule` it **enabled** |
+| same `name`, different cron, `task`, `precheck`, `model` or `sessionTitle` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
 only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a create.
@@ -689,7 +690,8 @@ cron day numbers (`Mon-Fri` → `1-5`):
 written as ascending cron ranges, because cron has no wrap-around: `08-21`
 becomes `22-23,0-7`. A full range is written `*`, so keys at their 24/7
 defaults (`00-23` + `Mon-Sun`) produce the active schedule alone. Each carries
-`precheck: bash "$HOME/scripts/precheck.sh" review` and this `task`:
+`precheck: bash "$HOME/scripts/precheck.sh" review`,
+`sessionTitle: Review open PRs` and this `task`:
 
 > Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read exactly the worklist's read_set, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`).
 
@@ -699,14 +701,15 @@ reviewers on Slack? Default is hourly, Mon–Fri, 07–18 (platform timezone).*
 Create `name: code-guardian-shepherd-<cadence-shorthand>` — the default cadence
 keeps the kit's `…-1h-workdays` — cron default `0 7-18 * * 1-5`,
 `sessionMode: fresh`, `precheck: bash "$HOME/scripts/precheck.sh" shepherd`,
-`task`:
+`sessionTitle: Nudge PR reviewers`, `task`:
 
 > Shepherd sweep. The precheck already ran preflight and found nudges due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" shepherd` yourself. Then follow CLAUDE.md → "Shepherd run": read docs/shepherd.md, send exactly the nudges in nudges_due to the shared Slack channel (roster-only mentions), apply each sent nudge's row_update to the ledger immediately after its send (send-then-record), and back up work/ (`scripts/work-backup.sh persist`).
 
 **6c — Weekly audit.** Ask: *When should I send the weekly health report?
 Default is Friday 07:00 (platform timezone).* Create
 `name: code-guardian-audit-weekly`, cron default `0 7 * * 5`,
-`sessionMode: fresh`, no `precheck`, `task`:
+`sessionMode: fresh`, no `precheck`, `sessionTitle: Audit agent health`,
+`task`:
 
 > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first — this run is ungated. Follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`).
 
@@ -715,7 +718,7 @@ the benchmark is enabled in chat). Ask: *When should the monthly benchmark run?
 Default is the 1st of the month, 06:00 (platform timezone).* Create
 `name: code-guardian-benchmark-monthly`, cron default `0 6 1 * *`,
 `sessionMode: fresh`, `precheck: bash "$HOME/scripts/precheck.sh" benchmark`,
-`task`:
+`sessionTitle: Benchmark the review model`, `task`:
 
 > Model benchmark. The precheck already ran preflight and found the benchmark due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`).
 
@@ -724,7 +727,8 @@ survey is enabled in chat). Ask: *When should the weekly codebase survey run?
 Default is Saturday 03:30 (platform timezone)* — a quiet hour, because the pass
 reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 `30 3 * * 6`, `sessionMode: fresh`,
-`precheck: bash "$HOME/scripts/precheck.sh" survey`, `task`:
+`precheck: bash "$HOME/scripts/precheck.sh" survey`,
+`sessionTitle: Survey the codebase`, `task`:
 
 > Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
