@@ -108,7 +108,9 @@ below is for the manual fallback and the direct session.
   it is read in any letter case. A name the harness refuses when a schedule
   fires fails that run after its gate ran, and the audit reports the failing
   last result ([audit.md](audit.md) task 5). The audit compares the registered
-  schedules and the week's recorded runs against the key (task 5).
+  schedules and the week's recorded runs against the key (task 5); a run's
+  model id matches it by the price-table rule ([benchmark.md](benchmark.md) →
+  **Model prices**).
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
@@ -246,9 +248,9 @@ below is for the manual fallback and the direct session.
   artifact, updated in place so its URL stays stable: `dam` (default) | `off`,
   as `audit_trend`.
 - **`## Benchmark model prices` table** — optional per-MTok USD prices keyed by
-  model-id substring; powers the `est $` column of both the benchmark report
-  and the weekly trend artifact ([benchmark.md](benchmark.md) → **Model
-  prices**). Missing = costs render "—".
+  model id; powers the `est $` column of both the benchmark report and the
+  weekly trend artifact ([benchmark.md](benchmark.md) → **Model prices**).
+  Missing = costs render "—".
 
 ### Cadence & diagnostics
 

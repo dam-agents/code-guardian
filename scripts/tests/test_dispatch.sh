@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Dispatch (scripts/dispatch.sh): a review worklist with several PRs starts the
 # PRs after its first in sessions of their own — one unit worklist per PR, the
-# exact schedule_once name, task and model, the run's own worklist without them.
+# exact schedule_once name, task, session title and model, the run's own
+# worklist without them and its title.
 # Contract: docs/worklist.md → Dispatch.
 . "$(dirname "$0")/helpers.sh"
 
@@ -46,6 +47,7 @@ run_ds plan "$WL"
 assert_rc 0 'plan succeeds'
 assert_jq '[.dispatch[].number] == [8, 9]' 'the PRs after the first are dispatched, in run order'
 assert_jq '[.dispatch[].name] == ["code-guardian-review-pr-8", "code-guardian-review-pr-9"]' 'each session is named after its PR'
+assert_jq '[.dispatch[].sessionTitle] == ["Review PR #8", "Review PR #9"]' 'each session title names its work and its PR'
 assert_file_jq "$WL" '.config.review_dispatch == "enabled"' 'the gate worklist carries review_dispatch, enabled by default'
 assert_file_jq "$WL" '.config.review_model == "default"' 'the gate worklist carries review_model, default when missing'
 assert_jq '.dispatch | all(has("model") | not)' 'under review_model: default no call names a model'
@@ -73,9 +75,11 @@ run_ds rest "$WL" 8 9
 assert_rc 0 'rest succeeds'
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.reviews_due[].number] == [7]' 'the run keeps its first PR alone'
+assert_out_contains '^title: Review PR #7$' 'the run is titled after the PR it keeps'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"dispatch"' 'the dispatch is logged'
 run_ds rest "$WL"
 assert_out_contains "^worklist: $WL\$" 'with nothing started the run keeps its worklist'
+assert_out_contains '^title: Review PRs #7, #8, #9$' 'and its title lists every PR it keeps'
 
 # --- run-wide work stays with the run; the order follows the review run -----
 new_case dispatch_units_and_globals
@@ -83,6 +87,7 @@ mkdir -p "$SANDBOX/tmp"; WL="$SANDBOX/tmp/cg-worklist-review-x.json"
 synthetic_worklist "$WL"
 run_ds plan "$WL"
 assert_jq '[.dispatch[].number] == [8, 7, 10]' 'urgent first, then mentions, reviews, CI failures; the first is kept'
+assert_jq '[.dispatch[].sessionTitle] == ["Re-review PR #8", "Review PR #7", "Triage CI on PR #10"]' 'a title names the review before the other work of its PR'
 U8="$SANDBOX/tmp/cg-worklist-review-x-pr8.json"
 assert_file_jq "$U8" '.mentions_due == [{number:8, id:501}] and [.reviews_due[].number] == [8]' 'a PR takes its mention with its review'
 assert_file_jq "$U8" '.urgent_alerts_due == [] and .selfheals_due == [] and .prunes_due == [] and (has("stall_alert") | not) and (has("review_anomaly") | not)' 'run-wide work and other PRs'"'"' rows are not copied'
@@ -95,6 +100,7 @@ assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr10.json" '[.ci_failures_due[
 run_ds rest "$WL" 7 8 10
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.reviews_due[].number] == [9] and .mentions_due == [] and .ci_failures_due == []' 'the run keeps the urgent PR'
+assert_out_contains '^title: Review urgent PR #9$' 'an urgent review says so in the title'
 assert_file_jq "$REST" '.urgent_alerts_due == [{number:9}] and .label_cleanups_due == [] and .selfheals_due == [{number:3}] and .prunes_due == [{number:4}] and .stall_alert == {count:4} and .review_anomaly == {factor:4, reviews:[]}' 'the run keeps its own alert, the other PRs'"'"' rows and every run-wide entry'
 run_ds rest "$WL" 7 8
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
@@ -108,6 +114,21 @@ jq -n '{mode:"review", nothing_to_do:false, reviews_due:[], mentions_due:[], ci_
         urgent_alerts_due:[], selfheals_due:[], label_cleanups_due:[], prunes_due:[], status_resets_due:[], skills:{}, logs:[], config:{}}' > "$WL"
 run_ds plan "$WL"
 assert_jq '[.dispatch[].number] == [13, 12, 11]' 'artifacts, then CI failures, merges, fixes; the artifact PR is kept'
+assert_jq '[.dispatch[].sessionTitle] == ["Triage CI on PR #13", "Merge PR #12", "Fix findings on PR #11"]' 'each title names the work of its PR'
+run_ds rest "$WL" 13 12 11
+assert_out_contains '^title: Publish artifact for PR #14$' 'the kept artifact PR names its work'
+jq '.artifacts_due = [] | .ci_failures_due = [] | .merges_due = [] | .fixes_due = []' "$WL" > "$WL.e" && mv "$WL.e" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Tidy review state$' 'a run with no PR work tidies the review state'
+jq '.urgent_alerts_due = [{number:15}]' "$WL" > "$WL.u" && mv "$WL.u" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Report review alerts$' 'a run with an urgent alert and no PR work reports it'
+jq '.urgent_alerts_due = [] | .stall_alert = {count:4}' "$WL" > "$WL.a" && mv "$WL.a" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Report review alerts$' 'a run with an alert and no PR work reports it'
+jq '.mentions_due = [{number:16, id:601}]' "$WL" > "$WL.m" && mv "$WL.m" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Answer mention on #16$' 'a mention names its number alone'
 
 # --- review_model pins every dispatched session ------------------------------
 new_case dispatch_model

@@ -24,11 +24,14 @@ prices_json() { # <config.md path>
   printf '%s' "${out:-[]}"
 }
 
-# jq: the price row of a model id (the first row whose model substring it
-# contains, null without one) and the USD cost of a token object
-# {input, output, cache_read, cache_creation} at a row. Needs $prices.
-PRICES_JQ='
-  def price_row($m): [$prices[] | select(. as $p | $m | contains($p.m))] | first;
+# jq: the price row of a model id (the matching row per MODEL_JQ in common.sh
+# with the longest model_key, the first of equal ones; null without one) and
+# the USD cost of a token object {input, output, cache_read, cache_creation}
+# at a row. Needs $prices.
+PRICES_JQ="$MODEL_JQ"'
+  def price_row($m): [$prices[] | select(. as $p | $m | model_has($p.m))]
+    | (map(.m | model_key | length) | max) as $n
+    | map(select((.m | model_key | length) == $n)) | first;
   def token_usd($p): ((.input // 0) * $p.i + (.output // 0) * $p.o
                       + (.cache_read // 0) * $p.cr + (.cache_creation // 0) * $p.cw) / 1000000;
 '

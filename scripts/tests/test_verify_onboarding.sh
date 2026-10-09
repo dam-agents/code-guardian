@@ -195,6 +195,19 @@ run_verify
 assert_rc 1 'a misspelled shepherd_scope fails'
 assert_out 'FAIL config-shepherd_scope' 'names the key'
 
+new_case review_model_suffix
+seed_home; seed_memory; seed_lessons
+verify_config '- review_model: claude/aws/claude-opus-5-5[1m]'
+run_verify
+assert_out 'ok +config-review_model' 'a provider path and a [1m] suffix pass'
+
+new_case review_model_invalid
+seed_home; seed_memory; seed_lessons
+verify_config '- review_model: opus[1m'
+run_verify
+assert_rc 1 'an unclosed suffix fails'
+assert_out 'FAIL config-review_model' 'names the key'
+
 new_case auto_merge_keys_valid
 seed_home; seed_memory; seed_lessons
 verify_config '- auto_merge: enabled' '- auto_merge_label: automerge' '- auto_merge_max_lines: 50' '- auto_merge_method: rebase'

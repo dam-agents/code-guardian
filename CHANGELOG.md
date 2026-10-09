@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 8.17.0 — 2026-10-09
+## 8.18.0 — 2026-10-09
 
 **Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent
 files no more issues on the definition repo — missing means `disabled`. Ask the
@@ -23,6 +23,30 @@ another harness): its auto-mode rule for the tracking issue now names
 `scripts/definition-issue.sh`, and it registers the `PreToolUse` hook
 `guard-definition-issue.sh`, effective from the next session. No schedule
 changes.
+
+## 8.17.0 — 2026-10-09
+
+**Upgrade:** Reconcile the schedules per ONBOARDING Step 6: its table now
+compares `sessionTitle` too, so each schedule of 6a–6e is re-registered with
+the title its step names. Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent; a no-op on another harness): its dispatch auto-mode rule now
+names the `sessionTitle` and the `rename_session` call.
+
+## 8.16.4 — 2026-10-09
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.16.3 — 2026-10-09
+
+**Upgrade:** **Operator-only:** a `## Benchmark model prices` row in
+`work/CONFIG.md` no longer prices a later version that follows a dash
+(`claude-opus-5` does not price `claude-opus-5-5`). When the audit's
+production model has no row of its own, add one with its current published
+prices ([docs/benchmark.md](docs/benchmark.md) → **Model prices**).
+
+## 8.16.2 — 2026-10-09
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 8.16.1 — 2026-10-08
 
