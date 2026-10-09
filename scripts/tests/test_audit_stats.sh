@@ -1131,6 +1131,7 @@ base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:7, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' >> "$WORK/REVIEW-LEDGER.jsonl"
 fx_fail 'api repos/acme/widgets/pulls/7/reviews?per_page=100'
+fx_fail 'api --paginate repos/acme/widgets/pulls/7/reviews?per_page=100'
 fx_fail 'api repos/acme/widgets/pulls?state=closed&sort=updated&direction=desc&per_page=100'
 run_preflight audit
 assert_jq '.stats.overruled | .scanned == 0 and .unread == ["7"] and .reverts_read == false' 'what could not be read is recorded'
@@ -1147,15 +1148,39 @@ jq -nc --arg ts "$ts" 'range(1; 206) | {src:"ledger", pr:., ts:$ts, sha:"abc1234
 jq -n --arg at "$(iso_ago 3600)" '[{state:"CHANGES_REQUESTED", user:{login:"alice", type:"User"}, commit_id:"abc1234ffff", submitted_at:$at}]' \
   | fx 'api repos/acme/widgets/pulls/170/reviews?per_page=100'
 fx_fail 'api repos/acme/widgets/pulls/42/reviews?per_page=100'
+fx_fail 'api --paginate repos/acme/widgets/pulls/42/reviews?per_page=100'
 GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight audit
 assert_jq '.stats.overruled | .approved_prs == 205 and .scanned == 199 and .unread == ["42"]' \
-  '200 PRs read, a PR the answer leaves null is unread'
+  '200 PRs read, a PR neither the batch nor its REST call answers is unread'
 assert_jq '.stats.overruled.changes_requested == [{pr: 170, by: "alice", at: .stats.overruled.changes_requested[0].at}]' \
   'a change request in a later batch is found'
 assert_jq '.checks[] | select(.id == "approve_overruled") | .detail | test("5 approved PR\\(s\\) past the 200-PR cap not read")' \
   'the PRs past the cap are named'
-if [ "$(grep -c '^api graphql -F query=@' "$SANDBOX/calls.log")" = 4 ] && ! grep -q 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log"; then
-  printf 'ok   %s: four GraphQL calls, the query in a file, no per-PR REST call\n' "$CASE"
+if [ "$(grep -c '^api graphql -F query=@' "$SANDBOX/calls.log")" = 4 ] \
+   && [ "$(grep -c 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log")" = 1 ] && grep -q 'pulls/42/reviews' "$SANDBOX/calls.log"; then
+  printf 'ok   %s: four GraphQL calls, the query in a file, one REST call for the unanswered PR\n' "$CASE"
 else printf 'FAIL %s: calls: %s\n' "$CASE" "$(grep -c 'graphql' "$SANDBOX/calls.log")"; FAILED=1; fi
+
+# --- a failed batch falls back to the per-PR REST call, at most 20 -----------
+new_case audit_approve_rest_fallback
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+ts="$(iso_ago 86400)"
+jq -nc --arg ts "$ts" 'range(1; 23) | {src:"ledger", pr:., ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' \
+  >> "$WORK/REVIEW-LEDGER.jsonl"
+# two pages: the person's change request sits on the second
+{ jq -n --arg at "$(iso_ago 3600)" '[{state:"CHANGES_REQUESTED", user:{login:"lint[bot]", type:"Bot"}, commit_id:"abc1234ffff", submitted_at:$at}]'
+  jq -n --arg at "$(iso_ago 3600)" '[{state:"CHANGES_REQUESTED", user:{login:"alice", type:"User"}, commit_id:"abc1234ffff", submitted_at:$at}]'
+} | fx 'api --paginate repos/acme/widgets/pulls/3/reviews?per_page=100'
+fx_fail 'api --paginate repos/acme/widgets/pulls/5/reviews?per_page=100'
+fx_fail graphql_approve_overruled
+GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight audit
+assert_jq '.stats.overruled | .approved_prs == 22 and .scanned == 19 and .unread == ["5", "21", "22"]' \
+  'the REST calls read what the batch did not; a failed one and the PRs past the cap stay unread'
+assert_jq '.stats.overruled.changes_requested == [{pr: 3, by: "alice", at: .stats.overruled.changes_requested[0].at}]' \
+  'a change request on a later REST page counts; a bot is ignored'
+if [ "$(grep -c 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log")" = 20 ]; then
+  printf 'ok   %s: at most 20 REST calls\n' "$CASE"
+else printf 'FAIL %s: REST calls: %s\n' "$CASE" "$(grep -c 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log")"; FAILED=1; fi
 
 finish
