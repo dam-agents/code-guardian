@@ -282,4 +282,40 @@ green_fx "$SHA1"
 run_preflight shepherd
 assert_jq '(.nudges_due | length) == 0' 'no announcement without the key'
 
+# --- mentions: preflight hands over ready strings, the agent never composes one
+new_case shepherd_mention_candidates
+shep_setup
+printf '| carol | - | Carol | docs | |\n| dave | dave | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .needs_target_selection == true and .mentions == []' 'no known target, so the agent picks'
+assert_jq '.nudges_due[0].candidates == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'candidates: the mentionable roster minus the author, each with its mention'
+
+new_case shepherd_mention_strings
+shep_setup '- escalation_owner: alice'
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+cat > "$WORK/SHEPHERD.md" <<EOF
+# PR Shepherd Ledger
+
+| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+|----|----------------|-----------|--------------|--------|---------------|-------|--------|
+| 1 | 2026-07-01T00:00:00Z | bob* | awaiting_review | 3 | $(iso_ago 259200) | 3 | nudging |
+EOF
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .level == 4 and .needs_target_selection == false and .candidates == []' 'persisted targets need no selection'
+assert_jq '.nudges_due[0].mentions == [{login:"bob", slack_id:"U0BBBBBB", mention:"<@U0BBBBBB>"}]' 'each target mention carries its ready string'
+assert_jq '.nudges_due[0].escalation == {login:"alice", slack_id:"U0AAAAAA", mention:"<@U0AAAAAA>"}' 'the escalation carries its ready string'
+
+new_case shepherd_mentions_check
+shep_setup
+printf '| dave | dave | Dave | ops | |\n' >> "$WORK/DEVELOPERS.md"
+mcheck() { RC=0; OUT="$(printf '%s' "$1" | ( . "$REPO_ROOT/scripts/lib/common.sh"; mentions_check "$WORK/DEVELOPERS.md" ) 2>&1)" || RC=$?; }
+mcheck 'PR #1 waits. <@U0AAAAAA> <@U0BBBBBB> please look, bob.'
+assert_rc 0 'roster slack_ids pass'
+mcheck 'PR #1 waits. <@U0AAAAAA> <@dave> please look.'
+assert_rc 1 'a login inside a mention fails, even a roster one'
+assert_out_contains 'not a roster slack_id: <@dave>' 'the failure names the bad token'
+mcheck 'PR #1 waits. <@U0CCCCCC> please look.'
+assert_rc 1 'a well-formed id outside the roster fails'
+
 finish

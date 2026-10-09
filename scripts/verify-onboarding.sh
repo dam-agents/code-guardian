@@ -334,20 +334,8 @@ EOF
         fail roster "slack_notifications enabled but work/DEVELOPERS.md missing" \
           "build the roster per ONBOARDING Step 4 → Build the developer roster"
       else
-        # login -> slack_id, table or bullet format — MUST mirror preflight.sh's parsing
-        ROSTER="$(grep -E '^\|' "$WORK/DEVELOPERS.md" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
-            l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
-            case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
-          done)"
-        if [ -z "$ROSTER" ]; then
-          ROSTER="$(login=""; while IFS= read -r line; do
-              case "$line" in
-                (*slack_id:*) sid="$(printf '%s' "${line#*slack_id:}" | tr -d '\` ')"
-                              [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
-                (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
-              esac
-            done < "$WORK/DEVELOPERS.md")"
-        fi
+        # login -> slack_id, preflight's own parser (lib/common.sh → roster_tsv)
+        ROSTER="$(roster_tsv "$WORK/DEVELOPERS.md")"
         if [ -n "$ROSTER" ]; then
           ok roster "DEVELOPERS.md has $(printf '%s\n' "$ROSTER" | grep -c .) parseable member(s)"
         else
@@ -361,7 +349,7 @@ EOF
         else
           EO_SLACK="$(printf '%s\n' "$ROSTER" | while IFS="$(printf '\t')" read -r l sid; do
               [ "$l" = "$EO" ] && { printf '%s' "$sid"; break; }; done)"
-          if printf '%s' "${EO_SLACK:-}" | grep -Eq '^U[A-Z0-9]{6,}$'; then
+          if printf '%s' "${EO_SLACK:-}" | grep -Eq "$SLACK_ID_RE"; then
             ok escalation-owner "'$EO' is a roster member with a slack_id"
           else
             fail escalation-owner "'$EO' is not a roster login with a valid slack_id" \

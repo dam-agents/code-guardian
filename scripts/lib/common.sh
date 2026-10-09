@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # common.sh — the helpers every script shares: the work/CONFIG.md reader
-# (docs/config.md), repo references, time, the event log and history-marker
-# reads, and a GitHub GET with retry. Set CONFIG before calling cfg or
-# cfg_table; source this file before GH_HOST is re-exported, so DEFAULT_HOST
-# keeps the ambient default and each reference resolves independently.
+# (docs/config.md), the developer roster, repo references, time, the event log
+# and history-marker reads, and a GitHub GET with retry. Set CONFIG before
+# calling cfg or cfg_table; source this file before GH_HOST is re-exported, so
+# DEFAULT_HOST keeps the ambient default and each reference resolves
+# independently.
 
 # A CONFIG value is the text after `- <key>: `, minus a trailing comment and
 # minus one layer of markdown quoting (`value`, "value") — writers reach for
@@ -28,6 +29,39 @@ skills_table_json() {
     jq -nc --arg s "$s" --arg src "$(trim "$src")" --arg t "$(trim "$trig")" --arg sec "$(trim "$sec")" \
       '{skill:$s, source:$src, trigger:$t, section:$sec}'
   done | jq -s .
+}
+
+# work/DEVELOPERS.md as `login<TAB>slack_id` lines: the table format, else
+# `login:` + `slack_id:` bullet pairs (ONBOARDING Step 4 → Build the developer
+# roster). The slack_id is raw; SLACK_ID_RE tells a mentionable one.
+SLACK_ID_RE='^U[A-Z0-9]{6,}$'
+roster_tsv() { # <DEVELOPERS.md>
+  local out
+  out="$(grep -E '^\|' "$1" 2>/dev/null | while IFS='|' read -r _ l sid _rest; do
+      l="$(printf '%s' "$l" | tr -d '\` ')"; sid="$(printf '%s' "$sid" | tr -d ' ')"
+      case "$l" in ('') ;; (login) ;; (-*) ;; (*) printf '%s\t%s\n' "$l" "$sid";; esac
+    done)"
+  [ -n "$out" ] || out="$(login=""; while IFS= read -r line; do
+      case "$line" in
+        (*slack_id:*) sid="$(printf '%s' "${line#*slack_id:}" | tr -d '\` ')"
+                      [ -n "$login" ] && printf '%s\t%s\n' "$login" "$sid";;
+        (*login:*)    login="$(printf '%s' "${line#*login:}" | tr -d '\` ')";;
+      esac
+    done < "$1" 2>/dev/null)"
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# The Slack send guard (docs/shepherd.md → Hard rules): rc 1, naming each one on
+# stderr, when the text on stdin holds a `<@…>` token that is not a valid roster
+# slack_id; rc 0 otherwise. A missing roster fails every token.
+mentions_check() { # <DEVELOPERS.md>  < message text
+  local ids bad
+  ids="$(roster_tsv "$1" | cut -f2 | grep -E "$SLACK_ID_RE")"
+  bad="$(grep -oE '<@[^>]*>' | sort -u | while IFS= read -r t; do
+      id="${t#<@}"; id="${id%>}"; id="${id%%|*}"
+      [ -n "$id" ] && printf '%s\n' "$ids" | grep -qxF "$id" || printf '%s\n' "$t"
+    done)"
+  [ -z "$bad" ] || { printf '%s\n' "$bad" | sed 's/^/not a roster slack_id: /' >&2; return 1; }
 }
 
 # one cell of a markdown table row, blanks trimmed
