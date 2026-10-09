@@ -231,7 +231,7 @@ EOF
     chk_enum review_progress 'enabled|disabled' 'enabled | disabled'
     chk_enum ci_triage 'enabled|disabled' 'enabled | disabled'
     chk_enum review_dispatch 'enabled|disabled' 'enabled | disabled'
-    chk_enum review_model '[A-Za-z0-9][A-Za-z0-9._/:@-]*' 'a model name from the agent'"'"'s model settings (opus, sonnet, …) | default'
+    chk_enum review_model '[A-Za-z0-9][A-Za-z0-9._/:@-]*(\[[A-Za-z0-9]+\])?' 'a model name from the agent'"'"'s model settings (opus, sonnet, …) | default'
     chk_enum merge_ready_nudge 'enabled|disabled' 'enabled | disabled'
     chk_enum shepherd_scope 'all|needs_human' 'all | needs_human'
     chk_enum auto_merge 'enabled|disabled' 'enabled | disabled'

@@ -81,18 +81,21 @@ printf '%s' "$OUT" | jq -e '.[0].cost_usd == null and .[0].cost_per_review == nu
   || { printf 'FAIL %s: expected an unpriced week: %s\n' "$CASE" "$OUT"; FAILED=1; }
 assert_file_contains "$WORK/audit/TRENDS.md" '| — | — |' 'the unpriced week renders "—", not 0'
 
-# --- the longest matching row prices a model; an older version's row never does
+# --- the longest matching cell prices a model, a provider path not counted;
+# of equal cells the first one; an older version's row never does
 new_case trend_price_row_longest
 price_config
-printf '| claude-opus-5-5 | 4 | 20 | 0.2 | 5 |\n' >> "$WORK/CONFIG.md"
+printf '| opus | 1 | 1 | 1 | 1 |\n| bedrock/claude-opus | 9 | 9 | 9 | 9 |\n' >> "$WORK/CONFIG.md"
+printf '| claude-opus-5-5 | 4 | 20 | 0.2 | 5 |\n| CLAUDE-OPUS-5-5 | 8 | 8 | 8 | 8 |\n' >> "$WORK/CONFIG.md"
 mkdir -p "$WORK/audit"
 worklist 4 8 2 2 "us.anthropic.claude-opus-5-5-v1:0" > "$WORK/audit/last-worklist.json"
 run_trend append "$WORK/audit"
 run_trend index "$WORK/audit"
 # 1000*4 + 2000*20 + 3000*0.2 + 4000*5 = 64,600 / 1e6 = 0.06 USD
+# (opus: 0.01, bedrock/claude-opus: 0.09, CLAUDE-OPUS-5-5: 0.08)
 printf '%s' "$OUT" | jq -e '.[0].cost_usd == 0.06 and .[0].cost_floor == false' >/dev/null 2>&1 \
-  && printf 'ok   %s: the claude-opus-5-5 row prices its model, not the claude-opus-5 row\n' "$CASE" \
-  || { printf 'FAIL %s: expected the longer row: %s\n' "$CASE" "$OUT"; FAILED=1; }
+  && printf 'ok   %s: the first claude-opus-5-5 row prices its model, not a shorter or path-padded one\n' "$CASE" \
+  || { printf 'FAIL %s: expected the first longest row: %s\n' "$CASE" "$OUT"; FAILED=1; }
 
 new_case trend_price_row_version
 price_config
