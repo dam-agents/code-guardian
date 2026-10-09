@@ -24,7 +24,7 @@ self-heals, status resets — does not wake the model on its own either: it
 rides along with the next run that has real work
 ([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
 scheduled session carries a title that says what it does — `Review PR #1457`,
-`Triage CI on PR #1457`, `Audit agent health`
+`Triage CI on PR #1457`, `Audit agent health 2026-10-09`
 ([`docs/worklist.md`](docs/worklist.md) → **Session titles**).
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An

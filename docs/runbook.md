@@ -126,7 +126,7 @@ mention ledger — for *whether it is still valid at post time*.
 
 ## Shepherd run (worklist has `nudges_due`)
 
-1. Read [shepherd.md](shepherd.md) and `work/DEVELOPERS.md`.
+1. Title the session ([worklist.md](worklist.md) → **Session titles**), then read [shepherd.md](shepherd.md) and `work/DEVELOPERS.md`.
 2. Per entry: select and persist targets when `needs_target_selection`, then
    **send, then immediately apply its `row_update`** (shepherd.md → **Hard
    rules**). Nothing beyond the worklist is ever sent.
@@ -139,7 +139,7 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 
 ## Audit run (mode `audit`, weekly)
 
-1. Read [audit.md](audit.md) and walk its task list: triage the script's
+1. Title the session ([worklist.md](worklist.md) → **Session titles**), then read [audit.md](audit.md) and walk its task list: triage the script's
    `checks`, add the agent-side checks, **diagnose each `failures[]`
    signature**, consolidate memory, append the trend
    ([trends.md](trends.md)), and send the report (Slack when enabled, chat UI
@@ -148,7 +148,8 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 
 ## Benchmark run (mode `benchmark`, worklist has `benchmark_due`)
 
-1. Read [benchmark.md](benchmark.md) and perform the entry's action:
+1. Title the session ([worklist.md](worklist.md) → **Session titles**), then read [benchmark.md](benchmark.md) and perform the entry's
+   action:
    `create_fixture` tops the fixture set up to ≥5 and ends the run; `run`
    replays, scores and records every fixture review, republishes the report
    and reports the scores in the chat UI. **`scripts/benchmark-validate.sh`
@@ -157,7 +158,8 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 
 ## Survey run (mode `survey`, worklist has `survey_due`)
 
-1. Read [survey.md](survey.md) and read the area the entry names — never one of
+1. Title the session ([worklist.md](worklist.md) → **Session titles**), then read [survey.md](survey.md) and read the area the
+   entry names — never one of
    your own choosing — within the files `scripts/survey.sh prepare` lists.
 2. Write the findings in the review form ([finding-form.md](finding-form.md)),
    record the pass, then regenerate and republish the accumulated artifact.
