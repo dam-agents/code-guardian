@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.18.1 — 2026-10-10
+
+**Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent; a no-op on another harness): its auto-mode upload rule now names
+`work/survey/` and `work/benchmark/` too, effective from the next session. The
+next survey run then publishes the report and writes the `survey-dam` marker.
+No schedule changes.
+
 ## 8.18.0 — 2026-10-09
 
 **Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent

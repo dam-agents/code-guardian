@@ -41,6 +41,7 @@ assert_settings '.autoMode.environment[0] == "$defaults" and .autoMode.allow[0] 
 assert_settings '.autoMode.environment | any(startswith("[code-guardian]") and contains("acme/widgets") and contains("acme/guardian"))' 'environment names target and definition repo'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("definition-issue.sh file") and contains("acme/guardian"))' 'tracking-issue rule names the definition repo'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("curl -X PUT"))' 'artifact upload rule present'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("curl -X PUT") and contains("/work/audit/") and contains("/work/benchmark/") and contains("/work/reviews/pr-artifacts/") and contains("/work/survey/"))' 'upload rule names every published report directory'
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("schedule_once") and contains("scripts/dispatch.sh plan"))' 'review dispatch rule present'
 assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'hooks still registered'
 assert_settings '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(endswith("guard-definition-issue.sh"))' 'definition-issue guard registered on PreToolUse Bash'
