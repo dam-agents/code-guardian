@@ -511,7 +511,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report what a diff cannot show: code nothing reaches, logic that exists twice, a critical path with no test, drift from your own conventions and decision records. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
-    default `dam`) and register the schedule in Step 6e. Default off.
+    default `dam`) and register the schedule in Step 6e. Default off. With
+    `survey_report: dam`, ask:
+
+    > The survey artifact is public to anyone with its URL. Shall it show the findings themselves — severity, summary, fix and a link to the code — or stay an index of areas and passes? A finding on it is a disclosure of a weak point. Default: **index only**.
+
+    Findings → `survey_report_findings: enabled`; otherwise omit.
 13. **Review cadence** — `active_hours`, `active_days`,
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
@@ -577,6 +582,7 @@ Final shape:
 - human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
 - survey: enabled                      # weekly deep pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off
+- survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled
 - survey_interval_days: 7              # floor between two passes; omit = 7
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only

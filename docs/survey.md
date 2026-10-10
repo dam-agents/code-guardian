@@ -30,8 +30,8 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
 1. **Prepare** — `bash "$HOME/scripts/survey.sh" prepare "$HOME/work" <slug>`.
    It clones the default branch, lists the area's files with the profile's
    noise globs applied, applies the caps and prints
-   `{outcome, slug, path, root, files[], counted:{files,lines}, truncated,
-   remainder}`. `outcome: "empty"` (the area is gone, or holds no reviewable
+   `{outcome, slug, path, root, sha, files[], counted:{files,lines},
+   truncated, remainder}`. `outcome: "empty"` (the area is gone, or holds no reviewable
    file) → record a pass with no findings and stop.
    **`truncated: true`** means the area is larger than one pass: `files[]` is
    the part to read now, `remainder` names what waits for the next pass. Read
@@ -52,12 +52,16 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
    names, exactly like a review finding — the profile only said where to look.
    Nothing is reported that a review of the next PR would catch anyway.
 4. **Record** — `bash "$HOME/scripts/survey.sh" record "$HOME/work" <slug>
-   <findings.json>`. It appends the pass to `work/survey/<slug>.md`, updates
-   the ledger row, and prints the pass counts.
+   <findings.json>`. It appends the pass to `work/survey/<slug>.md` with the
+   commit it read and the file count, updates the ledger row, and prints the
+   pass counts.
 5. **Publish** — `bash "$HOME/scripts/survey.sh" report "$HOME/work" >
    "$HOME/work/survey/report.html"`, then publish per `survey_report`
    ([config.md](config.md)), updated in place so the URL stays stable, exactly
    as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
+   The page is an index of areas and passes; under
+   `survey_report_findings: enabled` it also lists every finding, with its
+   code location linked to the commit the pass read.
    The marker lives in `work/survey/LEDGER.md` (`<!-- survey-dam: <id> -->`).
 6. **Report one line** to the chat UI, and to Slack under
    `slack_notifications: enabled`:

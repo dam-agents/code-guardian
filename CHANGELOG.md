@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.19.0 — 2026-10-10
+
+**Upgrade:** When `work/CONFIG.md` has `survey: enabled` and `survey_report:
+dam` (or no `survey_report` key) and no `survey_report_findings` key, the
+survey artifact stays an index of areas and passes — missing means
+`disabled`. Offer the operator the question of ONBOARDING Step 4 item 12
+(findings on the public artifact) in the direct session, as a message of its
+own, and write `- survey_report_findings: enabled` only on a yes. No schedule
+changes; the next survey run republishes the page in the chosen form.
+
 ## 8.18.0 — 2026-10-09
 
 **Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent
