@@ -507,7 +507,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
-  --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg sid "$(cfg survey_interval_days)" \
+  --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
   --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -537,6 +537,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    benchmark_judge:(if $bj=="" then "off" else $bj end), benchmark_report:(if $br=="off" then "off" else "dam" end),
    merge_ready_nudge:(if $mrn=="enabled" then "enabled" else "disabled" end),
    survey:(if $sv=="enabled" then "enabled" else "disabled" end), survey_report:(if $sr=="off" then "off" else "dam" end),
+   survey_report_findings:(if $srf=="enabled" then "enabled" else "disabled" end),
    survey_interval_days:(if ($sid|test("^[0-9]+$")) then ($sid|tonumber) else 7 end),
    skills_table:$skills, watch_rules:$watches}')"
 

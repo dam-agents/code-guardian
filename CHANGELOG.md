@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 8.19.0 — 2026-10-10
+
+**Upgrade:** Offer the new optional key `survey_report_findings` (missing =
+`disabled`) to the operator, only when `survey: enabled` and `survey_report`
+is not `off`: enabled, the survey artifact also shows every pass's findings,
+not only the index. Ask the question of ONBOARDING Step 4 item 12 and write
+`- survey_report_findings: enabled` on a yes; a no, or no answer, writes
+nothing. No schedule changes.
+
 ## 8.18.0 — 2026-10-09
 
 **Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent

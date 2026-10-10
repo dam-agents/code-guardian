@@ -388,6 +388,13 @@ assert_out "ok   config-survey_report" 'the survey value is validated'
 assert_out "ok   config-benchmark_report" 'the benchmark value is validated'
 assert_not_out 'warn config-keys' 'the keys are never reported unknown'
 
+new_case survey_report_findings_key
+seed_home; seed_memory; seed_lessons
+verify_config '- survey_report_findings: enabled'
+run_verify
+assert_out "ok   config-survey_report_findings" 'the survey findings switch is validated'
+assert_not_out 'warn config-keys' 'the key is never reported unknown'
+
 new_case definition_issues_key
 seed_home; seed_memory; seed_lessons
 verify_config '- definition_issues: enabled'

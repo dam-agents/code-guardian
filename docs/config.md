@@ -232,6 +232,13 @@ below is for the manual fallback and the direct session.
 - **`survey_report`** — publish surface for the accumulated survey artifact,
   updated in place so its URL stays stable: `dam` (default) | `off`, as
   `audit_trend`.
+- **`survey_report_findings`** — `enabled` | `disabled`. **Missing =
+  `disabled`.** Enabled, the survey artifact also shows every pass's findings
+  under its area — severity, summary, `file:line` and **Fix:** — and each area
+  row links to them. Disabled, the page is the index alone. The artifact opens
+  for anyone who has its link, and the survey's Slack line carries that link,
+  so enable it only when the readers of the link may read findings about the
+  target repo's code — for a public repo, always.
 - **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;
   an unparseable value falls back to `7`. It bounds a drifting cron, so a
   weekly schedule never surveys twice in one week.

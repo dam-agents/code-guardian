@@ -111,4 +111,40 @@ grep -q 'http://\|https://.*\(cdn\|googleapis\)' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: the page loads an external asset\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the page is self-contained\n' "$CASE"
 
+# --- report findings: off unless the key enables them ------------------------
+survey_area_fx() { # one recorded pass of src_api whose summary carries markup
+  survey_ledger "| src_api | src/api | $(iso_ago 86400) | 1 | 1 |"
+  printf '[{"severity":"warning","summary":"leaks `<script>x</script>`","file":"src/api/a.ts","line":7,"fix":"close it"}]' > "$SANDBOX/f.json"
+  { printf '# Survey — src/api\n\n## Pass 1 — 2026-10-01T00:00:00Z — 0 🔴 · 1 🟡 · 0 🟢\n\n'
+    printf '<!-- findings-json: %s -->\n' "$(jq -c . "$SANDBOX/f.json")"
+  } > "$WORK/survey/src_api.md"
+}
+new_case survey_report_findings_off
+base_config '- survey: enabled'
+mkdir -p "$WORK/survey"
+survey_area_fx
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+grep -q 'src/api/a.ts\|<h2>Findings' "$SANDBOX/report.html" \
+  && { printf 'FAIL %s: findings published without the key\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a missing key keeps the page an index\n' "$CASE"
+
+new_case survey_report_findings_on
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+mkdir -p "$WORK/survey"
+survey_area_fx
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" '<a href="#area-src_api">src/api</a>' 'the area row links to its findings'
+assert_file_contains "$SANDBOX/report.html" '<h3 id="area-src_api">' 'the area has its anchor'
+assert_file_contains "$SANDBOX/report.html" 'src/api/a.ts:7' 'the finding names its file and line'
+assert_file_contains "$SANDBOX/report.html" '<strong>Fix:</strong> close it' 'the Fix line is shown'
+assert_file_contains "$SANDBOX/report.html" '<code>&lt;script&gt;x&lt;/script&gt;</code>' 'finding text is escaped, backticks become code'
+grep -q '<script>' "$SANDBOX/report.html" \
+  && { printf 'FAIL %s: finding text reached the page unescaped\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no markup from a finding runs\n' "$CASE"
+printf '\n## Pass 2 — 2026-10-08T00:00:00Z — 0 🔴 · 0 🟡 · 0 🟢\n\n<!-- findings-json: [{broken -->\n' >> "$WORK/survey/src_api.md"
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" 'Pass 2 — 2026-10-08T00:00:00Z' 'a pass whose findings do not parse still appears'
+assert_file_contains "$SANDBOX/report.html" 'could not be read' 'and says that its findings could not be read'
+assert_file_contains "$SANDBOX/report.html" 'src/api/a.ts:7' 'the readable pass still renders'
+
 finish
