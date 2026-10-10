@@ -59,6 +59,9 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
    ([config.md](config.md)), updated in place so the URL stays stable, exactly
    as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
    The marker lives in `work/survey/LEDGER.md` (`<!-- survey-dam: <id> -->`).
+   Under `survey_report_findings: enabled` the page also renders every pass's
+   findings under its area, from the `findings-json` of `work/survey/<slug>.md`;
+   missing or `disabled`, it is the index alone ([config.md](config.md)).
 6. **Report one line** to the chat UI, and to Slack under
    `slack_notifications: enabled`:
    `🔬 **<bot_display_name>** — surveyed <area> (<n> files): <c> 🔴 · <w> 🟡 · <s> 🟢. <url>`

@@ -206,8 +206,59 @@ if [ "$CMD" = "report" ]; then
     done | jq -sc 'sort_by(.ts) | reverse | .[0:20]')"
   PASSES="${PASSES:-[]}"
 
-  TABLE="$(printf '%s' "$ROWS" | jq -r '.[] |
-    "<tr><td>\(.path)</td><td class=\"n\">\(.passes)</td><td class=\"n\">\(.findings)</td><td>\(.last)</td></tr>"')"
+  # survey_report_findings: enabled → every pass's findings-json rendered under
+  # its area (docs/survey.md → Procedure step 5); otherwise the page is the
+  # index alone, because the artifact is readable by anyone with its link
+  SHOW_FINDINGS="$(cfg survey_report_findings)"
+  DETAIL=""
+  if [ "$SHOW_FINDINGS" = "enabled" ]; then
+    PASS_FINDINGS="$(for f in "$SDIR"/*.md; do
+        [ -f "$f" ] || continue
+        case "${f##*/}" in (LEDGER.md) continue;; esac
+        slug="${f##*/}"; slug="${slug%.md}"; p=""; ts=""
+        while IFS= read -r line; do
+          case "$line" in
+            ("## Pass "*)
+              p="$(printf '%s' "$line" | sed -n 's/^## Pass \([0-9]*\) — .*/\1/p')"
+              ts="$(printf '%s' "$line" | sed -n 's/^## Pass [0-9]* — \([^ ]*\) — .*/\1/p')" ;;
+            ("<!-- findings-json: "*" -->")
+              js="${line#<!-- findings-json: }"; js="${js% -->}"
+              printf '%s' "$js" | jq -c --arg s "$slug" --arg p "$p" --arg ts "$ts" \
+                '{slug:$s, pass:$p, ts:$ts, findings:(if type == "array" then . else null end)}' 2>/dev/null \
+                || jq -nc --arg s "$slug" --arg p "$p" --arg ts "$ts" '{slug:$s, pass:$p, ts:$ts, findings:null}' ;;
+          esac
+        done < "$f"
+      done | jq -sc '.')"
+    PASS_FINDINGS="${PASS_FINDINGS:-[]}"
+    DETAIL="$(jq -rn --argjson rows "$ROWS" --argjson d "$PASS_FINDINGS" '
+      def sev: {critical:"🔴 Critical", warning:"🟡 Warning", suggestion:"🟢 Suggestion"}[.] // "🟢 Suggestion";
+      def txt: tostring | @html | gsub("`(?<c>[^`]+)`"; "<code>\(.c)</code>");
+      "<h2>Findings</h2>",
+      ($rows[] as $r
+       | ($d | map(select(.slug == $r.slug)) | sort_by(.ts) | reverse) as $ps
+       | "<h3 id=\"area-\($r.slug)\">\($r.path | @html)</h3>",
+         (if ($ps | length) == 0 then "<p class=\"meta\">No pass recorded its findings.</p>"
+          else ($ps[]
+            | "<h4>Pass \(.pass) — \(.ts | @html)</h4>",
+              (if .findings == null then "<p class=\"meta\">The findings of this pass could not be read; see work/survey/\(.slug).md.</p>"
+               elif (.findings | length) == 0 then "<p class=\"meta\">No findings in this pass.</p>"
+               else "<ul class=\"f\">" + ([.findings[]
+                 | "<li><span class=\"sev\">\((.severity // "suggestion") | sev)</span> — \((.summary // "?") | txt)"
+                   + " (<code>\((.file // "?") | @html):\(.line // "?" | tostring | @html)</code>)"
+                   + (if .fix then "<div class=\"fix\"><strong>Fix:</strong> \(.fix | txt)</div>" else "" end)
+                   + "</li>"] | join("")) + "</ul>"
+               end))
+          end))')"
+  fi
+
+  TABLE="$(printf '%s' "$ROWS" | jq -r --arg show "$SHOW_FINDINGS" '.[] |
+    (if $show == "enabled" then "<a href=\"#area-\(.slug)\">\(.path)</a>" else .path end) as $area |
+    "<tr><td>\($area)</td><td class=\"n\">\(.passes)</td><td class=\"n\">\(.findings)</td><td>\(.last)</td></tr>"')"
+  if [ "$SHOW_FINDINGS" = "enabled" ]; then
+    WHERE="The findings of every pass follow the tables; <code>work/survey/</code> holds the same records."
+  else
+    WHERE="Findings live in <code>work/survey/</code>; this page is the index."
+  fi
   RECENT="$(printf '%s' "$PASSES" | jq -r '.[] |
     "<tr><td>\(.ts)</td><td>\(.slug)</td><td class=\"n\">pass \(.pass)</td></tr>"')"
 
@@ -219,14 +270,17 @@ h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
 .meta{color:#555;font-size:.85rem}table{border-collapse:collapse;width:100%;font-size:.9rem}
 th,td{border-bottom:1px solid #e3e3e3;padding:.4rem .5rem;text-align:left}
 th{background:#fafafa;font-weight:600}td.n{text-align:right;font-variant-numeric:tabular-nums}
+h3{font-size:.98rem;margin:1.5rem 0 .25rem}h4{font-size:.9rem;font-weight:600;margin:.75rem 0 .25rem}
+ul.f{padding-left:1.2rem;margin:.25rem 0}ul.f li{margin:.4rem 0}.sev{white-space:nowrap;font-weight:600}
+.fix{color:#444;margin-top:.15rem}code{font-size:.85em}
 @media(prefers-color-scheme:dark){body{background:#151515;color:#e8e8e8}
-th{background:#1f1f1f}th,td{border-color:#2c2c2c}.meta{color:#9a9a9a}}
+th{background:#1f1f1f}th,td{border-color:#2c2c2c}.meta,.fix{color:#9a9a9a}}
 </style>
 <h1>Codebase survey</h1>
 <p class="meta">One area of the repository read in depth per run, newest first.
 A survey reports what a diff cannot show — unreachable code, duplicated logic,
 untested paths, drift from the repository's own conventions and decisions.
-Findings live in <code>work/survey/</code>; this page is the index.
+$WHERE
 Semantics: docs/survey.md. Generated $NOW_ISO.</p>
 <h2>Areas</h2>
 <table><thead><tr><th>area</th><th>passes</th><th>findings</th><th>last pass</th></tr></thead>
@@ -238,6 +292,7 @@ $TABLE
 <tbody>
 $RECENT
 </tbody></table>
+$DETAIL
 EOF
   exit 0
 fi

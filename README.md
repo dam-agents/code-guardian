@@ -253,6 +253,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
 | `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
+| `survey_report_findings` | asked with `survey` (default `disabled`) | Shows every pass's findings on the survey artifact, not only the index. The artifact opens for anyone with its link, so enable it only when they may read about the repo's code. |
 | `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
