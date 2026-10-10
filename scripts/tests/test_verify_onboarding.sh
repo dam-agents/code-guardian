@@ -380,11 +380,12 @@ assert_not_out '.' 'every key of docs/config.md is a KNOWN_KEYS entry'
 
 new_case report_surfaces
 seed_home; seed_memory; seed_lessons
-verify_config '- audit_trend: dam' '- survey_report: off' '- benchmark_report: dam'
+verify_config '- audit_trend: dam' '- survey_report: off' '- survey_report_findings: enabled' '- benchmark_report: dam'
 run_verify
 assert_rc 0 'documented surfaces pass'
 assert_out "ok   config-audit_trend" 'the trend value is validated'
 assert_out "ok   config-survey_report" 'the survey value is validated'
+assert_out "ok   config-survey_report_findings" 'the findings opt-in is validated'
 assert_out "ok   config-benchmark_report" 'the benchmark value is validated'
 assert_not_out 'warn config-keys' 'the keys are never reported unknown'
 

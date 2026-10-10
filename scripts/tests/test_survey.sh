@@ -75,6 +75,7 @@ OUT="$(CG_SURVEY_CLONE_URL="$SANDBOX/repo" TMPDIR="$SANDBOX" \
 assert_jq '.outcome == "ready" and .counted.files == 40' 'the pass stops at the file cap'
 assert_jq '.truncated == true and .remainder == 20' 'the rest is left for the next pass'
 assert_jq '[.files[] | select(endswith(".lock"))] | length == 0' 'a noise glob is not surveyed as code'
+assert_jq '.sha | test("^[0-9a-f]{40}$")' 'the pass names the commit it reads'
 
 # --- the first pass of an area learns its path from the profile --------------
 new_case survey_record_first_pass
@@ -110,5 +111,66 @@ assert_file_contains "$SANDBOX/report.html" 'Codebase survey' 'the report has it
 grep -q 'http://\|https://.*\(cdn\|googleapis\)' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: the page loads an external asset\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the page is self-contained\n' "$CASE"
+
+# --- the findings reach the page only on the opt-in ---------------------------
+# One area file holds a pass recorded before pass-json existed and one real
+# prepare → record round, so the old pass links to HEAD and the new to its SHA.
+survey_two_passes() {
+  mkdir -p "$WORK/survey" "$SANDBOX/repo/src/api"
+  profile_fx '[{"path":"src/api","name":"api"}]'
+  git -C "$SANDBOX/repo" init -q 2>/dev/null
+  printf 'a\nb\nc\n' > "$SANDBOX/repo/src/api/a.ts"
+  git -C "$SANDBOX/repo" add -A 2>/dev/null
+  git -C "$SANDBOX/repo" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm init 2>/dev/null
+  SHA="$(git -C "$SANDBOX/repo" rev-parse HEAD)"
+  { printf '# Survey — src/api\n\n## Pass 1 — %s — 0 🔴 · 1 🟡 · 0 🟢\n\n- warning — old (`src/api/old.ts:7`)\n\n' "$(iso_ago 1209600)"
+    printf '<!-- findings-json: [{"severity":"warning","summary":"<script>alert(1)</script> & co","file":"src/api/old.ts","line":7,"fix":"a < b"}] -->\n'
+  } > "$WORK/survey/src_api.md"
+  survey_ledger "| src_api | src/api | $(iso_ago 1209600) | 1 | 1 |"
+  CG_SURVEY_CLONE_URL="$SANDBOX/repo" TMPDIR="$SANDBOX" \
+    bash "$REPO_ROOT/scripts/survey.sh" prepare "$WORK" src_api >/dev/null 2>&1
+  printf '[{"severity":"critical","summary":"token compared with ==","file":"src/api/a.ts","line":2,"fix":"use timingSafeEqual"}]' > "$SANDBOX/f.json"
+  TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/f.json" >/dev/null 2>&1
+}
+
+new_case survey_report_index_only
+base_config '- survey: enabled'
+survey_two_passes
+assert_file_contains "$WORK/survey/src_api.md" "\"sha\":\"$SHA\"" 'record keeps the commit the pass read'
+assert_file_contains "$WORK/survey/src_api.md" '"files":1' 'record keeps the file count'
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" 'this page is the index' 'a missing key keeps the page an index'
+assert_file_contains "$SANDBOX/report.html" '<td class="n">2</td><td class="n">1</td><td class="n">0</td><td class="n">0</td>' 'the index carries the severity counts of the newest pass'
+grep -q 'timingSafeEqual\|blob/\|alert(1)' "$SANDBOX/report.html" \
+  && { printf 'FAIL %s: a finding reached the index-only page\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no finding and no code link on the index-only page\n' "$CASE"
+
+new_case survey_report_findings
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+survey_two_passes
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" '<a href="#src_api">src/api</a>' 'the index links to the area section'
+assert_file_contains "$SANDBOX/report.html" "blob/$SHA/src/api/a.ts#L2\"><code>src/api/a.ts:2</code>" 'a location links to the line in the commit the pass read'
+assert_file_contains "$SANDBOX/report.html" 'blob/HEAD/src/api/old.ts#L7' 'a pass without a recorded commit links to HEAD'
+assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> use timingSafeEqual' 'the Fix line is on the page'
+assert_file_contains "$SANDBOX/report.html" '&lt;script&gt;alert(1)&lt;/script&gt; &amp; co' 'finding text is HTML-escaped'
+assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> a &lt; b' 'the Fix line is HTML-escaped'
+assert_file_contains "$SANDBOX/report.html" "1 files at <a class=\"sha\" href=\"https://github.com/acme/widgets/tree/$SHA\">" 'the pass heading links to the commit'
+grep -q '<script>' "$SANDBOX/report.html" \
+  && { printf 'FAIL %s: raw finding text reached the page\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no raw finding text on the page\n' "$CASE"
+
+# --- the resolved key travels in the worklist's config object -----------------
+new_case survey_findings_config_default
+base_config '- survey: enabled'
+pr_json 1 "a new PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+assert_jq '.config.survey_report_findings == "disabled"' 'a missing key resolves to disabled'
+
+new_case survey_findings_config_enabled
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+pr_json 1 "a new PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+assert_jq '.config.survey_report_findings == "enabled"' 'the opt-in travels in the config object'
 
 finish
