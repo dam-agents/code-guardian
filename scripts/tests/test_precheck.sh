@@ -148,6 +148,16 @@ assert_rc 0 'an unwritable worklist starts the session anyway'
 assert_out_absent '^worklist: ' 'and names no path'
 assert_out_contains 'could not be written' 'and says why the run recomputes it'
 assert_out_contains 'stall or anomaly alert may be missing' 'and what the spent bookkeeping costs'
+assert_out_contains 'scripts/preflight.sh" review`' 'and names the pass with its mode'
+
+# the monitor's pass takes no mode: the recovery command it names must run
+printf '#!/usr/bin/env bash\nprintf %%s "{\\"nothing_to_do\\":false,\\"alerts_due\\":[{\\"id\\":\\"x\\"}],\\"logs\\":[]}"\n' \
+  > "$SANDBOX/scripts/monitor.sh"
+chmod 500 "$SANDBOX/tmp"
+run_precheck monitor "$SANDBOX/scripts"
+chmod 700 "$SANDBOX/tmp"
+assert_rc 0 'an unwritable monitor worklist starts the session too'
+assert_out_contains 'scripts/monitor.sh"` yourself' 'and names monitor.sh without a mode'
 
 # --- the gate cleans up after itself ----------------------------------------
 # a skipped fire has no session to sweep its scratch, so the gate does it
