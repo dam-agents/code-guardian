@@ -9,13 +9,15 @@ review (the **PR Shepherd** role).
 
 ## How it works
 
-Five kinds of scheduled run exist, and **all start with the deterministic
-pre-flight script** [`scripts/preflight.sh`](scripts/preflight.sh). The script
-only *detects*: it makes no GitHub writes and computes the run's worklist. With
-work, the agent performs all of it per the [`docs/`](docs/) procedures.
+Six kinds of scheduled run exist. Five **start with the deterministic
+pre-flight script** [`scripts/preflight.sh`](scripts/preflight.sh), and the
+health monitor with [`scripts/monitor.sh`](scripts/monitor.sh). Both scripts
+only *detect*: they make no GitHub writes and compute the run's worklist. The
+one exception is the monitor's opt-in direct DM and dashboard publish (below).
+With work, the agent performs all of it per the [`docs/`](docs/) procedures.
 
 An empty worklist starts no session at all. Every schedule except the weekly
-audit runs the pre-flight as its platform **`precheck`**
+audit runs its script as its platform **`precheck`**
 ([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
 whether the model is woken, so idle heartbeats — about three quarters of all
 ticks — cost nothing, and a started run receives the worklist the gate already
@@ -128,11 +130,11 @@ enter it ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**
 [`CLAUDE.md`](CLAUDE.md) holds only the run types and the rule to read
-[`docs/runbook.md`](docs/runbook.md) once preflight reports work; the runbook
-holds the run procedures and the hard invariants; every other procedure lives
-in its own `docs/` file, read only when the matching work happens — a review
-run reads exactly the `read_set` preflight computes for its worklist. An idle
-heartbeat loads nothing.
+[`docs/runbook.md`](docs/runbook.md) once preflight or the monitor reports
+work; the runbook holds the run procedures and the hard invariants; every other
+procedure lives in its own `docs/` file, read only when the matching work
+happens — a review run reads exactly the `read_set` preflight computes for its
+worklist. An idle heartbeat loads nothing.
 
 **The definition is versioned** ([`VERSION`](VERSION) +
 [`CHANGELOG.md`](CHANGELOG.md)). At updates, on demand, and before any
@@ -349,17 +351,21 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
 ## Files
 
 - [`CLAUDE.md`](CLAUDE.md) — the bootstrap loaded on every run: repo
-  resolution, run types, and the rule to read the runbook once preflight
-  reports work.
+  resolution, run types, and the rule to read the runbook once preflight or
+  the monitor reports work.
 - [`docs/runbook.md`](docs/runbook.md) — the operating manual read only then:
   run procedures, trust boundary, hard invariants, and the map of `docs/`.
 - [`docs/worklist.md`](docs/worklist.md) — the schedule gate, the entry
   command and the worklist contract, read by a run without a gated worklist.
 - [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
-  every run type; detects work, never acts on GitHub.
-- [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one
-  pre-flight pass before the session starts, an exit code that skips an idle
-  fire, and the worklist path a started run reads.
+  every run type but the monitor; detects work, never acts on GitHub.
+- [`scripts/monitor.sh`](scripts/monitor.sh) — the monitor's detector: the
+  health alerts, from local files only ([`docs/monitor.md`](docs/monitor.md)),
+  plus the opt-in direct DM and dashboard publish
+  ([`docs/health.md`](docs/health.md)).
+- [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one pass
+  of either detector before the session starts, an exit code that skips an
+  idle fire, and the worklist path a started run reads.
 - [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot
   post-onboarding check (ONBOARDING Step 7): definition checkout and `work/`
   state files against the templates, and with `--live` the environment a run

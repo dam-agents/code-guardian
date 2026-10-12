@@ -130,6 +130,30 @@ assert_out_contains 'manually' 'and tells the run to do the work itself'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'stopped at its 3s budget' \
   'the cause also reaches the structured log'
 
+# --- a broken monitor gate names monitor.sh, never preflight -----------------
+# the error event says which pass broke: no JSON, could not decide, over budget
+new_case precheck_monitor_broken
+base_config
+mkdir -p "$SANDBOX/scripts/lib"
+cp "$REPO_ROOT/scripts/precheck.sh" "$REPO_ROOT/scripts/log.sh" "$SANDBOX/scripts/"
+cp "$REPO_ROOT/scripts/lib/toolpath.sh" "$SANDBOX/scripts/lib/"
+EVENTS="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+printf '#!/usr/bin/env bash\nexit 3\n' > "$SANDBOX/scripts/monitor.sh"
+run_precheck monitor "$SANDBOX/scripts"
+assert_rc 2 'a monitor pass with no JSON never skips the fire'
+assert_file_contains "$EVENTS" 'monitor gate: monitor.sh printed no worklist (exit 3)' 'the event names monitor.sh'
+printf '#!/usr/bin/env bash\nprintf %%s "{\\"nothing_to_do\\":false,\\"error\\":\\"x\\"}"\n' > "$SANDBOX/scripts/monitor.sh"
+run_precheck monitor "$SANDBOX/scripts"
+assert_rc 2 'a monitor pass that could not decide never skips the fire'
+assert_file_contains "$EVENTS" 'monitor gate: monitor.sh could not decide' 'the event names monitor.sh'
+printf '#!/usr/bin/env bash\nsleep 30\n' > "$SANDBOX/scripts/monitor.sh"
+CG_PRECHECK_BUDGET_S=1 run_precheck monitor "$SANDBOX/scripts"
+assert_rc 2 'a monitor pass over budget never skips the fire'
+assert_file_contains "$EVENTS" 'monitor gate: monitor.sh stopped at its 1s budget' 'the event names monitor.sh'
+if grep -q '"msg":"monitor gate: preflight' "$EVENTS" 2>/dev/null; then
+  printf 'FAIL %s: a monitor gate event names preflight\n' "$CASE"; FAILED=1
+else printf 'ok   %s: no monitor gate event names preflight\n' "$CASE"; fi
+
 # --- work is due but the worklist cannot be written --------------------------
 # the bookkeeping of this pass is already spent, so the gate must start the
 # session (exit 0) and name no path, never skip the fire

@@ -1,17 +1,19 @@
 # The schedule gate and the worklist
 
 Read this file when a run has no worklist from the gate — the ungated audit,
-the direct session, a gate that broke — when preflight printed no JSON, or when
+the direct session, a gate that broke — when a pass printed no JSON, or when
 the operator asks about the gate or a worklist key. A gated run already holds
 its worklist and follows [runbook.md](runbook.md) alone.
 
 ## The schedule gate
 
 Every gated schedule — all of them except the audit — carries a `precheck`:
-`scripts/precheck.sh <mode>` runs preflight (`scripts/monitor.sh` for the
-monitor, [monitor.md](monitor.md)) *before* the platform starts a session and turns the answer into an exit code, so a tick with no work costs no
-model call at all. A started run receives the gate's stdout: the
-`worklist: <path>` line, the due keys, and preflight's `logs` to echo.
+`scripts/precheck.sh <mode>` runs one pass — `scripts/preflight.sh <mode>`, or
+`scripts/monitor.sh` for the monitor ([monitor.md](monitor.md)) — *before* the
+platform starts a session and turns the answer into an exit code, so a tick
+with no work costs no model call at all. A started run receives the gate's
+stdout: the `worklist: <path>` line, the due keys, and the pass's `logs` to
+echo.
 
 - **Read that file and never run `preflight.sh` (or `monitor.sh`) again this
   run.** One fire is one pass: the `done → awaiting_label` flip, the
@@ -27,7 +29,7 @@ model call at all. A started run receives the gate's stdout: the
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), and the audit's heartbeat-gap
   check reads them. The gate logs outside a session, so its `precheck` event and
-  the preflight pass it drives carry their own run id and the session carries
+  the pass it drives carry their own run id and the session carries
   another — read one fire as that pair ([logging.md](logging.md) → **The events
   log**).
 - The gate broke — a crash, a pass over the gate's own 100 s budget (its prompt

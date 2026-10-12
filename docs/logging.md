@@ -18,10 +18,11 @@ file per UTC day), one JSON object per line:
   (`CLAUDE_CODE_SESSION_ID`) → start time + pid. Groups all lines of one run.
   **A gated fire carries two of them** ([worklist.md](worklist.md) → **The
   schedule gate**): the gate runs outside a session, so its `precheck` line and
-  the whole `preflight.sh` pass it drives share one `<timestamp>-<pid>` id, and
-  the session that starts from the worklist writes its own lines under the
-  harness session id. Read one fire as that pair, matched on `job` and on the
-  minute the gate's `precheck` event names.
+  the whole pass it drives (`preflight.sh`, or `monitor.sh` for the monitor)
+  share one `<timestamp>-<pid>` id, and the session that starts from the
+  worklist writes its own lines under the harness session id. Read one fire as
+  that pair, matched on `job` and on the minute the gate's `precheck` event
+  names.
 - **job** — `review` | `shepherd` | `audit` | `benchmark` | `monitor` | `session` (from
   `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written

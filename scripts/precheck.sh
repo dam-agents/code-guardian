@@ -16,12 +16,12 @@
 #   nothing_to_do -> exit 1. HEARTBEAT.log and the structured log already carry
 #                    the tick, so an idle heartbeat costs zero tokens.
 #   work          -> exit 0, `worklist: <path>` + the non-empty keys and logs.
-#   no JSON       -> exit 2 with the reason, preflight's exit code and the tail
+#   no JSON       -> exit 2 with the reason, the pass's exit code and the tail
 #                    of its stderr: the session starts and does the equivalent
 #                    work manually (docs/runbook.md).
-#   over budget   -> exit 2 with preflight's last logged step: the pass ran past
+#   over budget   -> exit 2 with the pass's last logged step: it ran past
 #                    the gate's own budget (below the platform's limit).
-#   error         -> exit 2 with preflight's `error`: it could not decide (no
+#   error         -> exit 2 with the pass's `error`: it could not decide (no
 #                    target repo, no answer from the API), which is a broken
 #                    gate, never an idle tick.
 #
@@ -81,7 +81,7 @@ find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
 find "$TMP" -maxdepth 1 -type d -name 'cg-pf.*' -mmin +180 -exec rm -rf {} + >/dev/null 2>&1 || true
 
 # A gate runs outside a session, so no transcript holds why it broke: keep
-# preflight's stderr and log it with the exit code. The text reaches the task
+# the pass's stderr and log it with the exit code. The text reaches the task
 # prompt, so it passes the same credential masking as a log line (log.sh ->
 # log_redact), and a scratch file that cannot be created costs the cause, never
 # the pass.
@@ -114,14 +114,14 @@ if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ];
       | "\(.event): \(.msg)"' 2>/dev/null \
     | tail -1 | cut -c1-200)"
   LAST="$(log_redact "${LAST:-none}")"
-  logev error precheck "$MODE gate: preflight stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
+  logev error precheck "$MODE gate: $PASS stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
   printf 'precheck (%s): scripts/%s did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (%s) may be spent, so %s.\n' \
     "$MODE" "$PASS" "$BUDGET" "$LAST" "$SPENT" "$LOST"
   exit 2
 fi
 
 if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/dev/null 2>&1; then
-  logev error precheck "$MODE gate: preflight printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
+  logev error precheck "$MODE gate: $PASS printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
   printf 'precheck (%s): scripts/%s printed no JSON worklist (exit %s)%s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PASS" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
   exit 2
@@ -130,7 +130,7 @@ fi
 PRE_ERR="$(printf '%s' "$JSON" | jq -r '.error // empty | tostring')"
 if [ -n "$PRE_ERR" ]; then
   PRE_ERR="$(log_redact "$(printf '%s' "$PRE_ERR" | cut -c1-400)")"
-  logev error precheck "$MODE gate: preflight could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
+  logev error precheck "$MODE gate: $PASS could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
   printf 'precheck (%s): scripts/%s could not decide (exit %s): %s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PASS" "$PRE_RC" "$PRE_ERR"
   exit 2
