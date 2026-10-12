@@ -565,7 +565,7 @@ run_preflight audit
 assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
   'a hex token next to a failure word is not a zero count'
 
-# --- wake-ups: the preflight passes that found work, by kind of work ---------
+# --- wake-ups: the preflight and monitor passes that found work, by kind -----
 new_case audit_wakeups
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx

@@ -2414,12 +2414,13 @@ if [ "$MODE" = "audit" ]; then
   if [ -n "$SM_OUT" ]; then check session_models "${SM_OUT%%$'\t'*}" "${SM_OUT#*$'\t'}"
   else check session_models warn "session models could not be compared — stats.sessions unreadable"; fi
 
-  # Wake-ups — the preflight passes that found work, from the `heartbeat`
-  # events emit(), survey_out() and bench_out() write: a gated fire that started
-  # a session, or an ungated pass (the direct session, the rerun after a broken
-  # gate). `by_work.<kind>` counts the runs that carried that work (`runs`) and
-  # its items; one run can carry several kinds. `unlabelled` counts woken runs
-  # that name no kind: events from before the kind keys.
+  # Wake-ups — the preflight and monitor passes that found work, from the
+  # `heartbeat` events emit(), survey_out(), bench_out() and monitor.sh write:
+  # a gated fire that started a session, or an ungated pass (the direct
+  # session, the rerun after a broken gate). `by_work.<kind>` counts the runs
+  # that carried that work (`runs`) and its items; one run can carry several
+  # kinds. `unlabelled` counts woken runs that name no kind: events from before
+  # the kind keys.
   WAKEUPS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries

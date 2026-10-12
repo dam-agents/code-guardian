@@ -378,9 +378,10 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
   `.ctx`, `.post.json`, `.fix`), `/tmp/benchmark-pr*` directories, `.bench-usage-*`
   nonce caches, or temp payload files at run end. `/tmp/cg-worklist-*.json`
   belongs to the gate, which sweeps its own past 3 h — a run never deletes one.
-- One fire, one preflight pass: a gated run consumes the worklist the gate
-  computed, a dispatched session its unit worklist, and neither re-runs
-  `preflight.sh` ([worklist.md](worklist.md) → **The schedule gate**).
+- One fire, one gate pass: a gated run consumes the worklist the gate
+  computed, a dispatched session its unit worklist, and neither re-runs the
+  pass — `preflight.sh`, or `monitor.sh` for the monitor
+  ([worklist.md](worklist.md) → **The schedule gate**).
 - All errors — posting, skills, clone, context fetch, sends, pushes — are
   logged in the chat UI **and** as events in the structured log
   ([logging.md](logging.md)).
@@ -389,7 +390,7 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 
 | File | Read when |
 | --- | --- |
-| [worklist.md](worklist.md) | A run with no worklist from the gate (the audit, the direct session, a broken gate), a preflight with no JSON, or an operator ask about the gate — the schedule gate, the entry command, the worklist keys, runtime configuration |
+| [worklist.md](worklist.md) | A run with no worklist from the gate (the audit, the direct session, a broken gate), a gate pass with no JSON, or an operator ask about the gate — the schedule gate, the entry command, the worklist keys, runtime configuration |
 | [review.md](review.md) | `read_set` names it (`reviews_due`, `mentions_due`, `ci_failures_due` or `fixes_due` non-empty), or an on-demand review — per-PR sequence, PR context, criteria, first-review output, merging, guards, overrides, errors, self-check |
 | [review-rereview.md](review-rereview.md) | `read_set` names it (a re-review is due), or `prepare` returns a `carry` — re-review output, delta scope, carried reviews, stale-approval dismissal |
 | [review-urgent.md](review-urgent.md) | `read_set` names it (an `urgent` or `closed` entry, `urgent_alerts_due`), or `post` returns `closed_*` — rapid-first delivery, the closed-PR issue |

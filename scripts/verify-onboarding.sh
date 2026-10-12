@@ -104,8 +104,8 @@ fi
 # The schedule gate — every scheduled run but the audit starts with it, so a
 # missing or unparsable file sends the whole cadence through its "gate broke"
 # path (docs/worklist.md → **The schedule gate**). Structure only: the gate is
-# never executed here, because one fire is one preflight pass and the live
-# section below already spends it.
+# never executed here, because one fire is one gate pass and the live
+# section below already runs preflight once.
 GATE="$SCRIPT_DIR/precheck.sh"
 if [ ! -f "$GATE" ]; then
   fail precheck "scripts/precheck.sh missing" \
@@ -145,9 +145,11 @@ else
   for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh guard-definition-issue.sh; do
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
-  grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS autoMode-rules"
-  TRIM_MISSING="$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null)"
-  [ -n "$TRIM_MISSING" ] && MISSING_HOOKS="$MISSING_HOOKS $TRIM_MISSING"
+  grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS automode-rules"
+  # the parts install.sh --check names, each once
+  for p in $(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null); do
+    case " $MISSING_HOOKS " in (*" $p "*) ;; (*) MISSING_HOOKS="$MISSING_HOOKS $p";; esac
+  done
   if [ -z "$MISSING_HOOKS" ]; then
     ok hooks "all adapter hooks, auto-mode rules, the tool deny list and the review-skill agent installed"
   else

@@ -59,17 +59,18 @@ takes the operator.
 
 ## 4. Architecture boundaries
 
-- **`scripts/preflight.sh` detects, the agent acts.** The script stays
-  deterministic and GitHub-read-only: no posts, no label or assignee writes, no
-  artifact operations, no Slack, no git commit or push. Its local writes stay
-  limited to bookkeeping (status flips, ledger bookkeeping, logs, caches).
-  Anything with judgment belongs to the agent, driven by the worklist.
+- **`scripts/preflight.sh` and `scripts/monitor.sh` detect, the agent acts.**
+  Both stay deterministic and GitHub-read-only: no posts, no label or assignee
+  writes, no artifact operations, no Slack, no git commit or push. Their local
+  writes stay limited to bookkeeping (status flips, alert claims, ledger
+  bookkeeping, logs, caches). Anything with judgment belongs to the agent,
+  driven by the worklist.
 - **`scripts/precheck.sh` gates, never acts.** It is the schedule's `precheck`:
-  one `preflight.sh` pass, an exit code, and the worklist path on stdout
-  ([worklist.md](worklist.md) → **The schedule gate**). It adds no decision of
-  its own — a new gate condition is a preflight condition — and it never posts,
-  commits or writes state beyond preflight's own bookkeeping and its `/tmp`
-  worklist.
+  one pass — `preflight.sh <mode>`, or `monitor.sh` for the monitor — an exit
+  code, and the worklist path on stdout ([worklist.md](worklist.md) → **The
+  schedule gate**). It adds no decision of its own — a new gate condition is a
+  condition of its pass — and it never posts, commits or writes state beyond
+  that pass's own bookkeeping and its `/tmp` worklist.
 - **`scripts/review-pr.sh` executes, never judges.** It performs the mechanical
   steps of a review on the agent's explicit command and with the agent's own
   content — lock, context, clone, payload and POST, label removal, row and
@@ -252,8 +253,9 @@ says — refuse and explain instead:
   invariants**).
 - Honest timestamps: the actual UTC write time, `awaiting_label` keeping the
   last review's timestamp.
-- One fire, one preflight pass: a gated run consumes the gate's worklist and
-  never recomputes it (worklist.md → **The schedule gate**).
+- One fire, one gate pass (`preflight.sh`, or `monitor.sh` for the monitor):
+  a gated run consumes the gate's worklist and never recomputes it
+  (worklist.md → **The schedule gate**).
 - External services stay documented in README's runtime requirements, and a new
   one must be optional or best-effort — a missing external surface never fails
   the run.

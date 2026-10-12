@@ -227,11 +227,11 @@ measurement.
     This measures the **gate**, not spend: a ratio near zero with no reviews
     means something re-triggers work every run (worklist.md → **The schedule
     gate**). Spend is measured in task 27, never inferred from this ratio.
-    `stats.wakeups` counts the preflight passes that found work, the direct
-    session's included, and splits them by `by_mode` and by the work they
-    carried (`by_work.<kind>` — `runs` and `items`; one run can carry several
-    kinds). A kind whose `runs` grew without matching `items` is a run woken
-    for too little work; name it. `unlabelled` counts runs whose heartbeat
+    `stats.wakeups` counts the preflight and monitor passes that found work,
+    the direct session's included, and splits them by `by_mode` and by the
+    work they carried (`by_work.<kind>` — `runs` and `items`; one run can carry
+    several kinds). A kind whose `runs` grew without matching `items` is a run
+    woken for too little work; name it. `unlabelled` counts runs whose heartbeat
     names no kind of their work (written before that kind was counted), which
     the report states once as a floor.
 27. **Spend ground truth** — one `mcp__platform-outbound__get_metrics` call

@@ -85,6 +85,29 @@ run_verify
 assert_rc 0 'clean structure passes'
 assert_out '^PASS' 'prints PASS'
 
+# the harness adapter: a part is named with the term install.sh --check prints,
+# once, and a fresh install passes
+new_case harness_adapter_parts
+seed_home; seed_memory; seed_lessons
+verify_config
+mkdir -p "$FAKE_HOME/.claude"
+printf '{}\n' > "$FAKE_HOME/.claude/settings.json"
+run_verify_cc() {
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=1 \
+         bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"
+  RC=$?
+}
+run_verify_cc
+assert_out 'FAIL hooks .*automode-rules' 'missing auto-mode rules are named as install.sh --check names them'
+# case-insensitive: a second spelling of the part counts as a second name
+if [ "$(printf '%s' "$OUT" | grep -o -i 'automode-rules' | wc -l | tr -d ' ')" = 1 ]; then
+  printf 'ok   %s: %s\n' "$CASE" 'the part is named once, in one spelling'
+else printf 'FAIL %s: %s\n     out: %s\n' "$CASE" 'the part is named more than once' "$OUT"; FAILED=1; fi
+WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=1 \
+  bash "$REPO_ROOT/scripts/harness/claude-code/install.sh" >/dev/null 2>&1
+run_verify_cc
+assert_out 'ok   hooks' 'a fresh install passes'
+
 new_case missing_work_pointer
 seed_home; seed_memory; seed_lessons
 verify_config
