@@ -196,7 +196,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
   adapter; effective from the next session). It also keeps the auto-mode
   classifier rules for the agent's documented writes outside the target repo —
   the anonymous tracking issue on `definition_repo` through
-  `scripts/definition-issue.sh`, the `curl -X PUT` artifact upload,
+  `scripts/definition-issue.sh`, the `curl -X PUT` upload of every published
+  report and artifact (`work/audit/`, `work/benchmark/`,
+  `work/reviews/pr-artifacts/`, `work/survey/`),
   the review dispatch through `schedule_once` —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of

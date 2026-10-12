@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 8.19.0 — 2026-10-10
+## 8.19.0 — 2026-10-12
 
 **Upgrade:** When `work/CONFIG.md` has `survey: enabled` and `survey_report:
 dam` (or no `survey_report` key) and no `survey_report_findings` key, the
@@ -20,6 +20,21 @@ survey artifact stays an index of areas and passes — missing means
 (findings on the public artifact) in the direct session, as a message of its
 own, and write `- survey_report_findings: enabled` only on a yes. No schedule
 changes; the next survey run republishes the page in the chosen form.
+
+## 8.18.3 — 2026-10-12
+
+**Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
+(idempotent; a no-op on another harness): its auto-mode upload rule now names
+`work/survey/` and `work/benchmark/` too, effective from the next session. No
+schedule changes.
+
+## 8.18.2 — 2026-10-12
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 8.18.1 — 2026-10-12
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 8.18.0 — 2026-10-09
 
