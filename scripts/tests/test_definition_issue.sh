@@ -135,6 +135,8 @@ blocks foreign_term  'Reported by Müller from Škoda.'
 blocks foreign_term  'the reporter was müller.'
 blocks foreign_term  'Reported by Ștefan.'
 blocks foreign_term  'Reported by Иван.'
+blocks foreign_term  'Reported by Ⰲⰾⲏ.'
+blocks foreign_term  'Reported by ⵎⴰⵙⵉⵏⵉⵙⴰ.'
 # a compound of definition words in code or with a capital letter is checked whole
 blocks foreign_term  'The `merge-worker` job fails.'
 blocks foreign_term  'Review-Bot posts nothing.'
@@ -177,6 +179,12 @@ instance '- definition_issues: enabled'
 body "${CLEAN[@]}" 'A stand-by mode keeps the per-PR hold after a one-time re-review.'
 run_issue check '[audit] A dispatched re-review keeps its hold'
 assert_jq '.outcome == "clean"' 'a hyphenated compound of definition words passes'
+
+new_case math_signs_pass
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'The size is 2×3 meters, and the ratio is 6÷2.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "clean"' 'the signs × and ÷ separate tokens'
 
 new_case placeholders_pass
 instance '- definition_issues: enabled'

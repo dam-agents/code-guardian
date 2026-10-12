@@ -133,11 +133,12 @@ hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
 # definition never wrote. A copy without git metadata reads the tree as is.
 DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # a token is ASCII word characters and UTF-8 letters outside ASCII — two-byte
-# from U+00C0, three-byte below U+E000 except punctuation and symbols
-# (U+2000–U+2FFF) — so a name with such a letter stays one token under LC_ALL=C
+# from U+00C0 except the math signs U+00D7 and U+00F7, three-byte below
+# U+E000 except punctuation and symbols (U+2000–U+2BFF, U+2E00–U+2FFF) — so a
+# name with such a letter stays one token under LC_ALL=C
 TC="A-Za-z0-9_.~/@\$'-"
-NA1="$(printf '[\303-\341\343-\355]')"
-NA="$(printf '[\303-\337][\200-\277]|[\340\341\343-\355][\200-\277][\200-\277]')"
+NA1="$(printf '[\303-\341\343-\355]|[\342][\260-\267]')"
+NA="$(printf '[\303][\200-\226\230-\266\270-\277]|[\304-\337][\200-\277]|[\340\341\343-\355][\200-\277][\200-\277]|[\342][\260-\267][\200-\277]')"
 TOK="([$TC]|$NA)+"
 tokens() { grep -oE "$TOK" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
 VOCAB="$TMP/vocab.txt"
