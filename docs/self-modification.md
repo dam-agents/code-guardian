@@ -50,12 +50,16 @@ takes the operator.
 - Onboarding stays **idempotent and re-runnable**: the sentinel guard and the
   "keep existing values, ask only for missing keys" rule survive every edit.
 - Schedule task texts **and `precheck` commands** live in ONBOARDING Step 6 as
-  the **single source of truth**. Changing a run's gate or entry command means
-  updating Step 6 and [worklist.md](worklist.md) → **Entry command** — and
-  `kit.yaml`, which repeats Step 6's names, crons, gates and task texts verbatim
-  for a new instance, and which CI compares against Step 6 on every PR. A
-  cadence or a timezone is the instance's own: `kit.yaml` carries the default
-  cron alone.
+  the **single source of truth**. Adding or removing a run, or changing its
+  gate or entry command, updates Step 6, [worklist.md](worklist.md) → **Entry
+  command** and `kit.yaml`, which repeats Step 6's names, crons, gates and task
+  texts verbatim for a new instance. The kit check in
+  `.github/workflows/ci.yml` compares the two on every PR; a run added or
+  removed also changes its run count and its name-prefix table. A push under
+  `.github/workflows/` needs a token with `workflow` scope: without it, the PR
+  body gives that edit as an **operator-only** step, and the operator pushes it
+  to the branch before the merge. A cadence or a timezone is the instance's
+  own: `kit.yaml` carries the default cron alone.
 
 ## 4. Architecture boundaries
 
@@ -218,7 +222,8 @@ image, the harness, an external service — instead of fixing it at its source:
   onboarding prompt asks for updates it in the same PR. CI compares the
   schedules (section 3) and the mechanical pairs (`id`, sentinel, paths); the
   catalog text — `description`, `tagline`, `harnesses` — is this sweep's, and a
-  new capability that changes what the kit offers belongs in it.
+  new capability that changes what the kit offers (a new run, a new outward
+  surface) belongs in it.
 - `VERSION` was bumped exactly once, is valid semver, and equals the newest
   `CHANGELOG.md` heading; the new entry has an **Upgrade** block and nothing
   else.

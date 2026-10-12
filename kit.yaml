@@ -10,7 +10,9 @@ description: >-
   structured review per PR, re-reviews on a label, and can nudge human
   reviewers on Slack. With the repository admin's opt-in it also merges a
   labeled PR it approved as a quick check, or fixes its own findings on a
-  labeled PR.
+  labeled PR. A separate monitor reports the agent's own health every 15
+  minutes (model, GitHub and classifier outages, a silent heartbeat) and can
+  publish a health dashboard.
 tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
