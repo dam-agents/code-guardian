@@ -147,7 +147,8 @@ chmod 700 "$SANDBOX/tmp"
 assert_rc 0 'an unwritable worklist starts the session anyway'
 assert_out_absent '^worklist: ' 'and names no path'
 assert_out_contains 'could not be written' 'and says why the run recomputes it'
-assert_out_contains 'stall or anomaly alert may be missing' 'and what the spent bookkeeping costs'
+assert_out_contains '(the awaiting_label flip) is already spent' 'and names the bookkeeping the review pass spent'
+assert_out_absent 'stall|anomaly' 'and no alert the review pass no longer makes'
 assert_out_contains 'scripts/preflight.sh" review`' 'and names the pass with its mode'
 
 # the monitor's pass takes no mode: the recovery command it names must run
@@ -158,6 +159,8 @@ run_precheck monitor "$SANDBOX/scripts"
 chmod 700 "$SANDBOX/tmp"
 assert_rc 0 'an unwritable monitor worklist starts the session too'
 assert_out_contains 'scripts/monitor.sh"` yourself' 'and names monitor.sh without a mode'
+assert_out_contains '(the alert claims, the daily stall-alert claim, the anomaly-alert marker) is already spent' 'and the bookkeeping the monitor pass spent'
+assert_out_absent 'awaiting_label' 'and no review bookkeeping'
 
 # --- the gate cleans up after itself ----------------------------------------
 # a skipped fire has no session to sweep its scratch, so the gate does it

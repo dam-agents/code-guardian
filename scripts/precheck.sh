@@ -48,9 +48,18 @@ if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then
   logev() { :; }; log_redact() { printf '%s' "$1"; }
 fi
 
+# the pass this mode runs, the command that re-runs it in a session (preflight.sh
+# takes the mode, monitor.sh none), and its one-shot bookkeeping that a second
+# pass cannot redo — the fallback prompts below name them
 case "$MODE" in
-  review|shepherd|benchmark|survey) PASS=preflight.sh; PASS_ARGS=("$MODE");;
-  monitor) PASS=monitor.sh; PASS_ARGS=();;
+  review|shepherd|benchmark|survey) PASS=preflight.sh; PASS_ARGS=("$MODE")
+    RERUN="bash \"\$HOME/scripts/preflight.sh\" $MODE"
+    SPENT='the awaiting_label flip'
+    LOST='a second pass may report less than the first';;
+  monitor) PASS=monitor.sh; PASS_ARGS=()
+    RERUN='bash "$HOME/scripts/monitor.sh"'
+    SPENT='the alert claims, the daily stall-alert claim, the anomaly-alert marker'
+    LOST='a second pass skips the alerts this pass claimed for 30 min, and may miss a stall or anomaly alert';;
   audit)
     printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
@@ -106,8 +115,8 @@ if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ];
     | tail -1 | cut -c1-200)"
   LAST="$(log_redact "${LAST:-none}")"
   logev error precheck "$MODE gate: preflight stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
-  printf 'precheck (%s): scripts/%s did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) may be spent, so a stall or anomaly alert may be missing from your worklist.\n' \
-    "$MODE" "$PASS" "$BUDGET" "$LAST"
+  printf 'precheck (%s): scripts/%s did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (%s) may be spent, so %s.\n' \
+    "$MODE" "$PASS" "$BUDGET" "$LAST" "$SPENT" "$LOST"
   exit 2
 fi
 
@@ -138,9 +147,8 @@ OUT="$TMP/cg-worklist-$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
 ( umask 077; : > "$OUT" ) 2>/dev/null || true
 if ! printf '%s\n' "$JSON" > "$OUT" 2>/dev/null; then
   logev error precheck "$MODE gate: the worklist file could not be written — the run recomputes it"
-  # the pass's own arguments: preflight.sh takes the mode, monitor.sh none
-  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/%s"%s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) is already spent, so a stall or anomaly alert may be missing from the second worklist.\n' \
-    "$MODE" "$PASS" "${PASS_ARGS[@]+ ${PASS_ARGS[*]}}"
+  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `%s` yourself. One-shot bookkeeping of the first pass (%s) is already spent, so %s.\n' \
+    "$MODE" "$RERUN" "$SPENT" "$LOST"
   exit 0
 fi
 

@@ -43,8 +43,7 @@ die() { printf 'dispatch: %s\n' "$1" >&2; exit 2; }
 
 # The entries that belong to one PR travel with it — its urgent alert, so the
 # session that reviews the PR announces it first, and its bookkeeping rows, so
-# one session writes that PR's REVIEWS.md row; the stall and anomaly alerts
-# stay with the run that received the worklist. Run order is docs/runbook.md → Review run
+# one session writes that PR's REVIEWS.md row. Run order is docs/runbook.md → Review run
 # steps 5 to 10: urgent reviews, mentions, reviews, artifacts, CI failures,
 # merges, fixes.
 UNIT_JQ='
