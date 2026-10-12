@@ -3116,12 +3116,14 @@ if [ "$MODE" = "audit" ]; then
     ov_cr="$(printf '%s' "$ov_res" | jq -c --argjson cr "$ov_cr" '$cr + .hits')"
   done
   # the REST fallback: the PRs the batches left unread, one paginated call
-  # each, every page merged before the filter
+  # each, every page merged before the filter; a call that exits non-zero
+  # leaves its PR unread, whatever pages it printed before it failed
   ov_left=""; ov_rest=0
   for ap in $ov_unread; do
     if [ "$ov_rest" -ge "$OV_REST_CAP" ]; then ov_left="$ov_left $ap"; continue; fi
     ov_rest=$((ov_rest + 1))
-    ov_hits="$(gh api --paginate "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null \
+    ov_raw="$(gh api --paginate "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)" || ov_raw=""
+    ov_hits="$(printf '%s' "$ov_raw" \
       | jq -sc --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --argjson n "$ap" '
         if length == 0 or any(.[]; type != "array") then empty else
         ([ $a[] | select(.pr == $n) ]) as $mine
@@ -3136,6 +3138,7 @@ if [ "$MODE" = "audit" ]; then
     ov_read=$((ov_read + 1))
     ov_cr="$(printf '%s' "$ov_hits" | jq -c --argjson cr "$ov_cr" '$cr + .')"
   done
+  unset ov_raw
   ov_unread="$ov_left"
   approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"

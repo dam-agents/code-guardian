@@ -1183,4 +1183,24 @@ if [ "$(grep -c 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log")" = 20 ]; then
   printf 'ok   %s: at most 20 REST calls\n' "$CASE"
 else printf 'FAIL %s: REST calls: %s\n' "$CASE" "$(grep -c 'pulls/[0-9]*/reviews' "$SANDBOX/calls.log")"; FAILED=1; fi
 
+# --- a REST call that fails after its first page leaves the PR unread --------
+new_case audit_approve_rest_cut
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+jq -nc --arg ts "$(iso_ago 86400)" '{src:"ledger", pr:3, ts:$ts, sha:"abc1234", kind:"first", verdict:"APPROVE", bullets:{fixed:0, still:0}, findings:[]}' \
+  >> "$WORK/REVIEW-LEDGER.jsonl"
+jq -n --arg at "$(iso_ago 3600)" '[{state:"COMMENTED", user:{login:"alice", type:"User"}, commit_id:"abc1234ffff", submitted_at:$at}]' \
+  | fx 'api --paginate repos/acme/widgets/pulls/3/reviews?per_page=100'
+fx_fail graphql_approve_overruled
+# the connection drops after page 1: gh has printed that page, then exits 1
+mkdir -p "$SANDBOX/ghcut"
+printf '#!/usr/bin/env bash\n"%s/gh" "$@" || exit\ncase "$*" in (*--paginate*pulls/3/reviews*) exit 1;; esac\n' "$T_DIR/bin" \
+  > "$SANDBOX/ghcut/gh"
+chmod +x "$SANDBOX/ghcut/gh"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
+       CG_PROFILE_REMOTE="$SANDBOX/no-remote" CG_MIRROR_ROOT="$SANDBOX/mirror" \
+       PATH="$SANDBOX/ghcut:$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" audit)"
+assert_jq '.stats.overruled | .scanned == 0 and .unread == ["3"]' \
+  'a REST call that prints page 1 and then fails leaves the PR unread'
+
 finish
