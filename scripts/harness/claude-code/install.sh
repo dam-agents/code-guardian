@@ -58,7 +58,7 @@ PREV="$(jq -c 'if type == "array" then map(strings) else [] end' "$OWNED" 2>/dev
 # from work/CONFIG.md; the definition repo falls back to $HOME's origin, so
 # Step 1b works before the config exists.
 HOME_DIR="${HOME:-/home/agent}"
-CONFIG="$HOME_DIR/work/CONFIG.md"
+CONFIG="${WORK_DIR:-$HOME_DIR/work}/CONFIG.md"
 . "$ADAPTER_DIR/../../lib/common.sh"
 DEF="$(cfg definition_repo)"
 [ -n "$DEF" ] || DEF="$(origin_ref "$HOME_DIR")"

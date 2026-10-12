@@ -400,12 +400,11 @@ write_settings <<'EOF'
 EOF
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("tool-deny") and contains("skill-agent"))' 'hooks without the deny list and the review-skill agent warn by part'
-# the parts install.sh adds: the deny list and the review-skill agent
+# install.sh writes every part: the hooks, the current auto-mode rules, the
+# deny list and the review-skill agent
 ADAPTER="$REPO_ROOT/scripts/harness/claude-code"
-DENY_JSON="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$ADAPTER/denied-tools.txt" | jq -Rsc 'split("\n") | map(select(length > 0))')"
-jq --argjson d "$DENY_JSON" '.permissions.deny = (["Bash(rm -rf *)"] + $d)' "$FAKE_HOME/.claude/settings.json" > "$SANDBOX/s.json" \
-  && write_settings < "$SANDBOX/s.json"
-mkdir -p "$FAKE_HOME/.claude/agents" && cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
+install_adapter() { HOME="$FAKE_HOME" WORK_DIR="$WORK" CLAUDECODE=1 bash "$ADAPTER/install.sh" >/dev/null 2>&1; }
+install_adapter
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'all hooks, auto-mode rules, deny list and agent installed → ok'
 echo "stale" >> "$FAKE_HOME/.claude/agents/review-skill.md"
@@ -417,7 +416,7 @@ cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
 HOOKS_ONLY="$(jq 'del(.autoMode)' "$FAKE_HOME/.claude/settings.json")"
 printf '%s\n' "$HOOKS_ONLY" | write_settings
 CLAUDECODE=1 run_preflight audit
-assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("autoMode-rules"))' 'missing auto-mode rules warn'
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("automode-rules"))' 'missing auto-mode rules warn'
 
 # rules written before definition_repo was configured lack the tracking-issue rule
 new_case audit_hooks_stale_automode
@@ -426,8 +425,8 @@ pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_f
 mkdir -p "$FAKE_HOME/.claude/agents" && cp "$ADAPTER/agents/review-skill.md" "$FAKE_HOME/.claude/agents/"
 printf '%s\n' "$HOOKS_ONLY" | jq '.autoMode.allow = ["$defaults", "[code-guardian] Uploading a file under work/audit/."]' | write_settings
 CLAUDECODE=1 run_preflight audit
-assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("autoMode-rules"))' 'rules without the definition repo warn'
-printf '%s\n' "$HOOKS_ONLY" | jq '.autoMode.allow = ["$defaults", "[code-guardian] Opening a tracking issue on acme/guardian with gh issue create."]' | write_settings
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("automode-rules"))' 'rules without the definition repo warn'
+install_adapter
 CLAUDECODE=1 run_preflight audit
 assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok"' 'rules naming the definition repo → ok'
 
@@ -555,8 +554,9 @@ assert_jq '.stats.wakeups.by_work.nudges.items == 3 and .stats.wakeups.by_work.h
   'nudges and bookkeeping-only runs counted'
 assert_jq '.stats.wakeups.unlabelled == 1' 'a legacy event is counted but unlabelled'
 
-# the heartbeats preflight itself writes, read back by the audit: every kind the
-# audit counts is a key some writer emits, and no current writer is unlabelled
+# the heartbeats preflight and monitor.sh write, read back by the audit: every
+# kind the audit counts is a key some writer emits, and no current writer is
+# unlabelled
 new_case audit_wakeups_roundtrip
 base_config '- survey: enabled' '- benchmark: enabled'
 mkdir -p "$WORK/survey"
@@ -565,6 +565,7 @@ run_preflight survey
 run_preflight benchmark
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 run_preflight review
+run_monitor
 run_preflight audit
 assert_jq '.stats.wakeups.by_mode == {survey: 1, benchmark: 1, review: 1}' 'each pass with work is a wake-up'
 assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 1}

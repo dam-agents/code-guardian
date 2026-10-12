@@ -405,6 +405,16 @@ case "$STALL_ALERT_THRESHOLD" in
   (off|none) STALL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
 esac
+MODEL_ALERT_THRESHOLD="$(cfg model_alert_threshold)"
+case "$MODEL_ALERT_THRESHOLD" in
+  (off|none) MODEL_ALERT_THRESHOLD=0;;
+  (*[!0-9]*|'') MODEL_ALERT_THRESHOLD=2;;
+esac
+CLASSIFIER_ALERT_THRESHOLD="$(cfg classifier_alert_threshold)"
+case "$CLASSIFIER_ALERT_THRESHOLD" in
+  (off|none) CLASSIFIER_ALERT_THRESHOLD=0;;
+  (*[!0-9]*|'') CLASSIFIER_ALERT_THRESHOLD=20;;
+esac
 ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
 case "$ANOMALY_FACTOR" in
   (off|none) ANOMALY_FACTOR=0;;
@@ -480,6 +490,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
+  --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
@@ -501,6 +512,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
+   model_alert_threshold:$mat, classifier_alert_threshold:$cat,
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
    shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
@@ -2536,19 +2548,16 @@ if [ "$MODE" = "audit" ]; then
 
   if [ "${CLAUDECODE:-}" = "1" ]; then
     hooks_missing=""
-    for h in log-tool-event.sh log-review-step.sh log-session-tokens.sh enforce-review-completion.sh guard-definition-issue.sh; do
+    # each missing hook by name; install.sh --check owns the other parts
+    # (automode-rules, tool-deny, skill-agent), its bare `hooks` is named here
+    for h in log-tool-event.sh log-review-step.sh log-session-tokens.sh enforce-review-completion.sh \
+             guard-definition-issue.sh log-permission-denied.sh log-api-failure.sh; do
       grep -q "harness/claude-code/$h" "$HOME_DIR/.claude/settings.json" 2>/dev/null \
         || hooks_missing="$hooks_missing $h"
     done
-    # the tracking-issue rule names definition_repo: rules written before it
-    # was configured, or for another slug, are stale
-    am_def="$(cfg definition_repo)"; am_def="${am_def#github.com/}"
-    jq -e --arg d "$am_def" '([.autoMode.environment[]?, .autoMode.allow[]? | strings | select(startswith("[code-guardian]"))] | length > 0)
-        and ($d == "" or ([.autoMode.allow[]? | strings | select(startswith("[code-guardian]") and contains($d))] | length > 0))' \
-      "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1 || hooks_missing="$hooks_missing autoMode-rules"
-    # the tool deny list and the review-skill agent: install.sh owns both
-    trim_missing="$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null)"
-    [ -n "$trim_missing" ] && hooks_missing="$hooks_missing $trim_missing"
+    parts_missing="$(HOME="$HOME_DIR" WORK_DIR="$WORK" bash "$SCRIPT_DIR/harness/claude-code/install.sh" --check 2>/dev/null \
+      | tr ' ' '\n' | grep -vx 'hooks' | grep . | tr '\n' ' ')"
+    [ -n "$parts_missing" ] && hooks_missing="$hooks_missing ${parts_missing% }"
     if [ -z "$hooks_missing" ]; then
       check harness_adapter ok "Claude Code hooks, auto-mode rules, tool deny list and review-skill agent installed (tool logging + review-completion enforcement)"
     else
