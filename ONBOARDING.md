@@ -473,7 +473,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 9. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who
    should I escalate to when a PR stays unreviewed despite repeated reminders
    (nudge level 4)? Pick one person from the roster.* It must be a roster login
-   **with a `slack_id`**.
+   **with a `slack_id`**. Then ask:
+
+   > Should my monitor send its health alerts — a model or GitHub outage, a silent review schedule, a failing backup — to <owner> as a Slack DM on its own, without a model session? They then arrive even when the model API is down or a classifier refuses the send. The message is built from fixed templates only (`docs/monitor.md` → **Direct delivery**).
+
+   **Yes** → `monitor_slack_direct: enabled`; **no, or no reply** → omit the
+   key.
 10. **`benchmark`** — the optional monthly self-benchmark, off by default. Ask:
 
     > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
@@ -538,6 +543,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     **Yes** → `definition_issues: enabled`; **no, or no reply** →
     `definition_issues: disabled`. Always write the key, so the choice is
     explicit.
+15. **`health_dashboard`** — the health dashboard (`docs/health.md`). Ask:
+
+    > I keep a technical history for 90 days — schedule ticks, sessions, model and GitHub failures, classifier refusals, errors per hour — and a list of incidents. I can publish it as one dashboard in the DAM Artifact Library, with the state of each service, updated in place when a state changes or every 3 hours, with no model call. Anyone with its link can open it. Turn it on?
+
+    **Yes** → `health_dashboard: dam`; **no, or no reply** → omit the key. The
+    history is kept either way.
 
 Final shape:
 
@@ -582,9 +593,12 @@ Final shape:
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
+- monitor_slack_direct: enabled        # the monitor DMs its alerts itself, no model; omit = disabled
+- health_dashboard: dam                # health dashboard surface: dam | off (default)
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
 - review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) alerts; omit = 4; 0/off disables
 - model_alert_threshold: 2             # runs ended on an API failure in one outage that alert; omit = 2; 0/off disables
+- github_alert_threshold: 2            # gate passes in a row that could not list PRs that alert; omit = 2; 0/off disables
 - classifier_alert_threshold: 20       # classifier refusals per 24h that alert; omit = 20; 0/off disables
 - log_level: info                      # or: debug (diagnostic only); omit = info
 - active_hours: 00-23                  # platform timezone, both ends inclusive; missing = 00-23

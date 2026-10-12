@@ -11,6 +11,17 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.1.0 — 2026-10-12
+
+**Upgrade:** Nothing to run: the monitor starts the technical history in
+`work/health/` on its next tick and alerts on a GitHub outage
+(`github_alert_threshold`, missing = `2`). Offer the operator two off-by-default
+features: `monitor_slack_direct: enabled` — the monitor sends its alerts itself
+as a templated DM to `escalation_owner`, so they arrive during a model outage
+(needs `slack_notifications: enabled`; [docs/monitor.md](docs/monitor.md) →
+**Direct delivery**) — and `health_dashboard: dam` — the health dashboard in
+the DAM Artifact Library ([docs/health.md](docs/health.md)).
+
 ## 9.0.0 — 2026-10-12
 
 **Upgrade:** The review heartbeat no longer reports the stalled-review and

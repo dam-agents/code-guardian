@@ -138,6 +138,10 @@ below is for the manual fallback and the direct session.
 - **`model_alert_threshold`** — runs that ended on an API failure within one
   outage before the monitor alerts. **Missing = `2`**; `0`/`off` disables;
   an unparseable value falls back to `2` (monitor.md → **The alerts**).
+- **`github_alert_threshold`** — consecutive gate passes that could not list
+  the open PRs before the monitor alerts. **Missing = `2`**; `0`/`off`
+  disables; an unparseable value falls back to `2` (monitor.md → **The
+  alerts**).
 - **`classifier_alert_threshold`** — auto-mode classifier refusals within 24
   h that alert once per UTC day; a refused review post alerts on its own.
   **Missing = `20`**; `0`/`off` disables both; an unparseable value falls
@@ -212,6 +216,16 @@ below is for the manual fallback and the direct session.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
   target of the monitor's alerts. Slack-only key,
   legitimately absent when Slack is disabled.
+- **`monitor_slack_direct`** — `enabled` | `disabled`. **Missing =
+  `disabled`.** The monitor's pass sends the due alerts itself as one
+  templated DM to `escalation_owner`, with no model in the loop
+  ([monitor.md](monitor.md) → **Direct delivery**). Needs
+  `slack_notifications: enabled` and the owner's roster `slack_id`; without
+  them the session delivers.
+- **`health_dashboard`** — `dam` | `off`. **Missing = `off`.** The monitor's
+  pass publishes the health dashboard to the DAM Artifact Library and updates
+  it in place ([health.md](health.md) → **Publish**). `off` keeps the history
+  and publishes nothing.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,
   otherwise to the chat UI.

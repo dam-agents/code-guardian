@@ -76,6 +76,14 @@ review's triage — estimated minutes, what a person must judge, what was
 checked — and `shepherd_scope: needs_human` skips PRs the review called a
 quick check.
 
+**Health monitor** — every 15 minutes; a tick with no alert starts no
+session. `monitor.sh` reads the local logs for model and GitHub outages,
+classifier refusals, a silent review schedule, a failing backup and harness
+drift, and keeps 90 days of hourly technical history and incidents. With the
+opt-ins it sends its alerts itself as a templated Slack DM, so they arrive
+during a model outage, and publishes a health dashboard
+([`docs/monitor.md`](docs/monitor.md), [`docs/health.md`](docs/health.md)).
+
 **Weekly audit** — Friday morning by default, on while `audit_report` is
 enabled (the default).
 `preflight.sh audit` computes 7-day statistics and deterministic health checks
@@ -261,9 +269,12 @@ what it can and asking for the rest. Per-key semantics are in
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one alert; `0`/`off` disables. |
 | `model_alert_threshold` | not set (= `2`) | Runs ended on an API failure within one outage before the monitor alerts; `0`/`off` disables. |
+| `github_alert_threshold` | not set (= `2`) | Gate passes in a row that could not list the open PRs before the monitor alerts; `0`/`off` disables. |
 | `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that alert once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the monitor's alerts. |
+| `monitor_slack_direct` | asked with the escalation owner (default `disabled`) | The monitor sends its alerts itself as a templated DM to the escalation owner, so they arrive during a model outage (`docs/monitor.md` → **Direct delivery**). |
+| `health_dashboard` | asked (default `off`) | `dam` publishes the health dashboard — service status, 90 days of hourly history, incidents — updated in place (`docs/health.md`). |
 
 ### Runtime requirements
 

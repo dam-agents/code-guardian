@@ -1,11 +1,56 @@
 #!/usr/bin/env bash
-# Fake `curl` for scripts/tests — creates the -o target (skill install path)
-# and succeeds; never touches the network.
-out=""; prev=""
+# Fake `curl` for scripts/tests — never touches the network.
+#
+# Default: creates the -o target (skill install path) and succeeds.
+#
+# MCP mode (the URL equals $CURL_MCP_URL, lib/mcp.sh): reads the JSON-RPC body
+# from --data-binary @-, appends it to $CURL_MCP_LOG, writes an
+# mcp-session-id header to the -D file and answers as SSE, to the -o file when
+# one is given. A tools/call answers from $CURL_MCP_DIR/<tool>.json when that
+# file exists (a full `result` object), else with an empty success. Files in
+# $CURL_MCP_DIR change that:
+#   fail          every request fails like a refused connection (rc 7)
+#   fail-<tool>   that tool's call gets an HTTP error status (rc 22)
+#   hang-<tool>   that tool's call times out with no answer (rc 28)
+#   ping-<tool>   a server request with the call's own id precedes the answer
+out=""; hdr=""; data=""; url=""; prev=""
 for a in "$@"; do
-  [ "$prev" = "-o" ] && out="$a"
+  case "$prev" in
+    (-o) out="$a";;
+    (-D) hdr="$a";;
+    (--data-binary) data="$a";;
+  esac
+  case "$a" in (http://*|https://*) url="$a";; esac
   prev="$a"
 done
+
+if [ -n "${CURL_MCP_URL:-}" ] && [ "$url" = "$CURL_MCP_URL" ]; then
+  body=""; [ "$data" = "@-" ] && body="$(cat)"
+  [ -n "${CURL_MCP_LOG:-}" ] && printf '%s\n' "$body" >> "$CURL_MCP_LOG"
+  d="${CURL_MCP_DIR:-/nonexistent}"
+  [ -e "$d/fail" ] && exit 7
+  method="$(printf '%s' "$body" | jq -r '.method // empty' 2>/dev/null)"
+  id="$(printf '%s' "$body" | jq -c '.id // null' 2>/dev/null)"
+  [ -n "$hdr" ] && printf 'HTTP/1.1 200 OK\r\nmcp-session-id: s-test\r\n\r\n' > "$hdr"
+  pre=""
+  case "$method" in
+    (initialize) res='{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"stub","version":"1"}}';;
+    (tools/call)
+      tool="$(printf '%s' "$body" | jq -r '.params.name')"
+      [ -e "$d/fail-$tool" ] && exit 22
+      [ -e "$d/hang-$tool" ] && exit 28
+      [ -e "$d/ping-$tool" ] && pre="$(jq -nc --argjson id "$id" '{jsonrpc: "2.0", id: $id, method: "ping"}')"
+      if [ -f "$d/$tool.json" ]; then res="$(cat "$d/$tool.json")"
+      else res='{"content":[{"type":"text","text":"{}"}]}'; fi;;
+    (*) exit 0;;
+  esac
+  reply="$( [ -n "$pre" ] && printf 'event: message\ndata: %s\n\n' "$pre"
+    printf 'event: message\ndata: %s\n\n' "$(jq -nc --argjson id "$id" --argjson r "$res" '{jsonrpc: "2.0", id: $id, result: $r}')")"
+  if [ -n "$out" ] && [ "$out" != /dev/null ]; then printf '%s\n' "$reply" > "$out"
+  elif [ -z "$out" ]; then printf '%s\n' "$reply"; fi
+  exit 0
+fi
+
 if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")" 2>/dev/null
   printf 'stub file from tests/bin/curl\n' > "$out"

@@ -410,6 +410,11 @@ case "$MODEL_ALERT_THRESHOLD" in
   (off|none) MODEL_ALERT_THRESHOLD=0;;
   (*[!0-9]*|'') MODEL_ALERT_THRESHOLD=2;;
 esac
+GITHUB_ALERT_THRESHOLD="$(cfg github_alert_threshold)"
+case "$GITHUB_ALERT_THRESHOLD" in
+  (off|none) GITHUB_ALERT_THRESHOLD=0;;
+  (*[!0-9]*|'') GITHUB_ALERT_THRESHOLD=2;;
+esac
 CLASSIFIER_ALERT_THRESHOLD="$(cfg classifier_alert_threshold)"
 case "$CLASSIFIER_ALERT_THRESHOLD" in
   (off|none) CLASSIFIER_ALERT_THRESHOLD=0;;
@@ -490,7 +495,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
-  --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
+  --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
+  --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
@@ -512,7 +518,9 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
-   model_alert_threshold:$mat, classifier_alert_threshold:$cat,
+   model_alert_threshold:$mat, github_alert_threshold:$gat, classifier_alert_threshold:$cat,
+   monitor_slack_direct:(if $msd=="enabled" then "enabled" else "disabled" end),
+   health_dashboard:(if $hd=="dam" then "dam" else "off" end),
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
    shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),

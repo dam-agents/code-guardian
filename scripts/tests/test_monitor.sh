@@ -82,7 +82,7 @@ assert_jq '[.alerts_due[] | select(.kind == "model_unavailable" and .open == fal
 assert_jq '[.alerts_due[] | select(.kind == "model_recovered")] == []' 'and needs no recovery notice'
 mon_case mon_model_recovered_after_open
 fail_ev 7800; fail_ev 7500
-ID="model:$(iso_ago 7800)"
+ID="model:$(cat "$WORK"/logs/events-*.jsonl | jq -rs '[.[] | select(.event == "api_failure") | .ts] | min')"
 jq -n --arg id "$ID" --arg sent "$(iso_ago 7400)" '{alerts: {($id): {kind: "model_unavailable", first: $sent, sent: $sent}}}' > "$WORK/MONITOR.json"
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "model_recovered" and .id == "'"$ID"':recovered")] | length == 1' 'an outage alerted while open gets one recovery notice'
@@ -101,6 +101,59 @@ mon_case mon_model_off '- model_alert_threshold: off'
 fail_ev 600; fail_ev 300
 run_monitor
 assert_jq '.alerts_due == [] and .config.model_alert_threshold == 0' 'off disables the model alert'
+
+# --- GitHub outage: failed gate ticks, the class, recovery on the next good tick --
+gh_fail() { ev "$1" review error preflight "could not list open PRs on acme/widgets (API error: ${2:-HTTP 502: Bad Gateway (https://api.github.com/repos/acme/widgets/pulls)})" "g$1"; }
+gh_ok()   { ev "$1" review info heartbeat "mode=review nothing_to_do=true reviews=0" "g$1"; }
+mon_case mon_github_open
+gh_ok 3600; gh_fail 900
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "github_unavailable")] == []' 'one failed tick stays under the default threshold of 2'
+gh_fail 600 'gh: Bad credentials (HTTP 401)'
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "github_unavailable")] | length == 1 and .[0].open == true and .[0].count == 2
+  and .[0].errors.server_error == 1 and .[0].errors.auth == 1 and .[0].id == "github:\(.[0].first)"' 'two failed ticks alert, open, with their classes'
+ID="$(printf '%s' "$OUT" | jq -r '.alerts_due[] | select(.kind == "github_unavailable") | .id')"
+run_monitor ack "$ID"
+jq --arg id "$ID" --arg t "$(iso_ago 500)" '.alerts[$id].sent = $t' "$WORK/MONITOR.json" > "$WORK/m.json" && mv "$WORK/m.json" "$WORK/MONITOR.json"
+gh_fail 300 'dial tcp: lookup api.github.com: i/o timeout'
+run_monitor
+assert_jq '.alerts_due == [] and .suppressed == 1' 'a third failed tick is the same outage, already reported'
+gh_ok 60
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "github_recovered")] | length == 1 and .[0].needs == "'"$ID"'" and .[0].count == 3 and (.[0].minutes | . >= 13 and . <= 15)' 'the next good tick ends it with one recovery notice'
+run_monitor ack "$ID:recovered"
+run_monitor
+assert_jq '.alerts_due == []' 'the recovery notice goes once'
+
+mon_case mon_github_quiet_recovery
+gh_fail 900; gh_fail 600; gh_ok 300
+run_monitor
+assert_jq '([.alerts_due[] | select(.kind == "github_unavailable" and .open == false)] | length == 1)
+  and ([.alerts_due[] | select(.kind == "github_recovered")] == [])' 'an outage nobody was told about alerts once, as closed, with no recovery notice'
+
+mon_case mon_github_class_slug
+ev 900 review error preflight "could not list open PRs on acme/authentication-api (API error: dial tcp: i/o timeout)" g1
+ev 600 review error preflight "could not list open PRs on acme/authentication-api (API error: dial tcp: i/o timeout)" g2
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "github_unavailable") | .errors == {"network": 2}' 'the class comes from the API error text, never from the repo slug'
+
+mon_case mon_github_split
+gh_fail 900; gh_ok 600; gh_fail 300
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind | startswith("github"))] == []' 'a good tick between two failures splits them into two single-tick outages'
+
+mon_case mon_github_other_errors
+ev 600 review error preflight "target repo unresolved (CONFIG.md github_repo missing)" g1
+ev 300 review error preflight "target repo unresolved (CONFIG.md github_repo missing)" g2
+ev 200 review warn gh_api "PR #4: state check did not respond — prune skipped this run" g2
+run_monitor
+assert_jq '.alerts_due == []' 'a config error and a partial API warning are not an outage'
+
+mon_case mon_github_off '- github_alert_threshold: off'
+gh_fail 900; gh_fail 600
+run_monitor
+assert_jq '.alerts_due == [] and .config.github_alert_threshold == 0' 'off disables the GitHub alert'
 
 # --- classifier spike: threshold, the day id, the patterns -----------------------
 mon_case mon_classifier_spike '- classifier_alert_threshold: 3'

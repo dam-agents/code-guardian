@@ -2,23 +2,27 @@
 # monitor.sh — the monitor's detector: the agent's health alerts, apart from
 # the review heartbeat (docs/monitor.md).
 #
-# Detects, never acts. Reads local files only — the events log, the review
-# usage baseline, the review ledger, the harness settings — and makes no
-# GitHub call, so the review gate stays free of health checks and a monitor
-# tick costs no API quota. Its writes are bookkeeping: the alert ledger
-# work/MONITOR.json (claims and deliveries), the stall-alert day claim, the
-# anomaly marker and baseline, HEARTBEAT.log and the events log.
+# Detects; its only outward calls are two opt-ins. Reads local files only —
+# the events log, the review usage baseline, the review ledger, the harness
+# settings — and makes no GitHub call, so the review gate stays free of health
+# checks and a monitor tick costs no API quota. Its writes are bookkeeping: the
+# alert ledger work/MONITOR.json (claims, deliveries, direct sends), the
+# stall-alert day claim, the anomaly marker and baseline, the technical history
+# work/health/ (health.sh), HEARTBEAT.log and the events log. Under
+# monitor_slack_direct it DMs the due alerts itself (monitor-direct.sh), and
+# under health_dashboard it publishes the dashboard (health.sh publish).
 #
 #   monitor.sh            -> worklist JSON: alerts_due[] (each with an `id`),
-#                            stall_alert, review_anomaly, suppressed, config,
-#                            logs; nothing_to_do when none is due
+#                            stall_alert, review_anomaly, direct, suppressed,
+#                            config, logs; nothing_to_do when none is due
 #   monitor.sh ack <id>…  -> records the alerts as delivered (send-then-record)
 #
 # An alerts_due entry is claimed for CLAIM_TTL_S when emitted: a later tick in
 # that time skips it, and after it the alert is emitted again — a session that
 # died before its ack (a model outage is the usual cause) loses nothing.
 #
-# Requires: bash, jq, sed/grep/cut/tr/sort, GNU or BSD date. No awk, no gh.
+# Requires: bash, jq, sed/grep/cut/tr/sort, GNU or BSD date; curl for the
+# opt-ins. No awk, no gh.
 
 set -u
 export LC_ALL=C
@@ -35,6 +39,9 @@ NOW_EPOCH=$(date -u +%s)
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 LOG_JOB=monitor
+# every MCP request of the pass ends 15 s before the gate's budget runs out
+export MCP_TIMEOUT_S="${MCP_TIMEOUT_S:-10}"
+export MCP_DEADLINE="${MCP_DEADLINE:-$(( $(date -u +%s) + ${CG_PRECHECK_BUDGET_S:-100} - 15 ))}"
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 . "$SCRIPT_DIR/lib/common.sh"
@@ -67,15 +74,22 @@ state_write() { # <json>
   rm -f "$STATE.tmp" 2>/dev/null
 }
 
+# records <ids> as delivered
+ack_apply() { # <ids json>
+  state_write "$(state_read | jq -c --argjson ids "$1" --arg now "$NOW_ISO" '
+    reduce $ids[] as $i (.; .alerts[$i] = ((.alerts[$i] // {kind: ($i | split(":")[0]), first: $now}) + {sent: $now}))')"
+}
+# counts one direct call against the daily cap (monitor-direct.sh)
+direct_stamp() {
+  state_write "$(state_read | jq -c --argjson nowe "$NOW_EPOCH" \
+    '.direct = ([.direct[]? | numbers | select(. > $nowe - 86400)] + [$nowe])')"
+}
+
 if [ "$MODE" = "ack" ]; then
   shift
   [ "$#" -gt 0 ] || { echo '{"error":"ack needs at least one alert id"}'; exit 2; }
   ids="$(printf '%s\n' "$@" | jq -R . | jq -sc .)"
-  ack_apply() {
-    state_write "$(state_read | jq -c --argjson ids "$ids" --arg now "$NOW_ISO" '
-      reduce $ids[] as $i (.; .alerts[$i] = ((.alerts[$i] // {kind: ($i | split(":")[0]), first: $now}) + {sent: $now}))')"
-  }
-  with_state_lock "$STATE" ack_apply
+  with_state_lock "$STATE" ack_apply "$ids"
   logev info monitor_alert_sent "$*"
   jq -nc --argjson ids "$ids" '{acknowledged: $ids}'
   exit 0
@@ -85,6 +99,7 @@ fi
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
 MODEL_THRESHOLD="$(int_key model_alert_threshold 2)"
 CLASSIFIER_THRESHOLD="$(int_key classifier_alert_threshold 20)"
+GITHUB_THRESHOLD="$(int_key github_alert_threshold 2)"
 STALL_ALERT_THRESHOLD="$(int_key stall_alert_threshold 4)"
 
 # candidate alerts of this tick: one JSON object per line, each with id + kind
@@ -95,6 +110,16 @@ CLEARED=""
 cand() { CANDIDATES="$CANDIDATES$1"$'\n'; }
 # an event ts (ms precision) or a ledger ts as epoch seconds, 0 when unreadable
 EP='def ep: (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) // 0;'
+# the cause class of a failed GitHub call, from the API error text the gate
+# logged after `(API error` (never the repo slug before it) — a fixed word,
+# never the text itself
+EP="$EP"'def gh_class: ((capture("\\(API error(?<e>.*)\\z") | .e) // "") | ascii_downcase
+  | if test("http 401|bad credentials|authentication|gh auth login") then "auth"
+    elif test("rate limit|http 429") then "rate_limit"
+    elif test("http 403|http 404") then "access"
+    elif test("http 5[0-9][0-9]") then "server_error"
+    elif test("timeout|timed out|connect|resolve|tls|eof|connection reset|network") then "network"
+    else "unknown" end;'
 
 
 # ---------------------------------------------------- model unavailable ----
@@ -123,6 +148,37 @@ if [ "$MODEL_THRESHOLD" -gt 0 ]; then
     | ({id: "model:\(.first)", kind: "model_unavailable"} + .),
       (select(.open | not) | {id: "model:\(.first):recovered", kind: "model_recovered",
         needs: "model:\(.first)"} + .)')
+fi
+
+# --------------------------------------------------- GitHub unavailable ----
+# A gate pass that could not list the open PRs (preflight's fail_out, event
+# preflight, level error) is a failed GitHub tick; a review or shepherd
+# heartbeat is a pass that got past that list. Consecutive failed ticks are
+# one outage, and the next good tick ends it. An outage alerts once it
+# reaches the threshold, and once more when it is over, if its first alert
+# went out while it was still open.
+if [ "$GITHUB_THRESHOLD" -gt 0 ]; then
+  GH_OUTAGES="$( { events_jsonl preflight; events_jsonl heartbeat; } | jq -sc "$EP"'
+    [ .[] | if .event == "preflight" and .level == "error" and (.msg | startswith("could not list open PRs"))
+            then {ts, ok: false, class: (.msg | gh_class)}
+            elif .event == "heartbeat" and (.msg | test("^mode=(review|shepherd) ")) then {ts, ok: true}
+            else empty end ]
+    | sort_by(.ts)
+    | reduce .[] as $t ({outages: [], cur: null};
+        if $t.ok then (if .cur then .outages += [.cur + {over_at: $t.ts}] | .cur = null else . end)
+        elif .cur then .cur.ticks += [$t]
+        else .cur = {ticks: [$t]} end)
+    | .outages + (if .cur then [.cur] else [] end)' 2>/dev/null)"
+  [ -n "$GH_OUTAGES" ] || GH_OUTAGES='[]'
+  while IFS= read -r o; do [ -n "$o" ] && cand "$o"; done < <(printf '%s' "$GH_OUTAGES" | jq -c \
+    --argjson thr "$GITHUB_THRESHOLD" "$EP"'
+    .[] | select((.ticks | length) >= $thr)
+    | {first: .ticks[0].ts, last: .ticks[-1].ts, count: (.ticks | length),
+       errors: (.ticks | group_by(.class) | map({key: .[0].class, value: length}) | from_entries),
+       open: (.over_at == null)} + (if .over_at then {over_at} else {} end)
+    | ({id: "github:\(.first)", kind: "github_unavailable"} + .),
+      (select(.open | not) | {id: "github:\(.first):recovered", kind: "github_recovered",
+        needs: "github:\(.first)", minutes: (((.over_at | ep) - (.first | ep)) / 60 | floor)} + .)')
 fi
 
 # ------------------------------------------------------- classifier ----
@@ -228,8 +284,8 @@ claim() {
                  and (($a[.id].claimed == null) or ($nowe - ($a[.id].claimed | ep)) >= $ttl)) ],
         suppressed: [ $c[] | select($a[.id].sent != null) ] | length } as $r
     | { due: $r.due, suppressed: $r.suppressed,
-        state: {alerts: (reduce $r.due[] as $d ($a;
-          .[$d.id] = ((.[$d.id] // {kind: $d.kind, first: $now}) + {claimed: $now})))} }' 2>/dev/null)"
+        state: ($st + {alerts: (reduce $r.due[] as $d ($a;
+          .[$d.id] = ((.[$d.id] // {kind: $d.kind, first: $now}) + {claimed: $now})))}) }' 2>/dev/null)"
   [ -n "$new" ] || return 1
   state_write "$(printf '%s' "$new" | jq -c .state)"
   DUE="$(printf '%s' "$new" | jq -c .due)"
@@ -382,6 +438,70 @@ if [ "$ANOMALY_FACTOR" != 0 ]; then
   fi
 fi
 
+# ------------------------------------------------- technical history ----
+# docs/health.md: every condition of this tick, the stall and anomaly alerts
+# as point incidents. Local writes only.
+COND_FILE="$(mktemp "${TMPDIR:-/tmp}/cg-cond.XXXXXX" 2>/dev/null)"
+if [ -n "$COND_FILE" ]; then
+  { printf '%s' "$CANDIDATES"
+    [ -n "$STALL_ALERT" ] && printf '%s' "$STALL_ALERT" | jq -c --arg d "${NOW_ISO:0:10}" --arg now "$NOW_ISO" \
+      '{id: "stall:\($d)", kind: "stall_alert", ts: $now, count, prs}'
+    [ -n "$ANOMALY_ALERT" ] && printf '%s' "$ANOMALY_ALERT" | jq -c '.reviews[]
+      | {id: "anomaly:\(.pr):\(.sha)", kind: "review_anomaly", ts, pr}'
+  } 2>/dev/null | jq -sc '[.[] | objects]' > "$COND_FILE" 2>/dev/null
+  HB_LAST="${HB_LAST:-}" bash "$SCRIPT_DIR/health.sh" record "$COND_FILE" >/dev/null 2>&1 \
+    || logev warn health "history not recorded this tick"
+  rm -f "$COND_FILE"
+fi
+
+# ------------------------------------------------------ direct delivery ----
+# docs/monitor.md → Direct delivery: the due alerts as one templated Slack DM,
+# sent here so that a model outage or a classifier refusal cannot stop them.
+# A sent alert is acknowledged and leaves the worklist; anything not sent stays
+# due for the session.
+DIRECT='null'
+if [ "$(printf '%s' "$DUE" | jq length)" -gt 0 ] && [ "$(cfg monitor_slack_direct)" = enabled ]; then
+  DUE_FILE="$(mktemp "${TMPDIR:-/tmp}/cg-due.XXXXXX" 2>/dev/null)"
+  if [ -n "$DUE_FILE" ] && printf '%s' "$DUE" > "$DUE_FILE"; then
+    DIRECT="$(bash "$SCRIPT_DIR/monitor-direct.sh" send "$DUE_FILE" 2>/dev/null)"
+    printf '%s' "$DIRECT" | jq -e 'type == "object" and (.status | type) == "string"' >/dev/null 2>&1 \
+      || DIRECT='{"status":"failed","ids":[],"reason":"monitor-direct.sh printed no result"}'
+  fi
+  rm -f "$DUE_FILE"
+  SENT_IDS="$(printf '%s' "$DIRECT" | jq -c 'if .status == "sent" then .ids else [] end')"
+  printf '%s' "$DIRECT" | jq -e '.attempted == true' >/dev/null 2>&1 && with_state_lock "$STATE" direct_stamp
+  case "$(printf '%s' "$DIRECT" | jq -r .status)" in
+    (unknown)
+      # the message may be out: hold the ids for their claim time instead of a
+      # second message from the session; the next pass after the claim retries
+      logev warn monitor_direct "outcome unknown for $(printf '%s' "$DIRECT" | jq '.ids | length') alert(s) — held for the next pass"
+      DUE="$(printf '%s' "$DUE" | jq -c --argjson s "$(printf '%s' "$DIRECT" | jq -c .ids)" '[.[] | select(.id as $i | $s | index($i) | not)]')"
+      log "direct delivery: outcome unknown — alert(s) held for the next pass";;
+    (sent)
+      with_state_lock "$STATE" ack_apply "$SENT_IDS"
+      logev info monitor_direct "sent $(printf '%s' "$SENT_IDS" | jq length) alert(s) to the escalation owner: $(printf '%s' "$DUE" \
+        | jq -r --argjson s "$SENT_IDS" '[.[] | select(.id as $i | $s | index($i)) | .kind] | unique | join(", ")')"
+      DUE="$(printf '%s' "$DUE" | jq -c --argjson s "$SENT_IDS" '[.[] | select(.id as $i | $s | index($i) | not)]')"
+      log "direct delivery: sent $(printf '%s' "$SENT_IDS" | jq length) alert(s)";;
+    (off|none) log "direct delivery: $(printf '%s' "$DIRECT" | jq -r .reason)";;
+    (*) logev error monitor_direct "$(printf '%s' "$DIRECT" | jq -r '"\(.status): \(.reason // "")"')"
+        log "direct delivery $(printf '%s' "$DIRECT" | jq -r '"\(.status): \(.reason // "")"') — the session delivers";;
+  esac
+fi
+
+# ------------------------------------------------------------ dashboard ----
+# docs/health.md → Publish: due on a status change or after 3 h; never in a
+# tick whose direct send found the endpoint down.
+if bash "$SCRIPT_DIR/health.sh" due 2>/dev/null \
+   && ! printf '%s' "$DIRECT" | jq -e '.status == "unknown" or .reason == "transport failure"' >/dev/null 2>&1; then
+  PUBLISHED="$(bash "$SCRIPT_DIR/health.sh" publish 2>/dev/null)"
+  if printf '%s' "$PUBLISHED" | jq -e '.status == "published"' >/dev/null 2>&1; then
+    logev info health "dashboard published → DAM $(printf '%s' "$PUBLISHED" | jq -r .id)"
+  else
+    logev warn health "dashboard not published: $(printf '%s' "$PUBLISHED" | jq -r '.reason // "no result"' 2>/dev/null)"
+  fi
+fi
+
 # ------------------------------------------------------------- output ----
 N_DUE="$(printf '%s' "$DUE" | jq length)"
 NOTHING=true
@@ -397,14 +517,20 @@ jq -n --argjson nothing "$NOTHING" --argjson due "$DUE" --argjson sup "$SUPPRESS
   --argjson stall "${STALL_ALERT:-null}" --argjson anomaly "${ANOMALY_ALERT:-null}" \
   --arg slack "${SLACK:-disabled}" --arg eo "$(cfg escalation_owner)" --arg name "$(cfg bot_display_name)" \
   --argjson mt "$MODEL_THRESHOLD" --argjson ct "$CLASSIFIER_THRESHOLD" --argjson st "$STALL_ALERT_THRESHOLD" \
+  --argjson gt "$GITHUB_THRESHOLD" --argjson direct "$DIRECT" \
+  --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
   --argjson raf "$ANOMALY_FACTOR" \
   --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" '
   {mode: "monitor", nothing_to_do: $nothing, alerts_due: $due, suppressed: $sup, logs: $logs}
   + (if $stall == null then {} else {stall_alert: $stall} end)
   + (if $anomaly == null then {} else {review_anomaly: $anomaly} end)
+  + (if $direct == null then {} else {direct: $direct} end)
   + {config: {slack_notifications: $slack,
        escalation_owner: (if $eo == "" then null else $eo end),
        bot_display_name: (if $name == "" then null else $name end),
-       model_alert_threshold: $mt, classifier_alert_threshold: $ct, stall_alert_threshold: $st,
+       model_alert_threshold: $mt, github_alert_threshold: $gt, classifier_alert_threshold: $ct,
+       stall_alert_threshold: $st,
+       monitor_slack_direct: (if $msd == "enabled" then "enabled" else "disabled" end),
+       health_dashboard: (if $hd == "dam" then "dam" else "off" end),
        review_anomaly_factor: $raf}}'
 exit 0

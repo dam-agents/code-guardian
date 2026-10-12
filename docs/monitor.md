@@ -5,7 +5,10 @@ ONBOARDING Step 6f). The review heartbeat decides review work only; every
 health alert is the monitor's. `scripts/precheck.sh monitor` runs
 `scripts/monitor.sh` once per fire: local files only — the events log, the
 review usage baseline, the review ledger, the harness settings — no GitHub
-call, no write beyond its own bookkeeping. An idle fire starts no session.
+call, no write beyond its own bookkeeping and the technical history
+([health.md](health.md)). Its only outward calls are the opt-in **Direct
+delivery** below and the opt-in dashboard publish. An idle fire starts no
+session.
 
 ## The alerts
 
@@ -13,6 +16,8 @@ call, no write beyond its own bookkeeping. An idle fire starts no session.
 | --- | --- | --- |
 | `model_unavailable` | `model_alert_threshold` (missing = `2`; `0`/`off` disables) runs ended on an availability-class `api_failure` in one outage — failures less than 60 min apart; `open` while the last is under 60 min old | — (one alert per outage) |
 | `model_recovered` | the outage is over (60 min without a failure) and its `model_unavailable` went out while it was still open | — (once per outage) |
+| `github_unavailable` | `github_alert_threshold` (missing = `2`; `0`/`off` disables) gate passes in a row that could not list the open PRs (preflight's `could not list open PRs` error); `open` until a review or shepherd pass lists them again | — (one alert per outage) |
+| `github_recovered` | that pass came, and the outage's `github_unavailable` went out while it was still open | — (once per outage) |
 | `classifier_spike` | `classifier_alert_threshold` (missing = `20`; `0`/`off` disables both classifier alerts) `classifier_block` events in 24 h | — (once per UTC day) |
 | `review_post_blocked` | the classifier refused a `review-pr.sh post` in the last 24 h, and no later `posted` step of that PR exists | — (once per run and PR) |
 | `harness_drift` | `install.sh --check` names a part that is not current (`hooks`, `automode-rules`, `tool-deny`, `skill-agent`) | the check prints nothing |
@@ -25,7 +30,9 @@ The availability classes are every `api_failure` class except
 `invalid_request` and `max_output_tokens`, which an agent request causes. The
 events come from the harness hooks `StopFailure` (`api_failure`) and
 `PermissionDenied` (`classifier_block`) ([logging.md](logging.md) → **Harness
-adapters**).
+adapters**). A GitHub failure's class comes from the error text: `auth`
+(HTTP 401), `rate_limit`, `access` (HTTP 403/404), `server_error` (HTTP 5xx),
+`network`, `unknown`.
 
 **The ledger** — `work/MONITOR.json`, `{alerts: {<id>: {kind, first, claimed,
 sent}}}`, one writer at a time. An `alerts_due` entry is claimed when emitted
@@ -41,7 +48,8 @@ claim or send; `alerts_due` holds one entry per id. `stall_alert` and
 ## Monitor run
 
 1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` and
-   the facts of its row above.
+   the facts of its row above. Under **Direct delivery** it holds only what
+   the pass did not send, and `direct` says why.
 2. Send **one message** for the whole run, in the chat UI: one line per
    alert — what happened, when (UTC), the numbers, the likely cause and the
    one operator action, if any:
@@ -54,6 +62,10 @@ claim or send; `alerts_due` holds one entry per id. `stall_alert` and
      reasons; a documented step of the agent is an `autoMode.allow` rule
      missing from the definition ([logging.md](logging.md) → **Harness
      adapters**), anything else is a refusal that stands.
+   - `github_unavailable` / `github_recovered` — first and last failed pass,
+     the classes (`auth`, `access` → the token, operator-only; `rate_limit` →
+     quota; `server_error`, `network` → GitHub or the network). Missed review
+     work recovers on the next heartbeat by itself.
    - `harness_drift` — `bash "$HOME/scripts/harness/claude-code/install.sh"`
      is the fix; it takes effect from the next session.
    - `heartbeat_gap` — the review schedule is disabled, deleted or its gate
@@ -72,6 +84,40 @@ claim or send; `alerts_due` holds one entry per id. `stall_alert` and
 
 The monitor is a signal, not a repair: never clear locks, re-review, change a
 threshold, edit settings or re-run a refused action in response.
+
+## Direct delivery (`monitor_slack_direct: enabled`)
+
+The monitor's pass sends the due alerts itself, with no model in the loop
+(`scripts/monitor-direct.sh`), so a model outage or a classifier refusal
+cannot stop them.
+
+- **Gate** — `monitor_slack_direct: enabled`, `slack_notifications: enabled`
+  and an `escalation_owner` with a roster `slack_id`. Otherwise the session
+  delivers, per **Monitor run**.
+- **Message** — one Slack DM to the escalation owner
+  (`send_channel_message`, `chatId` = the roster id), never the shared
+  channel: a header, one bullet per alert from a fixed template, at most 10
+  alerts, and the dashboard share URL when one is kept ([health.md](health.md)).
+  `stall_alert` and `review_anomaly` need an analysis and stay with the
+  session.
+- **Type checks** — every value is a UTC time, a whole number, a class word,
+  an adapter part or a PR number; an alert with any other value is skipped and
+  stays due for the session. The text of an event — error details, commands,
+  reasons — is never in the message. The finished text holds no `<`, `>`, `@`,
+  link or code fence except the share URL, or it is not sent.
+- **Cap** — 12 direct calls per 24 h, each attempt counted
+  (`work/MONITOR.json` → `direct`); past it the session delivers.
+- **After the send** — the pass acknowledges the sent ids, removes them from
+  `alerts_due` and logs `monitor_direct` (info); a tick with nothing left
+  starts no session. A failed send logs `monitor_direct` (error), acknowledges
+  nothing and leaves the alerts to the session; an alert nobody acknowledged
+  is due again 30 min later, and that pass tries the send again. A call that
+  went out with no answer (`unknown`) may have arrived: its alerts leave this
+  worklist unacknowledged, so no second message follows in the same tick, and
+  the pass after their claim sends them again.
+- **Preview** — `bash "$HOME/scripts/monitor-direct.sh" render <file>` prints
+  the message for a JSON array of `alerts_due` entries;
+  `monitor-direct.sh ready` prints why a send cannot happen, or nothing.
 
 ## Stalled-review rate alert (`stall_alert`)
 
@@ -142,7 +188,8 @@ triages them ([audit.md](audit.md) task 38).
 ## Self-check
 
 - Every `alerts_due` entry is in the one message, and acknowledged after the
-  send — never before, never on a failed send.
+  send — never before, never on a failed send. A directly sent alert is not
+  in the worklist and gets no second message.
 - `stall_alert` / `review_anomaly` reported with their facts and their
   `_sent` line logged.
 - Nothing repaired, re-run or reconfigured in response.

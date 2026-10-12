@@ -39,7 +39,8 @@ connections:
     note: >-
       Used by the shepherd sweep, which is created disabled. Turn it on under
       Schedules once Slack is connected. The weekly audit runs without it and
-      posts its report to Slack only when Slack is connected.
+      posts its report to Slack only when Slack is connected. The monitor can
+      also send its health alerts as a direct message to the escalation owner.
 channels:
   - type: slack
     note: >-

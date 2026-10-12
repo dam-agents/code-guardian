@@ -209,7 +209,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor model_alert_threshold classifier_alert_threshold log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -241,6 +241,7 @@ EOF
     chk_enum review_dispatch 'enabled|disabled' 'enabled | disabled'
     chk_enum review_model '[A-Za-z0-9][A-Za-z0-9._/:@-]*(\[[A-Za-z0-9]+\])?' 'a model name from the agent'"'"'s model settings (opus, sonnet, …) | default'
     chk_enum merge_ready_nudge 'enabled|disabled' 'enabled | disabled'
+    chk_enum monitor_slack_direct 'enabled|disabled' 'enabled | disabled'
     chk_enum shepherd_scope 'all|needs_human' 'all | needs_human'
     chk_enum auto_merge 'enabled|disabled' 'enabled | disabled'
     chk_enum auto_merge_method 'squash|merge|rebase' 'squash | merge | rebase'
@@ -268,12 +269,14 @@ EOF
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'
     chk_enum definition_issues 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_trend 'dam|off' 'dam | off'
+    chk_enum health_dashboard 'dam|off' 'dam | off'
     chk_enum survey_report 'dam|off' 'dam | off'
     chk_enum benchmark_report 'dam|off' 'dam | off'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
     chk_enum review_anomaly_factor '0+(\.0+)?|0*[1-9][0-9]*(\.[0-9]+)?|off' 'a number of 1 or more | 0 | off'
     chk_enum model_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
+    chk_enum github_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
     chk_enum classifier_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
     # Review cadence (docs/config.md). Both intervals must
     # divide 60 or `*/N` fires unevenly across the hour boundary, and an active
