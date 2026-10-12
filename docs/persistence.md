@@ -84,9 +84,11 @@ this, in order:
    | Weekly trends | `audit/weeks/*.json` | `audit_trend` | `audit/TRENDS.md` | `audit-trend.sh report` · [trends.md](trends.md) → **Procedure** 3–4 |
    | Benchmark | `benchmark/RESULTS.md` | `benchmark_report` | `benchmark/RESULTS.md` | [benchmark.md](benchmark.md) → **Running the benchmark** phase 2 step 9 |
    | Survey | `survey/LEDGER.md` | `survey_report` | `survey/LEDGER.md` | [survey.md](survey.md) → **Procedure** step 5 |
+   | Health dashboard | `health/hours.jsonl` | `health_dashboard` | `health/state.json` | the next monitor tick · [health.md](health.md) → **Publish** |
 
-   Delete the report's `<!-- *-dam: <id> -->` marker line first, so its
-   publish step creates the artifact and writes the new marker. Log each as
+   Delete the report's `<!-- *-dam: <id> -->` marker line first — for the
+   health dashboard, the whole `health/state.json` — so its publish step
+   creates the artifact and writes the new marker. Log each as
    `restore: republished <report> → DAM <id>`, or its failure; a failed publish
    never stops the onboarding. PR artifacts are not republished — the links
    already in PR comments stay valid.

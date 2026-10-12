@@ -283,7 +283,9 @@ what it can and asking for the rest. Per-key semantics are in
 - **Platform:** the agent assumes the DAM agent infrastructure — `$HOME` at
   `/home/agent` on a persistent `/workspace` volume, the platform's outbound
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
-  schedules, one-time review sessions, session titles and Slack. Running elsewhere requires
+  schedules, one-time review sessions, session titles and Slack. The monitor's
+  opt-ins call that server from a script, at the `platform-outbound` URL of
+  `~/.mcp.json` (`scripts/lib/mcp.sh`). Running elsewhere requires
   adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
   target repo, this definition, the skill sources and the `work_repo` backup may

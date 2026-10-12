@@ -775,9 +775,9 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 > Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
 **6f — Agent monitor.** Every instance gets it, without a question: the
-health alerts of `docs/monitor.md` — model outages, classifier refusals,
-harness drift, a silent review gate, a failing backup, stalled and anomalous
-reviews. An idle tick costs no model call. Create
+health alerts of `docs/monitor.md` — model and GitHub outages, classifier
+refusals, harness drift, a silent review gate, a failing backup, stalled and
+anomalous reviews. An idle tick costs no model call. Create
 `name: code-guardian-monitor-15m`, cron `*/15 * * * *`, `sessionMode: fresh`,
 `precheck: bash "$HOME/scripts/precheck.sh" monitor`,
 `sessionTitle: Report agent alerts`, `task`:

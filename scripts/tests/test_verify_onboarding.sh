@@ -325,6 +325,14 @@ run_verify
 assert_out 'ok   work-layout' 'the review anomaly baseline, marker and claim are part of the layout'
 assert_out "ok   config-review_anomaly_factor — '2.5'" 'a decimal factor is valid'
 
+new_case health_history_known
+seed_home; seed_memory; seed_lessons
+verify_config
+mkdir -p "$WORK/health"
+printf '{}\n' > "$WORK/health/status.json"
+run_verify
+assert_out 'ok   work-layout' 'the technical history work/health/ is part of the layout'
+
 new_case review_anomaly_factor_below_one
 seed_home; seed_memory; seed_lessons
 verify_config '- review_anomaly_factor: 0.5'

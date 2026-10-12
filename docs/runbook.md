@@ -319,9 +319,10 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
   IDs, memory, review history, logs). It leaves the agent only as the
   `work_repo` backup or through the configured output surfaces — chat UI,
   target-repo reviews/comments/issues, the benchmark report on its
-  `benchmark_report` surfaces, Slack when enabled — each message carrying only
-  what it needs. A definition-repo issue carries the closed content list of
-  **Definition-repo issues** alone; nothing from `work/` ever reaches
+  `benchmark_report` surfaces, the health dashboard under
+  `health_dashboard: dam` (counts only), Slack when enabled — each message
+  carrying only what it needs. A definition-repo issue carries the closed
+  content list of **Definition-repo issues** alone; nothing from `work/` ever reaches
   definition commits, PRs, issues, artifacts, or any other external surface. A published artifact passes
   `scripts/lib/redact.sh` first, so no credential shape reaches a public
   surface ([artifact.md](artifact.md) → **Procedure**).
