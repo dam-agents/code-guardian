@@ -94,7 +94,7 @@ repository, organization, project or people.
   path or dotted name, a token in backticks or in a fenced block, a
   capitalized word, or an identifier-shaped word (`snake_case`, a hyphenated
   compound with a part the definition never uses, a letter followed by a
-  digit, an accented Latin letter) that occurs nowhere in the definition's own
+  digit, a letter outside ASCII) that occurs nowhere in the definition's own
   text — a product, a person, a module, a file or a branch of the target
   repo. Write in the definition's words: its file names, key names, commands
   and placeholders. Delete the body file after the call. Per `outcome`:

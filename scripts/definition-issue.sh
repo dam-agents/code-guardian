@@ -32,7 +32,7 @@
 #   - foreign terms: every path or dotted name, every token in backticks or in
 #     a fenced block, every capitalized word and every identifier-shaped word
 #     (snake_case, a hyphenated compound with a part the definition never
-#     uses, a letter followed by a digit, a Latin letter outside ASCII) of the
+#     uses, a letter followed by a digit, a letter outside ASCII) of the
 #     draft must occur in the definition's own text — the tracked root
 #     documents, docs/, scripts/ without its tests, .agents/ — or in a path of
 #     that tree. A term the definition does not know (a product, a person, a
@@ -132,11 +132,13 @@ hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
 # fixtures are no part of it, so a word the vocabulary lacks is one the
 # definition never wrote. A copy without git metadata reads the tree as is.
 DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# a token is ASCII word characters and UTF-8 Latin letters (U+00C0–U+017F), so
-# a name with an accented letter stays one token under LC_ALL=C
+# a token is ASCII word characters and UTF-8 letters outside ASCII — two-byte
+# from U+00C0, three-byte below U+E000 except punctuation and symbols
+# (U+2000–U+2FFF) — so a name with such a letter stays one token under LC_ALL=C
 TC="A-Za-z0-9_.~/@\$'-"
-LAT1="$(printf '[\303-\305]')"; LAT="$LAT1$(printf '[\200-\277]')"
-TOK="([$TC]|$LAT)+"
+NA1="$(printf '[\303-\341\343-\355]')"
+NA="$(printf '[\303-\337][\200-\277]|[\340\341\343-\355][\200-\277][\200-\277]')"
+TOK="([$TC]|$NA)+"
 tokens() { grep -oE "$TOK" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
 VOCAB="$TMP/vocab.txt"
 git -C "$DEF_ROOT" ls-files -z -- ':(glob)*.md' VERSION ':(glob)*.yaml' docs scripts .agents \
@@ -257,18 +259,27 @@ n="$(redact_file "$TMP/redact.txt")" || n=1
 # capitalized words and identifier-shaped words. A version number, a
 # one-character token and a home-path prefix pass; a documentation placeholder
 # is in the vocabulary.
+CODE="$TMP/code.txt"
+{
+  grep -oE '`[^`]+`' "$SCAN" | tokens
+  sed -n '/^[[:space:]]*```/,/^[[:space:]]*```/p' "$SCAN" | grep -vE '^[[:space:]]*```' | tokens
+} > "$CODE"
 CANDS="$TMP/cands.txt"
 {
   tokens < "$SCAN" \
-    | grep -E "/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+\$|^[A-Z]|_|[A-Za-z]-[A-Za-z]|[A-Za-z][0-9]|$LAT1"
-  grep -oE '`[^`]+`' "$SCAN" | tokens
-  sed -n '/^[[:space:]]*```/,/^[[:space:]]*```/p' "$SCAN" | grep -vE '^[[:space:]]*```' | tokens
+    | grep -E "/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+\$|^[A-Z]|_|[A-Za-z]-[A-Za-z]|[A-Za-z][0-9]|$NA1"
+  cat "$CODE"
 } | sed -E 's#^(\$HOME|~|/home/[A-Za-z0-9_-]+|\.)/##' \
-  | grep -vE '^[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$CANDS"
-# a hyphenated compound of plain words passes when every part is a word of the
-# definition; one unknown part names the instance
+  | grep -vE '^v?[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$CANDS"
+# a hyphenated compound of prose that starts lower-case passes when every part
+# is a word of the definition; one unknown part names the instance. A compound
+# in code or with a capital first letter must occur whole.
+PROSE="$TMP/compounds.txt"
+{ cat "$CODE"; tokens < "$SCAN" | grep -E '^[A-Z]'; } | tr 'A-Z' 'a-z' | sort -u > "$TMP/whole.txt"
+tokens < "$SCAN" | grep -E '^[a-z]+(-[A-Za-z]+)+$' | tr 'A-Z' 'a-z' | sort -u \
+  | comm -23 - "$TMP/whole.txt" > "$PROSE"
 known_compound() { # <token>
-  printf '%s' "$1" | grep -qE '^[a-z]+(-[a-z]+)+$' || return 1
+  grep -qxF -- "$1" "$PROSE" || return 1
   printf '%s\n' "$1" | tr '-' '\n' | sort -u | comm -23 - "$VOCAB" | grep -q . && return 1
   return 0
 }
