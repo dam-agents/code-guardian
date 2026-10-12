@@ -236,7 +236,8 @@ below is for the manual fallback and the direct session.
   `disabled`.** Whether the survey artifact shows the findings themselves —
   severity, summary, **Fix:** line and the code location as a link to the
   commit the pass read — under each area, or stays an index of areas and
-  passes. The artifact is public to anyone with its URL
+  passes. A pass with no recorded commit links to the default branch. The
+  artifact is public to anyone with its URL
   ([artifact.md](artifact.md)), so a finding on it is a disclosure: enable it
   only for a repository whose code, and whose weak points, may be read there.
 - **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;

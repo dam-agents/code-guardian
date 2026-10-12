@@ -170,7 +170,9 @@ if [ "$CMD" = "record" ]; then
   { printf '\n## Pass %s — %s — %s 🔴 · %s 🟡 · %s 🟢\n\n' "$passes" "$NOW_ISO" "$c" "$w" "$s"
     jq -r '.[] | "- \(.severity // "suggestion") — \(.summary // "?") (`\(.file // "?"):\(.line // "?")`)"
                  + (if .fix then "\n  **Fix:** \(.fix)" else "" end)' "$FINDINGS"
-    printf '\n<!-- findings-json: %s -->\n' "$(jq -c . "$FINDINGS" | sed 's/--/–/g')"
+    # the second hyphen of each double hyphen goes in as the JSON escape \u002d:
+    # no `-->` ends the comment early, and jq reads it back as a hyphen
+    printf '\n<!-- findings-json: %s -->\n' "$(jq -c . "$FINDINGS" | sed 's/--/-\\u002d/g')"
     printf '<!-- pass-json: %s -->\n' "$(jq -nc --arg sha "$SHA" --argjson n "$nfiles" '{sha:$sha, files:$n}')"
   } >> "$F" 2>/dev/null || fail "could not append the pass to $F"
 
@@ -247,7 +249,7 @@ if [ "$CMD" = "report" ]; then
     | "<tr><td>\($area)</td><td class=\"n\">\($r.passes|@html)</td><td class=\"n\">\($n[0])</td><td class=\"n\">\($n[1])</td><td class=\"n\">\($n[2])</td><td>\($r.last|@html)</td></tr>"')"
 
   if [ "$SHOW" = "enabled" ]; then
-    NOTE="Each code location links to the commit the pass read."
+    NOTE="Each code location links to the commit the pass read. A pass with no recorded commit links to the default branch."
     SECTIONS="$(jq -nr --argjson rows "$ROWS" --argjson passes "$PASSES" --arg base "$BASE" '
       def loc: . as $f | ($f.file // "") as $file | ($f.line // "") as $line
         | (if ($f.ref // "") == "" then "HEAD" else $f.ref end) as $ref

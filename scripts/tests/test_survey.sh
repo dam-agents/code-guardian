@@ -160,6 +160,21 @@ grep -q '<script>' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: raw finding text reached the page\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no raw finding text on the page\n' "$CASE"
 
+# --- a double hyphen survives the findings-json round trip --------------------
+new_case survey_report_double_hyphen
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+mkdir -p "$WORK/survey"
+survey_ledger "| src_api | src/api | $(iso_ago 1209600) | 0 | 0 |"
+printf '[{"severity":"warning","summary":"flag --force ends a comment -->","file":"src/api/a--b.ts","line":2,"fix":"pass --dry-run"}]' > "$SANDBOX/f.json"
+TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/f.json" >/dev/null 2>&1
+sed -n 's/^<!-- findings-json: \(.*\) -->$/\1/p' "$WORK/survey/src_api.md" | grep -q -e '--' -e '–' \
+  && { printf 'FAIL %s: the findings-json comment carries a double hyphen or an en dash\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no double hyphen and no en dash in the findings-json comment\n' "$CASE"
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" 'blob/HEAD/src/api/a--b.ts#L2"><code>src/api/a--b.ts:2</code>' 'a double hyphen in a path keeps its code link'
+assert_file_contains "$SANDBOX/report.html" 'flag --force ends a comment --&gt;' 'a double hyphen in the summary renders as written'
+assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> pass --dry-run' 'a double hyphen in the Fix line renders as written'
+
 # --- the resolved key travels in the worklist's config object -----------------
 new_case survey_findings_config_default
 base_config '- survey: enabled'

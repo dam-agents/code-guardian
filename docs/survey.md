@@ -61,7 +61,8 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
    as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
    The page is an index of areas and passes; under
    `survey_report_findings: enabled` it also lists every finding, with its
-   code location linked to the commit the pass read.
+   code location linked to the commit the pass read. A pass with no recorded
+   commit links to the default branch.
    The marker lives in `work/survey/LEDGER.md` (`<!-- survey-dam: <id> -->`).
 6. **Report one line** to the chat UI, and to Slack under
    `slack_notifications: enabled`:
