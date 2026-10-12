@@ -496,7 +496,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
-  --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg sid "$(cfg survey_interval_days)" \
+  --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
   --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
@@ -527,6 +527,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    benchmark_judge:(if $bj=="" then "off" else $bj end), benchmark_report:(if $br=="off" then "off" else "dam" end),
    merge_ready_nudge:(if $mrn=="enabled" then "enabled" else "disabled" end),
    survey:(if $sv=="enabled" then "enabled" else "disabled" end), survey_report:(if $sr=="off" then "off" else "dam" end),
+   survey_report_findings:(if $srf=="enabled" then "enabled" else "disabled" end),
    survey_interval_days:(if ($sid|test("^[0-9]+$")) then ($sid|tonumber) else 7 end),
    skills_table:$skills, watch_rules:$watches}')"
 
@@ -2902,11 +2903,13 @@ if [ "$MODE" = "audit" ]; then
   # merged this week reverts a PR it approved: the review let something
   # through. The approved PRs' change requests are read in GraphQL batches of
   # 50 aliased PRs, at most OV_CAP PRs, the query in a file; a PR the answer
-  # leaves null (a failed call, a number GitHub cannot resolve) is unread. The
-  # reverted PR is read from GitHub's own revert body ("Reverts <repo>#<n>").
+  # leaves null (a failed call, a number GitHub cannot resolve) is read with the
+  # per-PR REST call, at most OV_REST_CAP of them, and stays unread when that
+  # fails too. The reverted PR is read from GitHub's own revert body
+  # ("Reverts <repo>#<n>").
   APPROVED_WEEK="$(rr_week | jq -sc '[.[] | select(.verdict == "APPROVE" and (.sha // "") != "") | {pr, sha, ts}]' 2>/dev/null)"
   [ -n "$APPROVED_WEEK" ] || APPROVED_WEEK='[]'
-  OV_CAP=200
+  OV_CAP=200; OV_REST_CAP=20
   ov_cr='[]'; ov_read=0; ov_unread=""
   ov_prs="$(printf '%s' "$APPROVED_WEEK" | jq -r --argjson c "$OV_CAP" '[.[].pr] | unique | .[:$c] | .[]' 2>/dev/null)"
   ov_qf="$PF_TMP/approve-overruled.graphql"
@@ -2944,6 +2947,31 @@ if [ "$MODE" = "audit" ]; then
     ov_unread="$ov_unread $(printf '%s' "$ov_res" | jq -r '.unread | map(tostring) | join(" ")')"
     ov_cr="$(printf '%s' "$ov_res" | jq -c --argjson cr "$ov_cr" '$cr + .hits')"
   done
+  # the REST fallback: the PRs the batches left unread, one paginated call
+  # each, every page merged before the filter; a call that exits non-zero
+  # leaves its PR unread, whatever pages it printed before it failed
+  ov_left=""; ov_rest=0
+  for ap in $ov_unread; do
+    if [ "$ov_rest" -ge "$OV_REST_CAP" ]; then ov_left="$ov_left $ap"; continue; fi
+    ov_rest=$((ov_rest + 1))
+    ov_raw="$(gh api --paginate "repos/$REPO/pulls/$ap/reviews?per_page=100" 2>/dev/null)" || ov_raw=""
+    ov_hits="$(printf '%s' "$ov_raw" \
+      | jq -sc --argjson a "$APPROVED_WEEK" --arg bot "$BOT_LOGIN" --argjson n "$ap" '
+        if length == 0 or any(.[]; type != "array") then empty else
+        ([ $a[] | select(.pr == $n) ]) as $mine
+        | [ add | .[] | { state, by: (.user.login // ""), bot: ((.user.type // "") == "Bot"),
+                     commit_id: (.commit_id // ""), at: (.submitted_at // "") }
+            | select(.state == "CHANGES_REQUESTED" and .by != $bot and (.bot | not))
+            | . as $r
+            | select(any($mine[]; . as $m | ($r.commit_id | startswith($m.sha))
+                                           and ($r.at >= $m.ts)))
+            | {pr: $n, by, at} ] | .[:1] end' 2>/dev/null)"
+    if [ -z "$ov_hits" ]; then ov_left="$ov_left $ap"; continue; fi
+    ov_read=$((ov_read + 1))
+    ov_cr="$(printf '%s' "$ov_hits" | jq -c --argjson cr "$ov_cr" '$cr + .')"
+  done
+  unset ov_raw
+  ov_unread="$ov_left"
   approved_ever="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc '[.[] | select(.verdict == "APPROVE") | .pr] | unique' 2>/dev/null)"
   OVERRULED="$(printf '%s' "$MERGED_WEEK" | jq -c --argjson ever "${approved_ever:-[]}" --argjson cr "$ov_cr" \
