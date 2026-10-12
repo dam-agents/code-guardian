@@ -12,7 +12,8 @@
 #   report  <work-dir>                   the accumulated HTML, on stdout
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0, except
-# `report`, which prints the page. Files: $TMPDIR/survey-<slug> (clone),
+# `report`, which prints the page with its credential shapes masked, or exits 1
+# with no page when the mask did not run. Files: $TMPDIR/survey-<slug> (clone),
 # work/survey/<slug>.md (state), work/survey/LEDGER.md (index + publish ids).
 # Requires bash, git, jq, gh (prepare only), sed/grep/sort — awk-free.
 # Overrides (tests): CG_SURVEY_CLONE_URL.
@@ -210,15 +211,17 @@ if [ "$CMD" = "report" ]; then
   # every recorded pass, parsed from the per-area files: the heading carries
   # the counts, the two comment lines the findings and the commit it read.
   # Passes recorded before pass-json existed have no sha and link to HEAD.
+  # The findings and the history go to jq on stdin: one argv entry stops at
+  # 128 KiB (MAX_ARG_STRLEN), and the history grows with every pass.
   pass_json() { # <slug> <pass> <ts> <c> <w> <s> <findings-json> <pass-json>
     local f="$7" m="$8"
     printf '%s' "$f" | jq -e 'type == "array"'  >/dev/null 2>&1 || f="[]"
     printf '%s' "$m" | jq -e 'type == "object"' >/dev/null 2>&1 || m="{}"
-    jq -nc --arg slug "$1" --arg p "$2" --arg ts "$3" \
+    printf '%s' "$f" | jq -c --arg slug "$1" --arg p "$2" --arg ts "$3" \
       --argjson c "${4:-0}" --argjson w "${5:-0}" --argjson s "${6:-0}" \
-      --argjson f "$f" --argjson m "$m" \
+      --argjson m "$m" \
       '{slug:$slug, pass:$p, ts:$ts, critical:$c, warning:$w, suggestion:$s,
-        sha:($m.sha // ""), files:($m.files // null), findings:$f}' 2>/dev/null
+        sha:($m.sha // ""), files:($m.files // null), findings:.}' 2>/dev/null
   }
   PASSES="$(for f in "$SDIR"/*.md; do
       [ -f "$f" ] || continue
@@ -242,15 +245,15 @@ if [ "$CMD" = "report" ]; then
   PASSES="${PASSES:-[]}"
 
   # the index: one row per area, severity counts of its newest pass
-  TABLE="$(jq -nr --argjson rows "$ROWS" --argjson passes "$PASSES" --arg show "$SHOW" '
-    $rows[] | . as $r | ([$passes[] | select(.slug == $r.slug)] | first) as $np
+  TABLE="$(printf '%s' "$PASSES" | jq -r --argjson rows "$ROWS" --arg show "$SHOW" '
+    . as $passes | $rows[] | . as $r | ([$passes[] | select(.slug == $r.slug)] | first) as $np
     | (if $show == "enabled" then "<a href=\"#\($r.slug|@html)\">\($r.path|@html)</a>" else ($r.path|@html) end) as $area
     | (if $np then [$np.critical, $np.warning, $np.suggestion] | map(tostring) else ["–","–","–"] end) as $n
     | "<tr><td>\($area)</td><td class=\"n\">\($r.passes|@html)</td><td class=\"n\">\($n[0])</td><td class=\"n\">\($n[1])</td><td class=\"n\">\($n[2])</td><td>\($r.last|@html)</td></tr>"')"
 
   if [ "$SHOW" = "enabled" ]; then
     NOTE="Each code location links to the commit the pass read. A pass with no recorded commit links to the default branch."
-    SECTIONS="$(jq -nr --argjson rows "$ROWS" --argjson passes "$PASSES" --arg base "$BASE" '
+    SECTIONS="$(printf '%s' "$PASSES" | jq -r --argjson rows "$ROWS" --arg base "$BASE" '
       def loc: . as $f | ($f.file // "") as $file | ($f.line // "") as $line
         | (if ($f.ref // "") == "" then "HEAD" else $f.ref end) as $ref
         | if $file == "" or $file == "?" then ""
@@ -267,7 +270,7 @@ if [ "$CMD" = "report" ]; then
         + "</span></h3>"
         + (if ($p.findings|length) == 0 then "<p class=\"meta\">No finding.</p>"
            else "<ul class=\"f\">" + ([$p.findings[] | finding($p.sha)] | join("")) + "</ul>" end);
-      $rows[] | . as $r | [$passes[] | select(.slug == $r.slug)] as $ps
+      . as $passes | $rows[] | . as $r | [$passes[] | select(.slug == $r.slug)] as $ps
       | select(($ps|length) > 0)
       | "<h2 id=\"\($r.slug|@html)\">\($r.path|@html)</h2>" + ([$ps[] | pass] | join("\n"))')"
   else
@@ -278,7 +281,13 @@ if [ "$CMD" = "report" ]; then
   fi
   BOT_H="$(printf '%s' "$BOT" | jq -Rr '@html')"
 
-  cat <<EOF2
+  # The page is public: lib/redact.sh masks every credential shape in it
+  # before it is printed (runbook.md → Hard invariants). A mask that did not
+  # run prints no page and exits 1.
+  . "$(cd "$(dirname "$0")" && pwd)/lib/redact.sh"
+  PAGE="$(mktemp "$TMP_ROOT/survey.page.XXXXXX" 2>/dev/null)" \
+    || { printf 'survey.sh report: no temp file, so no page\n' >&2; exit 1; }
+  cat > "$PAGE" <<EOF2
 <!doctype html><meta charset="utf-8"><title>$BOT_H — codebase survey</title>
 <style>
 body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem;color:#1a1a1a;background:#fff}
@@ -310,5 +319,10 @@ $TABLE
 </tbody></table>
 $SECTIONS
 EOF2
-  exit 0
+  if [ $? -eq 0 ] && redact_file "$PAGE" >/dev/null; then
+    cat "$PAGE"; rm -f "$PAGE" 2>/dev/null; exit 0
+  fi
+  rm -f "$PAGE" 2>/dev/null
+  printf 'survey.sh report: the page did not pass lib/redact.sh, so no page\n' >&2
+  exit 1
 fi

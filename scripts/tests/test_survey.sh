@@ -175,6 +175,46 @@ assert_file_contains "$SANDBOX/report.html" 'blob/HEAD/src/api/a--b.ts#L2"><code
 assert_file_contains "$SANDBOX/report.html" 'flag --force ends a comment --&gt;' 'a double hyphen in the summary renders as written'
 assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> pass --dry-run' 'a double hyphen in the Fix line renders as written'
 
+# --- the public page carries no credential shape ------------------------------
+new_case survey_report_redacted
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+mkdir -p "$WORK/survey"
+survey_ledger "| src_api | src/api | $(iso_ago 1209600) | 0 | 0 |"
+printf '[{"severity":"critical","summary":"token ghp_abcdefghijklmnop1234 is committed","file":"src/api/a.ts","line":3,"fix":"move api_key = abcdefgh12345678 to the vault"}]' > "$SANDBOX/f.json"
+TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/f.json" >/dev/null 2>&1
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" 'token \[redacted] is committed' 'a token in a summary is masked on the page'
+assert_file_contains "$SANDBOX/report.html" 'api_key = \[redacted] to the vault' 'a key assignment in a Fix line is masked on the page'
+grep -q 'ghp_abcdefghijklmnop1234\|abcdefgh12345678' "$SANDBOX/report.html" \
+  && { printf 'FAIL %s: a credential reached the page\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no credential on the page\n' "$CASE"
+TMPDIR="$SANDBOX/no-such-dir" bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+RC=$?; OUT="$(cat "$SANDBOX/report.html")"
+assert_rc 1 'a page the mask cannot reach exits 1'
+assert_out_absent '.' 'and prints no page'
+
+# --- a history above 128 KiB still renders ------------------------------------
+# One argv entry stops at 128 KiB on Linux (MAX_ARG_STRLEN), so the history
+# reaches jq on stdin. Pass 1 alone is above that bound.
+new_case survey_report_large_history
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+mkdir -p "$WORK/survey"
+survey_ledger "| src_api | src/api | $(iso_ago 86400) | 2 | 1 |"
+LONG="$(printf '%0300d' 0)"
+{ printf '# Survey — src/api\n\n## Pass 1 — %s — 0 🔴 · 250 🟡 · 0 🟢\n\n' "$(iso_ago 1209600)"
+  printf '<!-- findings-json: %s -->\n' "$(jq -nc --arg s "$LONG" \
+    '[range(250) | {severity:"warning", summary:$s, file:"src/api/a.ts", line:2, fix:$s}]')"
+  printf '\n## Pass 2 — %s — 0 🔴 · 1 🟡 · 0 🟢\n\n' "$(iso_ago 86400)"
+  printf '<!-- findings-json: [{"severity":"warning","summary":"newest","file":"src/api/b.ts","line":1}] -->\n'
+} > "$WORK/survey/src_api.md"
+[ "$(( $(wc -c < "$WORK/survey/src_api.md") ))" -gt 131072 ] \
+  || { printf 'FAIL %s: the fixture is not above 128 KiB\n' "$CASE"; FAILED=1; }
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" '<a href="#src_api">src/api</a></td><td class="n">2</td><td class="n">0</td><td class="n">1</td>' 'the index row survives a history above 128 KiB'
+n="$(grep -o '<li>' "$SANDBOX/report.html" | grep -c .)"
+[ "$n" -eq 251 ] && printf 'ok   %s: every finding of a history above 128 KiB is on the page\n' "$CASE" \
+  || { printf 'FAIL %s: %s of 251 findings on the page\n' "$CASE" "$n"; FAILED=1; }
+
 # --- the resolved key travels in the worklist's config object -----------------
 new_case survey_findings_config_default
 base_config '- survey: enabled'

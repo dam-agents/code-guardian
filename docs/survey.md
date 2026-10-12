@@ -59,6 +59,8 @@ through `work/CONFIG.md`; nothing on GitHub can steer it.
    "$HOME/work/survey/report.html"`, then publish per `survey_report`
    ([config.md](config.md)), updated in place so the URL stays stable, exactly
    as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
+   `report` masks the page with `scripts/lib/redact.sh` first. Publish only
+   after exit 0: exit 1 means the mask did not run, and there is no page.
    The page is an index of areas and passes; under
    `survey_report_findings: enabled` it also lists every finding, with its
    code location linked to the commit the pass read. A pass with no recorded
