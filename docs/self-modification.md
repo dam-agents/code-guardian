@@ -55,7 +55,7 @@ takes the operator.
   command** and `kit.yaml`, which repeats Step 6's names, crons, gates and task
   texts verbatim for a new instance. The kit check in
   `.github/workflows/ci.yml` compares the two on every PR; a run added or
-  removed also changes its run count and its name-prefix table. A push under
+  removed also adds or removes its row in that check's run table. A push under
   `.github/workflows/` needs a token with `workflow` scope: without it, the PR
   body gives that edit as an **operator-only** step, and the operator pushes it
   to the branch before the merge. A cadence or a timezone is the instance's
