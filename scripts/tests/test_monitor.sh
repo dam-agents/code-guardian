@@ -51,6 +51,29 @@ jq --arg id "$ID" '.alerts[$id].claimed = "2020-01-01T00:00:00Z"' "$WORK/MONITOR
 run_monitor
 assert_jq '[.alerts_due[] | select(.id == "'"$ID"'")] | length == 1' 'a session that died before its ack gets the alert again'
 
+# --- a delivered alert stays delivered while its events are retained ------------
+# the events log keeps a file 14-21 days (docs/logging.md → Retention), longer
+# without the weekly audit: an old outage still in the log never alerts twice
+mon_case mon_row_outlives_events
+# sent after the outage was over, 14.9 days ago: no recovery notice is due
+T1="$(iso_ago 1296600)"; SENT="$(iso_ago 1290000)"
+for t in "$T1" "$(iso_ago 1296300)"; do
+  jq -nc --arg ts "$t" '{ts:$ts, run:"r-old", job:"session", level:"error", event:"api_failure", msg:"server_error: 503"}' \
+    >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+done
+jq -n --arg id "model:$T1" --arg sent "$SENT" '{alerts: {($id): {kind: "model_unavailable", first: $sent, claimed: $sent, sent: $sent}}}' > "$WORK/MONITOR.json"
+run_monitor
+assert_jq '.alerts_due == [] and .suppressed == 1' 'an outage sent over 14 days ago, its events still in the log, is not sent again'
+if jq -e --arg id "model:$T1" --arg sent "$SENT" '.alerts[$id].sent == $sent' "$WORK/MONITOR.json" >/dev/null 2>&1; then
+  printf 'ok   %s: the row stays while its alert is still found\n' "$CASE"
+else printf 'FAIL %s: the row of a found alert was pruned\n' "$CASE"; FAILED=1; fi
+jq -n --arg old "$SENT" '{alerts: {"model:gone": {kind: "model_unavailable", first: $old, sent: $old}}}' > "$WORK/MONITOR.json"
+rm -f "$WORK"/logs/events-*.jsonl; fresh_gate
+run_monitor
+if ! jq -e '.alerts | has("model:gone")' "$WORK/MONITOR.json" >/dev/null 2>&1; then
+  printf 'ok   %s: a row whose alert is no longer found goes after 14 days\n' "$CASE"
+else printf 'FAIL %s: an old row of a gone alert was kept\n' "$CASE"; FAILED=1; fi
+
 # --- recovery: once, only after an alert sent while the outage was open ----------
 mon_case mon_model_recovered
 fail_ev 7800; fail_ev 7500
@@ -100,6 +123,13 @@ block_ev 600 'cd /home/agent && bash scripts/review-pr.sh post 4518 --verdict CO
 ev 300 review info review_step "PR #4518 1df8905 posted COMMENT" runB
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 1 and .[0].pr == 4517 and .[0].id == "post_blocked:runA:4517"' 'the unposted PR alerts, the PR posted later does not'
+
+# a run that retries the refused post is still one alert: one entry per id
+mon_case mon_post_blocked_retry
+block_ev 900 'bash scripts/review-pr.sh post 4519 --verdict COMMENT --body /tmp/r.md' runC
+block_ev 600 'bash scripts/review-pr.sh post 4519 --verdict COMMENT --body /tmp/r2.md' runC
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 1 and .[0].id == "post_blocked:runC:4519"' 'two refusals of one post in one run are one alert'
 
 # --- the review gate went silent --------------------------------------------------
 new_case mon_heartbeat_gap

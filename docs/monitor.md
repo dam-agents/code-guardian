@@ -34,8 +34,9 @@ sent, so a session that died before its ack (a model outage is the usual
 cause) loses nothing. A sent alert is never emitted again: each tick counts
 it in `suppressed` and logs `suppressed <n> alert(s) already reported`. A
 condition kind that clears leaves the ledger, so its return alerts again.
-Rows live 14 days. `stall_alert` and `review_anomaly` keep their own
-detection-time claims (below), not the ledger.
+A row stays while a tick still finds its alert, else 14 days after its
+claim or send; `alerts_due` holds one entry per id. `stall_alert` and
+`review_anomaly` keep their own detection-time claims (below), not the ledger.
 
 ## Monitor run
 

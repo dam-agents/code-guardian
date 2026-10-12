@@ -43,7 +43,7 @@ LOGS=()
 log() { LOGS+=("$1"); logev info monitor "$1"; }
 
 CLAIM_TTL_S=1800          # an emitted, unacknowledged alert is due again after this
-STATE_KEEP_S=$(( 14 * 86400 ))   # ledger entries live as long as the events log
+STATE_KEEP_S=$(( 14 * 86400 ))   # a row whose alert no tick finds goes after this
 MODEL_GAP_S=3600          # API failures this far apart are two outages
 CLASSIFIER_WINDOW_S=86400
 
@@ -204,6 +204,11 @@ if [ -n "$(cfg work_repo)" ]; then
 fi
 
 # ---------------------------------------------- claim against the ledger ----
+# One candidate per id, the first found: a run that retried a refused post is
+# one review_post_blocked alert. A row whose alert this tick still finds stays,
+# whatever its age — the events log can outlive STATE_KEEP_S (docs/logging.md
+# → Retention), and a sent alert is never sent again. Every other row goes
+# STATE_KEEP_S after its last claim or send.
 DUE='[]'; SUPPRESSED=0
 claim() {
   local st new
@@ -212,9 +217,11 @@ claim() {
       --argjson nowe "$NOW_EPOCH" --argjson ttl "$CLAIM_TTL_S" --argjson keep "$STATE_KEEP_S" \
       --arg cleared "$CLEARED" "$EP"'
     ($cleared | split(" ") | map(select(length > 0))) as $clr
-    | . as $c
+    | unique_by(.id) as $c
+    | ($c | map(.id)) as $ids
     | ($st.alerts | with_entries(select(.value.kind | IN($clr[]) | not))
-       | with_entries(select(($nowe - ((.value.sent // .value.claimed // .value.first // $now) | ep)) < $keep))) as $a
+       | with_entries(select((.key | IN($ids[]))
+           or ($nowe - ((.value.sent // .value.claimed // .value.first // $now) | ep)) < $keep))) as $a
     | [ $c[] | select(.needs == null or ($a[.needs].sent != null
                  and (($a[.needs].sent | ep) < (.over_at | ep)))) ] as $c
     | { due: [ $c[] | select($a[.id].sent == null

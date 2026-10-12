@@ -514,6 +514,41 @@ assert_jq '.stats.tokens.by_model.unknown.runs == 1 and .stats.tokens.by_model["
   'every model row comes from the deduped set'
 assert_jq '.stats.stalls.wasted_output_tokens == 300' 'a stalled run wastes its last cumulative output, not the sum'
 
+# --- classifier refusals and API failures: the week's account ----------------
+# docs/monitor.md → In the weekly audit: what the classifier refused, and the
+# outages (failures under 60 min apart; agent-side classes left out)
+new_case audit_guard_week
+base_config '- model_alert_threshold: off'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+gev() { # <secs-ago> <level> <event> <msg> <run>
+  jq -nc --arg t "$(iso_ago "$1")" --arg l "$2" --arg e "$3" --arg m "$4" --arg r "$5" \
+    '{ts:$t, run:$r, job:"session", level:$l, event:$e, msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+gev 9000 warn classifier_block "Bash [rm -f reviews/pr-12.md] — Blocked by fast classifier" b1
+gev 8000 warn classifier_block "Bash [rm -f reviews/pr-34.md] — Blocked by fast classifier" b2
+gev 7000 warn classifier_block "Agent [review-skill: doc-drift on PR 34] — Blocked" b2
+gev 864000 warn classifier_block "Bash [ls] — outside the week" b0
+gev 90000 error api_failure "server_error: 503 no healthy upstream" f1
+gev 89000 error api_failure "overloaded: busy" f2
+gev 3600 error api_failure "rate_limit: 429" f3
+gev 3000 error api_failure "invalid_request: prompt too long" f4
+run_preflight audit
+assert_jq '.stats.classifier | .blocks == 3 and .runs == 2 and .by_tool == {Bash: 2, Agent: 1}
+  and .by_reason["Blocked by fast classifier"] == 2 and .top[0] == {pattern: "Bash rm -f reviews/pr-N.md", count: 2}' \
+  'the week'"'"'s refusals by tool, reason and pattern'
+assert_jq '.stats.api_failures | .failures == 3 and .runs == 3 and .by_class == {server_error: 1, overloaded: 1, rate_limit: 1}
+  and (.outages | length) == 2 and .outages[0].failures == 2 and .outages[1].failures == 1' \
+  'availability failures grouped into outages, agent-side classes left out'
+assert_jq '.checks[] | select(.id == "classifier_blocks") | .status == "warn" and (.detail | startswith("3 classifier refusal(s) in 2 run(s)"))' 'refusals warn'
+assert_jq '.checks[] | select(.id == "model_availability") | .status == "warn" and (.detail | contains("in 2 outage(s)"))' 'failures warn with the outage count'
+run_preflight review
+assert_jq '.config.model_alert_threshold == 0 and .config.classifier_alert_threshold == 20' 'the worklist config carries the monitor'"'"'s keys'
+rm -f "$WORK"/logs/events-*.jsonl
+run_preflight audit
+assert_jq '.stats.classifier.blocks == 0 and .stats.api_failures.failures == 0' 'a quiet week counts zero'
+assert_jq '[.checks[] | select(.id == "classifier_blocks" or .id == "model_availability") | .status] == ["ok", "ok"]' 'and both checks are ok'
+
 # --- log_errors: a zero count is a success line --------------------------------
 new_case audit_log_errors_zero_count
 base_config
