@@ -128,6 +128,18 @@ blocks foreign_term  'Runner ci.initech.internal timed out.'
 blocks foreign_term  'Stripe rejected the payment.'
 blocks foreign_term  'The `invoice_total` field was wrong.'
 blocks foreign_term  'A branch named feature/sso-login was reviewed.'
+# identifier-shaped words outside backticks, and names with letters outside ASCII
+blocks foreign_term  'The ledger_sync job of the invoicing-service fails.'
+blocks foreign_term  'The job on node svc01 fails.'
+blocks foreign_term  'Reported by Müller from Škoda.'
+blocks foreign_term  'the reporter was müller.'
+blocks foreign_term  'Reported by Ștefan.'
+blocks foreign_term  'Reported by Иван.'
+blocks foreign_term  'Reported by Ⰲⰾⲏ.'
+blocks foreign_term  'Reported by ⵎⴰⵙⵉⵏⵉⵙⴰ.'
+# a compound of definition words in code or with a capital letter is checked whole
+blocks foreign_term  'The `merge-worker` job fails.'
+blocks foreign_term  'Review-Bot posts nothing.'
 new_case blocks_fenced_block
 instance '- definition_issues: enabled'
 body "${CLEAN[@]}" '```' 'kubectl rollout status deploy/ledger' '```'
@@ -157,9 +169,22 @@ no_calls 'a refused title makes no call'
 new_case definition_terms_pass
 instance '- definition_issues: enabled'
 body "${CLEAN[@]}" 'Reproduction: set `review_model` to `default`, then run `bash "$HOME/scripts/preflight.sh" audit`.' \
-  '```' 'bash scripts/harness/claude-code/install.sh --check' '```' 'VERSION 8.17.0; see docs/runbook.md → Audit run.'
+  '```' 'bash scripts/harness/claude-code/install.sh --check' '```' 'VERSION 8.17.0; see docs/runbook.md → Audit run.' \
+  'Seen with definition v8.17.0.'
 run_issue check '[audit] Audit run reports the model as a mismatch'
-assert_jq '.outcome == "clean"' 'definition paths, keys, commands and words pass the foreign-term scan'
+assert_jq '.outcome == "clean"' 'definition paths, keys, commands, words and versions pass the foreign-term scan'
+
+new_case compounds_pass
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'A stand-by mode keeps the per-PR hold after a one-time re-review.'
+run_issue check '[audit] A dispatched re-review keeps its hold'
+assert_jq '.outcome == "clean"' 'a hyphenated compound of definition words passes'
+
+new_case math_signs_pass
+instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'The size is 2×3 meters, and the ratio is 6÷2.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "clean"' 'the signs × and ÷ separate tokens'
 
 new_case placeholders_pass
 instance '- definition_issues: enabled'
