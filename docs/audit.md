@@ -78,8 +78,8 @@ skipped task is an incomplete audit — a task that is impossible this week
    schedules — `…-review-active` plus the `…-review-quiet` /
    `…-review-offdays` ones the cadence keys call for), the shepherd sweep
    (under `slack_notifications: enabled`), the monthly benchmark (under
-   `benchmark: enabled`), the weekly survey (under `survey: enabled`) and this
-   audit job all exist and are **enabled**, with crons matching ONBOARDING
+   `benchmark: enabled`), the weekly survey (under `survey: enabled`), the
+   monitor and this audit job all exist and are **enabled**, with crons matching ONBOARDING
    Step 6. Missing or disabled → **fail**.
    - **Each must also be firing, not merely enabled.** Per entry,
      `status.lastRun` within 1.5× the interval of **its own cron**, measured
@@ -379,12 +379,24 @@ measurement.
 37. **Review shape** — `stats.review_shape`: the medians of each review's
     `secs`, `msgs`, `peak_ctx`, `repeats`, `failures` and `max_out`, this week
     against the week before, the reviews this week's anomaly alerts named, and
-    the stored baseline per model ([review-bookkeeping.md](review-bookkeeping.md)
+    the stored baseline per model ([monitor.md](monitor.md)
     → **Review anomaly alert**). The alert compares a review with the repo's
     own median, so a slow rise moves the median with it: a median up by half
     or more against the week before, with a similar review count, is a
     **warn** naming the field. A model below `baseline_min` is reported as
     `baseline n/10 — cost, time and context not judged yet`, never a warn.
+38. **Classifier and model availability** — `stats.classifier` and
+    `stats.api_failures` ([monitor.md](monitor.md) → **In the weekly
+    audit**). Per `top` pattern of the `classifier_blocks` check, decide: a
+    documented step of the agent (a script or subagent a procedure names) is
+    an `autoMode.allow` rule the definition lacks — report it as a
+    **definition bug** with the proposed rule text, per task 3; anything
+    else is a refusal that stands, one line with the reason. A pattern whose
+    rule already shipped but whose `harness_adapter` check names
+    `automode-rules` is an install that was not re-run. Per outage of
+    `model_availability`: start, length, runs lost, the classes; two or more
+    outages a week, or an `authentication_failed` / `cloud_credential_error`
+    class, is **Action needed** (operator-only).
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):

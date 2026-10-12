@@ -11,6 +11,21 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.0.0 — 2026-10-12
+
+**Upgrade:** The review heartbeat no longer reports the stalled-review and
+review anomaly alerts; the new monitor schedule does, so register it first:
+reconcile the schedules per ONBOARDING Step 6, which adds
+`code-guardian-monitor-15m` (Step 6f, enabled, gated by
+`precheck.sh monitor`) and changes no other schedule. Then run
+`bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
+another harness): it registers the `PermissionDenied` and `StopFailure` hooks
+and the new `[code-guardian]` auto-mode rules, effective from the next
+session. `work/.stall-alert-day`, `work/.review-anomaly-seen` and
+`work/REVIEW-USAGE.jsonl` stay as they are. The new keys
+`model_alert_threshold` and `classifier_alert_threshold` have working
+defaults; nothing to ask.
+
 ## 8.18.0 — 2026-10-09
 
 **Upgrade:** When `work/CONFIG.md` has no `definition_issues` key, the agent

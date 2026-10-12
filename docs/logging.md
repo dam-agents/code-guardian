@@ -22,7 +22,7 @@ file per UTC day), one JSON object per line:
   the session that starts from the worklist writes its own lines under the
   harness session id. Read one fire as that pair, matched on `job` and on the
   minute the gate's `precheck` event names.
-- **job** — `review` | `shepherd` | `audit` | `benchmark` | `session` (from
+- **job** — `review` | `shepherd` | `audit` | `benchmark` | `monitor` | `session` (from
   `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
   only under `log_level: debug`.
@@ -30,7 +30,8 @@ file per UTC day), one JSON object per line:
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
   `artifact`, `stall_rate`, `stall_alert_sent`, `review_cost`,
-  `review_anomaly`, `review_anomaly_sent`, `pod_boot`, `log_cleanup`,
+  `review_anomaly`, `review_anomaly_sent`, `classifier_block`, `api_failure`,
+  `monitor`, `monitor_alert_sent`, `pod_boot`, `log_cleanup`,
   `profile`, `dispatch`, `state_lock`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
@@ -165,8 +166,17 @@ adapter active, duty 4 above extends to logging tool failures manually.
   event, and the window's shape (`review-window.jq`, `tool_failure` events) —
   `PR #<n> <sha7> secs=… input=… output=… cache_read=… cache_creation=… msgs=…
   model=… subagents=<n new> peak_ctx=… repeats=… repeat_tool=… max_out=…
-  failures=…`. An aborted review has none. Preflight judges it
-  ([review-bookkeeping.md](review-bookkeeping.md) → **Review anomaly alert**).
+  failures=…`. An aborted review has none. The monitor judges it
+  ([monitor.md](monitor.md) → **Review anomaly alert**).
+- `log-permission-denied.sh` — `PermissionDenied` target: one
+  `classifier_block` warn per auto-mode refusal, `<tool> [<command, or
+  subagent type and description, or URL>] — <reason>`, capped at 300
+  characters. Record only: it never asks the harness to retry.
+- `log-api-failure.sh` — `StopFailure` target: one `api_failure` error per
+  turn that ended on an API error the harness's own retries did not clear,
+  `<class>: <detail>` (`server_error`, `overloaded`, `rate_limit`,
+  `authentication_failed`, …). The monitor and the audit read both
+  ([monitor.md](monitor.md)).
 - `enforce-review-completion.sh` — `Stop` target: refuses a stop that would
   leave a PR locked without a terminal `review_step`, logging a
   `review_incomplete` warn per block ([review.md](review.md) → **Completion
@@ -197,7 +207,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
   classifier rules for the agent's documented writes outside the target repo —
   the anonymous tracking issue on `definition_repo` through
   `scripts/definition-issue.sh`, the `curl -X PUT` artifact upload,
-  the review dispatch through `schedule_once` —
+  the review dispatch through `schedule_once`, and the review steps the
+  classifier refused most (`review-pr.sh`, the `review-skill` subagent,
+  `work-backup.sh`, the cleanup of review scratch) —
   as `autoMode.environment` / `autoMode.allow` entries tagged
   `[code-guardian]`, replacing only its own. It writes the tools of
   `denied-tools.txt` — tools neither a procedure nor a platform prompt (Kit
@@ -208,7 +220,8 @@ adapter active, duty 4 above extends to logging tool failures manually.
   `~/.claude/agents/review-skill.md`, the subagent type of the skill fan-out
   ([skills.md](skills.md) → **Invocation & audit log**), limited to the tools
   a skill run needs. `install.sh --check` prints the parts not current
-  (`tool-deny`, `skill-agent`). On another harness it prints a notice and
+  (`hooks`, `automode-rules` — the `[code-guardian]` rules differ from the
+  ones this definition writes —, `tool-deny`, `skill-agent`). On another harness it prints a notice and
   exits 0.
 
 Registration is user-global, so every hook script no-ops unless

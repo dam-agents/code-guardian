@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# monitor.sh: the monitor's alerts — model outages and their recovery, the
+# classifier spike, a refused review post, a silent review gate, a failing
+# backup, harness drift — and the ledger that claims, acknowledges and
+# suppresses them; plus the gate's monitor mode and the two hooks that feed it.
+# Contract: docs/monitor.md.
+. "$(dirname "$0")/helpers.sh"
+
+HOOKS="$REPO_ROOT/scripts/harness/claude-code"
+
+ev() { # <secs-ago> <job> <level> <event> <msg> [run]
+  mkdir -p "$WORK/logs"
+  jq -nc --arg ts "$(iso_ago "$1")" --arg job "$2" --arg lv "$3" --arg e "$4" --arg m "$5" --arg r "${6:-r1}" \
+    '{ts:$ts, run:$r, job:$job, level:$lv, event:$e, msg:$m}' >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+}
+fail_ev()  { ev "$1" session error api_failure "${2:-server_error}: 503 Bedrock is unable to process your request." "r$1"; }
+block_ev() { ev "$1" session warn classifier_block "Bash [${2:-ls}] — Blocked by fast classifier" "${3:-r$1}"; }
+# a review heartbeat a minute ago, so the gap check stays quiet
+fresh_gate() { ev 60 review info precheck "review gate: nothing to do"; }
+mon_case() { new_case "$1"; shift; base_config "$@"; mkdir -p "$WORK/logs"; fresh_gate; }
+due() { printf '%s' "$OUT" | jq -r --arg k "$1" '[.alerts_due[] | select(.kind == $k)] | length'; }
+
+# --- nothing logged → idle -------------------------------------------------------
+mon_case mon_idle
+run_monitor
+assert_jq '.mode == "monitor" and .nothing_to_do == true and .alerts_due == []' 'no events, no alert'
+
+# --- model outage: threshold, one alert, claim, ack, suppression ------------------
+mon_case mon_model_open
+fail_ev 600
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "model_unavailable")] == []' 'one failure stays under the default threshold of 2'
+fail_ev 300 rate_limit
+run_monitor
+assert_jq '.nothing_to_do == false and ([.alerts_due[] | select(.kind == "model_unavailable")] | length == 1)' 'two failures alert'
+assert_jq '.alerts_due[0] | .open == true and .count == 2 and .errors.server_error == 1 and .errors.rate_limit == 1' 'the alert carries the classes and is open'
+ID="$(printf '%s' "$OUT" | jq -r '.alerts_due[0].id')"
+run_monitor
+assert_jq '.alerts_due == [] and .suppressed == 0' 'a claimed alert is not emitted again inside its claim'
+run_monitor ack "$ID"
+assert_jq '.acknowledged == ["'"$ID"'"]' 'ack records the id'
+run_monitor
+assert_jq '.alerts_due == [] and .suppressed == 1 and any(.logs[]; test("suppressed 1 alert"))' 'a delivered alert is suppressed, and the log line says so'
+
+# --- the claim expires: an unacknowledged alert is due again ---------------------
+mon_case mon_claim_expires
+fail_ev 600; fail_ev 300
+run_monitor
+ID="$(printf '%s' "$OUT" | jq -r '.alerts_due[0].id')"
+jq --arg id "$ID" '.alerts[$id].claimed = "2020-01-01T00:00:00Z"' "$WORK/MONITOR.json" > "$WORK/m.json" && mv "$WORK/m.json" "$WORK/MONITOR.json"
+run_monitor
+assert_jq '[.alerts_due[] | select(.id == "'"$ID"'")] | length == 1' 'a session that died before its ack gets the alert again'
+
+# --- recovery: once, only after an alert sent while the outage was open ----------
+mon_case mon_model_recovered
+fail_ev 7800; fail_ev 7500
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "model_unavailable" and .open == false)] | length == 1' 'an outage nobody was told about alerts once, as closed'
+assert_jq '[.alerts_due[] | select(.kind == "model_recovered")] == []' 'and needs no recovery notice'
+mon_case mon_model_recovered_after_open
+fail_ev 7800; fail_ev 7500
+ID="model:$(iso_ago 7800)"
+jq -n --arg id "$ID" --arg sent "$(iso_ago 7400)" '{alerts: {($id): {kind: "model_unavailable", first: $sent, sent: $sent}}}' > "$WORK/MONITOR.json"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "model_recovered" and .id == "'"$ID"':recovered")] | length == 1' 'an outage alerted while open gets one recovery notice'
+run_monitor ack "$ID:recovered"
+run_monitor
+assert_jq '.alerts_due == []' 'the recovery notice goes once'
+
+# --- agent-side API errors are not an outage -------------------------------------
+mon_case mon_model_agent_errors
+ev 600 session error api_failure "invalid_request: prompt too long" r1
+ev 300 session error api_failure "max_output_tokens: limit" r2
+run_monitor
+assert_jq '.alerts_due == []' 'invalid_request and max_output_tokens never alert'
+
+mon_case mon_model_off '- model_alert_threshold: off'
+fail_ev 600; fail_ev 300
+run_monitor
+assert_jq '.alerts_due == [] and .config.model_alert_threshold == 0' 'off disables the model alert'
+
+# --- classifier spike: threshold, the day id, the patterns -----------------------
+mon_case mon_classifier_spike '- classifier_alert_threshold: 3'
+block_ev 900 'cd /home/agent && bash scripts/work-backup.sh persist'
+block_ev 600 'cd /home/agent && bash scripts/work-backup.sh persist'
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "classifier_spike")] == []' 'under the threshold, no spike'
+block_ev 300 'rm -f reviews/pr-4555.md'
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "classifier_spike") | .count == 3 and .id == "classifier:'"$(date -u +%Y-%m-%d)"'" and .top[0].count == 2 and .by_tool.Bash == 3' 'at the threshold: one alert per UTC day with its top pattern'
+mon_case mon_classifier_off '- classifier_alert_threshold: 0'
+for s in 900 600 300; do block_ev "$s"; done
+run_monitor
+assert_jq '.alerts_due == []' '0 disables the classifier alerts'
+
+# --- a refused review post alerts, unless the PR was posted after it --------------
+mon_case mon_post_blocked
+block_ev 900 'cd /home/agent && bash "$HOME/scripts/review-pr.sh" post 4517 --verdict APPROVE --body /tmp/r.md' runA
+block_ev 600 'cd /home/agent && bash scripts/review-pr.sh post 4518 --verdict COMMENT --body /tmp/r.md' runB
+ev 300 review info review_step "PR #4518 1df8905 posted COMMENT" runB
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 1 and .[0].pr == 4517 and .[0].id == "post_blocked:runA:4517"' 'the unposted PR alerts, the PR posted later does not'
+
+# --- the review gate went silent --------------------------------------------------
+new_case mon_heartbeat_gap
+base_config
+ev 7200 review info precheck "review gate: nothing to do"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "heartbeat_gap") | .silent_minutes >= 119 and .limit_minutes == 90' 'two silent hours past a 60-minute quiet interval alert'
+ev 30 review info heartbeat "mode=review nothing_to_do=true"
+run_monitor
+assert_jq '.alerts_due == []' 'a new tick clears it'
+if ! jq -e '.alerts | to_entries | any(.value.kind == "heartbeat_gap")' "$WORK/MONITOR.json" >/dev/null 2>&1; then
+  printf 'ok   %s: a cleared condition leaves the ledger, so its return alerts again\n' "$CASE"
+else printf 'FAIL %s: cleared heartbeat_gap row kept\n' "$CASE"; FAILED=1; fi
+
+# --- a backup that keeps failing ----------------------------------------------------
+mon_case mon_backup '- work_repo: acme/widgets-state'
+ev 30000 session info work_backup "pushed work/ (attempt 1)"
+ev 25000 session error work_backup "push to acme/widgets-state failed after 3 attempts — retry next run"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "backup_failing") | .failures == 1' 'a failure no push cleared for 6 hours alerts'
+ev 60 session info work_backup "pushed work/ (attempt 1)"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "backup_failing")] == []' 'the next push clears it'
+
+# --- harness drift from install.sh --check -----------------------------------------
+mon_case mon_harness
+mkdir -p "$FAKE_HOME/.claude"; echo '{}' > "$FAKE_HOME/.claude/settings.json"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "harness_drift") | (.parts | index("hooks")) and (.parts | index("automode-rules"))' 'an empty settings file names hooks and rules'
+WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=1 bash "$HOOKS/install.sh" >/dev/null 2>&1
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "harness_drift")] == []' 'a re-install clears it'
+
+# --- the gate's monitor mode ---------------------------------------------------------
+mon_case mon_gate_idle
+run_precheck monitor
+assert_rc 1 'an idle monitor tick starts no session'
+mon_case mon_gate_due
+fail_ev 600; fail_ev 300
+run_precheck monitor
+assert_rc 0 'a due alert starts the session'
+assert_out_contains 'alerts_due=1' 'the prompt names the due alerts'
+assert_out_contains 'do not run monitor.sh again' 'and names the one-shot script'
+
+# --- the hooks that feed it ------------------------------------------------------------
+new_case mon_hooks
+base_config
+mkdir -p "$WORK/logs"
+jq -nc '{hook_event_name:"PermissionDenied", session_id:"s-1", tool_name:"Bash",
+         tool_input:{command:"bash scripts/review-pr.sh post 7 --verdict APPROVE"}, reason:"Blocked by fast classifier"}' \
+  | WORK_DIR="$WORK" bash "$HOOKS/log-permission-denied.sh"
+jq -nc '{hook_event_name:"PermissionDenied", session_id:"s-1", tool_name:"Agent",
+         tool_input:{subagent_type:"review-skill", description:"issue-fit on PR 7", prompt:"long"}, reason:"Blocked"}' \
+  | WORK_DIR="$WORK" bash "$HOOKS/log-permission-denied.sh"
+jq -nc '{hook_event_name:"StopFailure", session_id:"s-2", error:"server_error", error_details:"503 no healthy upstream"}' \
+  | WORK_DIR="$WORK" bash "$HOOKS/log-api-failure.sh"
+EVENTS="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+OUT="$(jq -sc . "$EVENTS")"
+assert_jq 'any(.[]; .event == "classifier_block" and .level == "warn" and .run == "s-1" and .msg == "Bash [bash scripts/review-pr.sh post 7 --verdict APPROVE] — Blocked by fast classifier")' 'PermissionDenied logs the command and the reason'
+assert_jq 'any(.[]; .event == "classifier_block" and (.msg | startswith("Agent [review-skill: issue-fit on PR 7]")))' 'an Agent refusal names the subagent type, not the prompt'
+assert_jq 'any(.[]; .event == "api_failure" and .level == "error" and .msg == "server_error: 503 no healthy upstream")' 'StopFailure logs the class and the detail'
+rm -f "$WORK/CONFIG.md"
+jq -nc '{hook_event_name:"StopFailure", session_id:"s-3", error:"server_error"}' | WORK_DIR="$WORK" bash "$HOOKS/log-api-failure.sh"
+if ! grep -q '"run":"s-3"' "$EVENTS"; then printf 'ok   %s: no CONFIG.md, no event\n' "$CASE"
+else printf 'FAIL %s: a hook logged without CONFIG.md\n' "$CASE"; FAILED=1; fi
+
+finish

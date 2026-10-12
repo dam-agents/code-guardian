@@ -114,19 +114,20 @@ repository, organization, project or people.
 
 Every scheduled session is titled `<Verb> <object>`. A schedule registers its
 run's title — `Review open PRs`, `Nudge PR reviewers`, `Audit agent health`,
-`Benchmark the review model`, `Survey the codebase` (ONBOARDING Step 6) — and
+`Benchmark the review model`, `Survey the codebase`, `Report agent alerts`
+(ONBOARDING Step 6) — and
 the run renames itself with `mcp__platform-outbound__rename_session`: a review
 run to the `title` that `dispatch.sh rest` prints ([worklist.md](worklist.md)
 → **Dispatch**), every other run to its schedule's title plus the UTC date
-(`Audit agent health 2026-10-09`), the shepherd plus the UTC time too
-(`Nudge PR reviewers 2026-10-09 14:00`). The rename is best-effort: a missing
+(`Audit agent health 2026-10-09`), the shepherd and the monitor plus the UTC
+time too (`Nudge PR reviewers 2026-10-09 14:00`). The rename is best-effort: a missing
 or failing `rename_session` leaves the title as it is.
 
 ## Review run
 
 Fires when any of `reviews_due` / `label_cleanups_due` / `artifacts_due` /
 `urgent_alerts_due` / `mentions_due` / `ci_failures_due` / `merges_due` /
-`fixes_due` is non-empty, `stall_alert` or `review_anomaly` is present, or a
+`fixes_due` is non-empty, or a
 housekeeping batch came due ([worklist.md](worklist.md) → **The schedule
 gate**). Output channels: the chat UI **and** a GitHub PR review — every
 reviewed PR produces both. Trust the worklist for *what to do*; keep your own
@@ -160,7 +161,7 @@ mention ledger — for *whether it is still valid at post time*.
    `closed_*` outcome, [review-on-demand.md](review-on-demand.md) when a
    mention asks for a review. **With `housekeeping_only`** the set is
    [review-bookkeeping.md](review-bookkeeping.md) alone: go straight to step 4,
-   then steps 12 and 13. No `read_set` (the manual fallback) → read the
+   then steps 11 and 12. No `read_set` (the manual fallback) → read the
    **Where** file of every due key in [worklist.md](worklist.md) → **The
    pre-flight contract**. Configuration comes from the worklist's `config`
    object, the repository map from each entry's `profile_slice` and
@@ -187,15 +188,12 @@ mention ledger — for *whether it is still valid at post time*.
    the PR's hold: `review-pr.sh merge`, one comment on a refusal.
 10. For each `fixes_due` entry, follow [agent-fixes.md](agent-fixes.md) inside
     the PR's hold: `fix-start`, the fix, `fix-push`, one comment.
-11. When `stall_alert` or `review_anomaly` is present, report it per
-    [review-bookkeeping.md](review-bookkeeping.md) → **Stalled-review rate
-    alert** / **Review anomaly alert**. Never repair state in response.
-12. Walk the self-check of every file this run read that has one — the
+11. Walk the self-check of every file this run read that has one — the
     review-run self-check at the end of [review.md](review.md), and the
     **Self-check** section of each other file in `read_set` — then confirm
     every error logged and no unexpanded repo placeholder in any output
     (**Hard invariants**).
-13. **Back up `work/`** as the very last action —
+12. **Back up `work/`** as the very last action —
     `bash "$HOME/scripts/work-backup.sh" persist`, a no-op without `work_repo`
     ([persistence.md](persistence.md)). This also persists preflight's
     bookkeeping.
@@ -241,6 +239,15 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 2. Write the findings in the review form ([finding-form.md](finding-form.md)),
    record the pass, then regenerate and republish the accumulated artifact.
    A survey posts nothing on GitHub and changes no code.
+3. Back up `work/` as the very last action.
+
+## Monitor run (mode `monitor`, worklist from `scripts/monitor.sh`)
+
+1. Title the session (**Session titles**), then read [monitor.md](monitor.md)
+   and report every alert of the worklist in one message — chat UI, plus the
+   escalation DM under Slack.
+2. Acknowledge them with `scripts/monitor.sh ack` **after** the send; never
+   repair, re-run or reconfigure in response.
 3. Back up `work/` as the very last action.
 
 ## Hard invariants (every run)
@@ -386,7 +393,8 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 | [review.md](review.md) | `read_set` names it (`reviews_due`, `mentions_due`, `ci_failures_due` or `fixes_due` non-empty), or an on-demand review — per-PR sequence, PR context, criteria, first-review output, merging, guards, overrides, errors, self-check |
 | [review-rereview.md](review-rereview.md) | `read_set` names it (a re-review is due), or `prepare` returns a `carry` — re-review output, delta scope, carried reviews, stale-approval dismissal |
 | [review-urgent.md](review-urgent.md) | `read_set` names it (an `urgent` or `closed` entry, `urgent_alerts_due`), or `post` returns `closed_*` — rapid-first delivery, the closed-PR issue |
-| [review-bookkeeping.md](review-bookkeeping.md) | `read_set` names it (self-heals, label cleanups, prunes, status resets, `stall_alert`, `review_anomaly`) — the only file of a `housekeeping_only` run |
+| [review-bookkeeping.md](review-bookkeeping.md) | `read_set` names it (self-heals, label cleanups, prunes, status resets) — the only file of a `housekeeping_only` run |
+| [monitor.md](monitor.md) | Every monitor run, or an operator ask about an alert — the alerts, the ledger and ack, delivery, the stall and anomaly rules |
 | [review-on-demand.md](review-on-demand.md) | A channel message or a mention asks for a review of a specific PR |
 | [review-mechanics.md](review-mechanics.md) | The manual fallback, or writing a history-file section — posted payload, body format, inline mapping, tracking rows, live holder, history file, ledger; `compose-brief` prints the parts step e needs |
 | [finding-form.md](finding-form.md) | `read_set` names it (`reviews_due` non-empty), or writing a finding — the diff review, a skill subagent's reformat, the benchmark reviewer, the survey: the approval bar and the conciseness rules |

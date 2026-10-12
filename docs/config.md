@@ -128,13 +128,20 @@ below is for the manual fallback and the direct session.
 - **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24
   h that trigger one alert, at most once per UTC day. **Missing = `4`**;
   `0`/`off` disables; an unparseable value falls back to `4`
-  (review-bookkeeping.md → **Stalled-review rate alert**).
+  (monitor.md → **Stalled-review rate alert**).
 - **`review_anomaly_factor`** — a review whose cost, time, peak context,
   repeated calls, failures or largest tool result reaches max(floor, this ×
   the median of its model's recent reviews) alerts once. **Missing = `4`**;
   `0`/`off` disables the whole anomaly alert; a number of `1` or more, a
   decimal too, sets it; any other value falls back to `4`
-  (review-bookkeeping.md → **Review anomaly alert**).
+  (monitor.md → **Review anomaly alert**).
+- **`model_alert_threshold`** — runs that ended on an API failure within one
+  outage before the monitor alerts. **Missing = `2`**; `0`/`off` disables;
+  an unparseable value falls back to `2` (monitor.md → **The alerts**).
+- **`classifier_alert_threshold`** — auto-mode classifier refusals within 24
+  h that alert once per UTC day; a refused review post alerts on its own.
+  **Missing = `20`**; `0`/`off` disables both; an unparseable value falls
+  back to `20` (monitor.md → **The alerts**).
 
 ### Skills, artifacts, watches
 
@@ -203,7 +210,7 @@ below is for the manual fallback and the direct session.
   ([review-mechanics.md](review-mechanics.md) → **Summary body format**) and
   never auto-merges.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
-  target of the stalled-review and review anomaly alerts. Slack-only key,
+  target of the monitor's alerts. Slack-only key,
   legitimately absent when Slack is disabled.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,

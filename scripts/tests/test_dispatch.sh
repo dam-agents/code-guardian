@@ -31,7 +31,7 @@ synthetic_worklist() { # <path>
     merges_due:[], fixes_due:[], artifacts_due:[],
     urgent_alerts_due:[{number:9}, {number:7}], selfheals_due:[{number:3}], label_cleanups_due:[{number:8, label:"cg-rereview"}],
     prunes_due:[{number:4}], status_resets_due:[],
-    stall_alert:{count:4}, review_anomaly:{factor:4, reviews:[]}, skills:{}, logs:["reviews due: #9 #7 #8", "project profile: current"],
+    skills:{}, logs:["reviews due: #9 #7 #8", "project profile: current"],
     config:{watch_rules:[]},
     read_set:["docs/review.md"]}' > "$1"
 }
@@ -90,7 +90,7 @@ assert_jq '[.dispatch[].number] == [8, 7, 10]' 'urgent first, then mentions, rev
 assert_jq '[.dispatch[].sessionTitle] == ["Re-review PR #8", "Review PR #7", "Triage CI on PR #10"]' 'a title names the review before the other work of its PR'
 U8="$SANDBOX/tmp/cg-worklist-review-x-pr8.json"
 assert_file_jq "$U8" '.mentions_due == [{number:8, id:501}] and [.reviews_due[].number] == [8]' 'a PR takes its mention with its review'
-assert_file_jq "$U8" '.urgent_alerts_due == [] and .selfheals_due == [] and .prunes_due == [] and (has("stall_alert") | not) and (has("review_anomaly") | not)' 'run-wide work and other PRs'"'"' rows are not copied'
+assert_file_jq "$U8" '.urgent_alerts_due == [] and .selfheals_due == [] and .prunes_due == []' 'run-wide work and other PRs'"'"' rows are not copied'
 assert_file_jq "$U8" '.label_cleanups_due == [{number:8, label:"cg-rereview"}]' 'a PR takes its bookkeeping rows with it'
 assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr7.json" '.urgent_alerts_due == [{number:7}] and (.read_set | index("docs/review-urgent.md") != null)' 'a PR takes its urgent alert with it'
 assert_file_jq "$U8" '.read_set | (index("docs/review-rereview.md") != null) and (index("docs/mentions.md") != null) and (index("docs/review-bookkeeping.md") != null)' 'its read_set follows its own entries'
@@ -101,7 +101,7 @@ run_ds rest "$WL" 7 8 10
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.reviews_due[].number] == [9] and .mentions_due == [] and .ci_failures_due == []' 'the run keeps the urgent PR'
 assert_out_contains '^title: Review urgent PR #9$' 'an urgent review says so in the title'
-assert_file_jq "$REST" '.urgent_alerts_due == [{number:9}] and .label_cleanups_due == [] and .selfheals_due == [{number:3}] and .prunes_due == [{number:4}] and .stall_alert == {count:4} and .review_anomaly == {factor:4, reviews:[]}' 'the run keeps its own alert, the other PRs'"'"' rows and every run-wide entry'
+assert_file_jq "$REST" '.urgent_alerts_due == [{number:9}] and .label_cleanups_due == [] and .selfheals_due == [{number:3}] and .prunes_due == [{number:4}]' 'the run keeps its own alert, the other PRs'"'"' rows and every run-wide entry'
 run_ds rest "$WL" 7 8
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
 assert_file_jq "$REST" '[.ci_failures_due[].number] == [10]' 'a PR whose session did not start stays with the run'
@@ -123,9 +123,6 @@ assert_out_contains '^title: Tidy review state$' 'a run with no PR work tidies t
 jq '.urgent_alerts_due = [{number:15}]' "$WL" > "$WL.u" && mv "$WL.u" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Report review alerts$' 'a run with an urgent alert and no PR work reports it'
-jq '.urgent_alerts_due = [] | .stall_alert = {count:4}' "$WL" > "$WL.a" && mv "$WL.a" "$WL"
-run_ds rest "$WL"
-assert_out_contains '^title: Report review alerts$' 'a run with an alert and no PR work reports it'
 jq '.mentions_due = [{number:16, id:601}]' "$WL" > "$WL.m" && mv "$WL.m" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Answer mention on #16$' 'a mention names its number alone'

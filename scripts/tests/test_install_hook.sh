@@ -44,6 +44,12 @@ assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contain
 assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("schedule_once") and contains("scripts/dispatch.sh plan"))' 'review dispatch rule present'
 assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'hooks still registered'
 assert_settings '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command] | any(endswith("guard-definition-issue.sh"))' 'definition-issue guard registered on PreToolUse Bash'
+assert_settings '[.hooks.PermissionDenied[]?.hooks[]?.command] | any(endswith("log-permission-denied.sh"))' 'classifier-block hook registered on PermissionDenied'
+assert_settings '[.hooks.StopFailure[]?.hooks[]?.command] | any(endswith("log-api-failure.sh"))' 'API-failure hook registered on StopFailure'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("scripts/review-pr.sh") and contains("acme/widgets"))' 'review executor rule names the target repo'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("review-skill"))' 'skill subagent rule present'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("work-backup.sh persist"))' 'backup rule present'
+assert_settings '.autoMode.allow | any(startswith("[code-guardian]") and contains("work/survey/"))' 'survey upload covered'
 run_install
 assert_out "already installed" 'second run is a no-op'
 
@@ -56,8 +62,23 @@ assert_settings '.autoMode.allow[0] == "operator rule" and (.autoMode.allow | in
 assert_settings '.theme == "dark"' 'other keys stay'
 printf -- '- github_repo: acme/widgets\n- definition_repo: acme/guardian2\n' > "$FAKE_HOME/work/CONFIG.md"
 run_install
-assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 3 and all(contains("acme/guardian2") or contains("curl") or contains("schedule_once"))' 'changed definition_repo replaces own rules'
+assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 7 and (map(select(contains("definition-issue.sh"))) | length == 1 and all(contains("acme/guardian2")))' 'changed definition_repo replaces own rules'
 assert_settings '[.autoMode.environment[] | select(startswith("[code-guardian]"))] | length == 2' 'environment rules not duplicated'
+
+# --- --check names rules an older definition wrote -------------------------------
+install_case check_stale_rules '- github_repo: acme/widgets' '- definition_repo: acme/guardian'
+run_install
+jq '.autoMode.allow |= map(if type == "string" and startswith("[code-guardian]") and contains("review-pr.sh") then "[code-guardian] an older rule" else . end)' \
+  "$FAKE_HOME/.claude/settings.json" > "$FAKE_HOME/s.json" && mv "$FAKE_HOME/s.json" "$FAKE_HOME/.claude/settings.json"
+OUT="$(HOME="$FAKE_HOME" CLAUDECODE=1 bash "$REPO_ROOT/scripts/harness/claude-code/install.sh" --check 2>&1)"
+assert_out "automode-rules" '--check names stale [code-guardian] rules'
+jq '.hooks.StopFailure = []' "$FAKE_HOME/.claude/settings.json" > "$FAKE_HOME/s.json" && mv "$FAKE_HOME/s.json" "$FAKE_HOME/.claude/settings.json"
+OUT="$(HOME="$FAKE_HOME" CLAUDECODE=1 bash "$REPO_ROOT/scripts/harness/claude-code/install.sh" --check 2>&1)"
+assert_out "hooks" '--check names a missing hook'
+run_install
+OUT="$(HOME="$FAKE_HOME" CLAUDECODE=1 bash "$REPO_ROOT/scripts/harness/claude-code/install.sh" --check 2>&1)"
+if [ -z "$OUT" ]; then printf 'ok   %s: %s\n' "$CASE" '--check silent after a re-install'
+else printf 'FAIL %s: --check not silent after a re-install: %s\n' "$CASE" "$OUT"; FAILED=1; fi
 
 # --- no CONFIG.md yet: definition repo from $HOME's origin ------------------------
 install_case origin_fallback

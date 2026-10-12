@@ -112,6 +112,11 @@ run_preflight() { # <mode>
          PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" "$1")"
 }
 
+# the monitor's detector in the sandbox (docs/monitor.md); args pass through
+run_monitor() { # [ack <id>…]
+  OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" "$@")"
+}
+
 # run the schedule gate in the sandbox — the same environment, plus a sandboxed
 # TMPDIR so the worklist file it writes stays inside the case. Its stdout (text,
 # not JSON) lands in $OUT, the exit code in $RC, and the path it named in

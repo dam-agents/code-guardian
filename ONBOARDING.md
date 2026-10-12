@@ -584,6 +584,8 @@ Final shape:
 - escalation_owner: alice              # only when slack_notifications: enabled
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
 - review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) alerts; omit = 4; 0/off disables
+- model_alert_threshold: 2             # runs ended on an API failure in one outage that alert; omit = 2; 0/off disables
+- classifier_alert_threshold: 20       # classifier refusals per 24h that alert; omit = 20; 0/off disables
 - log_level: info                      # or: debug (diagnostic only); omit = info
 - active_hours: 00-23                  # platform timezone, both ends inclusive; missing = 00-23
 - active_days: Mon-Sun                 # or: Mon-Fri / a comma list; missing = Mon-Sun
@@ -680,7 +682,7 @@ whenever `audit_report` is enabled. Every schedule here also carries
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
-carries every schedule of 6a–6e, at the default cadence of its step, with the
+carries every schedule of 6a–6f, at the default cadence of its step, with the
 Slack-, benchmark- and survey-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
@@ -757,6 +759,16 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 `sessionTitle: Survey the codebase`, `task`:
 
 > Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
+
+**6f — Agent monitor.** Every instance gets it, without a question: the
+health alerts of `docs/monitor.md` — model outages, classifier refusals,
+harness drift, a silent review gate, a failing backup, stalled and anomalous
+reviews. An idle tick costs no model call. Create
+`name: code-guardian-monitor-15m`, cron `*/15 * * * *`, `sessionMode: fresh`,
+`precheck: bash "$HOME/scripts/precheck.sh" monitor`,
+`sessionTitle: Report agent alerts`, `task`:
+
+> Agent monitor. The precheck already ran scripts/monitor.sh and found alerts due: read the worklist JSON at the path its output names, and never run monitor.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of the worklist in one message (chat UI, plus the escalation DM when slack_notifications is enabled), acknowledge them with `scripts/monitor.sh ack <ids>` only after the send, never repair or re-run anything in response, and back up work/ (`scripts/work-backup.sh persist`).
 
 Cadence note: the nudge rules are hour-granular (24 h age gate, 20 h cooldown,
 2-day escalation), so an hourly work-hours sweep loses nothing versus a

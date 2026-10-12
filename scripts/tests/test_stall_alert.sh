@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stall_alert: the 24h stalled-review rate detector — threshold, PR list,
 # once-per-day dedup, window boundary, and the config off switch.
-# Contract: docs/review-bookkeeping.md → Stalled-review rate alert.
+# Contract: docs/monitor.md → Stalled-review rate alert.
 . "$(dirname "$0")/helpers.sh"
 
 SHA1="1111111111111111111111111111111111111111"
@@ -30,7 +30,7 @@ stall_case stall_below
 stall_event 3600 10
 stall_event 7200 11
 stall_event 10800 10
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' '3 stalls stay under the default threshold of 4'
 
 # --- at threshold → one alert, distinct PRs listed -----------------------------
@@ -39,7 +39,7 @@ stall_event 3600 10
 stall_event 7200 11
 stall_event 10800 10
 stall_event 14400 12
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 4 and .stall_alert.threshold == 4 and .stall_alert.window_hours == 24' 'alert carries count + threshold'
 assert_jq '.stall_alert.prs | sort == [10,11,12]' 'distinct PRs listed, deduped'
 assert_jq '.stall_alert.per_day_7d | type == "array" and length >= 1 and (.[-1].stalls == 4)' 'per-day trend included'
@@ -51,7 +51,7 @@ else
 fi
 
 # --- dedup: the same day never alerts twice -----------------------------------
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'second run the same day is deduped'
 
 # --- one dead lock met by many heartbeats is one stall -------------------------
@@ -59,26 +59,26 @@ stall_case stall_same_lock
 LOCK="$(iso_ago 20000)"
 for s in 3600 4200 4800 5400 6000 6600; do stall_event "$s" 10 "$LOCK"; done
 stall_event 7200 11
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'six takeover lines of one lock count once (2 stalls < 4)'
 
 stall_case stall_same_lock_alert '- stall_alert_threshold: 2'
 for s in 3600 4200 4800; do stall_event "$s" 10 "$LOCK"; done
 stall_event 7200 10
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 2 and .stall_alert.prs == [10]' 'two locks on one PR are two stalls'
 assert_jq '.stall_alert.per_day_7d[-1].stalls == 2' 'the per-day trend counts locks, not lines'
 
 stall_case stall_legacy_lines
 for s in 3600 4200 4800 5400; do stall_event "$s" 10 legacy; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'pre-8.2.1 lines without a lock time count once per PR'
 
 stall_case stall_legacy_then_keyed '- stall_alert_threshold: 1'
 LOCK="$(iso_ago 7000)"
 stall_event 4800 10 legacy
 stall_event 3600 10 "$LOCK"
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 1' 'an old-format line next to a keyed line of the same PR is one stall'
 
 # --- a lock met on two UTC days counts on the day of its first line -----------
@@ -87,7 +87,7 @@ stall_case stall_two_days '- stall_alert_threshold: 1'
 LOCK="$(iso_ago 102340)"
 stall_event 100000 10 "$LOCK"
 stall_event 3600 10 "$LOCK"
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 1' 'the window counts the lock it still sees'
 assert_jq '[.stall_alert.per_day_7d[].stalls] | add == 1' 'the per-day trend counts one lock once across days'
 
@@ -96,7 +96,7 @@ assert_jq '[.stall_alert.per_day_7d[].stalls] | add == 1' 'the per-day trend cou
 stall_case stall_alone
 printf '[]' | fx "api repos/$TEST_REPO/pulls?state=open&per_page=100"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 4' 'alert fires with no open PRs'
 assert_jq '.nothing_to_do == false' 'a due alert alone makes the run non-idle'
 
@@ -106,33 +106,33 @@ stall_event 3600 10
 stall_event 90000 11    # 25h ago — outside the 24h window
 stall_event 100000 12
 stall_event 110000 13
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'stalls older than 24h do not count'
 
 # --- an earlier alert day does not suppress today ------------------------------
 stall_case stall_marker_stale
 printf '2020-01-01\n' > "$WORK/.stall-alert-day"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 4' 'a stale marker day still alerts'
 
 # --- explicit threshold honoured ----------------------------------------------
 stall_case stall_custom_threshold '- stall_alert_threshold: 2'
 stall_event 3600 10
 stall_event 7200 11
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 2 and .stall_alert.threshold == 2' 'configured threshold of 2 fires'
 
 # --- off switch ----------------------------------------------------------------
 stall_case stall_off '- stall_alert_threshold: off'
 for s in 3600 7200 10800 14400 18000; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'threshold off disables the detector'
 
 # --- unparseable value falls back to the documented default -------------------
 stall_case stall_bad_value '- stall_alert_threshold: banana'
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.threshold == 4' 'garbage threshold falls back to 4'
 
 # --- a stale claim lock (killed run) is removed, the alert still fires --------
@@ -140,14 +140,14 @@ stall_case stall_stale_lock
 mkdir "$WORK/.stall-alert.lock"
 touch -t 202001010000 "$WORK/.stall-alert.lock"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 4' 'a lock left by a killed run does not suppress the alert'
 
 # --- a fresh claim lock (live concurrent run) still dedups ---------------------
 stall_case stall_fresh_lock
 mkdir "$WORK/.stall-alert.lock"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'a live concurrent claim suppresses this run'
 
 # --- a line the detector cannot read is skipped, the rest still counts --------
@@ -157,7 +157,7 @@ for s in 3600 7200; do stall_event "$s" 10; done
 printf '{"ts":"%s","run":"r","job":"review","level":"info","event":"preflight","msg":null}\n' "$(iso_ago 5000)" >> "$EV"
 printf '{"ts":"%s","run":"r","event":"pre\n' "$(iso_ago 5000)" >> "$EV"
 for s in 10800 14400; do stall_event "$s" 10; done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert.count == 4' 'an event without msg and a torn line are skipped'
 
 # --- unrelated preflight lines are not counted --------------------------------
@@ -168,7 +168,7 @@ for s in 3600 7200 10800 14400; do
       msg:"PR #10: fresh in_progress lock (9m) — skipped"}' \
     >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
 done
-run_preflight review
+run_monitor
 assert_jq '.stall_alert == null' 'fresh-lock skips are not stalls'
 
 finish

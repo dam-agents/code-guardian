@@ -2,7 +2,7 @@
 # entries (session + subagents) stamped at or after $since (ISO, compared to
 # the second). Invoke as: jq -nR --arg since <iso> -f review-window.jq <files…>
 # Consumer: log-review-step.sh (the `review_cost` event's anomaly fields,
-# docs/review-bookkeeping.md → Review anomaly alert).
+# docs/monitor.md → Review anomaly alert).
 #   peak_ctx    — the largest single API call's context (input + cache read +
 #                 cache write), deduped by message id
 #   repeats     — how often the most repeated identical tool call ran

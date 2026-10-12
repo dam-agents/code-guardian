@@ -132,5 +132,22 @@ schedules:
     enabled: false
     task: >-
       Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
+  # Agent monitor (Step 6f) — every instance: the health alerts, apart from
+  # the review heartbeat (docs/monitor.md).
+  - name: code-guardian-monitor-15m
+    cron: "*/15 * * * *"
+    sessionMode: fresh
+    precheck: bash "$HOME/scripts/precheck.sh" monitor
+    task: >-
+      Agent monitor. The precheck already ran scripts/monitor.sh and found
+      alerts due: read the worklist JSON at the path its output names, and
+      never run monitor.sh again this run. If the prompt carries no worklist
+      path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow
+      CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of
+      the worklist in one message (chat UI, plus the escalation DM when
+      slack_notifications is enabled), acknowledge them with
+      `scripts/monitor.sh ack <ids>` only after the send, never repair or
+      re-run anything in response, and back up work/ (`scripts/work-backup.sh
+      persist`).
 bundledSkills:
   path: .agents/skills

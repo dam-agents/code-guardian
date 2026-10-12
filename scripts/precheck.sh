@@ -7,10 +7,11 @@
 # timeout — means the gate itself broke, so the session starts anyway. Whatever
 # the gate prints on stdout is appended to the task prompt.
 #
-#   precheck.sh <review|shepherd|benchmark|survey>   # the mode is required
+#   precheck.sh <review|shepherd|benchmark|survey|monitor>   # the mode is required
 #
-# It runs `preflight.sh <mode>` ONCE, keeps the worklist on disk, and prints the
-# path plus the summary the run starts from:
+# It runs `preflight.sh <mode>` ONCE — `monitor.sh` for the monitor
+# (docs/monitor.md) — keeps the worklist on disk, and prints the path plus the
+# summary the run starts from:
 #
 #   nothing_to_do -> exit 1. HEARTBEAT.log and the structured log already carry
 #                    the tick, so an idle heartbeat costs zero tokens.
@@ -24,10 +25,10 @@
 #                    target repo, no answer from the API), which is a broken
 #                    gate, never an idle tick.
 #
-# preflight is never run twice for one fire. Its bookkeeping is one-shot — the
-# `done -> awaiting_label` flip, the once-per-UTC-day stall-alert claim and the
-# anomaly-alert marker are consumed by this pass — so the run reads the file
-# named here instead of recomputing the decisions.
+# The pass is never run twice for one fire. Its bookkeeping is one-shot — the
+# `done -> awaiting_label` flip; for the monitor its alert claims, the
+# once-per-UTC-day stall-alert claim and the anomaly-alert marker — so the run
+# reads the file named here instead of recomputing the decisions.
 #
 # `audit` has no gate: preflight's audit mode always reports work, so the weekly
 # audit keeps the in-session entry command (docs/worklist.md → **The schedule
@@ -48,15 +49,16 @@ if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then
 fi
 
 case "$MODE" in
-  review|shepherd|benchmark|survey) ;;
+  review|shepherd|benchmark|survey) PASS=preflight.sh; PASS_ARGS=("$MODE");;
+  monitor) PASS=monitor.sh; PASS_ARGS=();;
   audit)
     printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
   '')
-    printf 'precheck: no mode given (use review|shepherd|benchmark|survey). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'
+    printf 'precheck: no mode given (use review|shepherd|benchmark|survey|monitor). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'
     exit 2;;
   *)
-    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey).\n' "$MODE"
+    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey|monitor).\n' "$MODE"
     exit 2;;
 esac
 
@@ -86,11 +88,11 @@ LIMIT=(); command -v timeout >/dev/null 2>&1 && LIMIT=(timeout -k 5 "$BUDGET")
 ERR="$TMP/cg-precheck-err-$$.log"
 WHY=""
 if ( umask 077; : > "$ERR" ) 2>/dev/null; then
-  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>"$ERR")"; PRE_RC=$?
+  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/$PASS" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} 2>"$ERR")"; PRE_RC=$?
   WHY="$(log_redact "$(tail -c 400 "$ERR" 2>/dev/null | tr '\n' ' ')")"
   rm -f "$ERR" 2>/dev/null || true
 else
-  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/preflight.sh" "$MODE" 2>/dev/null)"; PRE_RC=$?
+  JSON="$(${LIMIT[@]+"${LIMIT[@]}"} bash "$SCRIPT_DIR/$PASS" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} 2>/dev/null)"; PRE_RC=$?
 fi
 
 if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ]; }; then
@@ -104,15 +106,15 @@ if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ];
     | tail -1 | cut -c1-200)"
   LAST="$(log_redact "${LAST:-none}")"
   logev error precheck "$MODE gate: preflight stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
-  printf 'precheck (%s): scripts/preflight.sh did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) may be spent, so a stall or anomaly alert may be missing from your worklist.\n' \
-    "$MODE" "$BUDGET" "$LAST"
+  printf 'precheck (%s): scripts/%s did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) may be spent, so a stall or anomaly alert may be missing from your worklist.\n' \
+    "$MODE" "$PASS" "$BUDGET" "$LAST"
   exit 2
 fi
 
 if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/dev/null 2>&1; then
   logev error precheck "$MODE gate: preflight printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
-  printf 'precheck (%s): scripts/preflight.sh printed no JSON worklist (exit %s)%s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
-    "$MODE" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
+  printf 'precheck (%s): scripts/%s printed no JSON worklist (exit %s)%s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+    "$MODE" "$PASS" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
   exit 2
 fi
 
@@ -120,8 +122,8 @@ PRE_ERR="$(printf '%s' "$JSON" | jq -r '.error // empty | tostring')"
 if [ -n "$PRE_ERR" ]; then
   PRE_ERR="$(log_redact "$(printf '%s' "$PRE_ERR" | cut -c1-400)")"
   logev error precheck "$MODE gate: preflight could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
-  printf 'precheck (%s): scripts/preflight.sh could not decide (exit %s): %s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
-    "$MODE" "$PRE_RC" "$PRE_ERR"
+  printf 'precheck (%s): scripts/%s could not decide (exit %s): %s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
+    "$MODE" "$PASS" "$PRE_RC" "$PRE_ERR"
   exit 2
 fi
 
@@ -136,7 +138,7 @@ OUT="$TMP/cg-worklist-$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
 ( umask 077; : > "$OUT" ) 2>/dev/null || true
 if ! printf '%s\n' "$JSON" > "$OUT" 2>/dev/null; then
   logev error precheck "$MODE gate: the worklist file could not be written — the run recomputes it"
-  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/preflight.sh" %s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) is already spent, so a stall or anomaly alert may be missing from the second worklist.\n' "$MODE" "$MODE"
+  printf 'precheck (%s): work is due, but the worklist file could not be written. Run `bash "$HOME/scripts/'"$PASS"'" %s` yourself. One-shot bookkeeping of the first pass (the awaiting_label flip, the daily stall-alert claim, the anomaly-alert marker) is already spent, so a stall or anomaly alert may be missing from the second worklist.\n' "$MODE" "$MODE"
   exit 0
 fi
 
@@ -161,5 +163,5 @@ logev info precheck "$MODE gate: work due — $WHAT"
 printf 'worklist: %s\n' "$OUT"
 printf 'mode=%s, due: %s\n' "$MODE" "${WHAT:-see the worklist}"
 printf '%s' "$JSON" | jq -r '.logs[]? | "- " + .'
-printf 'The worklist above is already computed. Read the file, do not run preflight.sh again this run.\n'
+printf 'The worklist above is already computed. Read the file, do not run %s again this run.\n' "$PASS"
 exit 0

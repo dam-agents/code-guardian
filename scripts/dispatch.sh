@@ -85,7 +85,7 @@ TITLE_JQ='
       elif ($u | length) > 1 then
         "Review PRs " + ([$u[:5][] | "#\(.)"] | join(", "))
         + (if ($u | length) > 5 then " +\(($u | length) - 5) more" else "" end)
-      elif .stall_alert != null or .review_anomaly != null or ((.urgent_alerts_due // []) | length) > 0 then "Report review alerts"
+      elif ((.urgent_alerts_due // []) | length) > 0 then "Report review alerts"
       else "Tidy review state" end;
 '
 
@@ -110,7 +110,7 @@ case "$CMD" in
       UNIT="$BASE-pr$n.json"
       jq --argjson n "$n" --arg by "${LOG_RUN:0:8}" "$READ_SET_JQ$UNIT_JQ"'
         only_prs([$n])
-        | del(.stall_alert, .review_anomaly, .housekeeping_only)
+        | del(.housekeeping_only)
         | .dispatched = {number: $n, by: $by}
         | .logs = (["PR #\($n): dispatched by run \($by) to a session of its own"]
                    + [(.logs // [])[] | select(startswith("project profile"))])

@@ -4,7 +4,8 @@
 # adapters): log-tool-event.sh on PostToolUseFailure + PostToolUse,
 # log-review-step.sh on PostToolUse (Bash|Task), log-session-tokens.sh on
 # SessionEnd, enforce-review-completion.sh on Stop, guard-definition-issue.sh
-# on PreToolUse (Bash). It also keeps the auto-mode classifier rules for the
+# on PreToolUse (Bash), log-permission-denied.sh on PermissionDenied,
+# log-api-failure.sh on StopFailure. It also keeps the auto-mode classifier rules for the
 # agent's documented writes (autoMode.environment / autoMode.allow, entries
 # tagged [code-guardian]),
 # the tool deny list (permissions.deny ← denied-tools.txt, so the unused
@@ -15,7 +16,8 @@
 # next session.
 #
 #   install.sh           # install or refresh
-#   install.sh --check   # print the parts not current (tool-deny, skill-agent), or nothing
+#   install.sh --check   # print the parts not current (hooks, automode-rules,
+#                        # tool-deny, skill-agent), or nothing
 set -u
 
 CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
@@ -33,6 +35,8 @@ TOKENS="$ADAPTER_DIR/log-session-tokens.sh"
 FINISH="$ADAPTER_DIR/enforce-review-completion.sh"
 STEPS="$ADAPTER_DIR/log-review-step.sh"
 GUARD="$ADAPTER_DIR/guard-definition-issue.sh"
+DENIED="$ADAPTER_DIR/log-permission-denied.sh"
+APIFAIL="$ADAPTER_DIR/log-api-failure.sh"
 AGENT_SRC="$ADAPTER_DIR/agents/review-skill.md"
 AGENT_DST="$(dirname "$SETTINGS")/agents/review-skill.md"
 # the deny entries this script wrote last time, so a name dropped from
@@ -46,22 +50,10 @@ DENY="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$ADAPTER
 PREV="$(jq -c 'if type == "array" then map(strings) else [] end' "$OWNED" 2>/dev/null)"
 [ -n "$PREV" ] || PREV='[]'
 
-if [ "$CHECK" = 1 ]; then
-  missing=""
-  jq -e --argjson d "$DENY" '($d - (.permissions.deny // [])) == []' "$SETTINGS" >/dev/null 2>&1 \
-    || missing="$missing tool-deny"
-  cmp -s "$AGENT_SRC" "$AGENT_DST" || missing="$missing skill-agent"
-  printf '%s\n' "${missing# }"
-  exit 0
-fi
-
-chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$GUARD" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
-
-mkdir -p "$(dirname "$SETTINGS")"
-[ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-
 # auto-mode classifier rules: the classifier blocks an issue on a repo other
-# than the target and an upload of a local file unless it knows both are the
+# than the target, an upload of a local file, and the review steps it saw
+# most (the review post, the skill subagent, the backup, the scratch cleanup;
+# docs/monitor.md counts what it still blocks) unless it knows they are the
 # agent's documented work (docs/logging.md → Harness adapters). The slugs come
 # from work/CONFIG.md; the definition repo falls back to $HOME's origin, so
 # Step 1b works before the config exists.
@@ -75,15 +67,44 @@ TARGET="$(cfg github_repo)"
 AM_ENV="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '[
   "[code-guardian] This is an unattended code review agent. It reviews pull requests on \(if $r == "" then "the github_repo of \($h)/work/CONFIG.md" else $r end)\(if $d == "" then "" else ", and its own definition repository is \($d)" end).",
   "[code-guardian] The DAM Artifact Library is a publish surface the operator configured. Its create_artifact_upload_url tool returns a presigned upload URL for one file."]')"
-AM_ALLOW="$(jq -nc --arg d "$DEF" --arg h "$HOME_DIR" '
+AM_ALLOW="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '
   (if $d == "" then [] else
     ["[code-guardian] Opening an anonymous tracking issue on \($d) with bash \($h)/scripts/definition-issue.sh file: the weekly audit and the channel-refused rule file them there, and the script checks the definition_issues switch and scans the draft for instance data before it sends anything."] end)
-  + ["[code-guardian] Uploading a file under \($h)/work/audit/ or \($h)/work/reviews/pr-artifacts/ with curl -X PUT --data-binary to the URL that create_artifact_upload_url returned in the same session.",
+  + ["[code-guardian] Uploading a file under \($h)/work/audit/, \($h)/work/survey/ or \($h)/work/reviews/pr-artifacts/ with curl -X PUT --data-binary to the URL that create_artifact_upload_url returned in the same session.",
+     "[code-guardian] Running bash \($h)/scripts/review-pr.sh with any subcommand (hold, release, lock, prepare, step, post, abort, merge, fix-start, fix-push and the others): it is the review executor of the agent. Posting an APPROVE, COMMENT or REQUEST_CHANGES review on \(if $r == "" then "the target repository" else $r end) through it is the main task of the agent, and the script itself refuses a stale HEAD, a closed PR and a duplicate review.",
+     "[code-guardian] Starting a subagent of type review-skill with the Agent tool: a review run gives each configured review skill one subagent, with its brief file under /tmp/review-pr-<n>.ctx/.",
+     "[code-guardian] Running bash \($h)/scripts/work-backup.sh persist or restore: it backs up the \($h)/work/ directory of the agent to the work repository that work/CONFIG.md names.",
+     "[code-guardian] Deleting with rm -f or rm -rf the review files and scratch of the agent: paths under \($h)/work/reviews/, /tmp/review-pr-* and /tmp/cg-*.",
      "[code-guardian] Starting a review of one pull request in a session of its own with mcp__platform-outbound__schedule_once, passing exactly the name, task, sessionTitle and model that scripts/dispatch.sh plan printed in the same session: a review run hands every PR after its first to a one-time session that runs at once, then titles its own session with mcp__platform-outbound__rename_session and the title scripts/dispatch.sh rest printed. Every other scheduled run titles its own session with rename_session too."]')"
+
+if [ "$CHECK" = 1 ]; then
+  missing=""
+  for h in "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$GUARD" "$DENIED" "$APIFAIL"; do
+    grep -qF "$h" "$SETTINGS" 2>/dev/null || { missing="$missing hooks"; break; }
+  done
+  # the installed [code-guardian] rules are exactly the ones this script writes
+  # now: an older definition's rules, or a changed slug, read as not current
+  jq -e --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" '
+      def own($k): [.autoMode[$k][]? | strings | select(startswith("[code-guardian]"))];
+      own("environment") == $e and own("allow") == $a' "$SETTINGS" >/dev/null 2>&1 \
+    || missing="$missing automode-rules"
+  jq -e --argjson d "$DENY" '($d - (.permissions.deny // [])) == []' "$SETTINGS" >/dev/null 2>&1 \
+    || missing="$missing tool-deny"
+  cmp -s "$AGENT_SRC" "$AGENT_DST" || missing="$missing skill-agent"
+  printf '%s\n' "${missing# }"
+  exit 0
+fi
+
 [ -n "$DEF" ] || echo "definition repo unresolved — tracking-issue rule left out; re-run once work/CONFIG.md has definition_repo"
+
+chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$GUARD" "$DENIED" "$APIFAIL" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
+
+mkdir -p "$(dirname "$SETTINGS")"
+[ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 
 tmp="$(mktemp)"
 if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" --arg g "$GUARD" \
+      --arg pd "$DENIED" --arg af "$APIFAIL" \
       --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" --argjson deny "$DENY" --argjson prev "$PREV" '
     # own entries are replaced, the operator'"'"'s kept; a new list keeps the
     # built-in rules through "$defaults"
@@ -108,6 +129,12 @@ if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" -
     .hooks.PreToolUse = ([.hooks.PreToolUse[]?
         | select([.hooks[]?.command] | index($g) | not)]
       + [{matcher:"Bash", hooks:[{type:"command", command:$g, timeout:10}]}]) |
+    .hooks.PermissionDenied = ([.hooks.PermissionDenied[]?
+        | select([.hooks[]?.command] | index($pd) | not)]
+      + [{matcher:"*", hooks:[{type:"command", command:$pd, timeout:10}]}]) |
+    .hooks.StopFailure = ([.hooks.StopFailure[]?
+        | select([.hooks[]?.command] | index($af) | not)]
+      + [{hooks:[{type:"command", command:$af, timeout:10}]}]) |
     # tool deny list: own entries (this and the previous install) are replaced
     # in place of their old position at the end, the operator'"'"'s kept in order
     if ($deny | length) > 0 or ((.permissions.deny // []) | any(. as $x | $prev | index([$x])))
@@ -138,6 +165,6 @@ fi
 if [ "$settings_same" = 1 ] && [ "$agent_same" = 1 ]; then
   echo "hooks, auto-mode rules, tool deny list and review-skill agent already installed ($SETTINGS)"
 else
-  echo "installed into $SETTINGS: hooks (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH; PreToolUse Bash -> $GUARD), [code-guardian] rules -> autoMode.environment + autoMode.allow, $(printf '%s' "$DENY" | jq 'length') tools -> permissions.deny; review-skill agent -> $AGENT_DST"
+  echo "installed into $SETTINGS: hooks (PostToolUseFailure + PostToolUse -> $SCRIPT; PostToolUse Bash|Task -> $STEPS; SessionEnd -> $TOKENS; Stop -> $FINISH; PreToolUse Bash -> $GUARD; PermissionDenied -> $DENIED; StopFailure -> $APIFAIL), [code-guardian] rules -> autoMode.environment + autoMode.allow, $(printf '%s' "$DENY" | jq 'length') tools -> permissions.deny; review-skill agent -> $AGENT_DST"
 fi
 exit 0

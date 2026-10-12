@@ -1,0 +1,147 @@
+# Monitor — the agent's health alerts
+
+Read on every **monitor run** (the `code-guardian-monitor-15m` schedule,
+ONBOARDING Step 6f). The review heartbeat decides review work only; every
+health alert is the monitor's. `scripts/precheck.sh monitor` runs
+`scripts/monitor.sh` once per fire: local files only — the events log, the
+review usage baseline, the review ledger, the harness settings — no GitHub
+call, no write beyond its own bookkeeping. An idle fire starts no session.
+
+## The alerts
+
+| Kind | Condition | Clears when |
+| --- | --- | --- |
+| `model_unavailable` | `model_alert_threshold` (missing = `2`; `0`/`off` disables) runs ended on an availability-class `api_failure` in one outage — failures less than 60 min apart; `open` while the last is under 60 min old | — (one alert per outage) |
+| `model_recovered` | the outage is over (60 min without a failure) and its `model_unavailable` went out while it was still open | — (once per outage) |
+| `classifier_spike` | `classifier_alert_threshold` (missing = `20`; `0`/`off` disables both classifier alerts) `classifier_block` events in 24 h | — (once per UTC day) |
+| `review_post_blocked` | the classifier refused a `review-pr.sh post` in the last 24 h, and no later `posted` step of that PR exists | — (once per run and PR) |
+| `harness_drift` | `install.sh --check` names a part that is not current (`hooks`, `automode-rules`, `tool-deny`, `skill-agent`) | the check prints nothing |
+| `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
+| `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
+| `stall_alert` | **Stalled-review rate alert** below | — (once per UTC day) |
+| `review_anomaly` | **Review anomaly alert** below | — (once per review) |
+
+The availability classes are every `api_failure` class except
+`invalid_request` and `max_output_tokens`, which an agent request causes. The
+events come from the harness hooks `StopFailure` (`api_failure`) and
+`PermissionDenied` (`classifier_block`) ([logging.md](logging.md) → **Harness
+adapters**).
+
+**The ledger** — `work/MONITOR.json`, `{alerts: {<id>: {kind, first, claimed,
+sent}}}`, one writer at a time. An `alerts_due` entry is claimed when emitted
+and is due again 30 min later until `monitor.sh ack <id>…` records it as
+sent, so a session that died before its ack (a model outage is the usual
+cause) loses nothing. A sent alert is never emitted again: each tick counts
+it in `suppressed` and logs `suppressed <n> alert(s) already reported`. A
+condition kind that clears leaves the ledger, so its return alerts again.
+Rows live 14 days. `stall_alert` and `review_anomaly` keep their own
+detection-time claims (below), not the ledger.
+
+## Monitor run
+
+1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` and
+   the facts of its row above.
+2. Send **one message** for the whole run, in the chat UI: one line per
+   alert — what happened, when (UTC), the numbers, the likely cause and the
+   one operator action, if any:
+   - `model_unavailable` / `model_recovered` — first and last failure, runs
+     lost, the classes (`server_error`, `overloaded` → the provider or the
+     gateway; `authentication_failed`, `cloud_credential_error` →
+     credentials, operator-only; `rate_limit`, `billing_error` → quota or
+     budget). Missed review work recovers on the next heartbeat by itself.
+   - `classifier_spike` / `review_post_blocked` — the top patterns and the
+     reasons; a documented step of the agent is an `autoMode.allow` rule
+     missing from the definition ([logging.md](logging.md) → **Harness
+     adapters**), anything else is a refusal that stands.
+   - `harness_drift` — `bash "$HOME/scripts/harness/claude-code/install.sh"`
+     is the fix; it takes effect from the next session.
+   - `heartbeat_gap` — the review schedule is disabled, deleted or its gate
+     cannot start (`list_schedules`; [worklist.md](worklist.md) → **The
+     schedule gate**).
+   - `backup_failing` — the sample error; [persistence.md](persistence.md).
+   - `stall_alert` / `review_anomaly` — per their sections below.
+3. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
+   that person the same message — never the shared channel; roster-only
+   mentions still apply.
+4. **After the send**, `bash "$HOME/scripts/monitor.sh" ack <every id of
+   alerts_due>`, and log `stall_alert_sent <count>` / `review_anomaly_sent
+   <n>` for those. A failed send is logged and not acknowledged: the next tick
+   after the claim retries it.
+5. Back up `work/` (`scripts/work-backup.sh persist`).
+
+The monitor is a signal, not a repair: never clear locks, re-review, change a
+threshold, edit settings or re-run a refused action in response.
+
+## Stalled-review rate alert (`stall_alert`)
+
+The monitor counts the stalled reviews of the last 24 h — one per dead lock
+(PR, lock time), however many `stale in_progress lock` takeover lines it left;
+`per_day_7d` counts each stall on the UTC day of its first line. At or above
+`stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
+`stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
+UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock at
+detection). One stall is normal (HEAD moved, pod restart); a cluster means
+reviews are redone at full cost. Report count, threshold, the PR numbers and
+the `per_day_7d` trend; investigate per [logging.md](logging.md) → triage and
+record a recurring cause as an operational lesson
+([preferences.md](preferences.md)).
+
+## Review anomaly alert (`review_anomaly`)
+
+The harness adapter logs one `review_cost` event per finished review: the API
+usage between its `locked` and `done` steps, subagents included, and the shape
+of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
+([logging.md](logging.md) → **Harness adapters**). The monitor judges every
+event of the last 24 h newer than `work/.review-anomaly-seen` once, under a
+`mkdir` claim. Each rule's limit is **max(floor, factor × median)** — the
+repo sets its own norm, the floor stops a count from alerting on noise. A
+review at or over any limit is an entry:
+
+| Rule | Field | Floor |
+| --- | --- | --- |
+| `cost` | tokens priced by `## Benchmark model prices` ([benchmark.md](benchmark.md) → **Model prices**), `unit: usd`; without a row weighted 1 / 5 / 0.1 / 1.25 (input / output / cache read / cache write), `unit: weighted_tokens` | none |
+| `time` | `secs` | none |
+| `context` | `peak_ctx` — the largest single API call's context | none |
+| `repeats` | the most repeated identical tool call | 8 |
+| `failures` | `tool_failure` events in the window | 5 |
+| `output` | `max_out` — the largest tool result, in characters; a result the harness saved to a file counts at its stated full size | 200 000 |
+
+- **Factor** — `review_anomaly_factor` (missing = `4`; `0`/`off` disables the
+  whole alert).
+- **Median** — the same model's last 30 reviews before this one. It counts
+  from 10 reviews on; before that a new repo is judged on the floors alone,
+  and `cost`, `time` and `context` wait.
+- **Baseline** — `work/REVIEW-USAGE.jsonl` keeps the last 30 judged reviews
+  per model, so the median outlives the 14-day event retention and a quiet
+  repo still reaches 10. First contact seeds it from every retained event.
+- **Entry** — `review_anomaly: {factor, reviews: [{pr, sha, ts, model,
+  reasons: [{rule, value, limit, median, ratio}], unit, cost, samples, secs,
+  msgs, subagents, input, output, cache_read, cache_creation, peak_ctx,
+  repeats, repeat_tool, max_out, failures, kind, size}]}`; `median` and
+  `ratio` are `null` while the floor alone sets the limit; `kind` and `size`
+  come from the review ledger, `null` when it has no row.
+
+Report per review the PR, each broken rule with its value, limit and median,
+and the likely cause — `repeats` or many `msgs` on a small diff is a loop,
+`context` or high `cache_read` per message is a large context or memory,
+`output` is a huge file or API dump, `failures` is a broken tool, many
+`subagents` is fan-out, a large `size` or a `first` review of a large PR is a
+legitimate cost. A chronic problem enters the median and stops alerting: the
+weekly audit's review-shape line shows that drift ([audit.md](audit.md)
+task 37).
+
+## In the weekly audit
+
+Preflight's audit mode adds the week's account: `stats.classifier` (`blocks`,
+`runs`, `by_day`, `by_tool`, `by_reason`, `top` patterns) with the
+`classifier_blocks` check, and `stats.api_failures` (`failures`, `runs`,
+`by_class`, `outages`) with the `model_availability` check. The audit
+triages them ([audit.md](audit.md) task 38).
+
+## Self-check
+
+- Every `alerts_due` entry is in the one message, and acknowledged after the
+  send — never before, never on a failed send.
+- `stall_alert` / `review_anomaly` reported with their facts and their
+  `_sent` line logged.
+- Nothing repaired, re-run or reconfigured in response.

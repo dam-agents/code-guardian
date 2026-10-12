@@ -179,7 +179,6 @@ READ_SET_JQ='def read_set:
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
        then ["docs/review-urgent.md"] else [] end)
     + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
-          or .stall_alert != null or .review_anomaly != null
        then ["docs/review-bookkeeping.md"] else [] end)
     + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
           and ((.config.watch_rules // []) | length) > 0

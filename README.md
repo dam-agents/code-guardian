@@ -168,7 +168,7 @@ That is a complete initialization. The agent checks out its own definition,
 wires up `work/`, walks you through a short configuration dialog (bot name,
 review marker, skills repo, Slack — each value lands in `work/CONFIG.md`),
 registers the schedules (the review heartbeat, the Friday
-audit, plus the hourly shepherd sweep, the monthly benchmark and the weekly
+audit, the 15-minute health monitor, plus the hourly shepherd sweep, the monthly benchmark and the weekly
 survey when their keys are enabled), and marks itself
 onboarded so it never repeats the process.
 
@@ -260,8 +260,10 @@ what it can and asking for the rest. Per-key semantics are in
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 60 min quiet under a window) | The heartbeat's two cadences and the window between them. Each interval bounds how long a new PR waits for its run; a tick with no work costs one pre-flight pass and no model call, so the choice is latency, and the quiet interval is what a night or weekend PR waits. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one alert, at most once per UTC day; `0`/`off` disables. |
 | `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one alert; `0`/`off` disables. |
+| `model_alert_threshold` | not set (= `2`) | Runs ended on an API failure within one outage before the monitor alerts; `0`/`off` disables. |
+| `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that alert once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
-| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the stalled-review and review anomaly alerts. |
+| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the monitor's alerts. |
 
 ### Runtime requirements
 
