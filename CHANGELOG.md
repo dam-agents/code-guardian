@@ -15,9 +15,8 @@ they are released history and stay as written.
 
 **Upgrade:** Run `bash "$HOME/scripts/harness/claude-code/install.sh"`
 (idempotent; a no-op on another harness): its auto-mode upload rule now names
-`work/survey/` and `work/benchmark/` too, effective from the next session. The
-next survey run then publishes the report and writes the `survey-dam` marker.
-No schedule changes.
+`work/survey/` and `work/benchmark/` too, effective from the next session. No
+schedule changes.
 
 ## 8.18.0 — 2026-10-09
 
