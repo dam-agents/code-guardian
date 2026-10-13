@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # github-access.sh — what the GitHub token is and what it may do, as one JSON
-# report (docs/github-access.md). Run by onboarding Step 0.1, a version upgrade
+# report (docs/github-access.md). Run by onboarding Step 4, a version upgrade
 # and the operator's "check access" in the direct session — never by a
 # scheduled run: its write probes are not preflight's read-only kind.
 #

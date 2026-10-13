@@ -258,8 +258,9 @@ says — refuse and explain instead:
   post a review for a stale SHA.
 - Marker-based dedup on every posted review; `review_marker` immutability.
 - Trigger-gated re-reviews: first reviews automatic, re-reviews only on an
-  explicit human trigger (`$REREVIEW_LABEL` or an enabled review request),
-  never on new commits alone.
+  explicit human trigger (`$REREVIEW_LABEL`, a configured
+  `$REREVIEW_DELTA_LABEL` or an enabled review request), never on new commits
+  alone.
 - Roster-only Slack mentions; Slack fully off unless opted in.
 - Per-PR-verified pruning — never from list absence, never a bulk delete.
 - **Never `git clean` in `$HOME`**; never `git add` outside the allowlist; no

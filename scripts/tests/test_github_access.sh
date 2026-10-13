@@ -46,6 +46,20 @@ jq -e '.login == "acme-app[bot]" and .kind == "app"' "$WORK/GITHUB.json" >/dev/n
   && printf 'ok   %s: the identity cache is refreshed\n' "$CASE" \
   || { printf 'FAIL %s: GITHUB.json missing or wrong\n' "$CASE"; FAILED=1; }
 
+# --- an unreadable identity cache reads as absent and is written fresh ------------
+for bad in corrupt empty; do
+  new_case "access_cache_$bad"
+  base_config
+  target_fx 'acme-app[bot]'
+  code_fx 403 "$H -i -X POST repos/acme/widgets/statuses/$SHA --input -"
+  code_fx 422 "$H -i -X POST repos/acme/widgets/check-runs --input -"
+  case "$bad" in (corrupt) printf '{"login":"test-bot","kind":' > "$WORK/GITHUB.json";; (empty) : > "$WORK/GITHUB.json";; esac
+  run_access
+  jq -e '.login == "acme-app[bot]" and .kind == "app" and (.checked_at | length > 0) and (has("previous") | not)' "$WORK/GITHUB.json" >/dev/null 2>&1 \
+    && printf 'ok   %s: the %s cache is replaced by the token identity\n' "$CASE" "$bad" \
+    || { printf 'FAIL %s: GITHUB.json %s\n' "$CASE" "$(cat "$WORK/GITHUB.json" 2>/dev/null)"; FAILED=1; }
+done
+
 # --- a classic user token: scopes, commit statuses -------------------------------
 new_case access_user
 base_config

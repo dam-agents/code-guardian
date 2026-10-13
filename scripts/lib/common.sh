@@ -72,18 +72,20 @@ identity_refresh() { # [force]
 }
 # Writes <login> into the cache as the token's login, with a changed login's
 # warn. A read of the token (identity_refresh) or a write that names its
-# author (a created check run's App) gives the login.
+# author (a created check run's App) gives the login. A cache that is not one
+# JSON object (empty, cut, corrupted) reads as absent and is written fresh.
 identity_record() { # <login>
-  local f="$WORK/GITHUB.json" now login="$1" old
+  local f="$WORK/GITHUB.json" now login="$1" old cur
   [ -n "$login" ] || return 1
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  old="$(token_login)"
-  { if [ -f "$f" ]; then cat "$f"; else printf '{}'; fi; } 2>/dev/null \
+  cur="$(jq -cs 'if length == 1 and (.[0] | type) == "object" then .[0] else empty end' "$f" 2>/dev/null)" || cur=""
+  [ -n "$cur" ] || cur='{}'
+  old="$(printf '%s' "$cur" | jq -r '.login // empty | strings' 2>/dev/null)"
+  printf '%s' "$cur" \
     | jq -c --arg l "$login" --arg k "$(login_kind "$login")" --arg o "$old" --arg ok "$(login_kind "$old")" --arg t "$now" '
-        (if type == "object" then . else {} end)
-        | (if $o != "" and $o != $l then .previous = {login: $o, kind: $ok} | .changed_at = $t else . end)
+        (if $o != "" and $o != $l then .previous = {login: $o, kind: $ok} | .changed_at = $t else . end)
         | .login = $l | .kind = $k | .checked_at = $t' > "$f.tmp" 2>/dev/null \
-    && mv -f "$f.tmp" "$f" || { rm -f "$f.tmp"; return 1; }
+    && [ -s "$f.tmp" ] && mv -f "$f.tmp" "$f" || { rm -f "$f.tmp"; return 1; }
   if [ -n "$old" ] && [ "$old" != "$login" ] && type logev >/dev/null 2>&1; then
     logev warn github_identity "the GitHub token now acts as $login ($(login_kind "$login")), was $old ($(login_kind "$old")) — run scripts/github-access.sh in the direct session"
   fi

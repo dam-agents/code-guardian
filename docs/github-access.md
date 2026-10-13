@@ -1,6 +1,6 @@
 # GitHub access — identity, trust, capabilities
 
-Read this file when onboarding checks the token (ONBOARDING Step 0.1), when a
+Read this file when onboarding checks the token (ONBOARDING Step 4), when a
 version upgrade or the audit's `github_identity` check reports a connection
 change, and when the operator asks what the agent may do on GitHub. The agent
 runs the same way with a **user token** (classic or fine-grained) and with a
@@ -15,7 +15,8 @@ connection.
   `app` for a `<app>[bot]` login, else `user`.
 - `$WORK/GITHUB.json` caches `{login, kind, checked_at}`. Preflight refreshes it
   hourly, and the audit refreshes it on every run. A failed read keeps the cache.
-  A changed login also records
+  A cache that is not one JSON object reads as absent, and the next read writes
+  it again. A changed login also records
   `{previous, changed_at}` and logs a `github_identity` warn; the audit's
   `github_identity` check warns for 7 days after it.
 - The worklist `config.github_identity` carries `{login, kind}`.

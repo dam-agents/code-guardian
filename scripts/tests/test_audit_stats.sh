@@ -945,7 +945,7 @@ eva preflight info "PR #12: artifact generate due"                    86500
 eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 # outside the window
 eva preflight info "PR #14: artifact generate due"                    43200   # never reported an outcome
 eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
-eva artifact  info "PR #16: artifact unassign retried (ok)"           86400   # neither a publish nor a skip
+eva artifact  info "PR #16: artifact trigger release retried (ok)"    86400   # neither a publish nor a skip
 eva preflight info "PR #17: artifact generate due"                    86500
 eva artifact  info "PR #17: pr-artifact published → DAM ddd, 2 redacted" 86400 # outcome word after the skill name
 run_preflight audit

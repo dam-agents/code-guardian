@@ -2021,8 +2021,8 @@ cmd_hold() {
   out "$(jq -nc --arg w "$why" '{outcome:"held_elsewhere", why:$w}')"
 }
 
-# A bookkeeping row (docs/review-bookkeeping.md): written or deleted under the
-# same lock as every row the review steps write.
+# One progress write outside a review — the status reset of
+# docs/review-bookkeeping.md → Progress signal on GitHub.
 cmd_progress() { # <sha> <state> <description> [target_url]
   [ "$PROGRESS" = "enabled" ] || out '{"outcome":"disabled"}'
   case "${1:-}" in (''|*[!0-9a-f]*) fail "progress: the sha is not hex";; esac
@@ -2033,6 +2033,8 @@ cmd_progress() { # <sha> <state> <description> [target_url]
   out '{"outcome":"failed"}'
 }
 
+# A bookkeeping row (docs/review-bookkeeping.md): written or deleted under the
+# same lock as every row the review steps write.
 cmd_row() {
   [ "${1:-}" = "--delete" ] && { delete_row; out '{"outcome":"deleted"}'; }
   case "${1:-}" in (''|*[!0-9a-f]*) fail "row: the sha is not hex";; esac

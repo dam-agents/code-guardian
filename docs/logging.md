@@ -54,9 +54,10 @@ hand-rolled line matches exactly:
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
 - **`artifact` `msg`** — `PR #<n>: <skill> <outcome> …`, where the audit counts
-  `published` and `skipped` in that third position; the unassign retry carries
-  neither ([artifact.md](artifact.md) step 6). A missing event makes
-  `stats.artifacts.generated` a floor, which the `artifacts` check reports.
+  `published` and `skipped` in that third position; the release retry
+  (`retry_release`) carries neither ([artifact.md](artifact.md) step 6). A
+  missing event makes `stats.artifacts.generated` a floor, which the
+  `artifacts` check reports.
 
 ### Tool path resolution (`scripts/lib/toolpath.sh`)
 
@@ -133,7 +134,7 @@ function calling the binary directly.
      script is unavailable.
    - **Semantic failures hooks cannot see** (the tool succeeded, the action
      failed): posting aborts, findings dropped to summary via 422, a failed
-     Slack send or unassign, a failed `work/` push. Whenever a `docs/`
+     Slack send or trigger release, a failed `work/` push. Whenever a `docs/`
      procedure says "log it", log to the chat UI **and** append an event,
      chained onto the step's existing command — never a separate tool call:
 
