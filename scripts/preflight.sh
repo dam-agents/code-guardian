@@ -1778,18 +1778,28 @@ if [ "$MODE" = "shepherd" ]; then
         nudge_status="nudging"
       fi
       [ "$nudge_class" != "ready_to_land" ] && [ "$next_level" -ge 4 ] && nudge_status="held"
+      # who requested the changes: the independent reviewers whose newest
+      # review is CHANGES_REQUESTED, the rule classify_reviews applies
+      changes_by='[]'
+      [ "$cls" = "changes_requested" ] && changes_by="$(printf '%s' "$reviews_json" \
+        | jq -c --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+            [ .[] | select(.user.login != $b and .user.login != $a)
+                  | select((.body // "") | contains($m) | not) ]
+            | group_by(.user.login) | map(last | select(.state == "CHANGES_REQUESTED") | .user.login)' 2>/dev/null)"
+      [ -n "$changes_by" ] || changes_by='[]'
       # every Slack mention the agent sends is a `mention` string of this entry:
       # the targets', the candidates' it picks from, the escalation owner's
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
         --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson r "$ROSTER_JSON" \
         --arg eo "$ESCALATION_OWNER" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
+        --argjson cb "$changes_by" \
         '[$tg | split(",")[] | gsub("[!* ]"; "") | select(. != "")] as $ts
         | [$ts[] as $x | first($r[] | select(.login == $x))] as $m
         | ($m|length==0 and $c!="changes_requested" and $c!="ready_to_land" and ($conf|not)) as $sel
         | {number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
            candidates:(if $sel then [$r[] | select(.login != $a)] else [] end),
-           conflict:$conf, brief:$br, needs_target_selection:$sel,
+           conflict:$conf, brief:$br, changes_by:$cb, needs_target_selection:$sel,
            escalation:({login:$eo, slack_id:""}
                        + (if $l >= 4 then (first($r[] | select(.login == $eo)) // {}) else {} end)),
            row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"

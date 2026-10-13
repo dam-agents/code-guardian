@@ -34,8 +34,10 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
      (mode `closed`, [review-urgent.md](review-urgent.md) → **PR closed
      mid-review**); a `re-review` whose trigger is gone; an on-demand ask at
      an already-reviewed HEAD.
-   - `stand_down` — a live holder owns the PR
-     ([review-mechanics.md](review-mechanics.md) → **Live holder**).
+   - `stand_down` — another live run holds the PR or owns its review
+     ([worklist.md](worklist.md) → **PR holds**,
+     [review-mechanics.md](review-mechanics.md) → **Live holder**). A run
+     without the PR's hold gets it from `prepare`.
    - `error` — retry once, then move on; no lock was written.
    - `ready` — it writes the `in_progress` lock row, logs `locked`, writes the
      progress status, fetches context and the diff into `$PR_DIR.diff` with a

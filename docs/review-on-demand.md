@@ -11,8 +11,9 @@ Nothing else is changeable from those surfaces.
 
 1. Resolve the PR reference (number or URL; a mention's own PR when none is
    named) and `gh pr view` it. Not found / closed / draft → reply so, done.
-2. `review-pr.sh prepare <n> --on-demand`. `stand_down` → reply "review
-   already running", done. A stale, silent lock is taken over — log
+2. `review-pr.sh prepare <n> --on-demand` — it takes the PR's hold when this
+   run has none. `stand_down` (another run holds or reviews the PR) → reply
+   "review already running", done. A stale, silent lock is taken over — log
    `PR #<n>: stale lock killed on on-demand request`.
 3. `skip` with `already reviewed at <short-sha>` → reply so; same-SHA dedup
    always holds.
@@ -23,7 +24,10 @@ Nothing else is changeable from those surfaces.
    `$REREVIEW_LABEL` is also on the PR; no trigger is required at `prepare` or
    `post`; install missing skills per [skills.md](skills.md) → **Installation**.
    Reply in the requesting channel or thread with a link to the posted review,
-   then persist `work/` ([persistence.md](persistence.md)).
+   or why the review ended without one. Then `review-pr.sh release <n>` —
+   unless the request is a mention on this PR, whose hold the run already had
+   ([runbook.md](runbook.md) → **Review run** step 5) — and persist `work/`
+   ([persistence.md](persistence.md)).
 
 Replying to the requesting surface is responsive, not proactive — it does not
 require `slack_notifications: enabled`.

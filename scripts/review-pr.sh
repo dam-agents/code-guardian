@@ -5,7 +5,8 @@
 # that decision exactly as docs/review.md and docs/skills.md specify, and
 # refuses when a guard fails. It never composes, drops, or reorders a finding.
 #
-#   prepare <n> [--eta <s>] [--on-demand]   Check 1 + live-holder re-check, the
+#   prepare <n> [--eta <s>] [--on-demand]   Check 1 + the PR hold (taken when the
+#                                          run has none) + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
 #                                          copies, skill briefs, the context pack,
@@ -295,6 +296,17 @@ doc_section() { # <docs-relative file> <exact heading line>
   [ -n "$start" ] || return 1
   end="$(sed -n "$((start+1)),\$p" "$f" | grep -n -m1 -E '^#{1,4} ' | cut -d: -f1)"
   if [ -n "$end" ]; then sed -n "$start,$((start + end - 1))p" "$f"; else sed -n "$start,\$p" "$f"; fi
+}
+
+# The severity rubric of docs/finding-form.md — the bullets under its
+# `**Severity:**` line — for the skill brief, indented into its list item; a
+# pointer to the home when the doc is unreadable.
+severity_rubric() {
+  local r
+  r="$(sed -n '/^\*\*Severity:\*\*$/,$p' "$SCRIPT_DIR/../docs/finding-form.md" 2>/dev/null \
+    | sed '1d' | sed '/./,$!d' | sed '/^$/,$d')"
+  [ -n "$r" ] || r='(the rubric: docs/finding-form.md → **Severity**)'
+  printf '%s\n' "$r" | sed 's/^/   /'
 }
 
 # ------------------------------------------------------ progress status ----
@@ -672,7 +684,17 @@ cmd_prepare() {
   if [ "$kind" = "re-review" ]; then
     full=false; printf '%s' "$labels" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && full=true
   fi
+  # the PR hold (docs/worklist.md → PR holds): a run that comes without one —
+  # an on-demand review — takes it here, and a PR another live run holds is
+  # left to that run
+  local held_before=false hwhy
+  [ -n "$me" ] && [ "$(sed -n 2p "$HOLD_DIR/$N" 2>/dev/null)" = "$me" ] && held_before=true
+  if [ -n "$me" ] && ! hwhy="$(hold_acquire "$N" "$me")"; then
+    logev info review_pr "PR #$N: another run holds it at Check 1 — stood down"
+    out "$(jq -nc --arg w "$hwhy" '{outcome:"stand_down", reason:("another run holds this PR: " + $w)}')"
+  fi
   if holder_alive; then
+    [ -n "$me" ] && [ "$held_before" = false ] && hold_release "$N" "$me"
     logev info review_pr "PR #$N: holder alive at Check 1 — stood down"
     out "$(jq -nc '{outcome:"stand_down", reason:"a live run owns this PR (tree or recent events)"}')"
   fi
@@ -852,8 +874,8 @@ cmd_prepare() {
   jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
   # --- skills: inclusive routing, per-skill copies, briefs from the template ---
-  local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths
-  tpaths="$(tool_paths)"
+  local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths sevr
+  tpaths="$(tool_paths)"; sevr="$(severity_rubric)"
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   local vl vlblock="" rk rkblock=""
@@ -904,7 +926,7 @@ cmd_prepare() {
       t="${t//\{\{HEAD_SHA\}\}/$sha}"; t="${t//\{\{BASE_REF\}\}/$base}"; t="${t//\{\{OUT_FILE\}\}/$OUT/$s.txt}"
       t="${t//\{\{PROFILE\}\}/$profile}"; t="${t//\{\{FILES_BLOCK\}\}/$fblock}"; t="${t//\{\{VERIFY_LIVE_BLOCK\}\}/$vlblock}"
       t="${t//\{\{RISK_BLOCK\}\}/$rkblock}"
-      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"
+      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"; t="${t//\{\{SEVERITY\}\}/"$sevr"}"
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi

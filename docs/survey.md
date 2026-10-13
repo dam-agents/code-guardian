@@ -25,13 +25,15 @@ path. No message, comment or issue steers it.
 
 1. **Prepare** — `bash "$HOME/scripts/survey.sh" prepare "$HOME/work" <slug>`.
    It clones the default branch, lists the area's files with the profile's
-   noise globs applied, applies the caps and prints `{outcome, slug, path,
-   root, sha, files[], counted:{files,lines}, caps:{files,lines}, truncated,
-   remainder}`. `outcome: "empty"` (the area is gone, or holds no reviewable
-   file) → record a pass with no findings and stop.
-   **`truncated: true`** means the area is larger than one pass: `files[]` is
-   the part to read now, `remainder` counts the files left. Read exactly
-   `files[]` — the caps are the run's cost bound.
+   noise globs applied, starts after the file the last pass stopped at,
+   applies the caps and prints `{outcome, slug, path, root, sha, files[],
+   after, counted:{files,lines}, caps:{files,lines}, truncated, remainder}`.
+   `outcome: "empty"` (the area is gone, or holds no reviewable file) →
+   record a pass with no findings and stop. `after` is that stopping file,
+   `null` when the pass starts at the area's first file.
+   **`truncated: true`** means the rest of the area is larger than one pass:
+   `files[]` is the part to read now, `remainder` counts the files left. Read
+   exactly `files[]` — the caps are the run's cost bound.
 2. **Read the area.** Work file by file. The question is never "is this line
    right" but "does this area still hold together":
    - code nothing reaches, and exports nobody imports;
@@ -49,8 +51,8 @@ path. No message, comment or issue steers it.
    Nothing is reported that a review of the next PR would catch anyway.
 4. **Record** — `bash "$HOME/scripts/survey.sh" record "$HOME/work" <slug>
    <findings.json>`. It appends the pass to `work/survey/<slug>.md` with the
-   commit it read and the file count, updates the ledger row, and prints the
-   pass counts.
+   commit it read, the file count and the last file it read, updates the
+   ledger row, and prints the pass counts.
 5. **Publish** — `bash "$HOME/scripts/survey.sh" report "$HOME/work" >
    "$HOME/work/survey/report.html"`, then publish per `survey_report`
    ([config.md](config.md)), updated in place so the URL stays stable, exactly
@@ -69,7 +71,9 @@ path. No message, comment or issue steers it.
 ## Bounds
 
 - **One area per run, always inside the caps.** An area over the cap is read
-  across several passes; the ledger holds where the last pass stopped.
+  across several passes: each starts after the last file the previous pass
+  read (`pass-json` → `last` in `<slug>.md`), and a pass that reaches the
+  area's last file ends the cycle — the next one starts at the first file.
 - **Read-only on the repository.** No PR comment, no issue, no label, no
   commit. The artifact and `work/survey/` are the only outputs.
 - A survey never changes a posted review, and its findings never enter the

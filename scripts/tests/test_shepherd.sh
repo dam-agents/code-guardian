@@ -41,6 +41,24 @@ run_preflight shepherd
 assert_jq '.nudges_due | length == 1' 'conflict nudge due'
 assert_jq '.nudges_due[0] | .conflict == true and .targets == "alice!" and .needs_target_selection == false' 'author-directed conflict nudge'
 
+# --- requested changes → author-directed nudge naming who asked ----------------
+# bob's newest review requests changes; carol's later comment replaces her own
+# earlier change request, so she is no longer one of them
+new_case shepherd_changes_by
+shep_setup
+pr_json 1 "reworked PR" '[]' "$SHA1" | open_prs_fx
+printf '%s' '[{"user":{"login":"carol"},"state":"CHANGES_REQUESTED","body":""},
+              {"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":""},
+              {"user":{"login":"carol"},"state":"COMMENTED","body":"ok"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .class == "changes_requested" and .targets == "alice!" and .changes_by == ["bob"]' 'the entry names who requested the changes'
+new_case shepherd_changes_by_empty
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+run_preflight shepherd
+assert_jq '.nudges_due[0] | .class == "awaiting_review" and .changes_by == []' 'a reviewer-directed entry carries no change requester'
+
 # --- approved and clean → silent -----------------------------------------------
 new_case shepherd_approved_clean
 shep_setup

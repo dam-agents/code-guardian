@@ -74,7 +74,9 @@ style**). `<m1>`/`<m2>`, `<author-m>`, `<escalation-m>` are that person's
 - L3: `🚨 PR #<n> "<title>" has waited <age> for review. <m1> <m2> please prioritise this when you can. Focus: <focus>. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <escalation-m> (<escalation_owner>) to help find a reviewer. Focus: <focus>. <url>`
 
-**Author-directed** (`changes_requested`; never re-ping the reviewer):
+**Author-directed** (`changes_requested`; never re-ping the reviewer).
+`<reviewer>` is the entry's `changes_by` logins in plain text, joined with
+`, `:
 
 - L1: `🔧 PR #<n> "<title>" has changes requested by <reviewer>. <author-m> could you address the feedback and re-request review when ready? <url>`
 - L2: `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <author-m> a follow-up would move this forward. <url>`

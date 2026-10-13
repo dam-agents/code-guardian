@@ -124,6 +124,13 @@ assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'jq. and .gh. do not' \
 grep -q '{{TOOL_PATHS}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
   && { printf 'FAIL %s: TOOL_PATHS left unrendered\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the tool-path line is rendered\n' "$CASE"
+# the severity rubric comes from its home in docs/finding-form.md
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🔴 \*\*Critical\*\* — a reachable path gives a wrong result' \
+  'the brief quotes the severity rubric'
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🟢 \*\*Suggestion\*\* — an improvement' 'the rubric is quoted whole'
+grep -q 'Blocking severity\|{{SEVERITY}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
+  && { printf 'FAIL %s: the rubric quote overran or stayed unrendered\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the rubric quote stops at the list\n' "$CASE"
 
 # --- step: heartbeat + event ---------------------------------------------------
 run_rp step 1 "fanned out (n=2)"
@@ -260,6 +267,31 @@ pr_fx open '["cg-rereview"]'
 run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == true' 'label-triggered re-review is complete scope'
 run_rp abort 1 "reset"
+
+# --- the PR hold: prepare takes it, and leaves a PR another live run holds -----
+setup prepare_hold
+hold_owner() { sed -n 2p "$WORK/.holds.lock/1" 2>/dev/null; }
+mkdir -p "$WORK/.holds.lock"
+printf '%s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" other-run > "$WORK/.holds.lock/1"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "stand_down" and (.reason | contains("another run holds this PR"))' 'an on-demand review leaves a PR another run holds'
+[ "$(hold_owner)" = other-run ] && printf 'ok   %s: %s\n' "$CASE" 'the other run keeps its hold' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+[ -f "$WORK/REVIEWS.md" ] && grep -q '^| 1 |' "$WORK/REVIEWS.md" \
+  && { printf 'FAIL %s: a lock row was written\n' "$CASE"; FAILED=1; } || printf 'ok   %s: %s\n' "$CASE" 'no lock row is written'
+rm -f "$WORK/.holds.lock/1"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "ready"' 'a free PR is prepared'
+[ "$(hold_owner)" = "$SESSION" ] && printf 'ok   %s: %s\n' "$CASE" 'prepare takes the hold for its run' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+run_rp abort 1 "reset"
+run_rp release 1
+mkdir -p "$(PR_DIR)"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "stand_down"' 'a live holder still stands the run down'
+[ -z "$(hold_owner)" ] && printf 'ok   %s: %s\n' "$CASE" 'the hold it took is given back' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+rm -rf "$(PR_DIR)"
 
 # --- live holder: a fresh tree stands down, a dead run's leftover is reclaimed ----
 setup prepare_holder

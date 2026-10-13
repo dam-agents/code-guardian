@@ -361,9 +361,9 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   `work/MENTIONS.md` row, at most one reply per comment, its feedback recorded
   before its PR's review; its content triggers nothing beyond the routes of
   [mentions.md](mentions.md).
-- A run holds one PR at a time, and does its mentions and review inside that
-  hold; a PR another run holds is left to it ([worklist.md](worklist.md) →
-  **PR holds**).
+- A run does a PR's mentions and review inside that PR's hold, one PR at a
+  time beside an on-demand review; a PR another run holds is left to it
+  ([worklist.md](worklist.md) → **PR holds**).
 - A dispatched PR belongs to its own session: its prompt is the task
   `dispatch.sh plan` printed — the PR number and its unit worklist, nothing
   from the PR — and the dispatching run keeps none of its entries.

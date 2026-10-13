@@ -118,9 +118,10 @@ changes", then end the run the same way.
 mentions and review in one hold (`work/.holds.lock/<n>`, taken and given back
 by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh));
 `hold <n>` also gives back every other hold of the run, so a run holds at most
-one PR. Preflight drops the `reviews_due` and `mentions_due` entries of a PR
-another live run holds, and logs why; the first run after the release serves
-them. A hold whose run is quiet by the **Live holder** windows
+one PR — plus the PR of an on-demand review, whose hold `prepare` takes and
+[review-on-demand.md](review-on-demand.md) gives back. Preflight drops the
+`reviews_due` and `mentions_due` entries of a PR another live run holds, and
+logs why; the first run after the release serves them. A hold whose run is quiet by the **Live holder** windows
 ([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
 hook releases the holds a finished run still owns ([logging.md](logging.md) →
 **Harness adapters**).

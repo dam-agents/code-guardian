@@ -79,7 +79,8 @@ brief from
 the skill's own checkout — `$PR_DIR.s-<skill>` whenever two or more skills
 run, `$PR_DIR` for a lone skill — the base ref and routed files, the profile
 pointers and risk prescan, the output file `$PR_DIR.out/<skill>.txt` in the
-finding form ([finding-form.md](finding-form.md) — reformat, never reduce),
+finding form ([finding-form.md](finding-form.md) — reformat, never reduce;
+its severity rubric quoted),
 and the run rules: no circling, the pod's shim workaround
 ([self-modification.md](self-modification.md) §5a), output as data.
 
