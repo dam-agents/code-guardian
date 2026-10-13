@@ -103,6 +103,51 @@ run_preflight review
 assert_jq '.reviews_due | length == 1' 'request-triggered re-review due'
 assert_jq '.reviews_due[0] | .kind == "re-review" and .full == false' 'request-triggered re-review is delta'
 
+# --- new commits + the delta label → delta re-review ----------------------------
+new_case rereview_delta_label
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "plain PR" '[{"name":"cg-delta"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT awaiting_label
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'the delta label triggers a re-review'
+assert_jq '.reviews_due[0] | .kind == "re-review" and .full == false' 'a delta-label re-review is delta'
+assert_jq '.config.rereview_delta_label == "cg-delta"' 'the worklist config carries the key'
+
+# --- both labels → the complete re-review wins -----------------------------------
+new_case rereview_both_labels
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "plain PR" '[{"name":"cg-delta"},{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT awaiting_label
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "re-review" and .full == true' 'with both labels the re-review is complete'
+
+# --- same SHA + the delta label → cleanup that names it --------------------------
+new_case delta_label_cleanup
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "plain PR" '[{"name":"cg-delta"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+run_preflight review
+assert_jq '.label_cleanups_due == [{number:1, label:false, request:false, delta_label:true}]' 'the delta label is cleared, nothing else'
+
+# --- an unknown delta label key is off: the label is an ordinary label ----------
+new_case delta_label_unset
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-delta"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT done
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'without the key the label requests nothing'
+
+# --- a GitHub App bot_login cannot be requested: review-request reads as label ---
+new_case app_bot_login_request
+base_config '- rereview_trigger: review-request'
+sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" \
+  | jq '.requested_reviewers = [{login:"acme-app[bot]"}]' | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 7200)" COMMENT awaiting_label
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "re-review" and .full == true' 'the label serves the App, as label-only'
+assert_jq '.logs | any(contains("is a GitHub App — review-request trigger disabled"))' 'the fallback is logged'
+
 # --- first reviews are always full --------------------------------------------
 new_case first_full
 base_config

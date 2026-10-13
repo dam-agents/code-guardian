@@ -409,8 +409,10 @@ own_review() { # <pr-number> <review-id>
   OTHER_REVIEWS="$OTHER_REVIEWS$2|"; return 1
 }
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"   # empty/missing = no delta label
 URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
+ARTIFACT_LABEL="$(cfg artifact_label)"   # empty/missing = the assignee gate alone
 ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 { [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
 ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/artifact.md)
@@ -510,8 +512,8 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
   done | jq -s .)"; [ -n "$WATCH_RULES" ] || WATCH_RULES='[]'
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
-  --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" \
+  --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg artl "$ARTIFACT_LABEL" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
@@ -529,12 +531,13 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    active_hours:(if $ah=="" then "00-23" else $ah end), active_days:(if $ad=="" then "Mon-Sun" else $ad end),
    review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
+   rereview_delta_label:(if $dlbl=="" then null else $dlbl end),
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
    review_model:(if $rmod=="" or ($rmod|ascii_downcase)=="default" then "default" else $rmod end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
-   artifact_skill:(if $art=="" then "none" else $art end),
+   artifact_skill:(if $art=="" then "none" else $art end), artifact_label:(if $artl=="" then null else $artl end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
@@ -927,10 +930,15 @@ if [ "$MODE" = "review" ]; then
   if [ "$TRIG_REQUEST" -eq 1 ] && [ -z "$BOT_LOGIN" ]; then
     TRIG_REQUEST=0; TRIG_LABEL=1
     log "bot_login missing — review-request trigger disabled this run (label-only)"
+  elif [ "$TRIG_REQUEST" -eq 1 ] && [ "$(login_kind "$BOT_LOGIN")" = app ]; then
+    # GitHub cannot request a review from a GitHub App (docs/github-access.md)
+    TRIG_REQUEST=0; TRIG_LABEL=1
+    log "bot_login $BOT_LOGIN is a GitHub App — review-request trigger disabled (label-only)"
   fi
   TRIG_DESC="$REREVIEW_LABEL"
   [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="review request"
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
+  [ -n "$REREVIEW_DELTA_LABEL" ] && TRIG_DESC="$TRIG_DESC or $REREVIEW_DELTA_LABEL"
 
   add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc
     # full: complete-review scope — always true for kind=first; on a re-review
@@ -1011,7 +1019,9 @@ if [ "$MODE" = "review" ]; then
   while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
     has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_LABEL" && has_label=1
     has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && has_request=1
-    triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ]; } && triggered=1
+    # the delta label asks what a review request asks: the changes since the last review
+    has_delta=0; [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_DELTA_LABEL" && has_delta=1
+    triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ] || [ "$has_delta" -eq 1 ]; } && triggered=1
     URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$URGENT_LABEL" && URG=true
 
     # one-time urgent Slack alert (agent sends; marker in the history file is
@@ -1054,6 +1064,7 @@ if [ "$MODE" = "review" ]; then
           trig=""
           [ "$has_label" -eq 1 ] && trig="$REREVIEW_LABEL"
           [ "$has_request" -eq 1 ] && trig="${trig:+$trig + }review request"
+          [ "$has_delta" -eq 1 ] && trig="${trig:+$trig + }$REREVIEW_DELTA_LABEL"
           body_edited="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
               query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
                 pullRequest(number:$n){lastEditedAt}}}' 2>/dev/null \
@@ -1066,7 +1077,8 @@ if [ "$MODE" = "review" ]; then
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
               --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
-              '{number:$n, label:$l, request:$r}')" '. + [$e]')"
+              --argjson d "$([ "$has_delta" -eq 1 ] && echo true || echo false)" \
+              '{number:$n, label:$l, request:$r, delta_label:$d}')" '. + [$e]')"
             log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
           fi
         fi
@@ -1132,10 +1144,15 @@ if [ "$MODE" = "review" ]; then
       fi
     fi
 
-    # artifact assignee gate (independent of the review decision)
-    if [ -n "$ARTIFACT_SKILL" ] && [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qxF "$BOT_LOGIN"; then
+    # artifact gate (independent of the review decision): $BOT_LOGIN assigned,
+    # or the artifact label on the PR — a GitHub App cannot be assigned
+    art_trig='[]'
+    [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && art_trig='["assignee"]'
+    [ -n "$ARTIFACT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$ARTIFACT_LABEL" \
+      && art_trig="$(printf '%s' "$art_trig" | jq -c '. + ["label"]')"
+    if [ -n "$ARTIFACT_SKILL" ] && [ "$art_trig" != '[]' ]; then
       action="generate"
-      if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_unassign"
+      if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_release"
       else
         # a session without the DAM tools recorded when it tried (docs/artifact.md
         # step 0): the next attempt waits ARTIFACT_RETRY_H, not one heartbeat
@@ -1143,8 +1160,8 @@ if [ "$MODE" = "review" ]; then
         [ -n "$skip_ts" ] && [ $(( NOW_EPOCH - $(iso2epoch "$skip_ts") )) -lt $(( ARTIFACT_RETRY_H * 3600 )) ] && action=""
       fi
       if [ -n "$action" ]; then
-        ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" \
-          '{number:$n, action:$a}')" '. + [$e]')"
+        ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" --argjson t "$art_trig" \
+          '{number:$n, action:$a, triggers:$t}')" '. + [$e]')"
         log "PR #$n: artifact $action due"
       fi
     fi
@@ -1372,7 +1389,7 @@ if [ "$MODE" = "review" ]; then
       && log "mention scan: issue comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)), back to $(scan_floor "$IC_TMP"); older comments in the window are not scanned"
     [ "${RC_N:-0}" -ge "$((MENTION_PAGES * 100))" ] \
       && log "mention scan: review comments still full after $MENTION_PAGES pages — scanned the newest $((MENTION_PAGES * 100)), back to $(scan_floor "$RC_TMP"); older comments in the window are not scanned"
-    MRE="@${BOT_LOGIN}([^A-Za-z0-9-]|\$)"
+    MRE="$(mention_re "$BOT_LOGIN")"   # an App bot_login also as @<slug>
     CAND_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-cand.XXXXXX")"
     jq -nc --slurpfile ic "$IC_TMP" --slurpfile rc "$RC_TMP" --arg re "$MRE" --arg bot "$BOT_LOGIN" --arg ma "$MENTION_AUTHORS" '
       def admitted: ($ma == "anyone") or ((.author_association // "") | IN("OWNER", "MEMBER", "COLLABORATOR"));
@@ -1920,9 +1937,9 @@ if [ "$MODE" = "audit" ]; then
   # --- connectivity (one line per host the pipeline uses) ---------------
   auth_detail=""; auth_status=ok; scope_detail=""; scope_status=ok
   for h in $AUDIT_HOSTS; do
-    # GraphQL `viewer`, not REST `user`: a GitHub App installation token
-    # cannot read GET /user
-    me="$(gh api --hostname "$h" graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
+    # GraphQL `viewer`, else REST `user` (lib/common.sh → gh_login): a GitHub
+    # App installation token cannot read GET /user
+    me="$(gh_login "$h")"
     if [ -z "$me" ]; then auth_status=fail; auth_detail="${auth_detail:+$auth_detail; }$h: not authenticated (token broken or host unreachable)"
     elif [ "$(login_kind "$me")" = app ]; then
       # an App token posts as the App whatever bot_login names (docs/github-access.md)

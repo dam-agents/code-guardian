@@ -162,11 +162,12 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 
 ### E. Artifact pipeline (when `artifact_skill` is configured)
 
-18. PRs with `$BOT_LOGIN` assigned right now that are **not** in this run's
-    `artifacts_due`-equivalent state (assignment older than a few heartbeats
+18. PRs with an artifact trigger right now — `$BOT_LOGIN` assigned or
+    `artifact_label` on the PR — that are **not** in this run's
+    `artifacts_due`-equivalent state (a trigger older than a few heartbeats
     with neither markers nor a fresh artifact) → pipeline stuck, **warn**.
-19. Repeated `retry_unassign` lines across the week for the same PR → the
-    unassign keeps failing (permissions?), **warn**.
+19. Repeated `artifact trigger release retried` lines across the week for the
+    same PR → the release keeps failing (permissions?), **warn**.
 
 ### F. Configuration & definition integrity
 

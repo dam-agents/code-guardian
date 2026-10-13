@@ -243,4 +243,15 @@ printf '{"private":false}' | fx "api repos/$TEST_REPO"
 run_preflight review
 assert_jq '.mentions_due | length == 0' 'read on a public repository is every account'
 
+# --- a GitHub App bot_login: people mention its slug, with or without [bot] ----
+new_case app_bot_login_mentions
+base_config
+sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
+{ ic_comment 301 alice User "@acme-app please re-review" 7
+  ic_comment 302 bob User "cc @acme-app[bot]: is this right?" 8
+  ic_comment 303 carol User "@acme-application is another account" 9
+  ic_comment 304 dave User "@acme-appx is not the bot" 10; } | ic_fx
+run_preflight review
+assert_jq '[.mentions_due[].comment_id] == [301, 302]' 'the slug and the [bot] login are mentions, longer logins are not'
+
 finish

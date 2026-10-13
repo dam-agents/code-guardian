@@ -29,8 +29,37 @@ IDENTITY_TTL_MIN=60
 login_kind() { case "$1" in (*"[bot]") printf app;; (*) printf user;; esac; }
 token_login() { jq -r '.login // empty' "$WORK/GITHUB.json" 2>/dev/null; }
 token_kind() { local l; l="$(token_login)"; [ -n "$l" ] && login_kind "$l"; }
-# Re-reads GraphQL `viewer` (REST GET /user refuses an App token) when the
-# cache is stale or [force]; a failed read keeps the cache as it is.
+# The token's login on [host]: GraphQL `viewer`, else REST `GET /user`. An App
+# token cannot read /user, and the pod's proxy can refuse GraphQL for a user
+# token, so each read covers the other.
+gh_login() { # [host]
+  local l
+  l="$(gh api ${1:+--hostname "$1"} graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
+  [ -n "$l" ] || l="$(gh api ${1:+--hostname "$1"} user 2>/dev/null | jq -r '.login // empty' 2>/dev/null)"
+  [ -n "$l" ] && printf '%s' "$l"
+}
+# The @-mention pattern of a login, for jq test(): a GitHub App login
+# (`<slug>[bot]`) also matches as `@<slug>`, the form people type
+mention_re() { # <login>
+  local h alt=""
+  for h in "$1" "${1%"[bot]"}"; do
+    [ -n "$h" ] || continue
+    h="$(printf '%s' "$h" | sed 's/[][\\.*^$(){}+?|]/\\&/g')"
+    case "|$alt|" in (*"|$h|"*) continue;; esac
+    alt="${alt:+$alt|}$h"
+  done
+  printf '@(%s)([^A-Za-z0-9-]|$)' "$alt"
+}
+# The commit email GitHub links to <login>: `<id>+<login>@users.noreply.<host>`,
+# the plain `<login>@…` form when the account id is unreadable
+noreply_email() { # <login> [host]
+  local id
+  id="$(gh api ${2:+--hostname "$2"} "users/$(uri "$1")" 2>/dev/null | jq -r '.id // empty' 2>/dev/null)"
+  case "$id" in (*[!0-9]*) id="";; esac
+  printf '%s%s@users.noreply.%s' "${id:+$id+}" "$1" "${2:-github.com}"
+}
+# Re-reads the token's login (gh_login) when the cache is stale or [force]; a
+# failed read keeps the cache as it is.
 identity_refresh() { # [force]
   local f="$WORK/GITHUB.json" now login old age
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -38,7 +67,7 @@ identity_refresh() { # [force]
     age=$(( ($(date -u +%s) - $(iso2epoch "$(jq -r '.checked_at // empty' "$f" 2>/dev/null)" 2>/dev/null || echo 0)) / 60 ))
     [ "$age" -lt "$IDENTITY_TTL_MIN" ] && return 0
   fi
-  login="$(gh api graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
+  login="$(gh_login)"
   [ -n "$login" ] || return 1
   old="$(token_login)"
   { if [ -f "$f" ]; then cat "$f"; else printf '{}'; fi; } 2>/dev/null \

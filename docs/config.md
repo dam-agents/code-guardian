@@ -75,9 +75,17 @@ below is for the manual fallback and the direct session.
   trigger flip the tracking row to `awaiting_label`.
 - **`rereview_trigger`** — what requests a re-review: `label` |
   `review-request` (a pending GitHub review request for `bot_login`) | `both`.
-  **Missing = `label`.** `review-request` needs `bot_login`, and the bot as a
-  repo collaborator to be requestable; `bot_login` missing → label-only with
-  one log line. A served review request clears itself when the review posts.
+  **Missing = `label`.** `review-request` needs `bot_login` as a user account
+  that is a repo collaborator: GitHub cannot request a review from a GitHub App.
+  `bot_login` missing or a GitHub App → label-only with one log line. A served
+  review request clears itself when the review posts.
+- **`rereview_delta_label`** — a GitHub label a human adds to request a **delta**
+  re-review: the changes since the last review, as a review request asks
+  ([review-rereview.md](review-rereview.md) → **Re-review output**). **Missing =
+  off.** It works with every `rereview_trigger` value and every token, so it is
+  the delta trigger of a GitHub App `bot_login` ([github-access.md](github-access.md)
+  → **Triggers by identity**). The agent removes it once the request is served.
+  With `rereview_label` also on the PR, the re-review is complete.
 - **`urgent_label`** — a **human-managed** label marking a PR urgent; the agent
   never adds or removes it. While present, the PR's due reviews jump the queue
   and run **rapid-first**: a rapid pass without a 🔴 finding approves the PR
@@ -157,6 +165,11 @@ below is for the manual fallback and the direct session.
   artifact feature is off entirely. The artifact publishes to the DAM Artifact
   Library, best-effort behind the owner's experimental flag
   ([artifact.md](artifact.md)).
+- **`artifact_label`** — a GitHub label a human adds to request the artifact of
+  a PR, beside the assignment of `bot_login`. **Missing = the assignment
+  alone.** A GitHub App cannot be assigned, so the label is the artifact
+  trigger of a GitHub App `bot_login`. The agent removes it once the artifact
+  is published.
 - **`## Watch rules` table** — instance-local "when a PR does X, give a
   heads-up in Y" rules, evaluated during reviews and delivered to a closed set
   of vetted targets (`chat`, `slack[:<chat-id>]`, `pr-comment`) —
@@ -317,6 +330,7 @@ BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BO
 REVIEW_MARKER="$(cfg review_marker)"
 DEF_REF="$(cfg definition_repo)"; DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"; ARTIFACT_LABEL="$(cfg artifact_label)"
 ```
 
 All `gh` commands use `--repo "$REPO"`. `REPO` resolving empty → stop and ask

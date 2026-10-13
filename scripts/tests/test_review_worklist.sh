@@ -92,7 +92,7 @@ assert_jq '.deferred == [{"file":"src/session.js","line":20,"note":"magic number
 assert_jq '(.checks_unmatched | length) == 1 and .checks_unmatched[0].for == "a check for nothing"' 'a check matching no blocking summary is reported apart'
 assert_jq '(.rules | length) == 3 and .rules[0].round == 1 and (.rules[0].fix | startswith("bump Last verified")) and .rules[0].current == false' 'the round-1 stamp rule is a standing rule although its finding is fixed'
 assert_jq '[.rules[] | select(.current)] | length == 2' 'the two open Fix rules are marked current'
-assert_jq '.rereview == {"trigger":"label","label":"cg-rereview","login":null,"source":"review"}' 'the re-review trigger comes from review-meta'
+assert_jq '.rereview == {"trigger":"label","label":"cg-rereview","login":null,"delta_label":null,"source":"review"}' 'the re-review trigger comes from review-meta'
 assert_jq '(.inline | length) == 1 and .inline[0].path == "src/auth.js" and .inline[0].line == 12 and (.inline[0].body | contains("**Fix:**"))' 'the inline comments carry the full text'
 
 # --- a second login writing the same line is flagged; --reviewer narrows ------

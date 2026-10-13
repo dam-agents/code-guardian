@@ -46,8 +46,8 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <seconds>` under
      **Clone, credential helper, cleanup**), and renders the per-skill copies,
      briefs, context pack and risk prescan.
 
-   The live trigger follows `rereview_trigger` and sets the scope: label →
-   `full: true`, else delta ([review-rereview.md](review-rereview.md) →
+   The live trigger follows `rereview_trigger` and `rereview_delta_label` and
+   sets the scope: `rereview_label` → `full: true`, else delta ([review-rereview.md](review-rereview.md) →
    **Re-review output**). The JSON also carries `kind`, `full`, `urgent`,
    `prior`, `files[]`, `skills{}`, `delta`, `profile_slice`, `history_slice`,
    `memory_due`, `structure_changed` and `paths`. `urgent: true` → **phase 1**

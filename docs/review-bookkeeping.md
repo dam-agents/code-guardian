@@ -14,12 +14,14 @@ never fatal — preflight re-emits the entry.
   `review-pr.sh row <number> <sha> <ts> SEE-GITHUB <status>`. `ts` is the
   GitHub-reported timestamp; use the remote body's verdict when you have it.
   Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
-- **Same-SHA trigger cleanup** `{number, label, request}` → a trigger on a PR
-  whose live HEAD is reviewed and whose description is unchanged since. Clear
-  what the entry flags — `label: true` → remove the label, `request: true` →
-  remove your pending review request (**Trigger removal**) — post nothing, and
-  log `PR #<n>: re-review trigger present but nothing new since <short-sha> —
-  cleared (<label / request / label + request>), no re-review`. An edited
+- **Same-SHA trigger cleanup** `{number, label, request, delta_label}` → a
+  trigger on a PR whose live HEAD is reviewed and whose description is
+  unchanged since. Clear what the entry flags — `label: true` → remove
+  `$REREVIEW_LABEL`, `delta_label: true` → remove `$REREVIEW_DELTA_LABEL`,
+  `request: true` → remove your pending review request (**Trigger removal**) —
+  post nothing, and log `PR #<n>: re-review trigger present but nothing new
+  since <short-sha> — cleared (<the cleared triggers, joined by " + ">), no
+  re-review`. An edited
   description arrives as a `reviews_due` entry instead
   ([review-rereview.md](review-rereview.md) → **Description-only re-review**).
 
@@ -53,6 +55,9 @@ gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$REREVIEW_LABE
   || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
 ```
 
+`$REREVIEW_DELTA_LABEL` the same way. `review-pr.sh post` removes both labels
+when the review posts.
+
 Pending review request — same-SHA cleanup only; a served request clears itself
 when the review posts:
 
@@ -74,7 +79,9 @@ bash "$HOME/scripts/review-pr.sh" progress <n> <sha> <state> "<line>" [<url>]
 ```
 
 `<url>` is the row's `target_url`. `description` is one short line — GitHub
-truncates past 140 characters. The CI rollup never counts this signal as a
+truncates past 140 characters. A check run also keeps every line as a timeline
+in its summary and tells people how to request the next round
+([github-access.md](github-access.md) → **Progress signal channel**). The CI rollup never counts this signal as a
 check of the commit ([ci-triage.md](ci-triage.md)).
 
 | Written at | `state` | `description` | `target_url` |

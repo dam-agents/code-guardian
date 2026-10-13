@@ -15,8 +15,10 @@ they are released history and stay as written.
 
 **Upgrade:** in the direct session, run `bash "$HOME/scripts/github-access.sh"`
 and show the report to the operator, per `docs/github-access.md` → **After a
-connection change**. Its permission gaps are **operator-only**. The next
-preflight creates `work/GITHUB.json`; no key and no schedule changes.
+connection change**. Its permission gaps are **operator-only**. For each key in
+`triggers.missing` (`rereview_delta_label`, `artifact_label`), offer the label;
+a yes writes the key and creates the label (ONBOARDING Step 4, items 6 and 7).
+The next preflight creates `work/GITHUB.json`; no schedule changes.
 
 ## 9.1.1 — 2026-10-12
 

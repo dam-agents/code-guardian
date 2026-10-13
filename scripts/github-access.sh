@@ -39,6 +39,7 @@ export GH_HOST="$REPO_HOST"
 WORK_REF="${A_WORK:-$(cfg work_repo)}"
 DEF_REF="${A_DEF:-$(cfg definition_repo)}"; [ -z "$DEF_REF" ] && DEF_REF="$(origin_ref "$HOME_DIR")"
 BOT_LOGIN="$(cfg bot_login)"
+DELTA_LABEL="$(cfg rereview_delta_label)"; ARTIFACT_LABEL="$(cfg artifact_label)"
 
 [ -n "$REPO" ] || { printf '{"error":"target repository unresolved — set github_repo"}\n'; exit 0; }
 
@@ -65,8 +66,8 @@ skip() { # <id> <repo> <needed-by> <reason>
     '. + [{id:$i, repo:$r, kind:"write", http:null, state:"unknown", needed_by:$n, reason:$w}]')"
 }
 
-# --- identity: GraphQL viewer (REST GET /user refuses an App token) ---------
-LOGIN="$(gh api --hostname "$REPO_HOST" graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
+# --- identity: GraphQL viewer, else REST GET /user (lib/common.sh → gh_login) -
+LOGIN="$(gh_login "$REPO_HOST")"
 [ -n "$LOGIN" ] || { printf '{"error":"not authenticated on %s — the GitHub connection is broken"}\n' "$REPO_HOST"; exit 0; }
 KIND="$(login_kind "$LOGIN")"
 TOKEN=app; SCOPES=null
@@ -96,6 +97,7 @@ if [ -n "$SHA" ]; then
   add checks_write "$REPO" write "$(http "$H" POST "repos/$REPO/check-runs" "{\"head_sha\":\"$SHA\"}")" "review_progress (GitHub App)"
   add checks_read "$REPO" read "$(http "$H" GET "repos/$REPO/commits/$SHA/check-runs?per_page=1")" "ci_triage, auto_merge"
 fi
+add issues_write "$REPO" write "$(http "$H" POST "repos/$REPO/issues" '{}')" "issues for findings of a closed pull request"
 add actions_read "$REPO" read "$(http "$H" GET "repos/$REPO/actions/runs?per_page=1")" "ci_triage job logs"
 add contents_write "$REPO" write "$(http "$H" POST "repos/$REPO/git/refs" '{}')" "auto_merge, agent_fixes"
 add branch_protection_read "$REPO" read "$(http "$H" GET "repos/$REPO/branches/$DEFAULT/protection/required_status_checks")" "project profile (optional; rulesets are the fallback)"
@@ -117,7 +119,7 @@ fi
 
 # --- what follows for the features (docs/github-access.md → Feature map) ----
 jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" --arg b "$BOT_LOGIN" \
-      --arg repo "$REPO" --argjson p "$PROBES" '
+      --arg dl "$DELTA_LABEL" --arg al "$ARTIFACT_LABEL" --arg repo "$REPO" --argjson p "$PROBES" '
   def st($i): ([ $p[] | select(.id == $i) | .state ][0] // "unknown");
   def need($ids): if all($ids[]; st(.) == "granted") then "ok"
                   elif any($ids[]; st(.) == "denied") then "missing" else "unknown" end;
@@ -131,6 +133,7 @@ jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" -
                        elif st("checks_write") == "granted" then "check_run" else "none" end),
     features: {
       review: need(["repo_read","reviews_write","comments_write"]),
+      issues: need(["issues_write"]),
       ci_triage: need(["checks_read","actions_read"]),
       auto_merge: need(["checks_read","contents_write"]),
       agent_fixes: need(["contents_write"]),
@@ -138,7 +141,11 @@ jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" -
       definition_prs: (if any($p[]; .id == "definition_prs") then need(["definition_push","definition_prs"]) else "not_configured" end),
       roster_teams: (if any($p[]; .id == "org_teams_read") then need(["org_teams_read"]) else "not_applicable" end)
     },
-    triggers: (if ($b | endswith("[bot]")) or $b == ""
-               then {label: true, review_request: false, assignee: false, mention: false,
-                     note: "bot_login is a bot: people cannot request or assign it — label triggers only"}
-               else {label: true, review_request: true, assignee: true, mention: true} end) }'
+    triggers: (($b != "" and ($b | endswith("[bot]") | not)) as $user
+               | {label: true, delta_label: ($dl != ""), review_request: $user,
+                  mention: ($b != ""),
+                  mention_as: (if $b == "" then [] elif $user then ["@" + $b] else ["@" + ($b | rtrimstr("[bot]")), "@" + $b] end),
+                  artifact_assignee: $user, artifact_label: ($al != "")}
+               | . + {missing: ([ if $user then empty else
+                                    (if $dl == "" then "rereview_delta_label" else empty end),
+                                    (if $al == "" then "artifact_label" else empty end) end ])}) }'

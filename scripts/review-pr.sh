@@ -143,12 +143,13 @@ BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"
 CI_OWN_CHECK="$REVIEW_MARKER"   # lib/ci-rollup.sh skips the own progress signal
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"   # a delta re-review, like a review request
 URGENT_LABEL="$(cfg urgent_label)"
 # preflight's trigger gate: an unknown value, or a review request without
-# bot_login, reads as label-only
+# bot_login or to a GitHub App bot_login, reads as label-only
 TRIG="$(cfg rereview_trigger)"
 case "$TRIG" in (label|review-request|both) ;; (*) TRIG=label;; esac
-[ -n "$(cfg bot_login)" ] || TRIG=label
+{ [ -n "$BOT_LOGIN" ] && [ "$(login_kind "$BOT_LOGIN")" = user ]; } || TRIG=label
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
 # lib/paths.sh is optional: unreadable, no path forces a triage
@@ -310,18 +311,40 @@ status_write() { # <sha> <state> <description> [target_url]
     gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>&1
   fi
 }
+# The check run's text: how a person asks for the next review round
+check_help() {
+  local h="$BOT_LOGIN"
+  [ "$(login_kind "$h")" = app ] && h="${h%"[bot]"}"
+  printf '**Request a new review**\n\n'
+  case "$TRIG" in (label|both) printf -- '- Add the label `%s` to get a full review of the pull request.\n' "$REREVIEW_LABEL";; esac
+  [ -n "$REREVIEW_DELTA_LABEL" ] \
+    && printf -- '- Add the label `%s` to get a review of the changes since the last review.\n' "$REREVIEW_DELTA_LABEL"
+  case "$TRIG" in (review-request|both)
+    printf -- '- Request a review from `%s` to get a review of the changes since the last review.\n' "$BOT_LOGIN";; esac
+  [ -n "$h" ] && [ "$(cfg mention_replies)" != disabled ] \
+    && printf -- '- Write `@%s please re-review` in a comment to get a review of the changes since the last review.\n' "$h"
+  return 0
+}
+# One line per update in the summary, so the run shows the review's timeline;
+# an update completes the open run of this SHA in place, else creates a run.
 check_write() { # <sha> <state> <description> [target_url] — updates this SHA's open run, else creates one
-  local id body
-  id="$(gh api "repos/$REPO/commits/$1/check-runs?check_name=$(uri "$REVIEW_MARKER")&filter=latest" 2>/dev/null \
-        | jq -r '[.check_runs[]? | select(.status != "completed")][0].id // empty' 2>/dev/null)"
-  body="$(jq -nc --arg n "$REVIEW_MARKER" --arg sha "$1" --arg s "$2" --arg d "$3" --arg u "${4:-}" '
-    {name:$n, head_sha:$sha, output:{title:$d, summary:$d}}
-    + (if $s == "pending" then {status:"in_progress"} else {status:"completed", conclusion:"success"} end)
+  local run id now me body
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; me="$(token_login)"
+  run="$(gh api "repos/$REPO/commits/$1/check-runs?check_name=$(uri "$REVIEW_MARKER")&filter=latest" 2>/dev/null \
+        | jq -c --arg me "$me" '[.check_runs[]? | select(.status != "completed")
+                 | select($me == "" or ((.app.slug // "") + "[bot]") == $me)][0] // empty' 2>/dev/null)"
+  id="$(printf '%s' "$run" | jq -r '.id // empty' 2>/dev/null)"
+  body="$(jq -nc --arg n "$REVIEW_MARKER" --arg sha "$1" --arg s "$2" --arg d "$3" --arg u "${4:-}" --arg t "$now" \
+      --arg p "$(printf '%s' "$run" | jq -r '.output.summary // empty' 2>/dev/null)" --arg help "$(check_help)" '
+    ("- `" + $t[11:16] + "Z` " + $d + (if $u != "" then " — [open](" + $u + ")" else "" end)) as $line
+    | {name:$n, head_sha:$sha,
+       output:{title:$d, summary:(if $p == "" then $line else $p + "\n" + $line end), text:$help}}
+    + (if $s == "pending" then {status:"in_progress"} else {status:"completed", conclusion:"success", completed_at:$t} end)
     + (if $u != "" then {details_url:$u} else {} end)')"
   if [ -n "$id" ]; then
     printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>&1
   else
-    printf '%s' "$body" | gh api -X POST "repos/$REPO/check-runs" --input - >/dev/null 2>&1
+    printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - >/dev/null 2>&1
   fi
 }
 progress_write() { # <sha> <state> <description> [target_url]
@@ -380,10 +403,11 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
 }
 
 trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger is present
-  local l=1 r=1
+  local l=1 r=1 d=1
   case "$TRIG" in (label|both) printf '%s' "$1" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && l=0;; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && printf '%s' "$2" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1 && r=0;; esac
-  [ "$l" -eq 0 ] || [ "$r" -eq 0 ]
+  [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
+  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__ when unknown
@@ -1605,16 +1629,18 @@ cmd_post() {
   # what the next `prepare` compares its own range against. Never rendered.
   # `rereview` tells the author's fix round how the next round is requested
   # (docs/config.md → rereview_trigger): the label under `label`/`both`, the
-  # login to request a review from under `review-request`/`both`.
-  local mj="" rr_lbl=null rr_login=null
+  # login to request a review from under `review-request`/`both`, and the
+  # delta label (`rereview_delta_label`) when one is set.
+  local mj="" rr_lbl=null rr_login=null rr_delta=null
   case "$TRIG" in (label|both) rr_lbl="$(jq -nc --arg v "$REREVIEW_LABEL" '$v')";; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && rr_login="$(jq -nc --arg v "$BOT_LOGIN" '$v')";; esac
+  [ -n "$REREVIEW_DELTA_LABEL" ] && rr_delta="$(jq -nc --arg v "$REREVIEW_DELTA_LABEL" '$v')"
   # `triage` is the agent's call on whether a person must read this PR
   # (docs/review-mechanics.md → Summary body format); a changed file under
   # `human_review_paths` forces `needs-human`, whatever the call said.
   local forced; forced="$(forced_human_path)"
   mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" --arg t "$TRIG" \
-    --argjson l "$rr_lbl" --argjson u "$rr_login" --arg f "$forced" \
+    --argjson l "$rr_lbl" --argjson u "$rr_login" --argjson dl "$rr_delta" --arg f "$forced" \
     '(($m[0] // {}) | if type == "object" then . else {} end)
      | ((.triage // null) | if type == "object" then . else null end) as $tr
      | (if $tr == null and $f == "" then null
@@ -1624,7 +1650,7 @@ cmd_post() {
               minutes: (($tr.minutes // null) | if type == "number" and . > 0 then (. | floor) else null end)}
              + (if $f == "" then {} else {forced: $f} end) end) as $triage
      | {diff_digest: $d, checks: (.checks // []), deferred: (.deferred // []),
-        rereview: {trigger: $t, label: $l, login: $u}}
+        rereview: ({trigger: $t, label: $l, login: $u} + (if $dl == null then {} else {delta_label: $dl} end))}
        + (if $triage == null then {} else {triage: $triage} end)' 2>/dev/null | sed 's/--/–/g')"
 
   build_payload() { # <comments-json> <moved-json> → $PAYLOAD; findings-json gets inline:false for moved anchors
@@ -1673,11 +1699,12 @@ cmd_post() {
   logstep "$sha7 posted $VERDICT"
 
   # --- trigger removal, stale-approval dismissal ---
-  local label_removed=false dismissed=null
-  if printf '%s' "$labels" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1; then
-    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$REREVIEW_LABEL")" >/dev/null 2>&1; then label_removed=true
-    else logev warn label_remove "PR #$N: removing $REREVIEW_LABEL did not succeed"; fi
-  fi
+  local label_removed=false dismissed=null tl
+  for tl in "$REREVIEW_LABEL" ${REREVIEW_DELTA_LABEL:+"$REREVIEW_DELTA_LABEL"}; do
+    printf '%s' "$labels" | jq -e --arg x "$tl" 'index($x) != null' >/dev/null 2>&1 || continue
+    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" >/dev/null 2>&1; then label_removed=true
+    else logev warn label_remove "PR #$N: removing $tl did not succeed"; fi
+  done
   [ "$VERDICT" = "APPROVE" ] || dismissed="$(dismiss_approvals "${rid:-0}" "$sha7" "$VERDICT" review)"
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
@@ -2000,7 +2027,9 @@ cmd_fix_start() {
   mkdir -p "$WORK/reviews"
   printf '<!-- agent-fix: %s -->\n' "$sha" >> "$WORK/reviews/pr-$N.md"
   git -C "$FIX_DIR" config user.name "$BOT_NAME"
-  git -C "$FIX_DIR" config user.email "${BOT_LOGIN:-code-guardian}@users.noreply.$REPO_HOST"
+  # the account that pushes: the token's login, else bot_login
+  local who; who="$(token_login)"; who="${who:-${BOT_LOGIN:-code-guardian}}"
+  git -C "$FIX_DIR" config user.email "$(noreply_email "$who" "$REPO_HOST")"
   printf '%s\n' "$sha" > "$FIX_DIR/.git/cg-fix-sha"; printf '%s\n' "$ref" > "$FIX_DIR/.git/cg-fix-ref"
   logev info agent_fix "PR #$N: fix round started at ${sha:0:7}"
   out "$(jq -nc --arg c "$FIX_DIR" --arg r "$ref" --arg s "$sha" '{outcome:"ready", clone:$c, branch:$r, sha:$s}')"

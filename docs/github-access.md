@@ -9,8 +9,10 @@ connection.
 
 ## Identity
 
-- The token's login comes from GraphQL `viewer` — REST `GET /user` refuses an
-  App token. `kind` is `app` for a `<app>[bot]` login, else `user`.
+- The token's login comes from GraphQL `viewer`, else from REST `GET /user`
+  (`scripts/lib/common.sh` → `gh_login`). REST `GET /user` refuses an App
+  token, and the pod's proxy can refuse GraphQL for a user token. `kind` is
+  `app` for a `<app>[bot]` login, else `user`.
 - `$WORK/GITHUB.json` caches `{login, kind, checked_at}`. Preflight refreshes it
   hourly, and the audit refreshes it on every run. A failed read keeps the cache.
   A changed login also records
@@ -20,6 +22,26 @@ connection.
 - `bot_login` is the account people mention, assign and request
   ([config.md](config.md)). It can differ from the token's login: an App
   token posts as the App while `bot_login` stays a user account.
+
+## Triggers by identity
+
+People start the agent's work with a label, a review request, an assignment or
+a mention. A GitHub App cannot be requested or assigned, so each of those has
+a label beside it:
+
+| Request | User `bot_login` | GitHub App `bot_login` |
+| --- | --- | --- |
+| complete re-review | `rereview_label` | `rereview_label` |
+| delta re-review | review request (`rereview_trigger`), `rereview_delta_label` | `rereview_delta_label` |
+| visual artifact | assignment of `bot_login`, `artifact_label` | `artifact_label` |
+| reply, feedback, on-demand review | `@<bot_login>` | `@<slug>` or `@<slug>[bot]` |
+
+- Under a GitHub App `bot_login`, preflight and `review-pr.sh` read
+  `rereview_trigger` as `label`.
+- A mention of an App that posts for several agents in the same repository
+  reaches each of them. Use the labels there: each agent has its own.
+- The check run of the progress signal lists the triggers of this instance
+  (**Progress signal channel**).
 
 ## Own content
 
@@ -48,6 +70,16 @@ signal on GitHub**):
 - A refused write tries the other channel once. A second refusal is logged
   (`progress_status`, warn).
 
+The check run carries more than the one-line status:
+
+- **Title** — the latest progress line.
+- **Summary** — one line per update with its UTC time, so the run shows the
+  review's timeline. The terminal line links the review.
+- **Text** — how a person requests the next round, from this instance's
+  triggers (**Triggers by identity**). It replaces the "Re-request review"
+  button that a GitHub App does not get.
+- **Start and end times** — GitHub shows the review's duration from them.
+
 ## Access check — `scripts/github-access.sh`
 
 `bash "$HOME/scripts/github-access.sh"` prints one JSON report:
@@ -57,7 +89,9 @@ signal on GitHub**):
   `unknown`.
 - `progress_channel`: `check_run`, `status` or `none`.
 - `features`: what the probes allow (**Feature map** below).
-- `triggers`: which re-review and artifact triggers `bot_login` can serve.
+- `triggers`: which triggers `bot_login` and the configured labels serve
+  (**Triggers by identity**), `mention_as` (the forms people type), and
+  `missing` (the label keys a GitHub App `bot_login` has no trigger without).
 - `unexpected`: the ids of probes that wrote something. It must be empty.
 
 Rules:
@@ -76,7 +110,8 @@ Rules:
 
 | Feature | Needs |
 | --- | --- |
-| reviews, comments, labels, issues | `repo_read`, `reviews_write`, `comments_write` |
+| reviews, comments, labels | `repo_read`, `reviews_write`, `comments_write` |
+| issues for findings of a closed PR | `issues_write` |
 | `review_progress` | `checks_write` (App) or `statuses_write` (user) |
 | `ci_triage` | `checks_read`, `actions_read` |
 | `auto_merge` | `checks_read`, `contents_write` |
@@ -103,4 +138,6 @@ fine-grained token (README → **Token scopes**).
 2. Keep `bot_login` when it is still the account people use. Change it only on
    the operator's decision ([config.md](config.md)).
 3. A trigger that `bot_login` can no longer serve (`triggers`) and a `missing`
-   feature go to the operator. The runtime needs no other change.
+   feature go to the operator. For each key in `triggers.missing`, offer the
+   label and write the key on a yes ([config.md](config.md)). The runtime needs
+   no other change.

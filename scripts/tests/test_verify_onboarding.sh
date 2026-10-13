@@ -457,7 +457,7 @@ verify_config
   printf '| issue-fit | acme/code-guardian | always | Issue Fit |\n'
   printf '| harness-only | harness | always | Harness |\n'
 } >> "$WORK/CONFIG.md"
-fx 'api --hostname github.com user --jq .login'                                   <<< 'test-bot'
+printf '{"login":"test-bot"}' | fx 'api --hostname github.com user'
 fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"                   <<< "$TEST_REPO"
 fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push"            <<< 'true'
 fx "api --hostname github.com repos/$TEST_REPO/labels?per_page=100 --paginate --jq .[].name" <<< 'cg-rereview'
@@ -473,7 +473,7 @@ assert_out 'ok   live-preflight' 'preflight returns a valid worklist'
 new_case live_work_repo_from_config
 seed_home; seed_memory; seed_lessons
 verify_config '- work_repo: acme/cg-state'
-fx 'api --hostname github.com user --jq .login'                                   <<< 'test-bot'
+printf '{"login":"test-bot"}' | fx 'api --hostname github.com user'
 fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"                   <<< "$TEST_REPO"
 fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push"            <<< 'true'
 fx "api --hostname github.com repos/$TEST_REPO/labels?per_page=100 --paginate --jq .[].name" <<< 'cg-rereview'
@@ -487,7 +487,7 @@ assert_out 'ok   live-work-repo — work backup repo writable' 'the repo comes f
 new_case live_wrong_identity_and_missing_label
 seed_home; seed_memory; seed_lessons
 verify_config
-fx 'api --hostname github.com user --jq .login'                        <<< 'someone-else'
+printf '{"login":"someone-else"}' | fx 'api --hostname github.com user'
 fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"        <<< "$TEST_REPO"
 fx "api --hostname github.com repos/$TEST_REPO --jq .permissions.push" <<< 'true'
 fx 'api --hostname github.com repos/acme/code-guardian/branches/main --jq .name' <<< 'main'
@@ -497,6 +497,20 @@ assert_out "FAIL live-identity .*'someone-else'" 'names the authenticated login'
 assert_out 'FAIL live-rereview-label .*cg-rereview' 'flags the missing re-review label'
 assert_out 'gh label create' 'carries the create command'
 
+new_case live_app_token
+seed_home; seed_memory; seed_lessons
+verify_config '- work_repo: acme/cg-state'
+printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
+fx "api --hostname github.com repos/$TEST_REPO --jq .full_name"                   <<< "$TEST_REPO"
+fx "api --hostname github.com repos/$TEST_REPO/labels?per_page=100 --paginate --jq .[].name" <<< 'cg-rereview'
+fx 'api --hostname github.com repos/acme/code-guardian/branches/main --jq .name'  <<< 'main'
+fx 'api --hostname github.com repos/acme/cg-state --jq .full_name'                <<< 'acme/cg-state'
+run_verify_live
+assert_out "ok   live-auth — authenticated on github.com as 'acme-app\[bot\]'" 'an App token reads its login through GraphQL'
+assert_out "ok   live-identity — a GitHub App token posts as 'acme-app\[bot\]'; people use bot_login 'test-bot'" 'an App token beside a user bot_login'
+assert_out 'ok   live-target-write — a GitHub App token' 'no push warning from a missing permissions field'
+assert_out 'ok   live-work-repo — work backup repo readable' 'the backup push is left to the access check'
+
 new_case live_identity_without_bot_login
 seed_home; seed_memory; seed_lessons
 {
@@ -504,7 +518,7 @@ seed_home; seed_memory; seed_lessons
   printf -- '- definition_repo: acme/code-guardian\n'
   printf -- '- github_repo: %s\n' "$TEST_REPO"
 } > "$WORK/CONFIG.md"
-fx 'api --hostname github.com user --jq .login' <<< 'someone'
+printf '{"login":"someone"}' | fx 'api --hostname github.com user'
 run_verify_live
 assert_rc 1 'the required-key check owns the missing bot_login'
 assert_out 'FAIL config-bot_login' 'names the missing key once'

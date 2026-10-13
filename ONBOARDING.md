@@ -59,9 +59,9 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
 (`docs/config.md`). `$DEF_HOST` / `$REPO_HOST` denote the host of a reference;
 `gh api --hostname` targets one explicitly.
 
-1. **Sanity check:** `gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login`
-   must succeed — it prints the bot login, needed in Step 4 (a GitHub App
-   token cannot read `gh api user`). On failure, **stop** and tell the operator the
+1. **Sanity check:** `gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login`,
+   else `gh api user --jq .login`, must succeed — it prints the bot login,
+   needed in Step 4 (a GitHub App token cannot read `gh api user`). On failure, **stop** and tell the operator the
    GitHub connection or token is broken. Repeat it with `--hostname <host>` for
    every non-default host resolved below; an unauthenticated host is
    **operator-only** to fix (`gh auth login --hostname <host>`), so report and
@@ -370,10 +370,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
    > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
 
-   A login ending in `[bot]` is a GitHub App, which a person cannot assign,
-   request or usefully mention. Ask which user account people use for that;
-   it becomes `bot_login`. The App login needs no key (`docs/github-access.md`).
-   No such account → `bot_login` is the App login, and triggers are label-only.
+   A login ending in `[bot]` is a GitHub App, which a person cannot assign or
+   request. Ask which user account people use for that; it becomes
+   `bot_login`. The App login needs no key (`docs/github-access.md`). No such
+   account → `bot_login` is the App login: people mention it as `@<slug>`, and
+   the labels of item 6 and item 7 stand in for the review request and the
+   assignment (`docs/github-access.md` → **Triggers by identity**).
 
 4. **`bot_display_name`** — ask: *What name should I sign my reviews with?
    (Default: `Code Guardian`.)*
@@ -397,7 +399,14 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - **`rereview_trigger`** — `label` (default) | `review-request` (GitHub's
      "Re-request review" on **<bot_login>**; needs the bot as a repo
      collaborator) | `both`. Write the key only when the answer differs from
-     `label`.
+     `label`. A GitHub App `bot_login` cannot be requested: skip the question.
+   - **`rereview_delta_label`** — optional. Ask, and recommend it for a GitHub
+     App `bot_login`, which has no review request:
+
+     > Do you want a second label that requests a review of only the changes since my last review? It is smaller and faster than the full re-review. (Default: no label. Suggested name: `code-guardian-delta`.)
+
+     A yes → write the key, and validate or create the label like the
+     re-review label (description `Request a code-guardian delta re-review`).
    - **`urgent_label`** — an optional, human-managed label that makes a PR's
      due reviews jump the queue and arrive rapid-first — a rapid pass without a
      critical finding approves the PR — plus one Slack alert
@@ -473,6 +482,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      otherwise drop the row after confirming, because a missing harness skill
      would log `skill-errored` on every PR.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
+   - With an artifact skill, **`artifact_label`** — optional; recommend it for a
+     GitHub App `bot_login`, which a person cannot assign. Ask:
+
+     > Besides assigning **<bot_login>** to a PR, do you want a label that requests the visual artifact? (Default: no label. Suggested name: `code-guardian-artifact`.)
+
+     A yes → write the key, and validate or create the label like the
+     re-review label (description `Request a code-guardian review artifact`).
 8. **`slack_notifications`** — strictly opt-in; it gates the shepherd nudging.
    Ask:
 
@@ -581,6 +597,7 @@ Final shape:
 - review_marker: code-guardian:review
 - rereview_label: code-guardian-review # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
+- rereview_delta_label: code-guardian-delta   # optional; requests a delta re-review
 - urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
 - auto_merge: enabled                  # admin opt-in only; omit = disabled (docs/auto-merge.md)
 - auto_merge_label: automerge          # human-managed consent label; required with auto_merge
@@ -596,6 +613,7 @@ Final shape:
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
 - artifact_skill: pr-artifact@dam-agents/dam   # or: none
+- artifact_label: code-guardian-artifact   # optional; requests the artifact beside the assignment
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
@@ -864,14 +882,16 @@ with the verification result (the `PASS` line plus any warnings):
      **`<rereview_label>`** label — a complete review of the whole PR, and the
      agent removes the label once it is posted — or re-requests
      **`<bot_login>`**'s review on GitHub (with `rereview_trigger`
-     `review-request`/`both`), or asks for it in the connected Slack channel or
-     in a comment @-mentioning **`<bot_login>`**. The last two are delta-only
-     (`docs/review-on-demand.md` → **On-demand review**).
+     `review-request`/`both`), or adds the **`<rereview_delta_label>`** label
+     when configured, or asks for it in the connected Slack channel or in a
+     comment @-mentioning **`<bot_login>`** (a GitHub App as `@<slug>`). All
+     but the first are delta-only (`docs/review-on-demand.md` → **On-demand
+     review**).
    - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
      jump the queue, rapid-preliminary-first: without a critical finding the
      rapid pass approves, and the full review can cancel that approval.
-   - Assigning **`<bot_login>`** to a PR requests a visual artifact, when
-     configured.
+   - Assigning **`<bot_login>`** to a PR, or the **`<artifact_label>`** label
+     when configured, requests a visual artifact, when configured.
    - Feedback and dismissals are given by saying so in chat (global →
      `MEMORY.md`, PR-specific → that PR's overrides), and @-mentioning
      **`<bot_login>`** in any PR or issue comment, or in a PR description, gets

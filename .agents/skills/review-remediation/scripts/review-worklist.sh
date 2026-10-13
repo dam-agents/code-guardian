@@ -24,8 +24,9 @@
 #                     round, oldest first; `current` = in this round's blocking
 #                     set. A Fix stated once binds every later edit too.
 #   rereview          how the next round is requested: `trigger` with `label`
-#                     and/or `login` from review-meta (`source: review`), else
-#                     a review request to the review's author (`fallback`)
+#                     and/or `login`, and `delta_label` when the reviewer has
+#                     one, from review-meta (`source: review`), else a review
+#                     request to the review's author (`fallback`)
 #   inline            the review's inline comments {path, line, body} — the
 #                     full text and suggestion blocks behind each summary
 #   sections          the review's rendered sections that carry findings,
@@ -198,7 +199,8 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
      | group_by(.fix) | map(min_by(.round)) | sort_by(.round)
      | map(. as $r | . + {current: any($blocking[]; .fix == $r.fix)})) as $rules
   | (if (($m.rereview // null) | type) == "object"
-     then ($m.rereview | {trigger: (.trigger // "label"), label: (.label // null), login: (.login // null), source: "review"})
+     then ($m.rereview | {trigger: (.trigger // "label"), label: (.label // null), login: (.login // null),
+                          delta_label: (.delta_label // null), source: "review"})
      else {trigger: "review-request", label: null, login: $rev.user.login, source: "fallback"} end) as $rr
   | ([ $rs[].user.login ] | unique) as $authors
   | {outcome: "ok", repo: $repo, pr: $n,

@@ -211,7 +211,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch review_model mention_replies mention_authors project_profile artifact_skill artifact_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -477,7 +477,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock .housekeeping-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock GITHUB.json .housekeeping-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue
@@ -509,7 +509,7 @@ if [ "$LIVE" = 1 ]; then
       fail live-target "target repo unresolved — every run would stop at pre-flight" \
         "apply the config-github_repo fix above, then re-run with --live"
     else
-      WHOAMI="$(ghq "$T_HOST" user .login)"
+      WHOAMI="$(gh_login "$T_HOST")"   # GraphQL viewer, else REST user — an App token cannot read GET /user
       BOT="$(cfg bot_login)"
       if [ -z "$WHOAMI" ]; then
         fail live-auth "no authenticated gh session on $T_HOST" "gh auth login --hostname $T_HOST (operator-only)"
@@ -519,6 +519,9 @@ if [ "$LIVE" = 1 ]; then
           : # required key — the config-bot_login check above already FAILed
         elif [ "$BOT" = "$WHOAMI" ]; then
           ok live-identity "acting as '$BOT'"
+        elif [ "$(login_kind "$WHOAMI")" = app ]; then
+          # an App token posts as the App; bot_login is the account people use (docs/github-access.md)
+          ok live-identity "a GitHub App token posts as '$WHOAMI'; people use bot_login '$BOT'"
         else
           fail live-identity "the $T_HOST token belongs to '$WHOAMI' but bot_login is '$BOT' — reviews would be posted as '$WHOAMI'" \
             "authenticate as '$BOT' (operator-only) or correct the '- bot_login:' key"
@@ -527,8 +530,12 @@ if [ "$LIVE" = 1 ]; then
 
       if [ "$(ghq "$T_HOST" "repos/$T_REPO" .full_name)" = "$T_REPO" ]; then
         ok live-target "target repo readable on $T_HOST"
-        [ "$(ghq "$T_HOST" "repos/$T_REPO" .permissions.push)" = "true" ] \
-          || warn live-target-write "no push permission — label writes and assignee handling will fail; reviews still post"
+        if [ "$(login_kind "$WHOAMI")" = app ]; then
+          ok live-target-write "a GitHub App token shows no repository permissions here — scripts/github-access.sh probes them"
+        else
+          [ "$(ghq "$T_HOST" "repos/$T_REPO" .permissions.push)" = "true" ] \
+            || warn live-target-write "no push permission — label writes and assignee handling will fail; reviews still post"
+        fi
       else
         fail live-target "target repo not readable on $T_HOST" \
           "grant the account access to the repo, or correct the '- github_repo:' reference"
@@ -546,6 +553,13 @@ if [ "$LIVE" = 1 ]; then
       fi
       if [ -n "$URG" ] && ! has_label "$URG"; then
         warn live-urgent-label "the configured urgent label '$URG' does not exist — urgent handling can never trigger (create it, or drop the key)"
+      fi
+      DRL="$(cfg rereview_delta_label)"; ARL="$(cfg artifact_label)"
+      if [ -n "$DRL" ] && ! has_label "$DRL"; then
+        warn live-delta-label "the configured delta re-review label '$DRL' does not exist — no one can request a delta re-review with it (create it, or drop the key)"
+      fi
+      if [ -n "$ARL" ] && ! has_label "$ARL"; then
+        warn live-artifact-label "the configured artifact label '$ARL' does not exist — no one can request an artifact with it (create it, or drop the key)"
       fi
 
       # skill sources: every configured skill must exist where it installs from
@@ -595,6 +609,8 @@ EOF
       if [ "$(ghq "$W_HOST" "repos/$W_SLUG" .full_name)" != "$W_SLUG" ]; then
         fail live-work-repo "the work backup repo is not readable — every run's state backup would fail" \
           "create/grant access to the repo, or drop the '- work_repo:' key for local-only persistence (docs/persistence.md)"
+      elif [ "$(login_kind "${WHOAMI:-}")" = app ]; then
+        ok live-work-repo "work backup repo readable — a GitHub App token's push is probed by scripts/github-access.sh"
       elif [ "$(ghq "$W_HOST" "repos/$W_SLUG" .permissions.push)" != "true" ]; then
         fail live-work-repo "no push permission on the work backup repo" \
           "grant write access to the account, or drop the '- work_repo:' key (docs/persistence.md)"

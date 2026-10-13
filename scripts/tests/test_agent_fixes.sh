@@ -126,6 +126,18 @@ assert_file_contains "$WORK/reviews/pr-1.md" "<!-- agent-fix-pushed: $NEW -->" '
   || { printf 'FAIL %s: unexpected commit message\n' "$CASE"; FAILED=1; }
 [ -d "$CLONE" ] && { printf 'FAIL %s: the fix clone was left behind\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the clone is removed\n' "$CASE"
 
+# a GitHub App token commits as the App, with the id-prefixed noreply address
+rp_fix_setup rp_fix_app_identity
+seed_identity 'acme-app[bot]'
+printf '{"login":"acme-app[bot]","id":41898282,"type":"Bot"}' | fx 'api --hostname github.com users/acme-app%5Bbot%5D'
+run_fix_cmd fix-start --sha "$HEAD_SHA"
+CLONE="$(printf '%s' "$OUT" | jq -r '.clone')"
+printf 'bounded_retry()\n' > "$CLONE/a.ts"
+run_fix_cmd fix-push
+[ "$(git -C "$ORIGIN" log -1 --format=%ae b1)" = "41898282+acme-app[bot]@users.noreply.github.com" ] \
+  && printf 'ok   %s: the commit email links the App\n' "$CASE" \
+  || { printf 'FAIL %s: commit email %s\n' "$CASE" "$(git -C "$ORIGIN" log -1 --format=%ae b1)"; FAILED=1; }
+
 rp_fix_setup rp_fix_lease
 run_fix_cmd fix-start --sha "$HEAD_SHA"
 CLONE="$(printf '%s' "$OUT" | jq -r '.clone')"

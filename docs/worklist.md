@@ -60,9 +60,10 @@ decision:
   is also silent — [review-mechanics.md](review-mechanics.md) → **Live
   holder**);
 - the **re-review trigger gate** (label and/or review request per
-  `rereview_trigger`), urgent-label flagging and ordering;
+  `rereview_trigger`, and `rereview_delta_label`), urgent-label flagging and
+  ordering;
 - remote marker dedup (anchored + unanchored), verified prune candidates, the
-  artifact assignee gate, the ledger-deduped mention scan;
+  artifact gate (assignee or `artifact_label`), the ledger-deduped mention scan;
 - shepherd classifications with the full nudge ladder and merge-conflict
   flagging.
 
@@ -99,14 +100,14 @@ changes", then end the run the same way.
 | Key | What it is | Where |
 | --- | --- | --- |
 | `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md); plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
-| `label_cleanups_due` | `{number, label, request}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review-bookkeeping.md → **Label bookkeeping** |
+| `label_cleanups_due` | `{number, label, request, delta_label}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review-bookkeeping.md → **Label bookkeeping** |
 | `selfheals_due` | a remote marker with no local row → write the REVIEWS.md row | review-bookkeeping.md → **Label bookkeeping** |
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, artifact included | review-bookkeeping.md → **Pruning** |
 | `ci_failures_due` | `{number, sha, url, checks[]}` — a reviewed PR whose checks failed on the reviewed SHA → one triage comment | [ci-triage.md](ci-triage.md) + [review.md](review.md) |
 | `merges_due` | `{number, sha, method}` — a labeled PR that passed every auto-merge gate (only under `auto_merge: enabled`) → `review-pr.sh merge` | [auto-merge.md](auto-merge.md) |
 | `fixes_due` | `{number, sha, findings}` — a labeled PR whose current review left blocking findings with a fix (only under `agent_fixes: enabled`) → one fix round | [agent-fixes.md](agent-fixes.md) + [review.md](review.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
-| `artifacts_due` | `action: generate` \| `retry_unassign` | [artifact.md](artifact.md) |
+| `artifacts_due` | `{number, action, triggers}` — `action: generate` \| `retry_release`; `triggers` ⊆ `assignee`, `label` | [artifact.md](artifact.md) |
 | `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any PR work** | review-urgent.md → **Urgent PRs** |
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |

@@ -63,7 +63,8 @@ take the newest review whose body carries a `<!-- findings-json: … -->` line,
 and parse that line (per finding: `status` new|still|fixed, `severity`
 critical|warning|suggestion, `file`, `line`, `also`, `summary`, `fix`) and the
 `<!-- review-meta: … -->` line above it (`checks[]` with `for` = a summary,
-`run`, `clean`; `deferred[]`; `rereview` with `trigger`, `label`, `login`).
+`run`, `clean`; `deferred[]`; `rereview` with `trigger`, `label`, `login`,
+`delta_label`).
 Then `gh api "repos/<repo>/pulls/<n>"` for the head and the body, and
 `gh api "repos/<repo>/pulls/<n>/reviews/<id>/comments?per_page=100"` for the
 inline comments. A body without `review-meta` is an older review: work from
@@ -268,6 +269,9 @@ your report to the caller with the command their own review uses, from
 - `review-request` →
   `gh api -X POST repos/<repo>/pulls/<n>/requested_reviewers -f 'reviewers[]=<login>'`
 - `both` → both commands.
+- `delta_label` set → also
+  `gh api -X POST repos/<repo>/issues/<n>/labels -f 'labels[]=<delta_label>'`,
+  the smaller round: it reviews only the changes since the last review.
 - `source: fallback` (an older review with no `rereview`) → the review request
   to the review's author.
 

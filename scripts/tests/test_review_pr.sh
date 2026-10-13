@@ -660,6 +660,21 @@ assert_file_contains "$WORK/reviews/pr-1.md" '"rereview":{"trigger":"label","lab
 grep -q 'review-meta' "$SANDBOX/body.md" && { printf 'FAIL %s: review-meta reached the composed body\n' "$CASE"; FAILED=1; } || printf 'ok   %s: review-meta is never part of the rendered review\n' "$CASE"
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
+
+# --- post: the delta label is a trigger the post removes ------------------------
+setup post_delta_label '- rereview_delta_label: cg-delta'
+pr_fx open '["cg-delta"]'
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .label_removed == true' 'the delta label counts as the removed trigger'
+assert_call '-X DELETE repos/acme/widgets/issues/1/labels/cg-delta' 'the delta label DELETE issued'
+grep -q 'labels/cg-rereview' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: a label that is not on the PR was deleted\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: only the labels on the PR are removed\n' "$CASE"
+assert_file_contains "$WORK/reviews/pr-1.md" '"rereview":{"trigger":"label","label":"cg-rereview","login":null,"delta_label":"cg-delta"}' 'review-meta names the delta label for the fix round'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
 
 # --- post: triage passes through, and human_review_paths forces needs-human -------
@@ -825,12 +840,32 @@ seed_identity test-bot
 run_rp progress 1 "$B1_SHA" success "review abandoned - resumes when the PR is ready"
 assert_jq '.outcome == "written"' 'the status reset row is written'
 assert_call "statuses/$B1_SHA -f state=success" 'a user token writes a commit status'
-setup progress_patch_open_run '- review_progress: enabled'
+setup progress_patch_open_run '- review_progress: enabled' '- rereview_delta_label: cg-delta'
 seed_identity 'acme-app[bot]'
-printf '{"check_runs":[{"id":55,"status":"in_progress"}]}' \
+printf '{"check_runs":[{"id":55,"status":"in_progress","app":{"slug":"acme-app"},"output":{"summary":"- `10:00Z` queued"}}]}' \
   | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?check_name=cg%3Areview&filter=latest"
-run_rp progress 1 "$B1_SHA" success "done"
+run_rp progress 1 "$B1_SHA" success "done" "https://example.test/r/9"
 assert_call 'PATCH repos/acme/widgets/check-runs/55' 'the open run is completed in place'
+jq -e -s 'any(.[]; (.output.summary | startswith("- `10:00Z` queued\n- `") and endswith("Z` done — [open](https://example.test/r/9)"))
+               and .conclusion == "success" and (.completed_at | length) > 0)' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the summary keeps the timeline and links the review\n' "$CASE" \
+  || { printf 'FAIL %s: check run body %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+jq -e -s 'any(.[]; (.output.text | contains("`cg-rereview` to get a full review") and contains("`cg-delta` to get a review of the changes")
+                and contains("`@test-bot please re-review`")))' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the text says how to request the next round\n' "$CASE" \
+  || { printf 'FAIL %s: check run text %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+setup progress_other_app_run '- review_progress: enabled'
+seed_identity 'acme-app[bot]'
+printf '{"check_runs":[{"id":56,"status":"in_progress","app":{"slug":"other-app"}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?check_name=cg%3Areview&filter=latest"
+run_rp progress 1 "$B1_SHA" pending "queued"
+assert_call 'POST repos/acme/widgets/check-runs' 'a run of another App is left alone and a new run is created'
+grep -q 'check-runs/56' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the other App'"'"'s run was patched\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the other App'"'"'s run is not patched\n' "$CASE"
+jq -e -s 'any(.[]; .status == "in_progress" and (.started_at | length) > 0 and (.output.text | contains("@acme-app please re-review") | not))' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: a new run starts now\n' "$CASE" \
+  || { printf 'FAIL %s: check run body %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
 
 # --- review_progress off: the subcommand writes nothing -------------------------
 setup progress_disabled

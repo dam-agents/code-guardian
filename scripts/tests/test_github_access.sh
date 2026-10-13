@@ -26,6 +26,7 @@ target_fx() { # <login>
   code_fx 200 "$H -i -X GET repos/acme/widgets/commits/$SHA/check-runs?per_page=1"
   code_fx 200 "$H -i -X GET repos/acme/widgets/actions/runs?per_page=1"
   code_fx 422 "$H -i -X POST repos/acme/widgets/git/refs --input -"
+  code_fx 422 "$H -i -X POST repos/acme/widgets/issues --input -"
 }
 
 # --- a GitHub App token: check runs, no statuses ---------------------------------
@@ -37,9 +38,9 @@ code_fx 422 "$H -i -X POST repos/acme/widgets/check-runs --input -"
 run_access
 assert_jq '.identity == {login:"acme-app[bot]", kind:"app", token:"app", scopes:null}' 'an App identity'
 assert_jq '.progress_channel == "check_run"' 'an App writes check runs'
-assert_jq '.features.review == "ok" and .features.ci_triage == "ok" and .features.agent_fixes == "ok"' 'the granted features'
+assert_jq '.features.review == "ok" and .features.issues == "ok" and .features.ci_triage == "ok" and .features.agent_fixes == "ok"' 'the granted features'
 assert_jq '[.probes[] | select(.id == "statuses_write") | .state] == ["denied"]' 'a 403 probe is denied'
-assert_jq '.triggers.review_request == true' 'a user bot_login keeps every trigger'
+assert_jq '.triggers.review_request == true and .triggers.artifact_assignee == true and .triggers.mention_as == ["@test-bot"] and .triggers.missing == []' 'a user bot_login keeps every trigger'
 assert_jq '.unexpected == []' 'no probe wrote'
 jq -e '.login == "acme-app[bot]" and .kind == "app"' "$WORK/GITHUB.json" >/dev/null \
   && printf 'ok   %s: the identity cache is refreshed\n' "$CASE" \
@@ -62,7 +63,34 @@ base_config
 sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
 target_fx 'acme-app[bot]'
 run_access
-assert_jq '.triggers.review_request == false and .triggers.assignee == false and .triggers.label == true' 'a bot cannot be requested or assigned'
+assert_jq '.triggers.review_request == false and .triggers.artifact_assignee == false and .triggers.label == true' 'a bot cannot be requested or assigned'
+assert_jq '.triggers.mention_as == ["@acme-app", "@acme-app[bot]"]' 'people mention the App by its slug'
+assert_jq '.triggers.missing == ["rereview_delta_label", "artifact_label"]' 'the label keys an App bot_login needs are named'
+
+# --- an App bot_login with both labels has a trigger for every request -----------
+new_case access_bot_login_labels
+base_config '- rereview_delta_label: cg-delta' '- artifact_label: cg-artifact'
+sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
+target_fx 'acme-app[bot]'
+run_access
+assert_jq '.triggers.delta_label == true and .triggers.artifact_label == true and .triggers.missing == []' 'the labels stand in for the request and the assignment'
+
+# --- a refused issue probe is a missing feature, the review still works ----------
+new_case access_issues_denied
+base_config
+target_fx 'acme-app[bot]'
+code_fx 403 "$H -i -X POST repos/acme/widgets/issues --input -"
+run_access
+assert_jq '.features.issues == "missing" and .features.review == "ok"' 'comments without issue creation'
+
+# --- GraphQL refused: the REST user read names the login -------------------------
+new_case access_rest_fallback
+base_config
+target_fx test-bot
+rm -f "$GH_FIXTURES/$(fx_for "$H graphql -f query={viewer{login}}")"
+printf '{"login":"test-bot"}' | fx "$H user"
+run_access
+assert_jq '.identity.login == "test-bot" and .identity.kind == "user"' 'the REST read covers a refused GraphQL call'
 
 # --- a probe that answers 2xx is reported --------------------------------------
 new_case access_unexpected
