@@ -663,7 +663,18 @@ run_preflight audit
 assert_jq '.stats.reactions == {up: 2, down: 1, down_urls: ["https://example.test/rc/1"], scanned: 1}' \
   'only the alias comment of a marked review counts'
 
-# --- a GitHub App token: auth through an alias, no scope check -----------------
+# --- an unreadable bot review makes the reaction scan unmeasured ---------------
+new_case audit_reactions_review_unreadable
+base_config
+seed_identity 'acme-app[bot]'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '[{"user":{"login":"acme-app[bot]"},"pull_request_review_id":700,"pull_request_url":"https://api.github.com/repos/acme/widgets/pulls/9","html_url":"https://example.test/rc/1","reactions":{"+1":2}}]' \
+  | fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc'
+fx_fail 'api repos/acme/widgets/pulls/9/reviews/700' 1
+run_preflight audit
+assert_jq '.stats.reactions.scanned == null' 'an unread review is unmeasured, not zero'
+
+# --- a GitHub App token: authenticated, no scope check ------------------------
 new_case audit_app_token
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx

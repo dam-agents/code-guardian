@@ -72,6 +72,17 @@ run_preflight review
 assert_jq '[.mentions_due[].comment_id] == [201]' 'only the reply under a marked alias review is due'
 assert_jq '.config.github_identity == {login:"acme-app[bot]", kind:"app"}' 'the token identity in the worklist config'
 
+# --- an unreadable thread-root review: not due now, retried next run ----------
+new_case bot_thread_review_unreadable
+base_config
+seed_identity 'acme-app[bot]'
+{ rc_comment 200 'acme-app[bot]' Bot "🟡 **Warning:** unchecked null" 9 null | jq '.pull_request_review_id = 700'
+  rc_comment 201 bob User "this is intentional" 9 200; } | rc_fx
+fx_fail 'api repos/acme/widgets/pulls/9/reviews/700' 1
+run_preflight review
+assert_jq '.mentions_due == []' 'no reply is due on an unread review'
+assert_jq '[.logs[] | select(test("unreadable — reply 201 retried next run"))] | length == 1' 'the skip is logged'
+
 # --- reply in a human-rooted thread + a Bot-type author → nothing --------------
 new_case irrelevant_comments
 base_config
