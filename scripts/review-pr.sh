@@ -926,7 +926,10 @@ cmd_prepare() {
       t="${t//\{\{HEAD_SHA\}\}/$sha}"; t="${t//\{\{BASE_REF\}\}/$base}"; t="${t//\{\{OUT_FILE\}\}/$OUT/$s.txt}"
       t="${t//\{\{PROFILE\}\}/$profile}"; t="${t//\{\{FILES_BLOCK\}\}/$fblock}"; t="${t//\{\{VERIFY_LIVE_BLOCK\}\}/$vlblock}"
       t="${t//\{\{RISK_BLOCK\}\}/$rkblock}"
-      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"; t="${t//\{\{SEVERITY\}\}/"$sevr"}"
+      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"
+      # spliced, not substituted: bash 3.2 keeps the quotes of a quoted
+      # replacement, and bash 5.2 expands an unquoted `&` in it
+      case "$t" in (*'{{SEVERITY}}'*) t="${t%%\{\{SEVERITY\}\}*}$sevr${t#*\{\{SEVERITY\}\}}";; esac
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi

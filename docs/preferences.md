@@ -36,9 +36,10 @@ tagged with their source (`[from user]`, `[from PR comments]`,
 **Capture is mandatory.** Every **explicit** correction, dismissal or
 preference about the agent's reviews — whatever the source — gets its memory
 write in the same run it arrives, and the acknowledgement names the stored
-rule. The judgment calls below (in-doubt dispute resolutions, observed
-insights) keep their own thresholds; this rule is about feedback stated
-outright.
+rule — except a PR-specific dismissal on a closed PR
+([mentions.md](mentions.md) → **Boundaries**). The judgment calls below
+(in-doubt dispute resolutions, observed insights) keep their own thresholds;
+this rule is about feedback stated outright.
 
 ## Route feedback by scope
 

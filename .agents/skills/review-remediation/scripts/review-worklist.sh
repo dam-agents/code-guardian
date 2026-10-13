@@ -65,7 +65,7 @@ while [ $# -gt 0 ]; do
     (--reviewer) [ $# -ge 2 ] || err "--reviewer needs a value"; REVIEWER="$2"; shift 2;;
     (--verify) VERIFY=true; shift;;
     (--worklist) [ $# -ge 2 ] || err "--worklist needs a value"; WL_FILE="$2"; shift 2;;
-    (-h|--help) awk 'NR > 1 { if (!/^#/) exit; print }' "$0"; exit 0;;
+    (-h|--help) sed -n '1d; /^#/!q; p' "$0"; exit 0;;
     (-*) err "unknown option $1";;
     (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; else err "unexpected argument $1"; fi; shift;;
   esac

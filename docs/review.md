@@ -290,9 +290,9 @@ concept, no idioms, no synonym variation. STE governs wording, never content.
 
 **The sentence bar is 20 words.** Before you post, read your own prose back and
 split every sentence above it; a sentence that carries two clauses about two
-subjects becomes two sentences. The audit ([audit.md](audit.md) task 32) and
-the benchmark ([benchmark.md](benchmark.md)) measure every posted review
-against it.
+subjects becomes two sentences. The audit ([audit.md](audit.md) task 32)
+measures every posted review against it, and the benchmark
+([benchmark.md](benchmark.md)) every review of its runs.
 
 **Finding form.** Every finding — yours or a skill's — follows
 [finding-form.md](finding-form.md).

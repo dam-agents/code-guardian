@@ -180,6 +180,11 @@ has "$P" 'class="tile ok"' 'the status tiles'
 has "$P" 'Last 7 days, per hour' 'the hourly charts'
 has "$P" '<td>no_gate_tick</td>' 'hours with no gate tick are an incident of their own'
 lacks "$P" 'https?://' 'no external asset'
+h_case h_report_default_name
+grep -v 'bot_display_name' "$WORK/CONFIG.md" > "$SANDBOX/config.md" && mv "$SANDBOX/config.md" "$WORK/CONFIG.md"
+record
+henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
+has "$SANDBOX/page.html" '<h1>Code Guardian — health</h1>' 'a missing display name reads as the documented default'
 
 # --- publish: create once, then update in place ----------------------------------------------------
 h_case h_publish '- health_dashboard: dam'

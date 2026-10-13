@@ -130,6 +130,18 @@ run_wl acme/widgets 7 --reviewer
 assert_jq '.outcome == "error" and (.error | contains("--reviewer needs a value"))' 'a trailing --reviewer without a value is an error, not a hang'
 run_wl acme/widgets 7 --verify --worklist
 assert_jq '.outcome == "error" and (.error | contains("--worklist needs a value"))' 'a trailing --worklist without a value is an error, not a hang'
+run_wl acme/widgets 7 --reviwer test-bot
+assert_jq '.outcome == "error" and (.error | contains("unknown option --reviwer"))' 'a misspelt option is an error, not ignored'
+run_wl acme/widgets 7 8
+assert_jq '.outcome == "error" and (.error | contains("unexpected argument 8"))' 'a third positional argument is an error'
+
+# --- --help prints the whole header, without awk (the pod has none) ----------
+new_case worklist_help
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+OUT="$(PATH="$SANDBOX/noawk:$PATH" bash "$WL" --help 2>"$STDERR_LOG")"
+assert_out_contains '^# review-worklist.sh — the work list' 'the help starts at the first header line'
+assert_out_contains 'payloads reach jq through files, never through argv.$' 'the help reaches the last header line'
+assert_out_absent '^(#!|set -u)' 'the shebang and the code stay out'
 
 # --- the PR's own comment thread, the reviewer's own posts dropped -------------
 new_case worklist_comments
@@ -140,6 +152,17 @@ jq -n '[{user:{login:"alice"}, created_at:"2026-09-01T12:00:00Z", body:"the 30 m
 run_wl acme/widgets 7
 assert_jq '(.comments | length) == 1 and .comments[0].author == "alice"' "the thread is carried, the reviewer's own posts dropped"
 assert_jq '.comments[0].body | startswith("the 30 minute")' 'the comment body is carried'
+
+# --- a long thread: every page is read, the newest 15 comments are kept ---------
+new_case worklist_comments_pages
+reviews_fx; pr_head_fx "$SHA_B"; inline_fx
+jq -n '[range(100) | {user:{login:"alice"}, created_at:"2026-09-01T12:00:00Z", body:"old"}]' \
+  | fx 'api repos/acme/widgets/issues/7/comments?per_page=100'
+jq -n '[range(20) | {user:{login:"alice"}, created_at:("2026-09-03T12:" + (if . < 10 then "0" else "" end) + tostring + ":00Z"), body:("new \(.)")}]' \
+  | fx 'api repos/acme/widgets/issues/7/comments?per_page=100&page=2'
+run_wl acme/widgets 7
+assert_jq '(.comments | length) == 15 and all(.comments[]; .body | startswith("new")) and .comments[-1].body == "new 19"' \
+  'the newest 15 comments come from the last page'
 
 # --- sections: which source reported how much ---------------------------------
 new_case worklist_sections
@@ -197,5 +220,21 @@ assert_jq '.outcome == "error" and (.error | contains("does not exist"))' 'a mis
 jq -n '{outcome:"ok", review:{id:1, author:"x", commit_id:"0000000000000000000000000000000000000000"}, blocking:[]}' > "$SANDBOX/wl-unknown.json"
 run_wl_in acme/widgets 7 --verify --worklist "$SANDBOX/wl-unknown.json"
 assert_jq '.outcome == "error" and (.error | contains("not in this checkout"))' 'a reviewed SHA the checkout does not have is an error'
+# a git diff that fails is an error, never a line of the changed-file list
+mkdir -p "$SANDBOX/gitshim"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = diff ] && { echo "fatal: simulated" >&2; exit 128; }; done\nexec %s "$@"\n' \
+  "$(command -v git)" > "$SANDBOX/gitshim/git"
+chmod +x "$SANDBOX/gitshim/git"
+OUT="$(cd "$REPO_DIR" && GH_HOST="" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
+       PATH="$SANDBOX/gitshim:$T_DIR/bin:$PATH" bash "$WL" acme/widgets 7 --verify --worklist "$SANDBOX/wl.json" 2>"$STDERR_LOG")"
+assert_jq '.outcome == "error" and (.error | contains("git diff")) and (.error | contains("simulated"))' 'a failed git diff is an error'
+
+# --- verify from a subdirectory: every path is repo-relative ---------------------
+new_case worklist_verify_subdir
+mkdir -p "$SANDBOX/tmp"; setup_verify_repo
+printf 'const a = 2;\n' > "$REPO_DIR/src/auth.js"; printf 'new\n' > "$REPO_DIR/src/extra.js"
+OUT="$(cd "$REPO_DIR/src" && GH_HOST="" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
+       PATH="$T_DIR/bin:$PATH" bash "$WL" acme/widgets 7 --verify --worklist "$SANDBOX/wl.json" 2>"$STDERR_LOG")"
+assert_jq '.changed_files == ["src/auth.js","src/extra.js"] and .outside == ["src/extra.js"]' 'an untracked file is named from the repo root'
 
 finish

@@ -25,7 +25,8 @@ never fatal — preflight re-emits the entry.
 ## Pruning (`prunes_due`)
 
 Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
-candidates are the REVIEWS.md rows and the PRs with step-2 files but no row.
+candidates are the REVIEWS.md rows and the PRs with step-2 files or a
+`work/MENTIONS.md` `body-<n>` row but no REVIEWS.md row.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
 `<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2

@@ -38,7 +38,7 @@
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
-#   preflight.sh survey    -> survey_due (the area to read, its caps and
+#   preflight.sh survey    -> survey_due (the area to read and its
 #                             history) when `survey: enabled` and the interval
 #                             passed (docs/survey.md)
 #   preflight.sh memory    -> the memory budget object alone (memory_budget_json),
@@ -650,13 +650,21 @@ pr_file_numbers() {
     f="${f##*/pr-}"; f="${f%%.*}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
   done | sort -un
 }
-# prune candidates: every row in row order, then every PR file owner without a
-# row — the urgent alert, an override or a CI triage marker writes the file
-# before the first review, a draft's status reset deletes the row, and a prune
-# cut short leaves the rest of the PR's files behind
+# the PR numbers of the work/MENTIONS.md `body-<n>` rows, which the audit trim
+# keeps until the PR's prune deletes them (docs/review-bookkeeping.md → Pruning)
+mention_body_numbers() {
+  grep -E '^\| *body-[0-9]+ *\|' "$WORK/MENTIONS.md" 2>/dev/null | cut -d'|' -f2 \
+    | tr -d ' ' | sed 's/^body-//' | sort -un
+}
+# prune candidates: every row in row order, then every PR file or description
+# mention owner without a row — the urgent alert, an override or a CI triage
+# marker writes the file before the first review, a draft's status reset
+# deletes the row, a prune cut short leaves the rest of the PR's files behind,
+# and a draft's description mention is answered with no review at all
 prune_candidates() {
   reviews_rows | cut -d'|' -f2 | tr -d ' '
-  pr_file_numbers | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-')
+  { pr_file_numbers; mention_body_numbers; } | sort -un \
+    | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-')
 }
 
 # stale-clone sweep: clones a dead session never removed (live-run cleanup is
