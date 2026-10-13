@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.2.0 — 2026-10-13
+
+**Upgrade:** new key `bot_aliases` (`docs/config.md`). When `work/CONFIG.md`
+has no `bot_aliases` and `gh api graphql -f query='{viewer{login}}' --jq
+.data.viewer.login` prints a login other than `bot_login` (a GitHub App
+token), show it to the operator and, on their confirmation, add
+`- bot_aliases: <that login>`. Otherwise nothing.
+
 ## 9.1.1 — 2026-10-12
 
 **Upgrade:** Nothing — docs are re-read per run.

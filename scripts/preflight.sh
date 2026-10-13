@@ -387,8 +387,24 @@ TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
 export GH_HOST="$REPO_HOST"   # every unqualified gh call targets the review host
 BOT_LOGIN="$(cfg bot_login)"
+BOT_ALIASES="$(bot_aliases | jq -Rsc 'split("\n") | map(select(. != ""))')"
 WORK_REPO="$(cfg work_repo)"   # empty = local-only persistence (docs/persistence.md)
 REVIEW_MARKER="$(cfg review_marker)"
+# whether review <id> on PR <n> carries the review marker: 0 yes, 1 no, 2
+# unreadable (not cached, so a later call retries) — one GET per review
+OWN_REVIEWS="|"; OTHER_REVIEWS="|"
+own_review() { # <pr-number> <review-id>
+  local r
+  [ -n "$2" ] && [ -n "$REVIEW_MARKER" ] || return 1
+  case "$OWN_REVIEWS" in (*"|$2|"*) return 0;; esac
+  case "$OTHER_REVIEWS" in (*"|$2|"*) return 1;; esac
+  r="$(gh api "repos/$REPO/pulls/$1/reviews/$2" 2>/dev/null)" || return 2
+  printf '%s' "$r" | jq -e 'type == "object" and has("id")' >/dev/null 2>&1 || return 2
+  if printf '%s' "$r" | jq -e --arg m "<!-- $REVIEW_MARKER" '(.body // "") | contains($m)' >/dev/null 2>&1; then
+    OWN_REVIEWS="$OWN_REVIEWS$2|"; return 0
+  fi
+  OTHER_REVIEWS="$OTHER_REVIEWS$2|"; return 1
+}
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
 URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 ARTIFACT="$(cfg artifact_skill)"
@@ -503,9 +519,9 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
-  --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
+  --argjson ba "$BOT_ALIASES" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
-  {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_display_name:$name,
+  {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_aliases:$ba, bot_display_name:$name,
    active_hours:(if $ah=="" then "00-23" else $ah end), active_days:(if $ad=="" then "Mon-Sun" else $ad end),
    review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
@@ -1420,9 +1436,17 @@ if [ "$MODE" = "review" ]; then
       # the bot's inline comment (root in the same batch, else one GET)
       if [ "$(printf '%s' "$c" | jq -r '.thread + " " + (.mentioned|tostring)')" = "inline false" ]; then
         root="$(printf '%s' "$c" | jq -r '.in_reply_to')"
-        root_author="$(jq -r --argjson r "$root" 'select(.id == $r) | .user.login' "$RC_TMP" 2>/dev/null | head -1)"
-        [ -z "$root_author" ] && root_author="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null | jq -r '.user.login // empty')"
-        [ "$root_author" = "$BOT_LOGIN" ] || continue
+        root_json="$(jq -c --argjson r "$root" 'select(.id == $r)' "$RC_TMP" 2>/dev/null | head -1)"
+        [ -z "$root_json" ] && root_json="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null)"
+        root_author="$(printf '%s' "$root_json" | jq -r '.user.login // empty' 2>/dev/null)"
+        if [ "$root_author" != "$BOT_LOGIN" ]; then
+          # an alias root is the agent's only when its review carries the marker
+          # — a shared GitHub App also posts for other agents
+          printf '%s' "$BOT_ALIASES" | jq -e --arg a "$root_author" 'index($a) != null' >/dev/null 2>&1 || continue
+          own_review "$(printf '%s' "$c" | jq -r '.number')" \
+            "$(printf '%s' "$root_json" | jq -r '.pull_request_review_id // empty' 2>/dev/null)"
+          case $? in (0) ;; (2) log_warn "mention scan: review of thread root $root unreadable — reply $cid retried next run"; continue;; (*) continue;; esac
+        fi
       fi
       # an author outside mention_authors is counted, never emitted
       if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ] \
@@ -1501,9 +1525,10 @@ if [ "$MODE" = "review" ]; then
     done <<< "$files"
     # a person's open change request stands, whatever branch protection requires;
     # every page, oldest first, so a person's latest review is never cut off
-    case "$(gh_get --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -rs --arg b "$BOT_LOGIN" '
+    case "$(gh_get --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -rs --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
         if length == 0 or any(.[]; type != "array") then "unreadable" else
-          [ add | .[] | select(.user.login != $b) | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+          [ add | .[] | select(.user.login != $b) | select((.body // "") | contains($m) | not)
+                | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
           | group_by(.user.login) | map(last | .state)
           | if any(. == "CHANGES_REQUESTED") then "changes" else "ok" end end' 2>/dev/null)" in
       (ok) ;;
@@ -1891,12 +1916,19 @@ if [ "$MODE" = "audit" ]; then
   # --- connectivity (one line per host the pipeline uses) ---------------
   auth_detail=""; auth_status=ok; scope_detail=""; scope_status=ok
   for h in $AUDIT_HOSTS; do
-    me="$(gh api --hostname "$h" user 2>/dev/null | jq -r '.login // empty')"
+    # GraphQL `viewer`, not REST `user`: a GitHub App installation token
+    # cannot read GET /user
+    me="$(gh api --hostname "$h" graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
     if [ -z "$me" ]; then auth_status=fail; auth_detail="${auth_detail:+$auth_detail; }$h: not authenticated (token broken or host unreachable)"
-    elif [ "$h" = "$REPO_HOST" ] && [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ]; then
+    elif [ "$h" = "$REPO_HOST" ] && [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ] \
+         && ! printf '%s' "$BOT_ALIASES" | jq -e --arg m "$me" 'index($m) != null' >/dev/null 2>&1; then
       [ "$auth_status" = fail ] || auth_status=warn
-      auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN"
+      auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN or a bot_aliases login"
     else auth_detail="${auth_detail:+$auth_detail; }$h: $me"; fi
+
+    # an App token has installation permissions, not OAuth scopes
+    case "$me" in (*"[bot]")
+      scope_detail="${scope_detail:+$scope_detail; }$h: GitHub App token (permissions, no scopes)"; continue;; esac
 
     # Token scope the pipeline depends on: `repo` for PR state and posting. A
     # missing scope fails those calls outright, so catch it here rather than per
@@ -2825,8 +2857,22 @@ if [ "$MODE" = "audit" ]; then
     # SINGLE argument at MAX_ARG_STRLEN (128 KiB) regardless of the much larger
     # ARG_MAX, so --argjson made execve fail with "Argument list too long" and
     # the scan silently returned nothing on every busy week.
-    REACTIONS="$(printf '%s\n%s\n' "$rrc" "$ric" | jq -s --arg bot "$BOT_LOGIN" '
-      [ (.[0] + .[1])[] | select((.user.login // "") == $bot) ]
+    # an alias comment counts only as part of a review with the marker (a
+    # shared GitHub App also posts for other agents): its unmarked issue
+    # comments are not attributable, and at most 30 alias reviews are read
+    own_rids='[]'
+    if [ "$BOT_ALIASES" != "[]" ]; then
+      while read -r rn rid; do
+        own_review "$rn" "$rid"; case $? in
+          (0) own_rids="$(printf '%s' "$own_rids" | jq -c --argjson r "$rid" '. + [$r]')";;
+          (2) rx_bad=1;;
+        esac
+      done < <(printf '%s' "$rrc" | jq -r --argjson al "$BOT_ALIASES" '
+        [ .[] | select((.user.login // "") as $l | $al | index($l)) | select(.pull_request_review_id != null)
+              | "\(.pull_request_url | sub(".*/"; "")) \(.pull_request_review_id)" ] | unique | .[:30][]' 2>/dev/null)
+    fi
+    REACTIONS="$(printf '%s\n%s\n' "$rrc" "$ric" | jq -s --arg bot "$BOT_LOGIN" --argjson own "$own_rids" '
+      [ (.[0] + .[1])[] | select(((.user.login // "") == $bot) or ((.pull_request_review_id // null) as $r | $r != null and ($own | index($r) != null))) ]
       | {up: (map(.reactions["+1"] // 0) | add // 0),
          down: (map(.reactions["-1"] // 0) | add // 0),
          down_urls: (map(select((.reactions["-1"] // 0) > 0) | .html_url) | .[0:10]),

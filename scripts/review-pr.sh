@@ -1467,10 +1467,14 @@ cmd_post() {
       out "$(jq -nc --arg s "$scope" '{outcome:"closed_discarded", scope:$s}')"
     fi
     # the bot's own issues, every page — the marker is in one of them or in none
-    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing q="state=all&per_page=100" it
-    [ -n "$BOT_LOGIN" ] && q="$q&creator=$BOT_LOGIN"
-    existing="$(gh api --paginate "repos/$REPO/issues?$q" 2>/dev/null | jq -s --arg m "$im" \
-      '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
+    # per creator: bot_login, then each bot_aliases login
+    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing="" q it who
+    for who in "$BOT_LOGIN" $(bot_aliases); do
+      q="state=all&per_page=100"; [ -n "$who" ] && q="$q&creator=$(uri "$who")"
+      existing="$(gh api --paginate "repos/$REPO/issues?$q" 2>/dev/null | jq -s --arg m "$im" \
+        '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
+      [ -n "$existing" ] && break
+    done
     it="Critical findings from review of closed PR #$N"
     [ "$scope" = "blocking" ] && it="Blocking findings from review of PR #$N after its rapid approval"
     out "$(jq -nc --argjson f "$found" --arg s "$scope" --arg t "$it" --arg m "$im" --arg e "${existing:-}" --arg a "$(ctx_get '.author')" \

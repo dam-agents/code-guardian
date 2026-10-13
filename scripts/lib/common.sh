@@ -21,6 +21,16 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# The other logins the token posts as besides bot_login (a GitHub App's
+# `<app>[bot]`), one per line. Their content is the agent's own only with the
+# review marker (docs/config.md → bot_aliases).
+bot_aliases() {
+  local a bot; bot="$(cfg bot_login)"
+  cfg bot_aliases | tr ',' '\n' | while IFS= read -r a; do
+    a="$(trim "$a")"; [ -n "$a" ] && [ "$a" != "$bot" ] && printf '%s\n' "$a"
+  done; return 0
+}
+
 # The `## Review skills` table as [{skill, source, trigger, section}]
 # (docs/skills.md), header and separator rows dropped
 skills_table_json() {

@@ -639,6 +639,47 @@ run_preflight audit
 assert_jq '.stats.reactions == {up: 3, down: 1, down_urls: ["https://example.test/rc/1"], scanned: 2}' \
   'reactions summed over bot comments only, 👎 URLs listed'
 
+# --- an alias's comments count only as part of a marked review ---------------
+# a shared GitHub App also posts for other agents: its inline comment of an
+# unmarked review and its unmarked issue comment are not the bot's
+new_case audit_reactions_alias
+base_config '- bot_aliases: acme-app[bot]'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc' <<'EOF'
+[
+ {"user":{"login":"acme-app[bot]"},"pull_request_review_id":700,"pull_request_url":"https://api.github.com/repos/acme/widgets/pulls/9","html_url":"https://example.test/rc/1","reactions":{"+1":2,"-1":1}},
+ {"user":{"login":"acme-app[bot]"},"pull_request_review_id":701,"pull_request_url":"https://api.github.com/repos/acme/widgets/pulls/9","html_url":"https://example.test/rc/2","reactions":{"+1":5,"-1":5}}
+]
+EOF
+fx 'api repos/acme/widgets/issues/comments?per_page=100&sort=created&direction=desc' <<'EOF'
+[
+ {"user":{"login":"acme-app[bot]"},"html_url":"https://example.test/c/3","reactions":{"+1":7}}
+]
+EOF
+printf '{"id":700,"body":"review\\n<!-- cg:review headRefOid=aaa -->"}' | fx 'api repos/acme/widgets/pulls/9/reviews/700'
+printf '{"id":701,"body":"another agent"}' | fx 'api repos/acme/widgets/pulls/9/reviews/701'
+run_preflight audit
+assert_jq '.stats.reactions == {up: 2, down: 1, down_urls: ["https://example.test/rc/1"], scanned: 1}' \
+  'only the alias comment of a marked review counts'
+
+# --- a GitHub App token: auth through an alias, no scope check -----------------
+new_case audit_app_token
+base_config '- bot_aliases: acme-app[bot]'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
+run_preflight audit
+assert_jq '.checks[] | select(.id == "github_auth") | .status == "ok"' 'an alias login authenticates'
+assert_jq '.checks[] | select(.id == "token_scopes") | .status == "ok" and (.detail | test("GitHub App"))' \
+  'an App token skips the scope check'
+
+new_case audit_unknown_login
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
+run_preflight audit
+assert_jq '.checks[] | select(.id == "github_auth") | .status == "warn" and (.detail | test("bot_aliases"))' \
+  'a login that is neither bot_login nor an alias warns'
+
 # --- a realistic comment payload still gets scanned ---------------------------
 # two pages of real comments are ~768 KB; passed as jq arguments they exceed
 # MAX_ARG_STRLEN (128 KiB per single argument on Linux, independent of the much

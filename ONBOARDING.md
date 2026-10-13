@@ -59,8 +59,9 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
 (`docs/config.md`). `$DEF_HOST` / `$REPO_HOST` denote the host of a reference;
 `gh api --hostname` targets one explicitly.
 
-1. **Sanity check:** `gh api user --jq .login` must succeed — it prints the bot
-   login, needed in Step 4. On failure, **stop** and tell the operator the
+1. **Sanity check:** `gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login`
+   must succeed — it prints the bot login, needed in Step 4 (a GitHub App
+   token cannot read `gh api user`). On failure, **stop** and tell the operator the
    GitHub connection or token is broken. Repeat it with `--hostname <host>` for
    every non-default host resolved below; an unauthenticated host is
    **operator-only** to fix (`gh auth login --hostname <host>`), so report and
@@ -70,7 +71,7 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    audit re-checks both (`token_scopes`, `cli_deps`), per host:
 
    ```bash
-   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo
+   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo (none for an App token)
    for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
    for c in gh jq; do case "$(command -v "$c")" in (*/shims/*) echo "SHIMMED: $c";; esac; done
    ```
@@ -363,6 +364,11 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
    > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
 
+   A login ending in `[bot]` is a GitHub App, which a person cannot assign,
+   request or usefully mention. Ask which user account people use for that;
+   it becomes `bot_login` and the App login **`bot_aliases`** (`docs/config.md`).
+   No such account → `bot_login` is the App login, triggers are label-only.
+
 4. **`bot_display_name`** — ask: *What name should I sign my reviews with?
    (Default: `Code Guardian`.)*
 5. **`review_marker`** — the dedup-marker prefix
@@ -565,6 +571,7 @@ Final shape:
 - definition_repo: acme/code-guardian  # [host/]owner/repo — may differ from the target's host
 - definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
+- bot_aliases: acme-app[bot]           # other logins the token posts as; omit = none
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
 - rereview_label: code-guardian-review # PR label that requests a re-review

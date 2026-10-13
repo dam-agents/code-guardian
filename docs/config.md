@@ -55,6 +55,14 @@ below is for the manual fallback and the direct session.
   → log
   `bot_login missing — artifact gate, shepherd, and mention handling disabled this run`
   once and skip those features.
+- **`bot_aliases`** — comma-separated other logins the token posts as, such as
+  a GitHub App's `acme-app[bot]` while `bot_login` stays the user account
+  people mention, assign and request. **Missing = none.** An alias's content is
+  the agent's own only through `review_marker`: a review that carries it, an
+  inline comment of such a review, an issue with the issue marker. A shared App
+  also posts for other agents, so an alias's unmarked comment is not the
+  agent's. The audit's `github_auth` check warns when the token's login is
+  neither `bot_login` nor an alias.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic
   only, never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker

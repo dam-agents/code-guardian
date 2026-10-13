@@ -235,7 +235,8 @@ what it can and asking for the rest. Per-key semantics are in
 | `work_repo` | Step 0 answer (optional) | Repo backing `work/` up (`[host/]owner/repo`); omitted = local-only persistence (`docs/persistence.md`). |
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
-| `bot_login` | auto-detected via `gh api user`, confirmed | GitHub login the agent acts as — artifact assignee gate, "independent reviewer" classification. |
+| `bot_login` | auto-detected via GraphQL `viewer`, confirmed | GitHub login the agent acts as — artifact assignee gate, "independent reviewer" classification. |
+| `bot_aliases` | asked when the token is a GitHub App | Other logins the token posts as; their content is the agent's only with the review marker. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
@@ -308,7 +309,10 @@ what it can and asking for the rest. Per-key semantics are in
 
   The audit's `token_scopes` check asserts the required ones only. A missing
   scope is **operator-only** to fix: the agent reports it and never works
-  around it.
+  around it. A **GitHub App** token has permissions in place of scopes: Pull
+  requests, Issues and Contents read and write, Commit statuses write for
+  `review_progress`, Checks and Actions read for CI triage; `token_scopes`
+  skips it.
 - **External services:** artifacts and reports publish to the platform's DAM
   Artifact Library (best-effort, behind the owner's experimental flag), whose
   `visibility:"public"` share URL is reachable by anyone holding it. The HTML

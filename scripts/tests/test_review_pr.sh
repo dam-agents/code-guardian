@@ -816,6 +816,17 @@ assert_jq '.outcome == "closed_filed" and .issue == 9' 'finalized against the is
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | REQUEST_CHANGES | done |" 'done row after the issue'
 assert_file_contains "$WORK/reviews/pr-1.md" '_Delivered as issue #9 — PR closed before posting._' 'history note'
 
+# --- post: closed, the issue an alias filed earlier is found -------------------
+setup post_closed_alias '- bot_aliases: acme-app[bot]'
+run_rp prepare 1
+pr_fx closed
+printf '### Summary\nx\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":false,"summary":"c","fix":"f"}]' > "$SANDBOX/findings.json"
+jq -nc --arg m "<!-- cg:review:issue headRefOid=$B1_SHA -->" '[{number:12, body:("x\n" + $m)}]' \
+  | fx 'api --paginate repos/acme/widgets/issues?state=all&per_page=100&creator=acme-app%5Bbot%5D'
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "closed_findings" and .existing_issue == 12' 'an issue the alias created dedups the next one'
+
 # --- rapid: urgent phase 1 -------------------------------------------------------
 setup rapid_case '- urgent_label: urgent'
 pr_fx open '["urgent"]'
