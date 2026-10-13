@@ -2405,8 +2405,10 @@ if [ "$MODE" = "audit" ]; then
   # not. Direct sessions (job `session`) and unrecorded models
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
-  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" "$MODEL_JQ"'
-    ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
+  # stdin, not argv: a busy week's sessions pass MAX_ARG_STRLEN (128 KiB)
+  SM_OUT="$(printf '%s' "$SESSIONS_WEEK" | jq -r --arg rm "$(cfg review_model)" "$MODEL_JQ"'
+    . as $ses
+    | ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])
        | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
@@ -3085,17 +3087,17 @@ if [ "$MODE" = "audit" ]; then
     check model_availability warn "$AF_N run(s) ended on an API failure this week, in $(printf '%s' "$GUARD_WEEK" | jq '.api_failures.outages | length') outage(s): $(printf '%s' "$GUARD_WEEK" | jq -r '.api_failures.by_class | to_entries | map("\(.key)×\(.value)") | join(", ")')"
   else check model_availability ok "no run ended on an API failure this week"; fi
 
-  STATS="$(jq -n --arg since "$SINCE_ISO" \
-    --argjson al "$AWAITING_JSON" \
-    --argjson open "$OPEN_COUNT" --argjson ra "$REVIEWS_AGG" \
-    --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
-    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
-    --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson rs "$REVIEW_SHAPE" \
-    --argjson disk "$DISK_JSON" --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
-    --argjson guard "$GUARD_WEEK" \
-    '{since:$since, open_prs:$open, awaiting_label:$al,
+  # Every JSON part travels on stdin, one document per line, never in argv: the
+  # week's sessions alone near MAX_ARG_STRLEN (128 KiB per argument), and a
+  # too-long argument kills jq with no output — the audit then printed nothing.
+  STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
+      "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
+      "${REACTIONS:-null}" "${ARTIFACTS_WEEK:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" \
+    | jq -cs --arg since "$SINCE_ISO" '
+    . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
+          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard]
+    | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
@@ -3107,11 +3109,11 @@ if [ "$MODE" = "audit" ]; then
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  AUDIT_JSON="$(jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
-    --argjson failures "${FAILURES:-[]}" \
-    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
-      failures:$failures, logs:$logs}')"
+  AUDIT_JSON="$(printf '%s\n' "${STATS:-null}" "${CHECKS:-[]}" "${FAILURES:-[]}" \
+      "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+    | jq -s '. as [$stats, $checks, $failures, $logs]
+      | {mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
+         failures:$failures, logs:$logs}')"
   # bookkeeping: the same worklist on disk is the trend artifact's input, so a
   # week's numbers reach work/audit/ without passing through the agent
   # (docs/trends.md). Overwritten every audit; the week files are the record.

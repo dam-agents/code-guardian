@@ -620,6 +620,21 @@ unread="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_wo
 [ -z "$unread" ] && printf 'ok   %s: every kind a heartbeat writes is a kind the audit reads\n' "$CASE" \
   || { printf 'FAIL %s: heartbeat kinds the audit ignores: %s\n' "$CASE" "$unread"; FAILED=1; }
 
+# --- a week whose sessions pass the argv limit still yields the audit -----------
+# one argv entry is capped at MAX_ARG_STRLEN (128 KiB): with the sessions passed
+# by --argjson, jq died and the audit printed no JSON at all
+new_case audit_sessions_past_argv_limit
+base_config '- review_model: claude-opus-5'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+jq -nc --arg t "$(iso_ago 3600)" 'range(1500) | {ts:$t, run:("s" + tostring), job:"review", level:"info", event:"tokens",
+     msg:"input=10 output=2000 cache_read=500 cache_creation=30 msgs=20 model=claude-opus-5 subagents=0 secs=420"}' \
+  >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+run_preflight audit
+assert_jq '.mode == "audit" and (.stats.sessions | length == 1500)' 'the audit JSON carries every session'
+assert_jq '(.stats | tostring | length) > 131072' 'the stats pass the single-argument limit'
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok"' 'the model check reads the sessions too'
+
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions
 base_config
