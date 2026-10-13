@@ -41,12 +41,15 @@ if [ -n "${GH_CALLS_LOG:-}" ]; then
     prev="$a"; done
 fi
 # <slug>.rc simulates a failing call (fx_fail / fx_fail_once in helpers.sh):
-# exit with the stored code; a `once:<code>` value fails this call only. A
-# <slug>.err file is the error body real gh prints to stderr on a non-2xx
-# answer (fx_err in helpers.sh) — callers that read the API's error text see it.
+# exit with the stored code; a `once:<code>` value fails this call only. On a
+# non-2xx answer real gh prints GitHub's error body on stdout and its message
+# (`gh: <message> (HTTP <code>)`) on stderr: <slug>.out is that body (fx_out)
+# and <slug>.err that stderr text (fx_err) — callers that read the API's error
+# text see them.
 if [ -n "${GH_FIXTURES:-}" ] && [ -f "$GH_FIXTURES/$slug.rc" ]; then
   rc="$(cat "$GH_FIXTURES/$slug.rc")"
   case "$rc" in (once:*) rm -f "$GH_FIXTURES/$slug.rc"; rc="${rc#once:}";; esac
+  [ -f "$GH_FIXTURES/$slug.out" ] && cat "$GH_FIXTURES/$slug.out"
   [ -f "$GH_FIXTURES/$slug.err" ] && cat "$GH_FIXTURES/$slug.err" >&2
   exit "$rc"
 fi

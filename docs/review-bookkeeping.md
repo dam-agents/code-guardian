@@ -58,8 +58,9 @@ gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$REREVIEW_LABE
 `$REREVIEW_DELTA_LABEL` the same way. `review-pr.sh post` removes both labels
 when the review posts.
 
-Pending review request — same-SHA cleanup only; a served request clears itself
-when the review posts:
+Pending review request — a served request clears itself when `bot_login` posts
+the review. When the token posts as another login (a GitHub App token),
+`review-pr.sh post` removes it. The same-SHA cleanup removes it with:
 
 ```bash
 gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null

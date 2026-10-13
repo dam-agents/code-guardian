@@ -102,8 +102,9 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    hunk index (outside a hunk or past the cap of 25 → moved under
    `### Findings not anchorable inline`, `inline: false` in `findings-json`),
    posts the payload ([review-mechanics.md](review-mechanics.md) → **Posting
-   the GitHub review**), removes
-   `$REREVIEW_LABEL`, dismisses stale approvals, appends the body to
+   the GitHub review**), removes the served triggers
+   ([review-bookkeeping.md](review-bookkeeping.md) → **Trigger removal**),
+   dismisses stale approvals, appends the body to
    `reviews/pr-<n>.md`, writes the `done` row and terminal status, logs
    `posted <verdict>` and `done`, and deletes clone, copies, diff and state —
    exactly once. Outcomes: `posted` (`url`, `event`, `moved_to_summary`,

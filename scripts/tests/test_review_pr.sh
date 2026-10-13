@@ -683,14 +683,19 @@ jq -e -s 'any(.[]; .event == "COMMENT" and (.body | contains("**Verdict: REQUEST
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | REQUEST_CHANGES | done |" 'the row keeps the verdict'
 
 # --- the same refusal without an identity cache: the one retry is a COMMENT -----
+# gh prints the refusal in the error body on stdout; stderr has the message only
+own_pr_422_fx() {
+  fx_fail_once "$(POST_SLUG)" 1
+  fx_err "$(POST_SLUG)" 'gh: Unprocessable Entity (HTTP 422)'
+  fx_out "$(POST_SLUG)" '{"message":"Unprocessable Entity","errors":["Review Can not approve your own pull request"],"status":"422"}'
+}
 setup post_own_pr_422
 pr_fx open; own_pr_fx
 run_rp prepare 1
 printf '### Summary\nx\n### Verdict\nAPPROVE — fine\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
-fx_fail_once "$(POST_SLUG)" 1
-fx_err "$(POST_SLUG)" '{"message":"Unprocessable Entity","errors":["Review Can not approve your own pull request"]}'
+own_pr_422_fx
 run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT"' 'the refusal turns the retry into a comment'
 jq -e -s '[.[] | .event] == ["APPROVE", "COMMENT"]' "$SANDBOX/gh.log.input" >/dev/null \
@@ -723,6 +728,37 @@ grep -q 'labels/cg-rereview' "$SANDBOX/gh.log" \
   || printf 'ok   %s: only the labels on the PR are removed\n' "$CASE"
 assert_file_contains "$WORK/reviews/pr-1.md" '"rereview":{"trigger":"label","label":"cg-rereview","login":null,"delta_label":"cg-delta"}' 'review-meta names the delta label for the fix round'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after post\n' "$CASE"; FAILED=1; } || printf 'ok   %s: clone, copies, diff, ctx removed\n' "$CASE"
+
+# --- post: a token of another login removes the served review request -----------
+req_fx() { # the live PR requests a review from bot_login
+  local f; f="$GH_FIXTURES/$(fx_for 'api repos/acme/widgets/pulls/1')"
+  jq '.requested_reviewers = [{login:"test-bot"}]' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+setup post_request_app_token '- rereview_trigger: both'
+seed_identity 'acme-app[bot]'
+pr_fx open; req_fx
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":84,"html_url":"https://example.test/r/84","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the App token posts the review'
+grep -qF -- '-X DELETE repos/acme/widgets/pulls/1/requested_reviewers -f reviewers[]=test-bot' "$SANDBOX/gh.log" \
+  && printf 'ok   %s: the review request of bot_login is removed\n' "$CASE" \
+  || { printf 'FAIL %s: no request removal in %s\n' "$CASE" "$(tr '\n' ';' < "$SANDBOX/gh.log")"; FAILED=1; }
+# the token is bot_login: GitHub clears the request when the review posts
+setup post_request_user_token '- rereview_trigger: both'
+seed_identity test-bot
+pr_fx open; req_fx
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":85,"html_url":"https://example.test/r/85","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the user token posts the review'
+grep -q 'requested_reviewers' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: bot_login removed a request its own review clears\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no request removal when the token is bot_login\n' "$CASE"
 
 # --- post: triage passes through, and human_review_paths forces needs-human -------
 # docs/review-mechanics.md → Summary body format (`triage`)
@@ -852,7 +888,8 @@ printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"i
 jq -nc '[{path:"src/alpha.ts",line:6,side:"RIGHT",body:"🔴 **Critical:** q\n**Fix:** f"}]' > "$SANDBOX/comments.json"
 printf '{"id":78,"html_url":"https://example.test/r/78","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
 fx_fail_once "$(POST_SLUG)" 1
-fx_err "$(POST_SLUG)" '{"message":"Unprocessable Entity","errors":[{"resource":"PullRequestReviewComment","field":"line","code":"invalid","message":"line must be part of the diff"}]}'
+fx_err "$(POST_SLUG)" 'gh: Unprocessable Entity (HTTP 422)'
+fx_out "$(POST_SLUG)" '{"message":"Unprocessable Entity","errors":[{"resource":"PullRequestReviewComment","field":"line","code":"invalid","message":"line must be part of the diff"}]}'
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
 assert_jq '.outcome == "posted" and .review_id == 78' 'second POST succeeds'
 assert_jq '.moved_to_summary | length == 1 and .[0].reason == "422 line not in diff"' 'inline comments moved after the 422'
@@ -1012,6 +1049,16 @@ assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT
 jq -se 'last | .event == "COMMENT" and (.body | startswith("> **Verdict: APPROVE.**"))' "$SANDBOX/gh.log.input" >/dev/null \
   && printf 'ok   %s: the rapid body names the verdict\n' "$CASE" || { printf 'FAIL %s: rapid payload %s\n' "$CASE" "$(tail -1 "$SANDBOX/gh.log.input")"; FAILED=1; }
 run_rp abort 1 "reset"
+# without an identity cache, the refusal in the error body turns the retry into a COMMENT
+setup rapid_own_pr_422 '- urgent_label: urgent'
+pr_fx open '["urgent"]'; own_pr_fx
+run_rp prepare 1
+printf '### Critical findings\nNone.\n' > "$SANDBOX/rapid.md"
+printf '{"id":73,"html_url":"https://example.test/r/73","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+own_pr_422_fx
+run_rp rapid 1 --verdict APPROVE --body "$SANDBOX/rapid.md"
+assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT"' 'the refused rapid approval is retried as a comment'
+run_rp abort 1 "reset"
 
 # --- rapid approval, then a full review below APPROVE revokes it -------------------
 setup rapid_approve '- urgent_label: urgent'
@@ -1148,6 +1195,22 @@ printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | 
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted" and .dismissed_approval == 5' 'stale approval dismissed'
 assert_call 'reviews/5/dismissals -X PUT' 'dismissal call issued'
+
+# --- a GitHub App bot_login that another agent shares: only the marked approval goes
+setup post_dismiss_shared_app
+sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — APPROVE\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" APPROVE awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '[{"id":5,"state":"APPROVED","user":{"login":"acme-app[bot]"},"body":"ok <!-- cg:review headRefOid=0000000000000000000000000000000000000000 -->"},{"id":6,"state":"APPROVED","user":{"login":"acme-app[bot]"},"body":"ok <!-- other:review headRefOid=0000000000000000000000000000000000000000 -->"}]' | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .dismissed_approval == 5' 'the approval with this marker is dismissed'
+grep -q 'reviews/6/dismissals' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the approval of another agent on the same App login was dismissed\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the approval of another agent on the same App login stays\n' "$CASE"
 
 # --- carried first review: a HEAD move keeps the work, not the narrative ---------
 setup carry_write

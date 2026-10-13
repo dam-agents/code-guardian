@@ -457,7 +457,7 @@ gen_ownership() {
 }
 
 gen_checks() {
-  local w body name on req
+  local w body name on req="" out
   : > "$TMP/checks.jsonl"
   while IFS= read -r w; do
     [ -n "$w" ] || continue
@@ -467,12 +467,14 @@ gen_checks() {
     [ -n "$on" ] || on="$(printf '%s\n' "$body" | sed -nE '/^(on|"on"):[[:space:]]*$/,/^[A-Za-z_"]/p' | sed -nE 's/^  ([A-Za-z_]+):.*$/\1/p' | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
     jq -nc --arg w "${w##*/}" --arg n "$name" --arg o "$on" --arg s "$w" '{workflow:$w, name:$n, on:(if $o=="" then null else $o end), src:$s}' >> "$TMP/checks.jsonl"
   done < <(blobs | grep -E -- "$WORKFLOW_RE" | sort)
-  req="$(gh api "repos/$REPO/branches/$BRANCH/protection/required_status_checks" 2>/dev/null | jq -c '[.contexts[]?]' 2>/dev/null)"
   # classic protection needs administration read, which an App token rarely
-  # has; the branch's rulesets need only metadata read
-  { printf '%s' "$req" | jq -e 'type=="array"' >/dev/null 2>&1; } \
-    || req="$(gh api "repos/$REPO/rules/branches/$BRANCH" 2>/dev/null \
-         | jq -c '[.[]? | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique' 2>/dev/null)"
+  # has; the branch's rulesets need only metadata read. gh prints an error
+  # body on stdout too, so its exit status picks the source.
+  if out="$(gh api "repos/$REPO/branches/$BRANCH/protection/required_status_checks" 2>/dev/null)"; then
+    req="$(printf '%s' "$out" | jq -c '[.contexts[]?]' 2>/dev/null)"
+  elif out="$(gh api "repos/$REPO/rules/branches/$BRANCH" 2>/dev/null)"; then
+    req="$(printf '%s' "$out" | jq -c '[.[]? | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique' 2>/dev/null)"
+  fi
   { printf '%s' "$req" | jq -e 'type=="array"' >/dev/null 2>&1; } || req='[]'
   jq -s --argjson r "$req" '{workflows:., required:$r}' "$TMP/checks.jsonl" > "$TMP/checks.json"
 }

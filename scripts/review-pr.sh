@@ -88,7 +88,7 @@
 # files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
 # limits.txt, findings.annotated.json), .fix (the agent-fix clone). GitHub
 # writes happen only in `rapid` and `post` (the review the agent wrote, the
-# label removal and approval dismissal docs/review.md mandates), the progress
+# trigger removal and approval dismissal docs/review.md mandates), the progress
 # status under review_progress, and the opt-in `merge`, `fix-start` (label
 # removal) and `fix-push` (docs/auto-merge.md, docs/agent-fixes.md).
 # Requires bash, gh (authenticated), jq, git, sed/grep/cut/tr — awk-free.
@@ -1428,7 +1428,9 @@ review_event() { # <verdict> → the event GitHub accepts from this account
   t="$(token_login)"; [ -n "$t" ] || { identity_refresh >/dev/null 2>&1; t="$(token_login)"; }
   if [ "$1" != COMMENT ] && [ -n "$a" ] && [ "$a" = "$t" ]; then printf COMMENT; else printf '%s' "$1"; fi
 }
-own_pr_refused() { grep -qiE 'own pull request' "$1" 2>/dev/null; }   # <stderr-file>
+# gh prints GitHub's error body on stdout and only its message on stderr, so
+# the error text of a failed call is both streams
+own_pr_refused() { printf '%s' "$1" | grep -qiE 'own pull request'; }   # <error text>
 own_pr_note() { # <verdict> → the body line that names the verdict GitHub did not take
   printf '> **Verdict: %s.** This account opened the pull request. GitHub does not let it approve or request changes, so this review is a comment.\n\n' "$1"
 }
@@ -1451,7 +1453,7 @@ cmd_rapid() {
   rapid_payload
   local resp
   resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>"$CTX/rapid.err")" \
-    || { if [ "$ev" != COMMENT ] && own_pr_refused "$CTX/rapid.err"; then ev=COMMENT; rapid_payload
+    || { if [ "$ev" != COMMENT ] && own_pr_refused "$(cat "$CTX/rapid.err" 2>/dev/null; printf '%s' "$resp")"; then ev=COMMENT; rapid_payload
          else sleep 1; fi
          resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)"; } \
     || { rm -f "$PAYLOAD" "$CTX/rapid.err"; fail "rapid POST did not succeed after one retry"; }
@@ -1471,12 +1473,14 @@ cmd_rapid() {
 }
 
 # dismiss_approvals <own-review-id> <sha7> <verdict> <review|rapid> → the last
-# dismissed id, or `null`. Every standing APPROVED review of the agent — its
-# login, its review marker or its rapid marker, never a human's — except the
-# one just posted; a failed dismissal is logged, not fatal.
+# dismissed id, or `null`. Every standing APPROVED review of the agent — the
+# login of a user bot_login (lib/common.sh → self_trusted_login), its review
+# marker or its rapid marker, never a human's or another agent's on a shared
+# GitHub App login — except the one just posted; a failed dismissal is logged,
+# not fatal.
 dismiss_approvals() {
   local ids aid last=null what="review"; [ "$4" = "rapid" ] && what="rapid review"
-  ids="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" \
+  ids="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$(self_trusted_login)" \
       --arg m "<!-- $REVIEW_MARKER headRefOid=" --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=" --argjson me "$1" \
       '.[] | select(.id != $me and .state == "APPROVED" and ((($b != "") and ((.user.login // "") == $b)) or ((.body // "") | contains($m)) or ((.body // "") | contains($mr)))) | .id' 2>/dev/null)"
   for aid in $ids; do
@@ -1704,12 +1708,13 @@ cmd_post() {
   local resp err rc=0
   resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>"$CTX/post.err")" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    err="$(cat "$CTX/post.err" 2>/dev/null)"
+    # GitHub's error text: gh's message on stderr, the error body on stdout
+    err="$(cat "$CTX/post.err" 2>/dev/null; printf '\n%s' "$resp")"
     if printf '%s' "$err" | grep -qiE 'commit_id|not the latest|latest commit'; then
       release_lock "422 commit_id mismatch — HEAD moved at post time"; rm -f "$PAYLOAD"; cleanup
       out "$(jq -nc '{outcome:"aborted", reason:"422 commit_id mismatch"}')"
     fi
-    if [ "$EVENT" != COMMENT ] && own_pr_refused "$CTX/post.err"; then
+    if [ "$EVENT" != COMMENT ] && own_pr_refused "$err"; then
       # the account opened this PR: the retry posts the verdict as a COMMENT
       EVENT=COMMENT; build_payload "$comments" "$moved"
       logev warn post_retry "PR #$N: GitHub refused $VERDICT from the PR's own author — retrying as COMMENT"
@@ -1723,7 +1728,7 @@ cmd_post() {
     fi
     rc=0; resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>"$CTX/post.err")" || rc=$?
     if [ "$rc" -ne 0 ]; then
-      err="$(cat "$CTX/post.err" 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+      err="$({ cat "$CTX/post.err" 2>/dev/null; printf ' %s' "$resp"; } | tr '\n' ' ' | cut -c1-200)"
       logev error post_failed "PR #$N: review POST did not succeed after retry — $err"
       release_lock "post failed after retry"; rm -f "$PAYLOAD"; cleanup
       out "$(jq -nc --arg e "$err" '{outcome:"aborted", reason:"post failed after retry", error:$e}')"
@@ -1741,6 +1746,15 @@ cmd_post() {
     if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" >/dev/null 2>&1; then label_removed=true
     else logev warn label_remove "PR #$N: removing $tl did not succeed"; fi
   done
+  # GitHub clears a review request only when the requested account reviews: a
+  # token that posts as another login (a GitHub App) removes it here
+  case "$TRIG" in (review-request|both)
+    if [ "$(token_login)" != "$BOT_LOGIN" ] \
+       && printf '%s' "$requested" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1; then
+      gh api -X DELETE "repos/$REPO/pulls/$N/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null 2>&1 \
+        || logev warn label_remove "PR #$N: removing the review request of $BOT_LOGIN did not succeed"
+    fi;;
+  esac
   [ "$VERDICT" = "APPROVE" ] || dismissed="$(dismiss_approvals "${rid:-0}" "$sha7" "$VERDICT" review)"
 
   # --- history (the body as posted), done row, terminal status, cleanup ---

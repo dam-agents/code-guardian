@@ -67,6 +67,23 @@ assert_file_contains "$WORK/PROFILE.md" '^fingerprint: [0-9a-f]\{40\}' 'render c
 run_profile check
 assert_jq '.status == "current" and .mode == "mirror"' 'unchanged tip is current'
 
+# --- required checks: classic protection first, else the branch rulesets ------
+RULES_FX='[{"type":"deletion"},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"lint"},{"context":"ci / test"}]}}]'
+new_case profile_required_classic
+base_config; mk_fixture
+printf '{"contexts":["build"]}' | fx 'api repos/acme/widgets/branches/main/protection/required_status_checks'
+printf '%s' "$RULES_FX" | fx 'api repos/acme/widgets/rules/branches/main'
+run_profile check
+assert_profile '.checks.required == ["build"]' 'a readable classic protection names the required checks'
+# an App token cannot read classic protection: gh prints the 403 body on stdout
+new_case profile_required_rulesets
+base_config; mk_fixture
+fx_fail 'api repos/acme/widgets/branches/main/protection/required_status_checks' 1
+fx_out 'api repos/acme/widgets/branches/main/protection/required_status_checks' '{"message":"Resource not accessible by integration","status":"403"}'
+printf '%s' "$RULES_FX" | fx 'api repos/acme/widgets/rules/branches/main'
+run_profile check
+assert_profile '.checks.required == ["ci / test","lint"]' 'an unreadable classic protection reads the branch rulesets'
+
 # --- a code-only commit keeps the profile, moves verified -------------------
 new_case profile_code_commit
 base_config; mk_fixture
