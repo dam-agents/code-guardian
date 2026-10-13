@@ -53,7 +53,9 @@ orientation and skills. Optimize for delivery speed.
 3. `review-pr.sh rapid <n> --verdict <V> --body <ctx>/rapid.md`. It dedups on
    the **rapid marker** `<!-- <review_marker>:rapid headRefOid=<full-sha> -->`
    at the live HEAD (`already_posted` → go to phase 2), posts one review with
-   `event: <V>` and the marker appended, sets the REVIEWS.md verdict cell to
+   `event: <V>` (`COMMENT` on a PR the token's login opened —
+   [github-access.md](github-access.md) → **Own pull request**) and the
+   marker appended, sets the REVIEWS.md verdict cell to
    `RAPID` with a fresh timestamp (status stays `in_progress`), logs `rapid
    posted`, and writes the progress status. A `REQUEST_CHANGES` dismisses the
    agent's standing approvals of the PR

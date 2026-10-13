@@ -1412,6 +1412,21 @@ cmd_compose_brief() {
   exit 0
 }
 
+# ------------------------------------------------------ own pull request ----
+# GitHub refuses an approval or a change request from the pull request's own
+# author, so the token's login that opened the PR posts its verdict as a
+# COMMENT (docs/github-access.md → Own pull request). A 422 that says so turns
+# the one retry into a COMMENT too, for an identity cache that is not there.
+review_event() { # <verdict> → the event GitHub accepts from this account
+  local a t; a="$(ctx_get '.author')"
+  t="$(token_login)"; [ -n "$t" ] || { identity_refresh >/dev/null 2>&1; t="$(token_login)"; }
+  if [ "$1" != COMMENT ] && [ -n "$a" ] && [ "$a" = "$t" ]; then printf COMMENT; else printf '%s' "$1"; fi
+}
+own_pr_refused() { grep -qiE 'own pull request' "$1" 2>/dev/null; }   # <stderr-file>
+own_pr_note() { # <verdict> → the body line that names the verdict GitHub did not take
+  printf '> **Verdict: %s.** This account opened the pull request. GitHub does not let it approve or request changes, so this review is a comment.\n\n' "$1"
+}
+
 # =================================================================== rapid ====
 cmd_rapid() {
   need_ctx
@@ -1422,12 +1437,20 @@ cmd_rapid() {
   local m="<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" r
   r="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m))] | length' 2>/dev/null)"
   [ "${r:-0}" -gt 0 ] && out "$(jq -nc '{outcome:"already_posted", phase:"rapid"}')"
-  { cat "$body"; printf '\n\n%s\n' "$m"; } | jq -Rs --arg sha "$sha" --arg v "$verdict" '{commit_id:$sha, event:$v, body:.}' > "$PAYLOAD"
+  local ev; ev="$(review_event "$verdict")"
+  rapid_payload() {
+    { [ "$ev" = "$verdict" ] || own_pr_note "$verdict"; cat "$body"; printf '\n\n%s\n' "$m"; } \
+      | jq -Rs --arg sha "$sha" --arg v "$ev" '{commit_id:$sha, event:$v, body:.}' > "$PAYLOAD"
+  }
+  rapid_payload
   local resp
-  resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)" \
-    || { sleep 1; resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)"; } \
-    || { rm -f "$PAYLOAD"; fail "rapid POST did not succeed after one retry"; }
-  rm -f "$PAYLOAD"
+  resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>"$CTX/rapid.err")" \
+    || { if [ "$ev" != COMMENT ] && own_pr_refused "$CTX/rapid.err"; then ev=COMMENT; rapid_payload
+         else sleep 1; fi
+         resp="$(gh api "repos/$REPO/pulls/$N/reviews" -X POST --input "$PAYLOAD" 2>/dev/null)"; } \
+    || { rm -f "$PAYLOAD" "$CTX/rapid.err"; fail "rapid POST did not succeed after one retry"; }
+  rm -f "$PAYLOAD" "$CTX/rapid.err"
+  [ "$ev" = "$verdict" ] || logev warn review_pr "PR #$N: rapid $verdict posted as COMMENT — this account opened the pull request"
   write_row "$sha" "$(now_iso)" RAPID in_progress
   jq '.rapid_posted = true' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
   logstep "${sha:0:7} rapid posted"
@@ -1438,7 +1461,7 @@ cmd_rapid() {
   local ptxt="rapid review: approved · full review running"
   [ "$verdict" = "APPROVE" ] || ptxt="rapid review: changes requested · full review running"
   progress pending "$ptxt" "$(printf '%s' "$resp" | jq -r '.html_url // empty')"
-  out "$(printf '%s' "$resp" | jq -c --arg v "$verdict" --argjson d "${dismissed:-null}" '{outcome:"posted", phase:"rapid", verdict:$v, review_id:.id, url:.html_url, dismissed_approval:$d}')"
+  out "$(printf '%s' "$resp" | jq -c --arg v "$verdict" --arg ev "$ev" --argjson d "${dismissed:-null}" '{outcome:"posted", phase:"rapid", verdict:$v, event:$ev, review_id:.id, url:.html_url, dismissed_approval:$d}')"
 }
 
 # dismiss_approvals <own-review-id> <sha7> <verdict> <review|rapid> → the last
@@ -1656,6 +1679,7 @@ cmd_post() {
   build_payload() { # <comments-json> <moved-json> → $PAYLOAD; findings-json gets inline:false for moved anchors
     fj="$(jq -c --argjson m "$2" 'map(. as $f | if any($m[]; .path == $f.file and .line == $f.line) then .inline = false else . end)' "$FINDINGS" | sed 's/--/–/g')"
     { printf '🛡️ **%s** — %s Code Review @ `%s`\n\n' "$BOT_NAME" "$emoji" "$sha7"
+      [ "$EVENT" = "$VERDICT" ] || own_pr_note "$VERDICT"
       cat "$BODY"
       if [ "$(printf '%s' "$2" | jq length)" -gt 0 ]; then
         printf '\n\n### Findings not anchorable inline\n\n'
@@ -1665,8 +1689,9 @@ cmd_post() {
       [ -n "$mj" ] && printf '<!-- review-meta: %s -->\n' "$mj" || :
       printf '<!-- %s headRefOid=%s -->\n' "$REVIEW_MARKER" "$sha"
     } > "$CTX/body.posted.md"
-    jq -Rs --arg sha "$sha" --arg ev "$VERDICT" --argjson c "$1" '{commit_id:$sha, event:$ev, body:., comments:$c}' "$CTX/body.posted.md" > "$PAYLOAD"
+    jq -Rs --arg sha "$sha" --arg ev "$EVENT" --argjson c "$1" '{commit_id:$sha, event:$ev, body:., comments:$c}' "$CTX/body.posted.md" > "$PAYLOAD"
   }
+  EVENT="$(review_event "$VERDICT")"
   build_payload "$comments" "$moved"
 
   # --- POST, with the documented 422 handling ---
@@ -1678,7 +1703,11 @@ cmd_post() {
       release_lock "422 commit_id mismatch — HEAD moved at post time"; rm -f "$PAYLOAD"; cleanup
       out "$(jq -nc '{outcome:"aborted", reason:"422 commit_id mismatch"}')"
     fi
-    if printf '%s' "$err" | grep -qiE '"line"|position|diff' && [ "$(printf '%s' "$comments" | jq length)" -gt 0 ]; then
+    if [ "$EVENT" != COMMENT ] && own_pr_refused "$CTX/post.err"; then
+      # the account opened this PR: the retry posts the verdict as a COMMENT
+      EVENT=COMMENT; build_payload "$comments" "$moved"
+      logev warn post_retry "PR #$N: GitHub refused $VERDICT from the PR's own author — retrying as COMMENT"
+    elif printf '%s' "$err" | grep -qiE '"line"|position|diff' && [ "$(printf '%s' "$comments" | jq length)" -gt 0 ]; then
       # line-not-in-diff: every inline comment moves to the summary, one retry
       moved="$(jq -nc --argjson m "$moved" --argjson c "$comments" '$m + ($c | map(. + {reason:"422 line not in diff"}))')"
       comments='[]'; build_payload "$comments" "$moved"
@@ -1697,6 +1726,7 @@ cmd_post() {
   rm -f "$PAYLOAD"
   local rid url; rid="$(printf '%s' "$resp" | jq -r '.id // empty')"; url="$(printf '%s' "$resp" | jq -r '.html_url // empty')"
   logstep "$sha7 posted $VERDICT"
+  [ "$EVENT" = "$VERDICT" ] || logev warn review_pr "PR #$N: $VERDICT posted as COMMENT — this account opened the pull request"
 
   # --- trigger removal, stale-approval dismissal ---
   local label_removed=false dismissed=null tl
@@ -1721,7 +1751,8 @@ cmd_post() {
   cleanup
   out "$(jq -nc --arg v "$VERDICT" --arg id "$rid" --arg u "$url" --argjson m "$moved" --argjson lr "$label_removed" --argjson d "${dismissed:-null}" \
     --argjson c "$c" --argjson w "$w" --argjson s "$s" --argjson took "$took" --argjson ab "${anchor_bad:-[]}" \
-    '{outcome:"posted", verdict:$v, review_id:(if $id=="" then null else ($id|tonumber) end), url:(if $u=="" then null else $u end),
+    --arg ev "$EVENT" \
+    '{outcome:"posted", verdict:$v, event:$ev, review_id:(if $id=="" then null else ($id|tonumber) end), url:(if $u=="" then null else $u end),
       moved_to_summary:$m, anchors_nulled:$ab, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
 }
 

@@ -59,6 +59,22 @@ a label beside it:
 - Reviews are always matched by the marker, whatever posted them, so a
   connection change orphans no past review.
 
+## Own pull request
+
+GitHub refuses an approval or a change request from the account that opened
+the pull request. One GitHub App can open pull requests for one agent and
+review them for another, so this happens in normal use:
+
+- When the PR's author is the token's login, `review-pr.sh post` and `rapid`
+  send the review as `COMMENT`. The body starts with a line that names the
+  verdict, and the `REVIEWS.md` row keeps the verdict.
+- When the identity cache is missing, GitHub's refusal (422, "own pull
+  request") turns the one retry into a `COMMENT`.
+- The outcome carries `event` beside `verdict`, and a `review_pr` warn logs
+  the change.
+- A `COMMENT` does not count as an approval, and it does not block a merge.
+  Branch protection that requires an approval needs a person on such a PR.
+
 ## Progress signal channel
 
 Under `review_progress: enabled` the channel follows the token, with no

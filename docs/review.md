@@ -106,7 +106,7 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    `$REREVIEW_LABEL`, dismisses stale approvals, appends the body to
    `reviews/pr-<n>.md`, writes the `done` row and terminal status, logs
    `posted <verdict>` and `done`, and deletes clone, copies, diff and state —
-   exactly once. Outcomes: `posted` (`url`, `moved_to_summary`,
+   exactly once. Outcomes: `posted` (`url`, `event`, `moved_to_summary`,
    `anchors_nulled`, `label_removed`, `dismissed_approval`) · `aborted`
    (**Error handling**) · `duplicate` (the marker is already on GitHub; the row
    self-heals with its timestamp) · `closed_*` (read
@@ -427,6 +427,9 @@ code that moved past its override lets the finding surface normally.
   and retries the POST once (`moved_to_summary`, reason
   `422 line not in diff`); note the moved comments once in the chat UI.
 - **422 commit_id mismatch** → HEAD moved: `post` aborts as a Check 2 failure.
+- **422 own pull request** → the token's login opened the PR: `post` retries
+  once as `COMMENT` ([github-access.md](github-access.md) → **Own pull
+  request**).
 
 ## Review-run self-check
 

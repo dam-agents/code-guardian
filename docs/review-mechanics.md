@@ -21,8 +21,11 @@ single submission — from `body.md`, `findings.json` and `comments.json`
   "comments": [ {"path": "src/foo.ts", "line": 42, "side": "RIGHT", "body": "🟡 **Warning:** …"} ] }
 ```
 
-`event` = the Verdict verbatim. `commit_id` = the reviewed `headRefOid`, the
-server-side stale guard: GitHub 422s if HEAD moved, and `post` aborts.
+`event` = the Verdict verbatim, except on a pull request the token's own login
+opened: there it is `COMMENT`, and the body names the verdict
+([github-access.md](github-access.md) → **Own pull request**). `commit_id` =
+the reviewed `headRefOid`, the server-side stale guard: GitHub 422s if HEAD
+moved, and `post` aborts.
 
 ### Summary body format
 

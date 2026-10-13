@@ -661,6 +661,53 @@ grep -q 'review-meta' "$SANDBOX/body.md" && { printf 'FAIL %s: review-meta reach
 assert_event 'posted REQUEST_CHANGES' 'posted event'
 assert_event "${B1_SHA:0:7} done" 'done event'
 
+# --- post: a pull request this account opened gets the verdict as a COMMENT -----
+own_pr_fx() { # the live PR opened by the GitHub App the token acts as
+  local f; f="$GH_FIXTURES/$(fx_for 'api repos/acme/widgets/pulls/1')"
+  jq '.user.login = "acme-app[bot]"' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}
+setup post_own_pr
+seed_identity 'acme-app[bot]'
+pr_fx open; own_pr_fx
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nREQUEST_CHANGES — fix it\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":false,"summary":"q","fix":"f"}]' > "$SANDBOX/findings.json"
+printf '{"id":81,"html_url":"https://example.test/r/81","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .verdict == "REQUEST_CHANGES" and .event == "COMMENT"' 'the verdict stays, the event is a comment'
+jq -e -s 'any(.[]; .event == "COMMENT" and (.body | contains("**Verdict: REQUEST_CHANGES.** This account opened the pull request.")))' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the body names the verdict GitHub did not take\n' "$CASE" \
+  || { printf 'FAIL %s: payload %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+[ "$(grep -c 'reviews -X POST' "$SANDBOX/gh.log")" -eq 1 ] && printf 'ok   %s: one POST, no retry\n' "$CASE" \
+  || { printf 'FAIL %s: POST count %s\n' "$CASE" "$(grep -c 'reviews -X POST' "$SANDBOX/gh.log")"; FAILED=1; }
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | REQUEST_CHANGES | done |" 'the row keeps the verdict'
+
+# --- the same refusal without an identity cache: the one retry is a COMMENT -----
+setup post_own_pr_422
+pr_fx open; own_pr_fx
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nAPPROVE — fine\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+fx_fail_once "$(POST_SLUG)" 1
+fx_err "$(POST_SLUG)" '{"message":"Unprocessable Entity","errors":["Review Can not approve your own pull request"]}'
+run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT"' 'the refusal turns the retry into a comment'
+jq -e -s '[.[] | .event] == ["APPROVE", "COMMENT"]' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: first APPROVE, then COMMENT\n' "$CASE" \
+  || { printf 'FAIL %s: events %s\n' "$CASE" "$(jq -c -s '[.[] | .event]' "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+
+# --- a pull request someone else opened keeps the verdict as the event ----------
+setup post_other_author
+seed_identity 'acme-app[bot]'
+pr_fx open
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nAPPROVE — fine\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":83,"html_url":"https://example.test/r/83","state":"APPROVED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict APPROVE --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .event == "APPROVE"' 'an App reviewing another author approves'
+
 # --- post: the delta label is a trigger the post removes ------------------------
 setup post_delta_label '- rereview_delta_label: cg-delta'
 pr_fx open '["cg-delta"]'
@@ -927,6 +974,19 @@ assert_event 'rapid posted' 'rapid event'
 printf '[{"id":70,"state":"CHANGES_REQUESTED","user":{"login":"test-bot"},"body":"r <!-- cg:review:rapid headRefOid=%s -->"}]' "$B1_SHA" | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
 run_rp rapid 1 --verdict REQUEST_CHANGES --body "$SANDBOX/rapid.md"
 assert_jq '.outcome == "already_posted"' 'rapid dedup by its own marker'
+run_rp abort 1 "reset"
+
+# --- rapid on a pull request this account opened: a COMMENT ----------------------
+setup rapid_own_pr '- urgent_label: urgent'
+seed_identity 'acme-app[bot]'
+pr_fx open '["urgent"]'; own_pr_fx
+run_rp prepare 1
+printf '### Critical findings\nNone.\n' > "$SANDBOX/rapid.md"
+printf '{"id":71,"html_url":"https://example.test/r/71","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp rapid 1 --verdict APPROVE --body "$SANDBOX/rapid.md"
+assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT"' 'a rapid approval of the own PR is a comment'
+jq -se 'last | .event == "COMMENT" and (.body | startswith("> **Verdict: APPROVE.**"))' "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the rapid body names the verdict\n' "$CASE" || { printf 'FAIL %s: rapid payload %s\n' "$CASE" "$(tail -1 "$SANDBOX/gh.log.input")"; FAILED=1; }
 run_rp abort 1 "reset"
 
 # --- rapid approval, then a full review below APPROVE revokes it -------------------

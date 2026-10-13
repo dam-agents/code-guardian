@@ -302,7 +302,9 @@ what it can and asking for the rest. Per-key semantics are in
   both supported (`docs/github-access.md`). Use a **dedicated machine or bot account**, not a
   personal one, that is a collaborator on the target repo with permission to
   review PRs. GitHub ignores review requests and approvals from a PR's own
-  author, so the bot account must not open the PRs it reviews.
+  author, so the bot account must not open the PRs it reviews. When it does —
+  one GitHub App that opens and reviews PRs — the agent posts its verdict as a
+  comment (`docs/github-access.md` → **Own pull request**).
 - **Token scopes** — the single place these are specified:
 
   | Scope | Required? | What needs it |
