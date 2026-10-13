@@ -12,18 +12,20 @@
 # commit has none, and normalizes both to the check-run vocabulary — `status`
 # `queued`|`in_progress`|`completed`, `conclusion` `success`|`failure`|…
 #
+# The agent's own progress signal — named `review_marker`, in $CI_OWN_CHECK —
+# is never a check of the commit (docs/review-bookkeeping.md → Progress signal).
 # Read-only: one or two GET calls, no writes. `gh` failures and unparseable
 # answers yield `[]`, which reads as "nothing to act on" for both callers.
 
 ci_runs() { # <owner/repo> <sha> -> JSON array
   local runs
   runs="$(gh api "repos/$1/commits/$2/check-runs?per_page=100" 2>/dev/null \
-    | jq -c '[.check_runs[]? | {name, status, conclusion, url:(.details_url // ""),
+    | jq -c --arg own "${CI_OWN_CHECK:-}" '[.check_runs[]? | select($own == "" or .name != $own) | {name, status, conclusion, url:(.details_url // ""),
                out: ((.output.title // "") + "\n" + (.output.summary // "") + "\n" + (.output.text // ""))}]' 2>/dev/null)"
   case "$runs" in (''|null) runs='[]';; esac
   if [ "$(printf '%s' "$runs" | jq 'length' 2>/dev/null || echo 0)" -eq 0 ]; then
     runs="$(gh api "repos/$1/commits/$2/status" 2>/dev/null \
-      | jq -c '[.statuses[]? | {name:.context,
+      | jq -c --arg own "${CI_OWN_CHECK:-}" '[.statuses[]? | select($own == "" or .context != $own) | {name:.context,
                  status:(if .state == "pending" then "queued" else "completed" end),
                  conclusion:(if .state == "pending" then null
                              elif .state == "success" then "success"

@@ -58,9 +58,10 @@ run_preflight review
 assert_jq '.mentions_due | length == 1' 'reply to bot thread due'
 assert_jq '.mentions_due[0] | .comment_id == 201 and .thread == "inline" and .in_reply_to == 200' 'inline entry fields'
 
-# --- reply in an alias-rooted thread: due only when its review is marked ------
+# --- reply in an App-rooted thread: due only when its review is marked --------
 new_case alias_thread_reply
-base_config '- bot_aliases: acme-app[bot]'
+base_config
+seed_identity 'acme-app[bot]'
 { rc_comment 200 'acme-app[bot]' Bot "🟡 **Warning:** unchecked null" 9 null | jq '.pull_request_review_id = 700'
   rc_comment 201 bob User "this is intentional" 9 200
   rc_comment 210 'acme-app[bot]' Bot "another agent's note" 9 null | jq '.pull_request_review_id = 701'
@@ -69,7 +70,7 @@ printf '{"id":700,"body":"review\\n<!-- cg:review headRefOid=aaa -->"}' | fx 'ap
 printf '{"id":701,"body":"another agent"}' | fx 'api repos/acme/widgets/pulls/9/reviews/701'
 run_preflight review
 assert_jq '[.mentions_due[].comment_id] == [201]' 'only the reply under a marked alias review is due'
-assert_jq '.config.bot_aliases == ["acme-app[bot]"]' 'bot_aliases in the worklist config'
+assert_jq '.config.github_identity == {login:"acme-app[bot]", kind:"app"}' 'the token identity in the worklist config'
 
 # --- reply in a human-rooted thread + a Bot-type author → nothing --------------
 new_case irrelevant_comments

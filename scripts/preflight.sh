@@ -387,9 +387,12 @@ TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
 export GH_HOST="$REPO_HOST"   # every unqualified gh call targets the review host
 BOT_LOGIN="$(cfg bot_login)"
-BOT_ALIASES="$(bot_aliases | jq -Rsc 'split("\n") | map(select(. != ""))')"
+# the token's own login, re-read hourly (forced by the audit); docs/github-access.md
+identity_refresh "$([ "$MODE" = audit ] && echo force)" || true
+SELF_TRUSTED="$(self_trusted_login)"; SELF_MARKED="$(self_marked_logins)"
 WORK_REPO="$(cfg work_repo)"   # empty = local-only persistence (docs/persistence.md)
 REVIEW_MARKER="$(cfg review_marker)"
+CI_OWN_CHECK="$REVIEW_MARKER"   # lib/ci-rollup.sh skips the own progress signal
 # whether review <id> on PR <n> carries the review marker: 0 yes, 1 no, 2
 # unreadable (not cached, so a later call retries) — one GET per review
 OWN_REVIEWS="|"; OTHER_REVIEWS="|"
@@ -467,7 +470,7 @@ MENTION_PAGES=3                       # comment pages the mention scan follows (
 # HOLDER_QUIET_MIN and FANOUT_QUIET_MIN, the live-holder windows: lib/holds.sh
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
-# GitHub progress signal — commit status on the reviewed SHA (docs/review.md)
+# GitHub progress signal — a check run or commit status on the reviewed SHA (docs/review.md)
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 case "$PROGRESS" in
   (enabled|disabled) ;;
@@ -519,9 +522,10 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
-  --argjson ba "$BOT_ALIASES" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
+  --arg tl "$(token_login)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
-  {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end), bot_aliases:$ba, bot_display_name:$name,
+  {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end),
+   github_identity:(if $tl=="" then null else {login:$tl, kind:(if ($tl|endswith("[bot]")) then "app" else "user" end)} end), bot_display_name:$name,
    active_hours:(if $ah=="" then "00-23" else $ah end), active_days:(if $ad=="" then "Mon-Sun" else $ad end),
    review_interval_active:(if ($ria|test("^[0-9]+$")) then ($ria|tonumber) else 5 end), review_interval_quiet:$riq,
    review_marker:(if $marker=="" then null else $marker end), rereview_label:$lbl,
@@ -1439,10 +1443,10 @@ if [ "$MODE" = "review" ]; then
         root_json="$(jq -c --argjson r "$root" 'select(.id == $r)' "$RC_TMP" 2>/dev/null | head -1)"
         [ -z "$root_json" ] && root_json="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null)"
         root_author="$(printf '%s' "$root_json" | jq -r '.user.login // empty' 2>/dev/null)"
-        if [ "$root_author" != "$BOT_LOGIN" ]; then
-          # an alias root is the agent's only when its review carries the marker
-          # — a shared GitHub App also posts for other agents
-          printf '%s' "$BOT_ALIASES" | jq -e --arg a "$root_author" 'index($a) != null' >/dev/null 2>&1 || continue
+        if [ -z "$SELF_TRUSTED" ] || [ "$root_author" != "$SELF_TRUSTED" ]; then
+          # a bot root (bot_login or the token's login) is the agent's only when
+          # its review carries the marker — one GitHub App can post for others
+          printf '%s' "$SELF_MARKED" | jq -e --arg a "$root_author" 'index($a) != null' >/dev/null 2>&1 || continue
           own_review "$(printf '%s' "$c" | jq -r '.number')" \
             "$(printf '%s' "$root_json" | jq -r '.pull_request_review_id // empty' 2>/dev/null)"
           case $? in (0) ;; (2) log_warn "mention scan: review of thread root $root unreadable — reply $cid retried next run"; continue;; (*) continue;; esac
@@ -1920,10 +1924,12 @@ if [ "$MODE" = "audit" ]; then
     # cannot read GET /user
     me="$(gh api --hostname "$h" graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
     if [ -z "$me" ]; then auth_status=fail; auth_detail="${auth_detail:+$auth_detail; }$h: not authenticated (token broken or host unreachable)"
-    elif [ "$h" = "$REPO_HOST" ] && [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ] \
-         && ! printf '%s' "$BOT_ALIASES" | jq -e --arg m "$me" 'index($m) != null' >/dev/null 2>&1; then
+    elif [ "$(login_kind "$me")" = app ]; then
+      # an App token posts as the App whatever bot_login names (docs/github-access.md)
+      auth_detail="${auth_detail:+$auth_detail; }$h: $me (GitHub App)"
+    elif [ "$h" = "$REPO_HOST" ] && [ -n "$BOT_LOGIN" ] && [ "$me" != "$BOT_LOGIN" ]; then
       [ "$auth_status" = fail ] || auth_status=warn
-      auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN or a bot_aliases login"
+      auth_detail="${auth_detail:+$auth_detail; }$h: authenticated as $me, expected $BOT_LOGIN"
     else auth_detail="${auth_detail:+$auth_detail; }$h: $me"; fi
 
     # an App token has installation permissions, not OAuth scopes
@@ -1947,6 +1953,12 @@ if [ "$MODE" = "audit" ]; then
     else scope_detail="${scope_detail:+$scope_detail; }$h: $want"; fi
   done
   check github_auth "$auth_status" "$auth_detail"
+  # a connection change in the last 7 days asks for the access check
+  id_changed="$(jq -r '.changed_at // empty' "$WORK/GITHUB.json" 2>/dev/null)"
+  if [ -n "$id_changed" ] && [ $(( (NOW_EPOCH - $(iso2epoch "$id_changed")) / 86400 )) -lt 7 ]; then
+    check github_identity warn "the token acts as $(token_login) ($(token_kind)) since $id_changed, was $(jq -r '.previous.login + " (" + .previous.kind + ")"' "$WORK/GITHUB.json" 2>/dev/null) — operator: run scripts/github-access.sh in the direct session"
+  elif [ -n "$(token_login)" ]; then check github_identity ok "$(token_login) ($(token_kind))"
+  else check github_identity warn "the token's login is unknown — GraphQL viewer unreadable"; fi
   if [ "$scope_status" = "ok" ]; then check token_scopes ok "$scope_detail"
   else check token_scopes "$scope_status" "$scope_detail — operator-only fix; repo breaks PR state and posting"; fi
 
@@ -2857,21 +2869,21 @@ if [ "$MODE" = "audit" ]; then
     # SINGLE argument at MAX_ARG_STRLEN (128 KiB) regardless of the much larger
     # ARG_MAX, so --argjson made execve fail with "Argument list too long" and
     # the scan silently returned nothing on every busy week.
-    # an alias comment counts only as part of a review with the marker (a
-    # shared GitHub App also posts for other agents): its unmarked issue
-    # comments are not attributable, and at most 30 alias reviews are read
+    # a bot login's comment counts only as part of a review with the marker
+    # (one GitHub App can post for other agents): its unmarked issue comments
+    # are not attributable, and at most 30 such reviews are read
     own_rids='[]'
-    if [ "$BOT_ALIASES" != "[]" ]; then
+    if [ "$SELF_MARKED" != "[]" ]; then
       while read -r rn rid; do
         own_review "$rn" "$rid"; case $? in
           (0) own_rids="$(printf '%s' "$own_rids" | jq -c --argjson r "$rid" '. + [$r]')";;
           (2) rx_bad=1;;
         esac
-      done < <(printf '%s' "$rrc" | jq -r --argjson al "$BOT_ALIASES" '
+      done < <(printf '%s' "$rrc" | jq -r --argjson al "$SELF_MARKED" '
         [ .[] | select((.user.login // "") as $l | $al | index($l)) | select(.pull_request_review_id != null)
               | "\(.pull_request_url | sub(".*/"; "")) \(.pull_request_review_id)" ] | unique | .[:30][]' 2>/dev/null)
     fi
-    REACTIONS="$(printf '%s\n%s\n' "$rrc" "$ric" | jq -s --arg bot "$BOT_LOGIN" --argjson own "$own_rids" '
+    REACTIONS="$(printf '%s\n%s\n' "$rrc" "$ric" | jq -s --arg bot "$SELF_TRUSTED" --argjson own "$own_rids" '
       [ (.[0] + .[1])[] | select(((.user.login // "") == $bot) or ((.pull_request_review_id // null) as $r | $r != null and ($own | index($r) != null))) ]
       | {up: (map(.reactions["+1"] // 0) | add // 0),
          down: (map(.reactions["-1"] // 0) | add // 0),

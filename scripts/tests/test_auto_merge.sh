@@ -117,7 +117,7 @@ am_reviews '[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"no"}]'
 am_blocked 'a person requested changes' "a person's open change request never merges"
 
 # an alias's marked change request is the bot's own earlier round, not a person's
-am_setup am_alias_own_round '- bot_aliases: acme-app[bot]'
+am_setup am_alias_own_round
 am_reviews '[{"user":{"login":"acme-app[bot]"},"state":"CHANGES_REQUESTED","body":"r <!-- cg:review headRefOid=0000000000000000000000000000000000000000 -->"}]'
 run_preflight review
 assert_jq '(.merges_due | length) == 1' "the bot's marked review under an alias never blocks as a person's"

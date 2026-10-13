@@ -300,7 +300,7 @@ measurement.
     report it as "≥", and never read a low figure as a cheap week when
     `by_cause.hard_kill` is non-zero.
 30. **Reaction feedback** — `stats.reactions` sums 👍/👎 on the bot's latest
-    inline and issue comments (an alias's inline ones of a marked review only). For each `down_urls` entry (≤ 10): read the
+    inline and issue comments ([github-access.md](github-access.md) → **Own content**). For each `down_urls` entry (≤ 10): read the
     thread; an explicit correction or dismissal → record it per
     [preferences.md](preferences.md) and give the report one line per recorded
     lesson. A 👎 with no readable reason is reported as-is, never guessed at.

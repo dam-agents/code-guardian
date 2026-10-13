@@ -67,19 +67,15 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    **operator-only** to fix (`gh auth login --hostname <host>`), so report and
    stop.
 
-   Then verify the preconditions the pipeline silently depends on. The weekly
-   audit re-checks both (`token_scopes`, `cli_deps`), per host:
+   Then verify the commands the pipeline silently depends on. The weekly
+   audit re-checks them (`cli_deps`); the token's permissions are Step 4's
+   access check:
 
    ```bash
-   gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo (none for an App token)
    for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
    for c in gh jq; do case "$(command -v "$c")" in (*/shims/*) echo "SHIMMED: $c";; esac; done
    ```
 
-   - A missing **scope** is **operator-only**: report it and ask them to widen
-     the token, never work around it. Which scopes are required and why is in
-     README → **Token scopes**; the optional one only affects the roster
-     import.
    - A missing **command** blocks onboarding: report and stop. Installing OS
      packages is not possible on the pod (no package manager, no sudo,
      read-only prefixes), so `awk`, `diff` and a login-shell `python3` are
@@ -343,6 +339,16 @@ the file in exactly the shape of the Final shape example: the runtime reads
 invisible to it. Then run `bash "$HOME/scripts/verify-onboarding.sh"`, apply
 what it reports, and show the file to the operator.
 
+**Access check first** (`docs/github-access.md`):
+`bash "$HOME/scripts/github-access.sh" --repo "<github_repo>" [--work-repo "<work_repo>"] --definition-repo "<definition_repo>"`.
+Show the report to the operator.
+- `features.review` not `ok` → stop. The fix is operator-only.
+- `identity.kind` and `triggers` drive the `bot_login` question below.
+- A feature that is `missing` is not offered below. Name it, together with the
+  permission it needs.
+- `progress_channel: none` → `review_progress` is not offered.
+- `unexpected` not empty → stop and report a definition defect.
+
 **Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its
 values** and ask only for missing keys. Never silently overwrite operator-set
 config, `review_marker` least of all. Two exceptions: a reference Step 0.2
@@ -366,8 +372,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
    A login ending in `[bot]` is a GitHub App, which a person cannot assign,
    request or usefully mention. Ask which user account people use for that;
-   it becomes `bot_login` and the App login **`bot_aliases`** (`docs/config.md`).
-   No such account → `bot_login` is the App login, triggers are label-only.
+   it becomes `bot_login`. The App login needs no key (`docs/github-access.md`).
+   No such account → `bot_login` is the App login, and triggers are label-only.
 
 4. **`bot_display_name`** — ask: *What name should I sign my reviews with?
    (Default: `Code Guardian`.)*
@@ -420,8 +426,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      `agent_fix_label` (validated or created like the re-review label).
      Anyone else, or no reply → omit the keys.
    - **`review_progress`** — whether a review's progress shows on the PR as a
-     commit status (`docs/review-bookkeeping.md` → **Progress signal on
-     GitHub**). Mention that the status is always `success` when it finishes,
+     check run or a commit status, per `progress_channel`
+     (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Mention that the status is always `success` when it finishes,
      so it never blocks a merge, and that its name in the checks list is the
      `review_marker`.
      Default `disabled`; write the key only on a yes.
@@ -571,7 +577,6 @@ Final shape:
 - definition_repo: acme/code-guardian  # [host/]owner/repo — may differ from the target's host
 - definition_branch: main              # branch this instance runs from (PRs still target main)
 - bot_login: acme-review-bot
-- bot_aliases: acme-app[bot]           # other logins the token posts as; omit = none
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
 - rereview_label: code-guardian-review # PR label that requests a re-review
@@ -583,7 +588,7 @@ Final shape:
 - auto_merge_method: squash            # squash (default) | merge | rebase
 - agent_fixes: enabled                 # admin opt-in only; omit = disabled (docs/agent-fixes.md)
 - agent_fix_label: cg-fix              # human-managed label that asks for one fix round
-- review_progress: enabled             # commit-status progress on the PR; omit = disabled
+- review_progress: enabled             # progress check on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
 - review_model: opus                   # model of every scheduled session; or another name from the model settings, or: default

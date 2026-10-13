@@ -643,7 +643,8 @@ assert_jq '.stats.reactions == {up: 3, down: 1, down_urls: ["https://example.tes
 # a shared GitHub App also posts for other agents: its inline comment of an
 # unmarked review and its unmarked issue comment are not the bot's
 new_case audit_reactions_alias
-base_config '- bot_aliases: acme-app[bot]'
+base_config
+seed_identity 'acme-app[bot]'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 fx 'api repos/acme/widgets/pulls/comments?per_page=100&sort=created&direction=desc' <<'EOF'
 [
@@ -664,21 +665,34 @@ assert_jq '.stats.reactions == {up: 2, down: 1, down_urls: ["https://example.tes
 
 # --- a GitHub App token: auth through an alias, no scope check -----------------
 new_case audit_app_token
-base_config '- bot_aliases: acme-app[bot]'
+base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
 run_preflight audit
-assert_jq '.checks[] | select(.id == "github_auth") | .status == "ok"' 'an alias login authenticates'
+assert_jq '.checks[] | select(.id == "github_auth") | .status == "ok" and (.detail | test("GitHub App"))' 'an App login authenticates whatever bot_login names'
 assert_jq '.checks[] | select(.id == "token_scopes") | .status == "ok" and (.detail | test("GitHub App"))' \
   'an App token skips the scope check'
 
 new_case audit_unknown_login
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
+printf '{"data":{"viewer":{"login":"mallory"}}}' | fx 'api --hostname github.com graphql -f query={viewer{login}}'
 run_preflight audit
-assert_jq '.checks[] | select(.id == "github_auth") | .status == "warn" and (.detail | test("bot_aliases"))' \
-  'a login that is neither bot_login nor an alias warns'
+assert_jq '.checks[] | select(.id == "github_auth") | .status == "warn" and (.detail | test("expected test-bot"))' \
+  'a user token of another account warns'
+
+# --- a connection change is recorded and asks for the access check -----------
+new_case audit_identity_changed
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+seed_identity test-bot
+printf '{"data":{"viewer":{"login":"acme-app[bot]"}}}' | fx 'api graphql -f query={viewer{login}}'
+run_preflight audit
+assert_jq '.checks[] | select(.id == "github_identity") | .status == "warn" and (.detail | test("github-access.sh"))' \
+  'the audit names the changed connection'
+jq -e '.login == "acme-app[bot]" and .kind == "app" and .previous.login == "test-bot" and (.changed_at | length > 0)' "$WORK/GITHUB.json" >/dev/null \
+  && printf 'ok   %s: the cache records the previous login\n' "$CASE" \
+  || { printf 'FAIL %s: GITHUB.json %s\n' "$CASE" "$(cat "$WORK/GITHUB.json")"; FAILED=1; }
 
 # --- a realistic comment payload still gets scanned ---------------------------
 # two pages of real comments are ~768 KB; passed as jq arguments they exceed

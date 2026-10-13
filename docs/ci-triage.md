@@ -11,6 +11,8 @@ no re-run, no label, no commit, and it never changes a posted verdict.
 ## When it fires
 
 CI is usually still running when a review starts, so the rollup is read twice.
+The rollup skips the agent's own progress signal, the check named
+`review_marker` (`scripts/lib/ci-rollup.sh`).
 The procedure, the marker and the comment are the same either way, so a commit
 is triaged at most once:
 

@@ -796,6 +796,47 @@ assert_jq '.outcome == "posted" and .review_id == 78' 'second POST succeeds'
 assert_jq '.moved_to_summary | length == 1 and .[0].reason == "422 line not in diff"' 'inline comments moved after the 422'
 [ "$(grep -c 'reviews -X POST' "$SANDBOX/gh.log")" -eq 2 ] && printf 'ok   %s: exactly one retry\n' "$CASE" || { printf 'FAIL %s: POST count %s\n' "$CASE" "$(grep -c 'reviews -X POST' "$SANDBOX/gh.log")"; FAILED=1; }
 
+# --- progress channel: a GitHub App token writes a check run ------------------
+setup progress_check_run '- review_progress: enabled'
+seed_identity 'acme-app[bot]'
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+assert_call 'POST repos/acme/widgets/check-runs' 'an App token writes a check run'
+grep -q "statuses/$B1_SHA" "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: a commit status was written beside the check run\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no commit status\n' "$CASE"
+jq -e -s --arg s "$B1_SHA" 'any(.[]; .name == "cg:review" and .head_sha == $s and .status == "in_progress")' \
+  "$SANDBOX/gh.log.input" >/dev/null \
+  && printf 'ok   %s: the run is named review_marker and in progress\n' "$CASE" \
+  || { printf 'FAIL %s: check run body %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+run_rp abort 1 "reset"
+
+# --- a refused check run falls back to a commit status --------------------------
+setup progress_fallback '- review_progress: enabled'
+seed_identity 'acme-app[bot]'
+fx_fail 'api -X POST repos/acme/widgets/check-runs --input -' 1
+run_rp progress 1 "$B1_SHA" success "review abandoned - resumes when the PR is ready"
+assert_jq '.outcome == "written"' 'the fallback write succeeds'
+assert_call "statuses/$B1_SHA -f state=success" 'the status channel took over'
+
+# --- a user token writes a commit status; an open run is updated, not doubled ---
+setup progress_user_status '- review_progress: enabled'
+seed_identity test-bot
+run_rp progress 1 "$B1_SHA" success "review abandoned - resumes when the PR is ready"
+assert_jq '.outcome == "written"' 'the status reset row is written'
+assert_call "statuses/$B1_SHA -f state=success" 'a user token writes a commit status'
+setup progress_patch_open_run '- review_progress: enabled'
+seed_identity 'acme-app[bot]'
+printf '{"check_runs":[{"id":55,"status":"in_progress"}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?check_name=cg%3Areview&filter=latest"
+run_rp progress 1 "$B1_SHA" success "done"
+assert_call 'PATCH repos/acme/widgets/check-runs/55' 'the open run is completed in place'
+
+# --- review_progress off: the subcommand writes nothing -------------------------
+setup progress_disabled
+run_rp progress 1 "$B1_SHA" success "x"
+assert_jq '.outcome == "disabled"' 'nothing written without review_progress'
+
 # --- post: closed at post time — discard without criticals, issue path with ------
 setup post_closed
 run_rp prepare 1
@@ -817,7 +858,8 @@ assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | REQUEST_CHANGES | 
 assert_file_contains "$WORK/reviews/pr-1.md" '_Delivered as issue #9 — PR closed before posting._' 'history note'
 
 # --- post: closed, the issue an alias filed earlier is found -------------------
-setup post_closed_alias '- bot_aliases: acme-app[bot]'
+setup post_closed_alias
+seed_identity 'acme-app[bot]'
 run_rp prepare 1
 pr_fx closed
 printf '### Summary\nx\n' > "$SANDBOX/body.md"

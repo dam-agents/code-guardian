@@ -5,8 +5,8 @@ human GitHub text addressed to the bot: an `@<bot_login>` mention in a comment
 (PR conversation, inline thread or issue comment,
 `thread: "conversation" | "inline"`), in a PR description (`thread: "body"`,
 ledger key `body-<n>`, handled once per PR), or a reply inside an inline review
-thread a bot comment started (an alias's only when its review carries the
-marker — [config.md](config.md) → **`bot_aliases`**):
+thread a bot comment started (a bot login's only when its review carries the
+marker — [github-access.md](github-access.md) → **Own content**):
 
 ```json
 {"comment_id": 51259165, "thread": "conversation", "number": 321,

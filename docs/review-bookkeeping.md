@@ -62,17 +62,20 @@ gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BO
 
 ## Progress signal on GitHub (`review_progress`)
 
-`review_progress: enabled` (missing = `disabled`) publishes progress as a
-**commit status** on the reviewed SHA. One call per update, `context` =
-`$REVIEW_MARKER`:
+`review_progress: enabled` (missing = `disabled`) publishes progress on the
+reviewed SHA under the name `$REVIEW_MARKER`: a **check run** for a GitHub App
+token, a **commit status** for a user token, the other one when the first is
+refused ([github-access.md](github-access.md) → **Progress signal channel**).
+`pending` is a check run `in_progress` and `success` a completed one. One write
+per update, always through the script:
 
 ```bash
-gh api -X POST "repos/$REPO/statuses/<sha>" -f state=<state> \
-  -f context="$REVIEW_MARKER" -f description="<line>" >/dev/null
+bash "$HOME/scripts/review-pr.sh" progress <n> <sha> <state> "<line>" [<url>]
 ```
 
-Add `-f target_url=<url>` on the rows that have one. `description` is one short
-line — GitHub truncates past 140 characters.
+`<url>` is the row's `target_url`. `description` is one short line — GitHub
+truncates past 140 characters. The CI rollup never counts this signal as a
+check of the commit ([ci-triage.md](ci-triage.md)).
 
 | Written at | `state` | `description` | `target_url` |
 | --- | --- | --- | --- |
@@ -94,7 +97,7 @@ line — GitHub truncates past 140 characters.
   make the agent a merge gate the moment someone made the context a required
   check.
 - `review-pr.sh` writes each row at the step that owns it; the manual fallback
-  issues the same call at the same step.
+  runs `review-pr.sh progress` at the same step.
 - **Best-effort.** A failed write is logged (`progress_status`, warn) and
   changes nothing — never retried, never a reason to abort.
 

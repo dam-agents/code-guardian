@@ -405,6 +405,7 @@ nothing Slack-related runs; a shepherd run that fires anyway gets
 | [finding-form.md](finding-form.md) | `read_set` names it (`reviews_due` non-empty), or writing a finding — the diff review, a skill subagent's reformat, the benchmark reviewer, the survey: the approval bar and the conciseness rules |
 | [skills.md](skills.md) | `read_set` names it (`reviews_due` non-empty), with review.md — skill triggers, routing, audit lines, inclusion rule, clone management |
 | [profile.md](profile.md) | The operator asks about `work/PROFILE.md`, or a skill brief needs the repository map — a review run takes `profile_slice` and `history_slice` from its entry ([review.md](review.md) step b) |
+| [github-access.md](github-access.md) | Onboarding's access check, a `github_identity` warn, or an operator ask about the GitHub connection — identity, own content, the progress channel, `scripts/github-access.sh` |
 | [config.md](config.md) | No preflight `config` object (manual fallback), a config change in the direct session, or a new key |
 | [mentions.md](mentions.md) | `mentions_due` non-empty — thread fetch, classification, dedup ledger, reply mechanics |
 | [watches.md](watches.md) | `read_set` names it (`reviews_due` or `mentions_due` with watch rules in `work/CONFIG.md`) — table format, evaluation, dedup, sending |

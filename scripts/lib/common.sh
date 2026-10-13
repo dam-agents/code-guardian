@@ -21,14 +21,47 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
-# The other logins the token posts as besides bot_login (a GitHub App's
-# `<app>[bot]`), one per line. Their content is the agent's own only with the
-# review marker (docs/config.md → bot_aliases).
-bot_aliases() {
-  local a bot; bot="$(cfg bot_login)"
-  cfg bot_aliases | tr ',' '\n' | while IFS= read -r a; do
-    a="$(trim "$a")"; [ -n "$a" ] && [ "$a" != "$bot" ] && printf '%s\n' "$a"
-  done; return 0
+# --- the token's GitHub identity (docs/github-access.md) --------------------
+# $WORK/GITHUB.json caches {login, kind, checked_at} for IDENTITY_TTL_MIN, plus
+# {previous, changed_at} once the login changed. kind: `app` for a GitHub App
+# login (`<app>[bot]`), else `user`.
+IDENTITY_TTL_MIN=60
+login_kind() { case "$1" in (*"[bot]") printf app;; (*) printf user;; esac; }
+token_login() { jq -r '.login // empty' "$WORK/GITHUB.json" 2>/dev/null; }
+token_kind() { local l; l="$(token_login)"; [ -n "$l" ] && login_kind "$l"; }
+# Re-reads GraphQL `viewer` (REST GET /user refuses an App token) when the
+# cache is stale or [force]; a failed read keeps the cache as it is.
+identity_refresh() { # [force]
+  local f="$WORK/GITHUB.json" now login old age
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [ "${1:-}" != force ] && [ -f "$f" ]; then
+    age=$(( ($(date -u +%s) - $(iso2epoch "$(jq -r '.checked_at // empty' "$f" 2>/dev/null)" 2>/dev/null || echo 0)) / 60 ))
+    [ "$age" -lt "$IDENTITY_TTL_MIN" ] && return 0
+  fi
+  login="$(gh api graphql -f query='{viewer{login}}' 2>/dev/null | jq -r '.data.viewer.login // empty' 2>/dev/null)"
+  [ -n "$login" ] || return 1
+  old="$(token_login)"
+  { if [ -f "$f" ]; then cat "$f"; else printf '{}'; fi; } 2>/dev/null \
+    | jq -c --arg l "$login" --arg k "$(login_kind "$login")" --arg o "$old" --arg ok "$(login_kind "$old")" --arg t "$now" '
+        (if type == "object" then . else {} end)
+        | (if $o != "" and $o != $l then .previous = {login: $o, kind: $ok} | .changed_at = $t else . end)
+        | .login = $l | .kind = $k | .checked_at = $t' > "$f.tmp" 2>/dev/null \
+    && mv -f "$f.tmp" "$f" || { rm -f "$f.tmp"; return 1; }
+  if [ -n "$old" ] && [ "$old" != "$login" ] && type logev >/dev/null 2>&1; then
+    logev warn github_identity "the GitHub token now acts as $login ($(login_kind "$login")), was $old ($(login_kind "$old")) — run scripts/github-access.sh in the direct session"
+  fi
+  return 0
+}
+# Logins whose content is the agent's own by the login alone: bot_login when it
+# is a user account. A bot login can be shared by several agents (one GitHub
+# App), so its content is the agent's only with the review marker.
+self_trusted_login() { local b; b="$(cfg bot_login)"; [ "$(login_kind "$b")" = user ] && printf '%s' "$b"; return 0; }
+# The other logins the agent posts as (a bot bot_login, the token's login), as
+# a JSON array — their content needs the review marker
+self_marked_logins() {
+  local t; t="$(self_trusted_login)"
+  { cfg bot_login; printf '\n'; token_login; } 2>/dev/null \
+    | jq -Rsc --arg t "$t" 'split("\n") | map(select(. != "" and . != $t)) | unique'
 }
 
 # The `## Review skills` table as [{skill, source, trigger, section}]

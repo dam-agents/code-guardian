@@ -13,11 +13,10 @@ they are released history and stay as written.
 
 ## 9.2.0 — 2026-10-13
 
-**Upgrade:** new key `bot_aliases` (`docs/config.md`). When `work/CONFIG.md`
-has no `bot_aliases` and `gh api graphql -f query='{viewer{login}}' --jq
-.data.viewer.login` prints a login other than `bot_login` (a GitHub App
-token), show it to the operator and, on their confirmation, add
-`- bot_aliases: <that login>`. Otherwise nothing.
+**Upgrade:** in the direct session, run `bash "$HOME/scripts/github-access.sh"`
+and show the report to the operator, per `docs/github-access.md` → **After a
+connection change**. Its permission gaps are **operator-only**. The next
+preflight creates `work/GITHUB.json`; no key and no schedule changes.
 
 ## 9.1.1 — 2026-10-12
 

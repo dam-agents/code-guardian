@@ -91,4 +91,17 @@ jq -n '{state:"failure", statuses:[{context:"jenkins/pr", state:"failure",
 run_preflight review
 assert_jq '(.ci_failures_due | length) == 1 and .ci_failures_due[0].checks == ["jenkins/pr"]' 'commit statuses are read when no check run exists'
 
+# --- the agent's own progress check is never a check of the commit -------------
+# a running progress check run would keep the rollup open, and its presence
+# would hide the commit statuses of an external CI
+new_case ci_own_check_skipped
+reviewed
+runs_fx in_progress - cg:review
+jq -n '{state:"failure", statuses:[{context:"jenkins/pr", state:"failure",
+        target_url:"https://ci.example.com/7", description:"3 tests failed"}]}' \
+  | fx "api repos/acme/widgets/commits/$SHA/status"
+run_preflight review
+assert_jq '(.ci_failures_due | length) == 1 and .ci_failures_due[0].checks == ["jenkins/pr"]' \
+  'the own check run is skipped and the statuses are read'
+
 finish

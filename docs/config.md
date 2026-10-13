@@ -51,18 +51,12 @@ below is for the manual fallback and the direct session.
 - **`definition_branch`** — the branch of `definition_repo` this instance runs
   from ([persistence.md](persistence.md) → **Tracked branch**). **Missing =
   `main`.** Operator-only to change.
-- **`bot_login`** — the GitHub login this agent acts as. **Required.** Missing
+- **`bot_login`** — the GitHub account people mention, assign and request for
+  this agent; the token may post as another login, such as a GitHub App
+  ([github-access.md](github-access.md)). **Required.** Missing
   → log
   `bot_login missing — artifact gate, shepherd, and mention handling disabled this run`
   once and skip those features.
-- **`bot_aliases`** — comma-separated other logins the token posts as, such as
-  a GitHub App's `acme-app[bot]` while `bot_login` stays the user account
-  people mention, assign and request. **Missing = none.** An alias's content is
-  the agent's own only through `review_marker`: a review that carries it, an
-  inline comment of such a review, an issue with the issue marker. A shared App
-  also posts for other agents, so an alias's unmarked comment is not the
-  agent's. The audit's `github_auth` check warns when the token's login is
-  neither `bot_login` nor an alias.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic
   only, never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker
@@ -91,7 +85,7 @@ below is for the manual fallback and the direct session.
   off.** Not a review trigger — it only modifies how an already-due review is
   delivered.
 - **`review_progress`** — `enabled` | `disabled`. **Missing = `disabled`.**
-  Publishes each review's progress as a commit status on the reviewed SHA
+  Publishes each review's progress as a check run or a commit status on the reviewed SHA
   (`context` = `review_marker`): started, in progress with an ETA, terminal
   outcome (review-bookkeeping.md → **Progress signal on GitHub**). Best-effort —
   a failed write never affects the review.

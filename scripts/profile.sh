@@ -468,6 +468,11 @@ gen_checks() {
     jq -nc --arg w "${w##*/}" --arg n "$name" --arg o "$on" --arg s "$w" '{workflow:$w, name:$n, on:(if $o=="" then null else $o end), src:$s}' >> "$TMP/checks.jsonl"
   done < <(blobs | grep -E -- "$WORKFLOW_RE" | sort)
   req="$(gh api "repos/$REPO/branches/$BRANCH/protection/required_status_checks" 2>/dev/null | jq -c '[.contexts[]?]' 2>/dev/null)"
+  # classic protection needs administration read, which an App token rarely
+  # has; the branch's rulesets need only metadata read
+  { printf '%s' "$req" | jq -e 'type=="array"' >/dev/null 2>&1; } \
+    || req="$(gh api "repos/$REPO/rules/branches/$BRANCH" 2>/dev/null \
+         | jq -c '[.[]? | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique' 2>/dev/null)"
   { printf '%s' "$req" | jq -e 'type=="array"' >/dev/null 2>&1; } || req='[]'
   jq -s --argjson r "$req" '{workflows:., required:$r}' "$TMP/checks.jsonl" > "$TMP/checks.json"
 }

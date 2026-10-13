@@ -236,13 +236,12 @@ what it can and asking for the rest. Per-key semantics are in
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
 | `bot_login` | auto-detected via GraphQL `viewer`, confirmed | GitHub login the agent acts as — artifact assignee gate, "independent reviewer" classification. |
-| `bot_aliases` | asked when the token is a GitHub App | Other logins the token posts as; their content is the agent's only with the review marker. |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
 | `rereview_trigger` | asked with `rereview_label` (default `label`) | How re-reviews are requested: `label`, `review-request` (needs the bot as a collaborator), or `both`. A served review request clears itself. |
 | `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first (a rapid pass without a critical finding approves), and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review-urgent.md` → **Urgent PRs**). |
-| `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a commit status on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
+| `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a check run (GitHub App) or a commit status (user token) on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
 | `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
 | `review_dispatch` | defaulted to `enabled` | A heartbeat that finds several PRs keeps its first and starts every other PR at once in a one-time session of its own (`docs/worklist.md` → **Dispatch**); `disabled` keeps them in the run, one after another. |
 | `review_model` | asked (default `opus`) | The model every scheduled session runs on — each registered schedule and each dispatched review carries it; `default` pins none and leaves the choice to the platform (`docs/config.md`). The weekly audit flags a schedule or a run on another model. |
@@ -296,7 +295,8 @@ what it can and asking for the rest. Per-key semantics are in
   (`gh auth login --hostname <host>`, operator-only) and reachable from the
   pod; a non-`github.com` target host is persisted as `GH_HOST` at onboarding.
 - **GitHub identity:** the agent posts reviews and comments as the
-  account behind its token. Use a **dedicated machine or bot account**, not a
+  account behind its token — a user token or a GitHub App installation token,
+  both supported (`docs/github-access.md`). Use a **dedicated machine or bot account**, not a
   personal one, that is a collaborator on the target repo with permission to
   review PRs. GitHub ignores review requests and approvals from a PR's own
   author, so the bot account must not open the PRs it reviews.
@@ -309,10 +309,9 @@ what it can and asking for the rest. Per-key semantics are in
 
   The audit's `token_scopes` check asserts the required ones only. A missing
   scope is **operator-only** to fix: the agent reports it and never works
-  around it. A **GitHub App** token has permissions in place of scopes: Pull
-  requests, Issues and Contents read and write, Commit statuses write for
-  `review_progress`, Checks and Actions read for CI triage; `token_scopes`
-  skips it.
+  around it. A fine-grained or **GitHub App** token has permissions in place
+  of scopes — the list and the access check that reads them are in
+  `docs/github-access.md` → **Feature map**.
 - **External services:** artifacts and reports publish to the platform's DAM
   Artifact Library (best-effort, behind the owner's experimental flag), whose
   `visibility:"public"` share URL is reachable by anyone holding it. The HTML
@@ -321,7 +320,8 @@ what it can and asking for the rest. Per-key semantics are in
 ### Connections
 
 - A **GitHub** connection must be granted so `gh` can authenticate (the Envoy
-  sidecar injects the OAuth token on outbound GitHub requests). The same token
+  sidecar injects the token, a user's or a GitHub App's, on outbound GitHub
+  requests). The same token
   serves the target repo, the `work_repo` backup and the definition repo.
 - A **Slack** connection is **optional**, needed only when Slack notifications
   are enabled, so `mcp__platform-outbound__send_channel_message` can reach the

@@ -62,6 +62,8 @@
 #   row <n> <sha> <ts> <verdict> <status>  a bookkeeping REVIEWS.md row write —
 #   row <n> --delete                       self-heal, prune, status reset — or its
 #                                          deletion, under the row lock
+#   progress <n> <sha> <state> <desc> [url] one progress write under
+#                                          review_progress — the status reset
 #   fix-start <n> --sha <sha>              start a `fixes_due` entry: re-read the PR
 #                                          (open, head = <sha>, label present, branch in
 #                                          the target repo), remove the label, clone the
@@ -100,8 +102,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#$/p' "$0" | sed -e '/^#$/d' -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|fix-start|fix-push|merge) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -139,6 +141,7 @@ export GH_HOST="$REPO_HOST"
 BOT_LOGIN="$(cfg bot_login)"
 BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"
+CI_OWN_CHECK="$REVIEW_MARKER"   # lib/ci-rollup.sh skips the own progress signal
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
 URGENT_LABEL="$(cfg urgent_label)"
 # preflight's trigger gate: an unknown value, or a review request without
@@ -297,17 +300,41 @@ doc_section() { # <docs-relative file> <exact heading line>
 }
 
 # ------------------------------------------------------ progress status ----
+# The channel follows the token (docs/review-bookkeeping.md → Progress signal):
+# a GitHub App writes a check run, a user token a commit status — only an App
+# can create check runs. A refused write tries the other channel once.
+status_write() { # <sha> <state> <description> [target_url]
+  if [ -n "${4:-}" ]; then
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" -f target_url="$4" >/dev/null 2>&1
+  else
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>&1
+  fi
+}
+check_write() { # <sha> <state> <description> [target_url] — updates this SHA's open run, else creates one
+  local id body
+  id="$(gh api "repos/$REPO/commits/$1/check-runs?check_name=$(uri "$REVIEW_MARKER")&filter=latest" 2>/dev/null \
+        | jq -r '[.check_runs[]? | select(.status != "completed")][0].id // empty' 2>/dev/null)"
+  body="$(jq -nc --arg n "$REVIEW_MARKER" --arg sha "$1" --arg s "$2" --arg d "$3" --arg u "${4:-}" '
+    {name:$n, head_sha:$sha, output:{title:$d, summary:$d}}
+    + (if $s == "pending" then {status:"in_progress"} else {status:"completed", conclusion:"success"} end)
+    + (if $u != "" then {details_url:$u} else {} end)')"
+  if [ -n "$id" ]; then
+    printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>&1
+  else
+    printf '%s' "$body" | gh api -X POST "repos/$REPO/check-runs" --input - >/dev/null 2>&1
+  fi
+}
+progress_write() { # <sha> <state> <description> [target_url]
+  [ -n "$(token_login)" ] || identity_refresh || true
+  if [ "$(token_kind)" = app ]; then check_write "$@" || status_write "$@"
+  else status_write "$@" || check_write "$@"; fi
+}
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
   [ "$PROGRESS" = "enabled" ] || return 0
   local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
-  if [ -n "${3:-}" ]; then
-    gh api -X POST "repos/$REPO/statuses/$sha" -f state="$1" -f context="$REVIEW_MARKER" -f description="$desc" -f target_url="$3" >/dev/null 2>&1 \
-      || logev warn progress_status "PR #$N: status write did not succeed ($1: $desc)"
-  else
-    gh api -X POST "repos/$REPO/statuses/$sha" -f state="$1" -f context="$REVIEW_MARKER" -f description="$desc" >/dev/null 2>&1 \
-      || logev warn progress_status "PR #$N: status write did not succeed ($1: $desc)"
-  fi
+  progress_write "$sha" "$1" "$desc" "${3:-}" \
+    || logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)"
 }
 
 # ---------------------------------------------------------------- cleanup ----
@@ -1467,9 +1494,10 @@ cmd_post() {
       out "$(jq -nc --arg s "$scope" '{outcome:"closed_discarded", scope:$s}')"
     fi
     # the bot's own issues, every page — the marker is in one of them or in none
-    # per creator: bot_login, then each bot_aliases login
-    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing="" q it who
-    for who in "$BOT_LOGIN" $(bot_aliases); do
+    # per creator: bot_login, then the token's login when it differs
+    local im="<!-- $REVIEW_MARKER:issue headRefOid=$sha -->" existing="" q it who tl
+    tl="$(token_login)"; [ "$tl" = "$BOT_LOGIN" ] && tl=""
+    for who in "$BOT_LOGIN" ${tl:+"$tl"}; do
       q="state=all&per_page=100"; [ -n "$who" ] && q="$q&creator=$(uri "$who")"
       existing="$(gh api --paginate "repos/$REPO/issues?$q" 2>/dev/null | jq -s --arg m "$im" \
         '[ .[] | select(type=="array") | .[] | select(.pull_request == null) | select((.body // "") | contains($m)) | .number ] | first // empty' -r 2>/dev/null)"
@@ -1904,6 +1932,16 @@ cmd_hold() {
 
 # A bookkeeping row (docs/review-bookkeeping.md): written or deleted under the
 # same lock as every row the review steps write.
+cmd_progress() { # <sha> <state> <description> [target_url]
+  [ "$PROGRESS" = "enabled" ] || out '{"outcome":"disabled"}'
+  case "${1:-}" in (''|*[!0-9a-f]*) fail "progress: the sha is not hex";; esac
+  case "${2:-}" in (pending|success) ;; (*) fail "progress: the state is not pending or success";; esac
+  local desc; desc="$(printf '%s' "${3:-}" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"
+  if progress_write "$1" "$2" "$desc" "${4:-}"; then out '{"outcome":"written"}'; fi
+  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)"
+  out '{"outcome":"failed"}'
+}
+
 cmd_row() {
   [ "${1:-}" = "--delete" ] && { delete_row; out '{"outcome":"deleted"}'; }
   case "${1:-}" in (''|*[!0-9a-f]*) fail "row: the sha is not hex";; esac
@@ -2043,7 +2081,7 @@ case "$CMD" in
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
   (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
-  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;; (row) cmd_row "$@";;
+  (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;; (row) cmd_row "$@";; (progress) cmd_progress "$@";;
   (fix-start) cmd_fix_start "$@";; (fix-push) cmd_fix_push "$@";;
   (merge) cmd_merge "$@";;
 esac
