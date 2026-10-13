@@ -842,15 +842,17 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
-  jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
-    --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
-    --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
-    --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" \
-    --argjson hkonly "$hk_only" \
-    --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
-    --argjson logs "$(logs_json)" \
-    "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+  # every list reaches jq on stdin, never in argv: a due review carries its
+  # slice, and one argument is capped at MAX_ARG_STRLEN (128 KiB). The order of
+  # the printf list is the order of the binding list.
+  printf '%s\n' "${1:-null}" "${2:-null}" "${3:-null}" "${4:-null}" "${5:-null}" "${6:-null}" "${7:-null}" "${8:-null}" "${9:-null}" \
+      "$resets" "$cifail" "$merges" "$fixes" \
+      "${PROFILE_JSON_OUT:-null}" "${CONFIG_JSON:-null}" "${MEMORY_JSON:-null}" \
+      "$(logs_json)" \
+    | jq -s --arg mode "$MODE" --argjson nothing "$nothing" --argjson hkonly "$hk_only" \
+    "$READ_SET_JQ"'. as [$reviews, $cleanups, $selfheals, $prunes, $artifacts, $nudges, $alerts, $mentions, $skills,
+                         $resets, $cifail, $merges, $fixes, $profile, $config, $memory, $logs]
+    | {mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
@@ -1242,11 +1244,13 @@ if [ "$MODE" = "review" ]; then
           | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(
               (split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $ext
               | $r.exts | index($ext) != null) ])')"
-        entry="$(printf '%s' "$entry" | jq -c --argjson s "$slice" --argjson r "$routing" --argjson tr "$trunc" \
-          '. + $s + {files_truncated:$tr, skill_routing:$r}')"
+        # the slice and the routing carry up to 1000 paths each: they reach jq
+        # on stdin, never in argv (MAX_ARG_STRLEN, 128 KiB per argument)
+        entry="$(printf '%s\n' "$entry" "$slice" "$routing" | jq -cs --argjson tr "$trunc" \
+          '. as [$e, $s, $r] | $e + $s + {files_truncated:$tr, skill_routing:$r}')"
         [ "$trunc" = "true" ] && log "PR #$n: changed-file list capped at 1000 — prepare builds the list from the diff"
       fi
-      NEW_DUE="$(printf '%s' "$NEW_DUE" | jq -c --argjson e "$entry" '. + [$e]')"
+      NEW_DUE="$(printf '%s\n' "$NEW_DUE" "$entry" | jq -cs '.[0] + [.[1]]')"
     done < <(printf '%s' "$REVIEWS_DUE" | jq -c '.[]')
     REVIEWS_DUE="$NEW_DUE"; rm -f "$FILES_TMP"
   fi
@@ -2390,8 +2394,10 @@ if [ "$MODE" = "audit" ]; then
   # not. Direct sessions (job `session`) and unrecorded models
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
-  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" "$MODEL_JQ"'
-    ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
+  # stdin, not argv: a busy week's sessions pass MAX_ARG_STRLEN (128 KiB)
+  SM_OUT="$(printf '%s' "$SESSIONS_WEEK" | jq -r --arg rm "$(cfg review_model)" "$MODEL_JQ"'
+    . as $ses
+    | ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])
        | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
@@ -2641,16 +2647,19 @@ if [ "$MODE" = "audit" ]; then
     def zrate($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
       | ($p * (1 / $n1 + 1 / $n2)) as $v
       | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
-    ($rows | map(select(.week < $wk)) | .[-4:]) as $base
+    . as $rows
+    | ($rows | map(select(.week < $wk)) | .[-4:]) as $base
     | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
     | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
     | (($ra.reviews.defs // []) | join(", ")) as $dcur
     | " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)" as $defs
     | "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history" as $nohist
     |'
+  # the rows reach jq on stdin: one row per recorded week, so the history
+  # passes MAX_ARG_STRLEN (128 KiB) after about half a year
   shift_check() { # <check id> <jq program after SHIFT_DEFS> <what failed>
     local out
-    out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+    out="$(printf '%s' "$TREND_ROWS" | jq -r --argjson ra "$REVIEWS_AGG" \
       --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" "$SHIFT_DEFS$2" 2>/dev/null)"
     if [ -n "$out" ]; then check "$1" "${out%%$'\t'*}" "${out#*$'\t'}"
     else check "$1" warn "$3 could not be compared — trend history unreadable"; fi
@@ -3073,17 +3082,17 @@ if [ "$MODE" = "audit" ]; then
     check model_availability warn "$AF_N run(s) ended on an API failure this week, in $(printf '%s' "$GUARD_WEEK" | jq '.api_failures.outages | length') outage(s): $(printf '%s' "$GUARD_WEEK" | jq -r '.api_failures.by_class | to_entries | map("\(.key)×\(.value)") | join(", ")')"
   else check model_availability ok "no run ended on an API failure this week"; fi
 
-  STATS="$(jq -n --arg since "$SINCE_ISO" \
-    --argjson al "$AWAITING_JSON" \
-    --argjson open "$OPEN_COUNT" --argjson ra "$REVIEWS_AGG" \
-    --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
-    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
-    --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson rs "$REVIEW_SHAPE" \
-    --argjson disk "$DISK_JSON" --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
-    --argjson guard "$GUARD_WEEK" \
-    '{since:$since, open_prs:$open, awaiting_label:$al,
+  # Every JSON part travels on stdin, one document per line, never in argv: the
+  # week's sessions alone near MAX_ARG_STRLEN (128 KiB per argument), and a
+  # too-long argument kills jq with no output — the audit then printed nothing.
+  STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
+      "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
+      "${REACTIONS:-null}" "${ARTIFACTS_WEEK:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" \
+    | jq -cs --arg since "$SINCE_ISO" '
+    . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
+          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard]
+    | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
@@ -3091,15 +3100,16 @@ if [ "$MODE" = "audit" ]; then
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
       classifier:$guard.classifier, api_failures:$guard.api_failures}')"
+  [ -n "$STATS" ] || log_warn "audit stats: the stats object did not build — the worklist carries stats null"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  AUDIT_JSON="$(jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
-    --argjson failures "${FAILURES:-[]}" \
-    --argjson logs "$(logs_json)" \
-    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
-      failures:$failures, logs:$logs}')"
+  AUDIT_JSON="$(printf '%s\n' "${STATS:-null}" "${CHECKS:-[]}" "${FAILURES:-[]}" \
+      "$(logs_json)" \
+    | jq -s '. as [$stats, $checks, $failures, $logs]
+      | {mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
+         failures:$failures, logs:$logs}')"
   # bookkeeping: the same worklist on disk is the trend artifact's input, so a
   # week's numbers reach work/audit/ without passing through the agent
   # (docs/trends.md). Overwritten every audit; the week files are the record.
