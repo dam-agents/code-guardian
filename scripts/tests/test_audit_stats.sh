@@ -1004,6 +1004,33 @@ week_ledger 11 1
 run_preflight audit
 assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "ok" and (.detail | test("no earlier week on record"))' 'without trend history the check waits for it'
 
+# the trend index grows by one row per recorded week: with the rows passed by
+# --argjson, jq died past MAX_ARG_STRLEN (128 KiB) and every shift check warned
+# "trend history unreadable"
+new_case audit_shift_long_history
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/audit/weeks"
+for y in 2019 2020; do
+  for w in $(seq -w 1 26); do
+    jq -n --arg w "$y-W$w" \
+      '{ts:"2020-01-01T00:00:00Z", week:$w, source:"audit", definition_version:"9.1.0",
+        stats:{reviews:{total:15, first:10, re_review:5, approve:6, comment:9, request_changes:0, defs:["9.1.0"]},
+               sessions:[range(7) as $d | {day:"2020-01-0\($d + 1)", job:"review", min:5, model:"claude-opus-5",
+                         input:10, output:2000, cache_read:500, cache_creation:30, reviews:1}]},
+        checks:{ok:1, warn:0, fail:0}, extras:{}}' > "$WORK/audit/weeks/${y}W$w.json"
+  done
+done
+week_ledger 11 1
+run_preflight audit
+rows_bytes="$(TREND_CONFIG="$WORK/CONFIG.md" bash "$REPO_ROOT/scripts/audit-trend.sh" index "$WORK/audit" 2>/dev/null | wc -c | tr -d ' ')"
+[ "${rows_bytes:-0}" -gt 131072 ] && printf 'ok   %s: the trend rows pass the single-argument limit (%s bytes)\n' "$CASE" "$rows_bytes" \
+  || { printf 'FAIL %s: the trend rows stay under 128 KiB (%s bytes) — the case tests nothing\n' "$CASE" "$rows_bytes"; FAILED=1; }
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "warn" and (.detail | test("vs 40% of 60 in 2020-W23…2020-W26"))' \
+  'the verdict check reads a history past the argument limit'
+assert_jq '[.checks[] | select(.id | IN("verdict_shift", "findings_shift", "late_shift")) | .detail | select(test("unreadable"))] | length == 0' \
+  'no shift check reports the history unreadable'
+
 # --- session records for the trend's run figures (docs/trends.md → Runs) -------
 new_case audit_sessions
 base_config

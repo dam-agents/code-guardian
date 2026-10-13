@@ -867,15 +867,17 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
-  jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
-    --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
-    --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
-    --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" \
-    --argjson hkonly "$hk_only" \
-    --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
-    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+  # every list reaches jq on stdin, never in argv: a due review carries its
+  # slice, and one argument is capped at MAX_ARG_STRLEN (128 KiB). The order of
+  # the printf list is the order of the binding list.
+  printf '%s\n' "${1:-null}" "${2:-null}" "${3:-null}" "${4:-null}" "${5:-null}" "${6:-null}" "${7:-null}" "${8:-null}" "${9:-null}" \
+      "$resets" "$cifail" "$merges" "$fixes" \
+      "${PROFILE_JSON_OUT:-null}" "${CONFIG_JSON:-null}" "${MEMORY_JSON:-null}" \
+      "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+    | jq -s --arg mode "$MODE" --argjson nothing "$nothing" --argjson hkonly "$hk_only" \
+    "$READ_SET_JQ"'. as [$reviews, $cleanups, $selfheals, $prunes, $artifacts, $nudges, $alerts, $mentions, $skills,
+                         $resets, $cifail, $merges, $fixes, $profile, $config, $memory, $logs]
+    | {mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
@@ -1267,11 +1269,13 @@ if [ "$MODE" = "review" ]; then
           | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(
               (split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $ext
               | $r.exts | index($ext) != null) ])')"
-        entry="$(printf '%s' "$entry" | jq -c --argjson s "$slice" --argjson r "$routing" --argjson tr "$trunc" \
-          '. + $s + {files_truncated:$tr, skill_routing:$r}')"
+        # the slice and the routing carry up to 1000 paths each: they reach jq
+        # on stdin, never in argv (MAX_ARG_STRLEN, 128 KiB per argument)
+        entry="$(printf '%s\n' "$entry" "$slice" "$routing" | jq -cs --argjson tr "$trunc" \
+          '. as [$e, $s, $r] | $e + $s + {files_truncated:$tr, skill_routing:$r}')"
         [ "$trunc" = "true" ] && log "PR #$n: changed-file list capped at 1000 — build the full list from the diff"
       fi
-      NEW_DUE="$(printf '%s' "$NEW_DUE" | jq -c --argjson e "$entry" '. + [$e]')"
+      NEW_DUE="$(printf '%s\n' "$NEW_DUE" "$entry" | jq -cs '.[0] + [.[1]]')"
     done < <(printf '%s' "$REVIEWS_DUE" | jq -c '.[]')
     REVIEWS_DUE="$NEW_DUE"; rm -f "$FILES_TMP"
   fi
@@ -2655,16 +2659,19 @@ if [ "$MODE" = "audit" ]; then
     def zrate($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
       | ($p * (1 / $n1 + 1 / $n2)) as $v
       | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
-    ($rows | map(select(.week < $wk)) | .[-4:]) as $base
+    . as $rows
+    | ($rows | map(select(.week < $wk)) | .[-4:]) as $base
     | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
     | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
     | (($ra.reviews.defs // []) | join(", ")) as $dcur
     | " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)" as $defs
     | "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history" as $nohist
     |'
+  # the rows reach jq on stdin: one row per recorded week, so the history
+  # passes MAX_ARG_STRLEN (128 KiB) after about half a year
   shift_check() { # <check id> <jq program after SHIFT_DEFS> <what failed>
     local out
-    out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+    out="$(printf '%s' "$TREND_ROWS" | jq -r --argjson ra "$REVIEWS_AGG" \
       --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" "$SHIFT_DEFS$2" 2>/dev/null)"
     if [ -n "$out" ]; then check "$1" "${out%%$'\t'*}" "${out#*$'\t'}"
     else check "$1" warn "$3 could not be compared — trend history unreadable"; fi
@@ -3105,6 +3112,7 @@ if [ "$MODE" = "audit" ]; then
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
       classifier:$guard.classifier, api_failures:$guard.api_failures}')"
+  [ -n "$STATS" ] || log_warn "audit stats: the stats object did not build — the worklist carries stats null"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
