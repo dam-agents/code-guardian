@@ -415,7 +415,9 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   carries. It asks the caller about the findings a recorded decision of the
   pull request makes disputable, and disputes those in writing. Its `scripts/review-worklist.sh` reads all of that from the review
   over REST, and `--verify` checks the work against it before the push; the
-  next review round stays the caller's to start.
+  next review round stays the caller's to start. It tells reviewers apart by
+  login and review marker, so a GitHub App login that posts for several agents
+  works too.
   [`pr-open`](.agents/skills/pr-open/SKILL.md) is its first-push counterpart:
   it self-reviews the branch, declares the scope in the PR body, gives a human
   reviewer a guide to the decisions that matter, and records the person's

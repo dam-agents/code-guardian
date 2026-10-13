@@ -152,6 +152,11 @@ that says so.
 3. **Report** the link, the checks that ran, and the decisions the block
    records, one line each. The first review starts on its own; this skill
    never requests one.
+4. **Same account as the reviewer.** GitHub refuses an approval or a change
+   request from the pull request's own author. When the new pull request's
+   `user.login` is the login of the automated reviews on this repository's
+   recent pull requests — a GitHub App (`<app>[bot]`) that several agents
+   share, typically — tell the caller: that reviewer can only comment on it.
 
 ## The author-decisions block
 

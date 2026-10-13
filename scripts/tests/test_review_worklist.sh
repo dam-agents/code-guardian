@@ -81,6 +81,7 @@ run_wl acme/widgets 7
 assert_jq '.outcome == "ok" and .repo == "acme/widgets" and .pr == 7' 'outcome ok'
 assert_jq '.review.id == 902 and .review.author == "test-bot" and .review.commit_id == "'"$SHA_B"'" and .review.has_meta == true' 'the newest findings-json review drives the worklist, a human review between rounds is skipped'
 assert_jq '.rounds == 2 and .authors == ["test-bot"] and .author_check == "ok"' 'two rounds by one author'
+assert_jq '.review.marker == "cg:review" and .reviewers == [{"login":"test-bot","marker":"cg:review"}]' 'the reviewer is its login and its review marker'
 assert_jq '.head.sha == "'"$SHA_C"'" and .head.ref == "feat/session-ttl" and .head.base == "main" and .branch_moved == true' 'a head past the reviewed SHA reads as branch_moved'
 assert_jq '.pr_body | startswith("Closes #3")' 'the PR body is carried'
 assert_jq '(.blocking | length) == 2 and .blocking[0].severity == "critical" and .blocking[1].severity == "warning"' 'the blocking set is open critical and warning entries, critical first'
@@ -103,6 +104,26 @@ assert_jq '.author_check == "multiple" and (.authors | sort) == ["mallory","test
 run_wl acme/widgets 7 --reviewer test-bot
 assert_jq '.author_check == "ok" and .review.id == 902 and .branch_moved == false' '--reviewer keeps one login, and a head at the reviewed SHA is not moved'
 
+# --- one GitHub App login, two agents: the marker tells them apart ---------------
+new_case worklist_shared_app
+body2 | sed 's/^<!-- cg:review headRefOid=.*/<!-- cg:review headRefOid=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->/' > "$SANDBOX/b2.txt"
+{ body3; printf '<!-- other:review headRefOid=%s -->\n' "$SHA_B"; } > "$SANDBOX/b3.txt"
+jq -n --rawfile b2 "$SANDBOX/b2.txt" --rawfile b3 "$SANDBOX/b3.txt" --arg b "$SHA_B" '
+  [ {id:902, user:{login:"acme-app[bot]"}, state:"COMMENTED", submitted_at:"2026-09-02T10:00:00Z", commit_id:$b, html_url:"https://example.test/r/902", body:$b2},
+    {id:909, user:{login:"acme-app[bot]"}, state:"COMMENTED", submitted_at:"2026-09-03T10:00:00Z", commit_id:$b, html_url:"https://example.test/r/909", body:$b3} ]' \
+  | fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100&page=1'
+pr_head_fx "$SHA_B"; inline_fx
+jq -n '[{user:{login:"acme-app[bot]"}, created_at:"2026-09-02T11:00:00Z", body:"the author agent: the 30 minutes are intended"},
+        {user:{login:"acme-app[bot]"}, created_at:"2026-09-02T12:00:00Z", body:"reply by the reviewer <!-- cg:review-reply -->"}]' \
+  | fx 'api repos/acme/widgets/issues/7/comments?per_page=100'
+run_wl acme/widgets 7
+assert_jq '.author_check == "multiple" and .authors == ["acme-app[bot]"] and (.reviewers | length) == 2' 'one App login with two markers is two reviewers'
+run_wl acme/widgets 7 --marker cg:review
+assert_jq '.author_check == "ok" and .review.id == 902 and .review.marker == "cg:review"' '--marker keeps one agent'
+assert_jq '.comments == [{"author":"acme-app[bot]","created_at":"2026-09-02T11:00:00Z","body":"the author agent: the 30 minutes are intended","same_login":true}]' \
+  "under an App reviewer the login's unmarked posts stay, tagged, and its marked posts are dropped"
+assert_jq '.rereview.source == "review"' 'review-meta still names the trigger'
+
 # --- a review without review-meta: fallback trigger, nothing deferred ----------
 new_case worklist_no_meta
 body1 > "$SANDBOX/b1.txt"
@@ -114,6 +135,11 @@ run_wl acme/widgets 7
 assert_jq '.review.has_meta == false and .deferred == [] and .checks_unmatched == []' 'an older review parses from findings-json alone'
 assert_jq '.rereview == {"trigger":"review-request","label":null,"login":"test-bot","source":"fallback"}' 'without review-meta the next round is requested from the review author'
 assert_jq '(.blocking | length) == 2 and .blocking[0].check == null and .inline == []' 'no checks and no inline comments is not an error'
+jq -n --rawfile b1 "$SANDBOX/b1.txt" --arg a "$SHA_A" \
+  '[{id:901, user:{login:"acme-app[bot]"}, state:"CHANGES_REQUESTED", submitted_at:"2026-09-01T10:00:00Z", commit_id:$a, html_url:"https://example.test/r/901", body:$b1}]' \
+  | fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100&page=1'
+run_wl acme/widgets 7
+assert_jq '.rereview == {"trigger":"unknown","label":null,"login":null,"source":"fallback"}' 'a GitHub App author cannot be requested: the fallback names no command'
 
 # --- no review to act on, and bad arguments -------------------------------------
 new_case worklist_none
@@ -128,6 +154,8 @@ run_wl acme/widgets
 assert_jq '.outcome == "error" and (.error | contains("usage"))' 'a missing argument is an error'
 run_wl acme/widgets 7 --reviewer
 assert_jq '.outcome == "error" and (.error | contains("--reviewer needs a value"))' 'a trailing --reviewer without a value is an error, not a hang'
+run_wl acme/widgets 7 --marker
+assert_jq '.outcome == "error" and (.error | contains("--marker needs a value"))' 'a trailing --marker without a value is an error, not a hang'
 run_wl acme/widgets 7 --verify --worklist
 assert_jq '.outcome == "error" and (.error | contains("--worklist needs a value"))' 'a trailing --worklist without a value is an error, not a hang'
 
@@ -138,7 +166,7 @@ jq -n '[{user:{login:"alice"}, created_at:"2026-09-01T12:00:00Z", body:"the 30 m
         {user:{login:"test-bot"}, created_at:"2026-09-02T09:00:00Z", body:"a review-shaped post by the reviewer itself"}]' \
   | fx 'api repos/acme/widgets/issues/7/comments?per_page=100'
 run_wl acme/widgets 7
-assert_jq '(.comments | length) == 1 and .comments[0].author == "alice"' "the thread is carried, the reviewer's own posts dropped"
+assert_jq '(.comments | length) == 1 and .comments[0].author == "alice" and .comments[0].same_login == false' "the thread is carried, the reviewer's own posts dropped"
 assert_jq '.comments[0].body | startswith("the 30 minute")' 'the comment body is carried'
 
 # --- sections: which source reported how much ---------------------------------

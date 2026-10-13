@@ -2,14 +2,17 @@
 # review-worklist.sh — the work list one automated review leaves on one pull
 # request, as one JSON object (SKILL.md → "1. Read the review").
 #
-#   review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>]
+#   review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>] [--marker <prefix>]
 #   review-worklist.sh <owner/repo> <pr-number> --verify [--worklist <file>]
 #
 # REST only (`gh api`), bash 3.2+, jq. Reads the PR's reviews, keeps the ones
 # that carry a `<!-- findings-json: … -->` line — `--reviewer` keeps one
-# login's only — and prints for the newest of them:
-#   review            id, author, state, submitted_at, commit_id (the reviewed
-#                     SHA), html_url, has_meta (a `review-meta` line parsed)
+# login's only, `--marker` one review marker's only — and prints for the
+# newest of them:
+#   review            id, author, marker (the prefix of the review's
+#                     `<!-- <marker> headRefOid=… -->` line, null without one),
+#                     state, submitted_at, commit_id (the reviewed SHA),
+#                     html_url, has_meta (a `review-meta` line parsed)
 #   head              the PR's live head {sha, ref, base}
 #   branch_moved      the branch moved after the review was posted
 #   pr_body           the PR description as it is now
@@ -26,7 +29,9 @@
 #   rereview          how the next round is requested: `trigger` with `label`
 #                     and/or `login`, and `delta_label` when the reviewer has
 #                     one, from review-meta (`source: review`), else a review
-#                     request to the review's author (`fallback`)
+#                     request to the review's author (`fallback`) — `trigger:
+#                     unknown` when that author is a GitHub App (`<app>[bot]`),
+#                     which GitHub cannot request
 #   inline            the review's inline comments {path, line, body} — the
 #                     full text and suggestion blocks behind each summary
 #   sections          the review's rendered sections that carry findings,
@@ -34,11 +39,17 @@
 #                     which source (the reviewer's own `### Findings`, or a
 #                     review skill's own section) reported how much
 #   comments          the PR's own comment thread, the reviewer's own posts
-#                     dropped: {author, created_at, body} — where a human
-#                     settles a finding as intended
-#   authors           logins that posted findings-json reviews; author_check
-#                     is "multiple" when there is more than one and no
-#                     --reviewer narrowed them
+#                     dropped: {author, created_at, body, same_login} — where
+#                     a human settles a finding as intended. A GitHub App
+#                     login can post for several agents, so under an App
+#                     reviewer only the posts that carry its marker are
+#                     dropped, and the rest of that login's posts stay with
+#                     `same_login: true`
+#   authors           logins that posted findings-json reviews
+#   reviewers         the distinct {login, marker} pairs behind them; one
+#                     GitHub App login can carry several agents' markers.
+#                     author_check is "multiple" when there is more than one
+#                     pair and no --reviewer or --marker narrowed them
 # A ` – ` (en dash between spaces) inside a check's `run` is a ` -- ` the
 # review's transport rewrote for HTML-comment safety; it is restored here.
 #
@@ -60,20 +71,21 @@ set -u
 
 err() { jq -nc --arg e "$1" '{outcome:"error", error:$e}' 2>/dev/null || printf '{"outcome":"error","error":"%s"}\n' "$1"; exit 1; }
 
-REPO=""; N=""; REVIEWER=""; VERIFY=false; WL_FILE=""
+REPO=""; N=""; REVIEWER=""; MARKER=""; VERIFY=false; WL_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     (--reviewer) [ $# -ge 2 ] || err "--reviewer needs a value"; REVIEWER="$2"; shift 2;;
+    (--marker) [ $# -ge 2 ] || err "--marker needs a value"; MARKER="$2"; shift 2;;
     (--verify) VERIFY=true; shift;;
     (--worklist) [ $# -ge 2 ] || err "--worklist needs a value"; WL_FILE="$2"; shift 2;;
-    (-h|--help) sed -n '2,52p' "$0"; exit 0;;
+    (-h|--help) sed -n '2,64p' "$0"; exit 0;;
     (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; fi; shift;;
   esac
 done
 
 command -v jq >/dev/null 2>&1 || err "jq is required"
 command -v gh >/dev/null 2>&1 || err "gh is required"
-[ -n "$REPO" ] && [ -n "$N" ] || err "usage: review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>]"
+[ -n "$REPO" ] && [ -n "$N" ] || err "usage: review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>] [--marker <prefix>]"
 case "$N" in (''|*[!0-9]*) err "pr-number must be a number, got '$N'";; esac
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/review-worklist.XXXXXX")" || err "cannot create a temp dir"
@@ -145,8 +157,11 @@ gh api "repos/$REPO/pulls/$N" > "$T/pr.json" 2>"$T/err" \
   || err "pull request: $(tr '\n' ' ' < "$T/err" | cut -c1-300)"
 jq -e '.head.sha' "$T/pr.json" >/dev/null 2>&1 || err "the pull request payload has no head"
 
-jq -c --arg r "$REVIEWER" '
-  map(select(((.body // "") | test("<!-- findings-json: ")) and ($r == "" or .user.login == $r)))
+# the review marker: the prefix of the `<!-- <marker> headRefOid=<sha> -->` line
+jq -c --arg r "$REVIEWER" --arg mk "$MARKER" '
+  def marker: [ (.body // "") | capture("<!-- (?<m>[^ >]+) headRefOid=[0-9a-f]+ -->") | .m ] | last;
+  map(select(((.body // "") | test("<!-- findings-json: ")) and ($r == "" or .user.login == $r))
+      | . + {marker: marker} | select($mk == "" or .marker == $mk))
   | sort_by(.submitted_at)' "$T/reviews.json" > "$T/rounds.json"
 if [ "$(jq length "$T/rounds.json")" -eq 0 ]; then
   jq -nc --arg repo "$REPO" --argjson n "$N" '{outcome:"no_review", repo:$repo, pr:$n}'; exit 0
@@ -201,13 +216,17 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
   | (if (($m.rereview // null) | type) == "object"
      then ($m.rereview | {trigger: (.trigger // "label"), label: (.label // null), login: (.login // null),
                           delta_label: (.delta_label // null), source: "review"})
+     elif ($rev.user.login | endswith("[bot]"))
+     then {trigger: "unknown", label: null, login: null, source: "fallback"}
      else {trigger: "review-request", label: null, login: $rev.user.login, source: "fallback"} end) as $rr
   | ([ $rs[].user.login ] | unique) as $authors
+  | ([ $rs[] | {login: .user.login, marker} ] | unique) as $reviewers
+  | ($rev.user.login | endswith("[bot]")) as $app
   | {outcome: "ok", repo: $repo, pr: $n,
-     review: {id: $rev.id, author: $rev.user.login, state: $rev.state, submitted_at: $rev.submitted_at,
+     review: {id: $rev.id, author: $rev.user.login, marker: $rev.marker, state: $rev.state, submitted_at: $rev.submitted_at,
               commit_id: $rev.commit_id, html_url: $rev.html_url, has_meta: ($m != null)},
-     rounds: ($rs | length), authors: $authors,
-     author_check: (if ($authors | length) > 1 then "multiple" else "ok" end),
+     rounds: ($rs | length), authors: $authors, reviewers: $reviewers,
+     author_check: (if ($reviewers | length) > 1 then "multiple" else "ok" end),
      head: {sha: $p.head.sha, ref: $p.head.ref, base: $p.base.ref},
      branch_moved: ($p.head.sha != $rev.commit_id),
      pr_body: ($p.body // ""),
@@ -215,8 +234,11 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
      checks_unmatched: $unmatched, rules: $rules, rereview: $rr,
      inline: [ $inline[] | select(type == "object") | {path, line: (.line // .original_line), body} ],
      sections: sections($rev.body),
-     comments: [ $cmts[] | select(type == "object") | select(.user.login != $rev.user.login)
-                 | {author: .user.login, created_at, body: ((.body // "")[0:1200])} ] | .[-15:]}' \
+     comments: [ $cmts[] | select(type == "object")
+                 | (.user.login == $rev.user.login) as $same
+                 | select(($same | not) or ($app and ($rev.marker == null
+                            or ((.body // "") | contains("<!-- " + $rev.marker) | not))))
+                 | {author: .user.login, created_at, body: ((.body // "")[0:1200]), same_login: $same} ] | .[-15:]}' \
   > "$T/wl.json" || err "the worklist could not be assembled"
 [ "$VERIFY" = "true" ] || { cat "$T/wl.json"; exit 0; }
 cmd_verify "$T/wl.json"
