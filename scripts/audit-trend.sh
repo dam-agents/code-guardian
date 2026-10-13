@@ -772,6 +772,7 @@ DAYS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_
 
 LATEST="$(printf '%s' "$DERIVED" | jq -r '(last // {}) | .week // "no weeks yet"')"
 PRICED="$(printf '%s' "$PRICES" | jq 'length')"
+BOT_H="$(cfg bot_display_name)"; BOT_H="$(printf '%s' "${BOT_H:-Code Guardian}" | jq -Rr '@html')"
 
 cat <<EOF
 <!doctype html>
@@ -835,7 +836,7 @@ tr:hover td{background:color-mix(in srgb,var(--seq) 8%,transparent)}
 .d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
 td.dash{color:var(--ink-muted)}
 </style>
-<h1>Code review agent — weekly trends</h1>
+<h1>${BOT_H} — weekly trends</h1>
 <p class="meta">Latest week: ${LATEST} · ${WEEKS} week(s) on record · ${PRICED}
 price row(s) loaded. One row per ISO week, appended by the weekly audit; rows
 marked <b>backfill</b> were reconstructed from the review history and carry

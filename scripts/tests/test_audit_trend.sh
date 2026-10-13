@@ -147,6 +147,10 @@ OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$W
 assert_out_contains 'Spend per week (actual)' 'the report carries the actual-spend summary row'
 assert_out_contains '<th class="n" title="Actual spend' 'the report table carries the actual-spend column'
 assert_out_contains '<td class="n">0.08' 'the week row carries the attributed actual'
+assert_out_contains '<h1>Code Guardian — weekly trends</h1>' 'the heading carries the default display name'
+printf -- '- bot_display_name: Acme <Bot>\n' >> "$WORK/CONFIG.md"
+OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
+assert_out_contains '<h1>Acme &lt;Bot&gt; — weekly trends</h1>' 'the heading carries the configured display name, escaped'
 
 # --- wake-ups by work reach the index, TRENDS.md and the report --------------
 new_case trend_wakeups
