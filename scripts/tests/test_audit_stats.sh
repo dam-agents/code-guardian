@@ -515,7 +515,7 @@ assert_jq '.stats.tokens.by_model.unknown.runs == 1 and .stats.tokens.by_model["
 assert_jq '.stats.stalls.wasted_output_tokens == 300' 'a stalled run wastes its last cumulative output, not the sum'
 
 # --- classifier refusals and API failures: the week's account ----------------
-# docs/monitor.md → In the weekly audit: what the classifier refused, and the
+# docs/audit.md task 38: what the classifier refused, and the
 # outages (failures under 60 min apart; agent-side classes left out)
 new_case audit_guard_week
 base_config '- model_alert_threshold: off'
@@ -564,6 +564,20 @@ printf '%s PR #57 9c1e2a0 failed to post: 422\n%s review post failed: 0f3e2a1 is
 run_preflight audit
 assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
   'a hex token next to a failure word is not a zero count'
+# the pod has no awk: the lines are matched without it
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines"))' \
+  'the error lines are matched without awk'
+
+# --- the review worklist echoes the monitor's anomaly factor, read without awk ---
+new_case review_config_anomaly_factor
+base_config '- review_anomaly_factor: 2.5'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_preflight review
+assert_jq '.config.review_anomaly_factor == 2.5' 'a configured factor is echoed without awk'
+assert_jq '.logs | any(contains("review_anomaly_factor")) | not' 'and read as a valid value'
 
 # --- wake-ups: the preflight and monitor passes that found work, by kind -----
 new_case audit_wakeups
@@ -619,6 +633,21 @@ unread="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_wo
   "$WORK"/logs/events-*.jsonl 2>/dev/null)" || unread="(the query failed)"
 [ -z "$unread" ] && printf 'ok   %s: every kind a heartbeat writes is a kind the audit reads\n' "$CASE" \
   || { printf 'FAIL %s: heartbeat kinds the audit ignores: %s\n' "$CASE" "$unread"; FAILED=1; }
+
+# --- a week whose sessions pass the argv limit still yields the audit -----------
+# one argv entry is capped at MAX_ARG_STRLEN (128 KiB): with the sessions passed
+# by --argjson, jq died and the audit printed no JSON at all
+new_case audit_sessions_past_argv_limit
+base_config '- review_model: claude-opus-5'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+jq -nc --arg t "$(iso_ago 3600)" 'range(1500) | {ts:$t, run:("s" + tostring), job:"review", level:"info", event:"tokens",
+     msg:"input=10 output=2000 cache_read=500 cache_creation=30 msgs=20 model=claude-opus-5 subagents=0 secs=420"}' \
+  >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+run_preflight audit
+assert_jq '.mode == "audit" and (.stats.sessions | length == 1500)' 'the audit JSON carries every session'
+assert_jq '(.stats | tostring | length) > 131072' 'the stats pass the single-argument limit'
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok"' 'the model check reads the sessions too'
 
 # --- reaction feedback: 👍/👎 on the bot's comments ----------------------------
 new_case audit_reactions
@@ -1055,6 +1084,33 @@ week_ledger 11 1
 run_preflight audit
 assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "ok" and (.detail | test("no earlier week on record"))' 'without trend history the check waits for it'
 
+# the trend index grows by one row per recorded week: with the rows passed by
+# --argjson, jq died past MAX_ARG_STRLEN (128 KiB) and every shift check warned
+# "trend history unreadable"
+new_case audit_shift_long_history
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/audit/weeks"
+for y in 2019 2020; do
+  for w in $(seq -w 1 26); do
+    jq -n --arg w "$y-W$w" \
+      '{ts:"2020-01-01T00:00:00Z", week:$w, source:"audit", definition_version:"9.1.0",
+        stats:{reviews:{total:15, first:10, re_review:5, approve:6, comment:9, request_changes:0, defs:["9.1.0"]},
+               sessions:[range(7) as $d | {day:"2020-01-0\($d + 1)", job:"review", min:5, model:"claude-opus-5",
+                         input:10, output:2000, cache_read:500, cache_creation:30, reviews:1}]},
+        checks:{ok:1, warn:0, fail:0}, extras:{}}' > "$WORK/audit/weeks/${y}W$w.json"
+  done
+done
+week_ledger 11 1
+run_preflight audit
+rows_bytes="$(TREND_CONFIG="$WORK/CONFIG.md" bash "$REPO_ROOT/scripts/audit-trend.sh" index "$WORK/audit" 2>/dev/null | wc -c | tr -d ' ')"
+[ "${rows_bytes:-0}" -gt 131072 ] && printf 'ok   %s: the trend rows pass the single-argument limit (%s bytes)\n' "$CASE" "$rows_bytes" \
+  || { printf 'FAIL %s: the trend rows stay under 128 KiB (%s bytes) — the case tests nothing\n' "$CASE" "$rows_bytes"; FAILED=1; }
+assert_jq '.checks[] | select(.id == "verdict_shift") | .status == "warn" and (.detail | test("vs 40% of 60 in 2020-W23…2020-W26"))' \
+  'the verdict check reads a history past the argument limit'
+assert_jq '[.checks[] | select(.id | IN("verdict_shift", "findings_shift", "late_shift")) | .detail | select(test("unreadable"))] | length == 0' \
+  'no shift check reports the history unreadable'
+
 # --- session records for the trend's run figures (docs/trends.md → Runs) -------
 new_case audit_sessions
 base_config
@@ -1304,5 +1360,25 @@ OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
        PATH="$SANDBOX/ghcut:$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" audit)"
 assert_jq '.stats.overruled | .scanned == 0 and .unread == ["3"]' \
   'a REST call that prints page 1 and then fails leaves the PR unread'
+
+
+# --- mention ledger retention: a description row outlives the 14 days --------
+# an open PR's description is scanned at any age, so its `body-<n>` row stays
+# until the PR's prune; a comment row older than 14 days is dropped
+new_case audit_mentions_trim
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '| comment_id | number | handled_at | action |\n'
+  printf '| 101 | 1 | %s | answer |\n' "$(iso_ago 1728000)"
+  printf '| body-1 | 1 | %s | answer |\n' "$(iso_ago 1728000)"
+  printf '| 102 | 1 | %s | answer |\n' "$(iso_ago 3600)"
+} > "$WORK/MENTIONS.md"
+run_preflight audit
+assert_jq '.mode == "audit"' 'audit ran'
+OUT="$(cat "$WORK/MENTIONS.md")"
+assert_out_absent '^\| 101 \|' 'an old comment row is trimmed'
+assert_out_contains '^| body-1 |' 'an old description row stays'
+assert_out_contains '^| 102 |' 'a fresh row stays'
 
 finish

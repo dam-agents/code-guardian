@@ -36,9 +36,10 @@ tagged with their source (`[from user]`, `[from PR comments]`,
 **Capture is mandatory.** Every **explicit** correction, dismissal or
 preference about the agent's reviews — whatever the source — gets its memory
 write in the same run it arrives, and the acknowledgement names the stored
-rule. Every review run reads these entries before reviewing. The judgment calls
-below (in-doubt dispute resolutions, observed insights) keep their own
-thresholds; this rule is about feedback stated outright.
+rule — except a PR-specific dismissal on a closed PR
+([mentions.md](mentions.md) → **Boundaries**). The judgment calls below
+(in-doubt dispute resolutions, observed insights) keep their own thresholds;
+this rule is about feedback stated outright.
 
 ## Route feedback by scope
 
@@ -57,9 +58,7 @@ thresholds; this rule is about feedback stated outright.
   42 is intentional") → that PR's **`reviews/pr-<n>.md`** under
   `## PR-local overrides`.
 
-Never cross-contaminate: a PR-specific dismissal in MEMORY.md suppresses valid
-findings on unrelated PRs, and area knowledge there is paid for on every review
-of every other area.
+Never cross-contaminate: no PR-specific dismissal or area rule in MEMORY.md.
 
 Writing: read the current file, add or update under the right heading without
 duplicates, write, and confirm to the user what you learned — for an override,
@@ -148,11 +147,11 @@ must not be "repaired". Separate from MEMORY.md, which holds review
 
 ## Weekly memory consolidation (audit run)
 
-Keep the distilled layer **useful and bounded forever**, so the agent keeps
-improving without the files every run reads growing. **Mandatory whenever the audit's `memory_budget`
-check is `warn` or `fail`** — any distilled file past a step-6 bound, or an
-area file without `scope:` or `paths:`; optional otherwise. The pass never
-deletes knowledge from the archive: what leaves the distilled layer moves there.
+Keep the distilled layer **useful and bounded**. **Mandatory whenever the
+audit's `memory_budget` check is `warn` or `fail`** — any distilled file past
+a step-6 bound, or an area file without `scope:` or `paths:`; optional
+otherwise. The pass never deletes knowledge from the archive: what leaves the
+distilled layer moves there.
 
 0. **Archive** — an area file without `scope:` or `paths:` moves whole to
    `work/memory/archive/<topic>.md`, and a MEMORY.md pointer to it follows. A
@@ -184,5 +183,5 @@ deletes knowledge from the archive: what leaves the distilled layer moves there.
    false` is inside every bound. Still over → the report's *Action needed*
    names what remains and why.
 7. Report the delta as one line
-   (`memory: archived A · distilled W · merged X · promoted Y · dropped Z`); all zeros →
-   `memory: no consolidation needed`.
+   (`memory: archived A · distilled W · merged X · promoted Y · dropped Z`);
+   all zeros → `memory: no consolidation needed`.

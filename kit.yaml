@@ -1,7 +1,5 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/dam-agents/dam-starter-kits/main/kit.schema.json
-# The starter kit this definition is offered as. It lives here, beside the
-# definition it describes, so a change to the agent and a change to the kit
-# offering it are the same commit.
+# The starter kit this definition is offered as, versioned with it.
 schemaVersion: v1
 id: code-guardian
 name: Code Reviewer
@@ -39,27 +37,26 @@ connections:
       not as the account that opens the pull requests it reviews.
   - accepts: [slack]
     note: >-
-      Used by the shepherd sweep, which is created disabled. Turn it on under
-      Schedules once Slack is connected. The weekly audit runs without it and
-      posts its report to Slack only when Slack is connected. The monitor can
-      also send its health alerts as a direct message to the escalation owner.
+      Used by the shepherd sweep, which is created disabled: once Slack is
+      connected, ask the agent to enable Slack notifications, and it builds
+      the reviewer roster and turns the sweep on. The weekly audit runs
+      without it and posts its report to Slack only when notifications are
+      enabled. The monitor can also send its health alerts as a direct
+      message to the escalation owner.
 channels:
   - type: slack
     note: >-
-      Where reviewer nudges and the weekly audit report land once Slack is
-      connected. Skip it to keep everything in chat.
+      Where reviewer nudges and the weekly audit report land once Slack
+      notifications are enabled. Skip it to keep everything in chat.
 # The set ONBOARDING.md Step 6 registers, at its default cadence: names, crons,
-# `precheck` commands and `task` texts are Step 6's, their single source of truth
-# (docs/self-modification.md §3), so a change there is a change here and an
-# onboarding run finds these names already present and creates nothing twice.
-# `precheck` is the schedule gate (docs/worklist.md → The schedule gate): a fire
-# with no work costs no model call. A platform that does not carry the field
-# leaves the runs correct but ungated, and every idle tick pays for a session.
-# The crons hold the platform's own time. An instance's cadence, hours and days
-# are its own (`work/CONFIG.md`), and Step 6 registers them for that instance.
-# The kit schema has no `model` or `sessionTitle` field yet, so these schedules
-# start on the platform's default model and untitled; Step 6 re-registers each
-# with `review_model` and its title. Once the schema carries the fields, declare
+# `precheck` commands and `task` texts are Step 6's, their single source of
+# truth (docs/self-modification.md §3), so an onboarding run finds these names
+# already present and creates nothing twice. `precheck` is the schedule gate
+# (docs/worklist.md → The schedule gate). The crons hold the platform's own
+# time; an instance's cadence is its own (`work/CONFIG.md`), and Step 6
+# registers it for that instance. The kit schema has no `model` or
+# `sessionTitle` field yet, so Step 6 re-registers each schedule with
+# `review_model` and its title; once the schema carries the fields, declare
 # them here and drop this note.
 schedules:
   # Review heartbeat (Step 6a) — every 5 minutes, around the clock. An
@@ -95,9 +92,9 @@ schedules:
       in nudges_due to the shared Slack channel (roster-only mentions), apply
       each sent nudge's row_update to the ledger immediately after its send
       (send-then-record), and back up work/ (`scripts/work-backup.sh persist`).
-  # Weekly audit (Step 6c) — every instance gets it: ungated, because its
-  # worklist carries work whenever audit_report is enabled, and Slack-independent, because the report
-  # falls back to the chat UI (docs/config.md → audit_report).
+  # Weekly audit (Step 6c) — every instance gets it, ungated: its worklist
+  # carries work whenever audit_report is enabled, and the report falls back
+  # to the chat UI without Slack.
   - name: code-guardian-audit-weekly
     cron: "0 7 * * 5"
     sessionMode: fresh

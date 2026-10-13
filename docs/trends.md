@@ -3,12 +3,10 @@
 Read this file on the audit's trend step, or when the operator asks about the
 trend artifact.
 
-The weekly audit already measures the agent; this artifact **keeps** those
-numbers. Every audit appends one week of measured facts, and the report renders
-the whole history — a summary of the latest week against the previous one and
-against the 4-week average, inline charts, and one table row per week — so a
-regression or an improvement is visible in time. It costs two script calls per
-audit: no model calls, and no API call beyond the publish.
+Every audit appends one week of measured facts, and the report renders the
+whole history — the latest week against the previous one and against the
+4-week average, inline charts, one table row per week. Two script calls per
+audit, no API call beyond the publish.
 
 ## Layout (`work/audit/`)
 
@@ -22,8 +20,7 @@ report.html                  # the accumulated report, regenerated every audit
 
 `weeks/*.json` is the record and is **append-only**: a file is written once and
 never edited or deleted. `TRENDS.md` and `report.html` are **derived views**,
-regenerated from those files on every append, so a new column or an updated
-price table reaches every past week.
+regenerated from those files on every append.
 
 One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
 of the same week in both views; both files stay on disk.
@@ -35,8 +32,8 @@ of the same week in both views; both files stay on disk.
    "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 34
    total>}`. `model` is the model the week's runs actually ran on — task 27's
    busiest `byModel` entry, falling back to this session's own id when
-   telemetry is unavailable; it also prices token events recorded as `unknown`.
-   Omit a key you did not measure; never write a placeholder number.
+   telemetry is unavailable (**Cost**). Omit a key you did not measure; never
+   write a placeholder number.
 2. **Append** — `bash "$HOME/scripts/audit-trend.sh" append "$HOME/work/audit" <extras file>`.
    It reads `last-worklist.json`, writes the week file, regenerates `TRENDS.md`
    and prints the week-over-week delta line plus the resolved surface.
@@ -69,19 +66,19 @@ write, and it never touches state outside `work/audit/`.
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts, the fullest volume (space, inodes), the size of `work/` | `stats.stalls`, `stats.log_events`, `checks[]`, `stats.disk` |
 | Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
 
-A metric the week did not measure renders `—`. Zero is written only where zero
-was measured. Volume and quality are counted from the review ledger
+A metric the week did not measure — a week recorded before the metric
+existed included — renders `—`; zero is written only where zero was measured.
+Volume and quality are counted from the review ledger
 ([review-mechanics.md](review-mechanics.md) → **Review ledger**); the project
-group is counted from
-that ledger, `work/PR-EVENTS.jsonl` and one list call of merged PRs. Every week
-recorded before a metric existed renders `—` for it — the week files are
-append-only, so history is never back-filled with a number nobody measured.
+group from that ledger, `work/PR-EVENTS.jsonl` and one list call of merged
+PRs.
 
 ## Runs
 
 `stats.sessions` keeps one record per finished session of the week — `{day,
 job, min, model, input, output, cache_read, cache_creation, reviews}`, from the
-session's `tokens` event and its own events ([logging.md](logging.md)). `min`
+session's `tokens` event and its own events ([logging.md](logging.md)). `job`
+is the run's most common `job` other than `session`, else `session`; `min`
 is the transcript's wall time (`secs=`), else the span of the run's events;
 `reviews` counts the PRs it posted. The records stay raw, so every run figure
 and the per-day table derive at render time and reprice with the table. A
@@ -97,12 +94,9 @@ averages of shares.
 
 ## Cost
 
-Spend is a **token estimate**, priced by the operator-maintained
-`## Benchmark model prices` table — the one table both reports read
-([benchmark.md](benchmark.md) → **Model prices**), through
-`scripts/lib/prices.sh`. Pricing happens at render time, so the whole history
-reprices when the table changes and a cost delta reflects usage, not a price
-move.
+Spend is a **token estimate**, priced at render time by the
+`## Benchmark model prices` table ([benchmark.md](benchmark.md) → **Model
+prices**) through `scripts/lib/prices.sh`.
 
 Tokens are priced per recorded model: the `tokens` event carries the model that
 produced the session's messages, and `stats.tokens.by_model` splits the week by
@@ -111,11 +105,9 @@ is marked `≥` — a floor, never a guess. Events written before the model was
 recorded arrive as `unknown` and are priced with the extras' model.
 
 `actual_cost_usd` is the platform's own attributed spend for the week
-([audit.md](audit.md) → task 27), rendered beside the estimate. The two answer
-different questions: the estimate reprices across the **whole** history when the
-table changes, and the actual figure is ground truth for the weeks telemetry
-still retains — so a week before that window, or on a deployment without
-telemetry, renders `—`, never a zero.
+([audit.md](audit.md) → task 27), rendered beside the estimate. A week the
+telemetry no longer retains, or a deployment without telemetry, renders `—`,
+never a zero.
 
 ## Backfill (one-time, operator ask)
 
@@ -123,12 +115,11 @@ telemetry, renders `—`, never a zero.
 "$HOME/work/reviews"` reconstructs the weeks the review record covers: review
 and verdict counts, raised findings by severity, and the acceptance bullets. It
 reads the ledger and the history files through `scripts/lib/review-records.sh`,
-which parses each `findings-json` as the one line
-[review-mechanics.md](review-mechanics.md) → **Summary body format** writes, so
-that shape and this parser change together. Everything measured from the event
-log (time, tokens, cost, heartbeats, wake-ups, stalls) has a 14-day retention
-and stays absent. A week already on record is never overwritten, so the command
-is safe to repeat.
+which parses each `findings-json` as
+[review-mechanics.md](review-mechanics.md) → **Summary body format** writes it.
+Everything measured from the event log (time, tokens, cost, heartbeats,
+wake-ups, stalls) stays absent. A week already on record is never overwritten,
+so the command is safe to repeat.
 
 ## Reading it
 

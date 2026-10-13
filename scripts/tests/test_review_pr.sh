@@ -124,6 +124,13 @@ assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'jq. and .gh. do not' \
 grep -q '{{TOOL_PATHS}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
   && { printf 'FAIL %s: TOOL_PATHS left unrendered\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the tool-path line is rendered\n' "$CASE"
+# the severity rubric comes from its home in docs/finding-form.md
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🔴 \*\*Critical\*\* — a reachable path gives a wrong result' \
+  'the brief quotes the severity rubric'
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🟢 \*\*Suggestion\*\* — an improvement' 'the rubric is quoted whole'
+grep -q 'Blocking severity\|{{SEVERITY}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
+  && { printf 'FAIL %s: the rubric quote overran or stayed unrendered\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the rubric quote stops at the list\n' "$CASE"
 
 # --- step: heartbeat + event ---------------------------------------------------
 run_rp step 1 "fanned out (n=2)"
@@ -144,7 +151,7 @@ assert_out_contains '^# src/alpha.ts:1 — lines ' 'context leads with its text 
 run_rp sweep 1 'query\(\)'
 assert_jq '.changed_files_hits | length == 2' 'sweep finds both changed-file occurrences'
 assert_jq '.untouched_code_hits == 0' 'no untouched occurrences'
-# --tree is the claim sweep (docs/review.md → Sibling sweep): a stale statement
+# --tree is the claim sweep (docs/review.md → Claim sweep): a stale statement
 # sits outside the diff, so the changed-file scope reports it as a bare count and
 # only --tree can name it.
 run_rp sweep 1 'export const'
@@ -260,6 +267,31 @@ pr_fx open '["cg-rereview"]'
 run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == true' 'label-triggered re-review is complete scope'
 run_rp abort 1 "reset"
+
+# --- the PR hold: prepare takes it, and leaves a PR another live run holds -----
+setup prepare_hold
+hold_owner() { sed -n 2p "$WORK/.holds.lock/1" 2>/dev/null; }
+mkdir -p "$WORK/.holds.lock"
+printf '%s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" other-run > "$WORK/.holds.lock/1"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "stand_down" and (.reason | contains("another run holds this PR"))' 'an on-demand review leaves a PR another run holds'
+[ "$(hold_owner)" = other-run ] && printf 'ok   %s: %s\n' "$CASE" 'the other run keeps its hold' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+[ -f "$WORK/REVIEWS.md" ] && grep -q '^| 1 |' "$WORK/REVIEWS.md" \
+  && { printf 'FAIL %s: a lock row was written\n' "$CASE"; FAILED=1; } || printf 'ok   %s: %s\n' "$CASE" 'no lock row is written'
+rm -f "$WORK/.holds.lock/1"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "ready"' 'a free PR is prepared'
+[ "$(hold_owner)" = "$SESSION" ] && printf 'ok   %s: %s\n' "$CASE" 'prepare takes the hold for its run' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+run_rp abort 1 "reset"
+run_rp release 1
+mkdir -p "$(PR_DIR)"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "stand_down"' 'a live holder still stands the run down'
+[ -z "$(hold_owner)" ] && printf 'ok   %s: %s\n' "$CASE" 'the hold it took is given back' \
+  || { printf 'FAIL %s: hold owner %s\n' "$CASE" "$(hold_owner)"; FAILED=1; }
+rm -rf "$(PR_DIR)"
 
 # --- live holder: a fresh tree stands down, a dead run's leftover is reclaimed ----
 setup prepare_holder
@@ -868,6 +900,27 @@ printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "duplicate"' 'duplicate detected before posting'
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | 2026-09-02T10:00:00Z | SEE-GITHUB | done |" 'row self-healed with the GitHub timestamp'
+
+# --- post: the marker past the first 100 reviews is still found -------------------
+setup post_duplicate_second_page
+run_rp prepare 1
+jq -n '[range(100) | {id: ., state: "COMMENTED", user: {login: "bob"}, submitted_at: "2026-09-01T10:00:00Z", body: "lgtm"}]' \
+  | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+printf '[{"id":105,"state":"COMMENTED","user":{"login":"test-bot"},"submitted_at":"2026-09-02T10:00:00Z","body":"old <!-- cg:review headRefOid=%s -->"}]' "$B1_SHA" \
+  | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100&page=2'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "duplicate"' 'the marker on page 2 is a duplicate'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" && { printf 'FAIL %s: a review was posted\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing posted\n' "$CASE"
+
+# --- a row written with padded cells is rewritten in place, never duplicated ------
+setup row_padded
+printf '|  1  | 0000000000000000000000000000000000000000 | %s | COMMENT | awaiting_label |\n' "$(iso_ago 7200)" >> "$WORK/REVIEWS.md"
+run_rp prepare 1
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | - | in_progress |" 'the lock replaces the padded row'
+[ "$(grep -cE '^\| *1 *\|' "$WORK/REVIEWS.md")" = 1 ] && printf 'ok   %s: one row for the PR\n' "$CASE" \
+  || { printf 'FAIL %s: %s rows for the PR\n' "$CASE" "$(grep -cE '^\| *1 *\|' "$WORK/REVIEWS.md")"; FAILED=1; }
+run_rp abort 1 "reset"
 
 # --- post: the dedup check unreadable after its retry → abort, lock released -------
 setup post_dedup_unreadable

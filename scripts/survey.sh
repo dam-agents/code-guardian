@@ -6,7 +6,8 @@
 # preflight chooses the area, the agent reads the files this script lists.
 #
 #   prepare <work-dir> <slug>            clone the default branch, list the
-#                                        area's reviewable files under the caps
+#                                        area's reviewable files under the caps,
+#                                        after the file the last pass stopped at
 #   record  <work-dir> <slug> <findings> append the pass to the area's file and
 #                                        update the ledger row
 #   report  <work-dir>                   the accumulated HTML, on stdout
@@ -40,6 +41,9 @@ MAX_LINES=6000
 
 out()  { printf '%s\n' "$1"; exit 0; }
 fail() { out "$(jq -nc --arg e "$1" --arg c "$CMD" '{outcome:"error", step:$c, error:$e}')"; }
+# lines of a file, 0 when empty or unreadable (`grep -c` prints 0 and exits 1
+# on an empty file)
+nlines() { local n; n="$(grep -c '' "$1" 2>/dev/null)"; printf '%s' "${n:-0}"; }
 
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
@@ -81,7 +85,7 @@ if [ "$CMD" = "prepare" ]; then
   [ -n "$path" ] || fail "area '$SLUG' is in neither the ledger nor the profile"
 
   CLONE="$TMP_ROOT/survey-$SLUG"
-  rm -rf "$CLONE" 2>/dev/null
+  rm -rf "$CLONE" "$TMP_ROOT/survey-$SLUG.keep" 2>/dev/null   # a crashed pass leaves no stale list
   url="${CG_SURVEY_CLONE_URL:-}"
   if [ -z "$url" ]; then
     [ -n "$REPO" ] || fail "no target repo resolved"
@@ -119,27 +123,39 @@ if [ "$CMD" = "prepare" ]; then
     printf '%s\n' "$rel" >> "$LIST"
   done < <(find "$AREA" -type f 2>/dev/null | sort)
 
-  total="$(grep -c '' "$LIST" 2>/dev/null || printf 0)"
+  total="$(nlines "$LIST")"
   [ "$total" -gt 0 ] || out "$(jq -nc --arg s "$SLUG" --arg p "$path" \
     '{outcome:"empty", slug:$s, path:$p, reason:"no reviewable file in the area"}')"
+
+  # Resume after the file the last pass stopped at (its pass-json `last`). The
+  # list is sorted, so "after" is a byte-order comparison and survives files
+  # added or removed since; with no file after it, the cycle starts again.
+  AFTER="$(marker_payload pass-json < "$SDIR/$SLUG.md" 2>/dev/null | jq -r '.last // empty' 2>/dev/null)"
+  PASS_LIST="$TMP_ROOT/survey-$SLUG.pass"; : > "$PASS_LIST"
+  if [ -n "$AFTER" ]; then
+    while IFS= read -r rel; do [[ "$rel" > "$AFTER" ]] && printf '%s\n' "$rel"; done < "$LIST" > "$PASS_LIST"
+  fi
+  if [ -s "$PASS_LIST" ]; then mv "$PASS_LIST" "$LIST"; else AFTER=""; rm -f "$PASS_LIST"; fi
+  left="$(nlines "$LIST")"
 
   # fill the pass up to both caps — whichever binds first stops it
   KEEP="$TMP_ROOT/survey-$SLUG.keep"; : > "$KEEP"
   n=0; lines=0
   while IFS= read -r rel; do
     [ "$n" -lt "$MAX_FILES" ] || break
-    l="$(grep -c '' "$CLONE/$rel" 2>/dev/null || printf 0)"
+    l="$(nlines "$CLONE/$rel")"
     [ "$lines" -gt 0 ] && [ $((lines + l)) -gt "$MAX_LINES" ] && break
     printf '%s\n' "$rel" >> "$KEEP"
     n=$((n + 1)); lines=$((lines + l))
   done < "$LIST"
 
   FILES_JSON="$(jq -R . < "$KEEP" | jq -sc .)"
-  REMAINDER=$((total - n))
+  REMAINDER=$((left - n))
   out "$(jq -nc --arg s "$SLUG" --arg p "$path" --arg root "$CLONE" --arg sha "$SHA" \
-    --argjson f "$FILES_JSON" --argjson n "$n" --argjson l "$lines" \
+    --argjson f "$FILES_JSON" --argjson n "$n" --argjson l "$lines" --arg after "$AFTER" \
     --argjson rem "$REMAINDER" --argjson mf "$MAX_FILES" --argjson ml "$MAX_LINES" \
     '{outcome:"ready", slug:$s, path:$p, root:$root, sha:$sha, files:$f,
+      after:(if $after == "" then null else $after end),
       counted:{files:$n, lines:$l}, caps:{files:$mf, lines:$ml},
       truncated:($rem > 0), remainder:$rem}')"
 fi
@@ -161,10 +177,12 @@ if [ "$CMD" = "record" ]; then
   s="$(jq '[.[] | select(.severity == "suggestion")] | length' "$FINDINGS")"
   total=$((c + w + s))
 
-  # the commit the pass read and the files it covered, while the clone is still here
+  # the commit the pass read, the files it covered and the last of them (where
+  # the next pass resumes), while the clone is still here
   CLONE="$TMP_ROOT/survey-$SLUG"
   SHA="$(git -C "$CLONE" rev-parse HEAD 2>/dev/null || true)"
-  nfiles="$(grep -c '' "$TMP_ROOT/survey-$SLUG.keep" 2>/dev/null || printf 0)"
+  nfiles="$(nlines "$TMP_ROOT/survey-$SLUG.keep")"
+  last="$(tail -n 1 "$TMP_ROOT/survey-$SLUG.keep" 2>/dev/null)"
 
   F="$SDIR/$SLUG.md"
   [ -f "$F" ] || printf '# Survey — %s\n' "$path" > "$F"
@@ -174,13 +192,14 @@ if [ "$CMD" = "record" ]; then
     # the second hyphen of each double hyphen goes in as the JSON escape \u002d:
     # no `-->` ends the comment early, and jq reads it back as a hyphen
     printf '\n<!-- findings-json: %s -->\n' "$(jq -c . "$FINDINGS" | sed 's/--/-\\u002d/g')"
-    printf '<!-- pass-json: %s -->\n' "$(jq -nc --arg sha "$SHA" --argjson n "$nfiles" '{sha:$sha, files:$n}')"
+    printf '<!-- pass-json: %s -->\n' "$(jq -nc --arg sha "$SHA" --argjson n "$nfiles" --arg last "$last" \
+      '{sha:$sha, files:$n, last:(if $last == "" then null else $last end)}' | sed 's/--/-\\u002d/g')"
   } >> "$F" 2>/dev/null || fail "could not append the pass to $F"
 
   # rewrite the row in place (rows are full of `|`, so sed gets another delimiter)
   new="| $SLUG | $path | $NOW_ISO | $passes | $total |"
   if [ -n "$row" ]; then
-    sed -E "s#^\| *$SLUG \|.*#$new#" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null && mv "$LEDGER.tmp" "$LEDGER"
+    sed -E "s#^\| *$SLUG *\|.*#$new#" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null && mv "$LEDGER.tmp" "$LEDGER"
   else
     printf '%s\n' "$new" >> "$LEDGER"
   fi
@@ -194,11 +213,8 @@ if [ "$CMD" = "report" ]; then
   ROWS="$(grep -E '^\| *[A-Za-z0-9_.-]+ *\|' "$LEDGER" 2>/dev/null \
     | grep -vE '^\| *(area|-+) *\|' \
     | while IFS='|' read -r _ slug path last passes findings _rest; do
-        jq -nc --arg s "$(printf '%s' "$slug" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg p "$(printf '%s' "$path" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg l "$(printf '%s' "$last" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg n "$(printf '%s' "$passes" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg f "$(printf '%s' "$findings" | sed -e 's/^ *//' -e 's/ *$//')" \
+        jq -nc --arg s "$(trim "$slug")" --arg p "$(trim "$path")" --arg l "$(trim "$last")" \
+               --arg n "$(trim "$passes")" --arg f "$(trim "$findings")" \
                '{slug:$s, path:$p, last:$l, passes:$n, findings:$f}'
       done | jq -sc 'sort_by(.last) | reverse')"
   ROWS="${ROWS:-[]}"

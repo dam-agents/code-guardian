@@ -9,8 +9,7 @@ Read when the worklist's `read_set` names this file: `selfheals_due`,
 Both run before the review loop, one log line each. A failed removal is logged,
 never fatal — preflight re-emits the entry.
 
-- **Self-heal** `{number, sha, ts, status}` → write the REVIEWS.md row
-  `| <number> | <sha> | <ts> | SEE-GITHUB | <status> |` with
+- **Self-heal** `{number, sha, ts, status}` → write the REVIEWS.md row with
   `review-pr.sh row <number> <sha> <ts> SEE-GITHUB <status>`. `ts` is the
   GitHub-reported timestamp; use the remote body's verdict when you have it.
   Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
@@ -28,7 +27,8 @@ never fatal — preflight re-emits the entry.
 ## Pruning (`prunes_due`)
 
 Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
-candidates are the REVIEWS.md rows and the PRs with step-2 files but no row.
+candidates are the REVIEWS.md rows and the PRs with step-2 files or a
+`work/MENTIONS.md` `body-<n>` row but no REVIEWS.md row.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
 `<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
@@ -41,7 +41,7 @@ deletes it.
    work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
    ([review-mechanics.md](review-mechanics.md) → **Review ledger**).
 3. Delete the PR's REVIEWS.md row (`review-pr.sh row <n> --delete`), and its
-   `work/SHEPHERD.md` row when present.
+   `work/SHEPHERD.md` row and `work/MENTIONS.md` `body-<n>` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
 ## Trigger removal
@@ -97,13 +97,11 @@ check of the commit ([ci-triage.md](ci-triage.md)).
 
 - `<eta>` is ` · usually ~<N> min` from `eta_seconds` — whole minutes, minimum
   1, omitted when the field is `null`.
-- **`description` is ASCII.** The statuses API rejects 4-byte UTF-8
-  (`Description doesn't accept 4-byte Unicode`), so severity words replace the
-  emoji here; the review body keeps them.
+- **`description` is ASCII**: severity words, no emoji — the statuses API
+  rejects 4-byte UTF-8.
 - Write on the SHA the review locked at Check 1.
-- Every terminal outcome is `success`, aborts included: `failure`/`error` would
-  make the agent a merge gate the moment someone made the context a required
-  check.
+- Every terminal outcome is `success`, aborts included, so the status never
+  gates a merge.
 - `review-pr.sh` writes each row at the step that owns it; the manual fallback
   runs `review-pr.sh progress` at the same step.
 - **Best-effort.** A failed write is logged (`progress_status`, warn) and
@@ -113,7 +111,6 @@ check of the commit ([ci-triage.md](ci-triage.md)).
 with the status left `pending` (`reason: draft`). Write the terminal row above,
 then **delete the PR's REVIEWS.md row** (`review-pr.sh row <n> --delete`); the
 `reviews/pr-<n>.md` history stays.
-The missing row is what stops the reset repeating.
 
 ## Self-check
 

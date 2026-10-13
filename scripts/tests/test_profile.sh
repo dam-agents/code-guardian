@@ -222,6 +222,16 @@ run_profile check
 assert_jq '.status == "disabled"' 'disabled key short-circuits'
 [ -f "$WORK/PROFILE.json" ] && { printf 'FAIL %s: profile written despite disabled\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing written\n' "$CASE"
 
+# --- disabled after a profile was built: the slice ignores the leftover file ---
+new_case profile_disabled_leftover
+base_config; mk_fixture
+run_profile check
+assert_jq '.status == "regenerated" or .status == "current"' 'a profile exists before the switch'
+printf -- '- project_profile: disabled\n' >> "$WORK/CONFIG.md"
+printf '[{"filename":"packages/a/src/query.ts","status":"modified"},{"filename":"pnpm-lock.yaml"}]\n' > "$SANDBOX/files.json"
+run_profile slice "$SANDBOX/files.json"
+assert_jq '.profile_slice == [] and .history_slice == [] and ([.files[].class] == ["code","lockfile"])' 'no rows from the leftover profile, built-in classes only'
+
 # --- remote unreachable: keep what exists, never fail the run ------------------
 new_case profile_unreachable
 base_config; mk_fixture
@@ -340,6 +350,19 @@ fx_fail "api --paginate repos/acme/widgets/pulls/1/files?per_page=100"
 run_preflight review
 assert_jq '.reviews_due[0].files == null and (.reviews_due[0] | has("skill_routing") | not)' 'no list → files null, no routing'
 assert_jq '.logs | any(contains("changed-file list unavailable"))' 'the fallback is logged'
+
+# --- a PR with 1000 changed files still yields the worklist -------------------
+# the slice, the routing and the due list carry every path: passed by
+# --argjson, one argument past MAX_ARG_STRLEN (128 KiB) killed jq, and the
+# review pass printed no JSON
+new_case preflight_files_past_argv_limit
+skills_config
+pr_json 1 "bulk PR" '[]' "$SHA1" | open_prs_fx
+files_fx 1 "$(jq -nc '[range(1000) as $i | {filename: "packages/component-library/src/components/widgets/item-\($i).ts", status: "modified"}]')"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'the review is due'
+assert_jq '.reviews_due[0] | (.files | length) == 1000 and (.skill_routing["typescript-engineering"] | length) == 1000' 'the entry carries every file and its routing'
+assert_jq '(.reviews_due | tostring | length) > 131072' 'the due list passes the single-argument limit'
 
 # --- memory budget: review log line + audit check -----------------------------
 new_case memory_budget

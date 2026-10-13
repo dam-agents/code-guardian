@@ -36,8 +36,9 @@ takes the operator.
   what still works.
 - Safe defaults: anything that contacts people or publishes content defaults to
   **off** (`slack_notifications: disabled`, `artifact_skill: none`,
-  `definition_issues: disabled`). Slack stays
-  strictly opt-in and never runs without the recorded `enabled`.
+  `definition_issues: disabled`); the weekly trend artifact
+  (`audit_trend: dam`) is the one exception. Slack stays strictly opt-in and
+  never runs without the recorded `enabled`.
 - `review_marker` semantics are immutable once used. No change may alter how
   the dedup marker is written or matched in a way that orphans past reviews.
 
@@ -110,10 +111,10 @@ takes the operator.
   monthly bill.
 - **A deterministic start decision belongs in the schedule's `precheck`, never
   in a session that ends immediately** ([worklist.md](worklist.md) → **The
-  schedule gate**). This is the preferred shape of every scheduled job: a new one
-  gets a gate unless its script cannot answer "nothing to do" — then the PR says
-  why, as the audit does. A gate stays well inside the platform's two-minute
-  limit, or the fire runs ungated and pays the detection twice.
+  schedule gate**). This is the preferred shape of every scheduled job: a new
+  one gets a gate unless its script cannot answer "nothing to do" — then the PR
+  says why, as the audit does. A gate stays well inside the platform's
+  two-minute limit, or the fire runs ungated and pays the detection twice.
 - **Prefer the cheapest design that meets the requirement.** Mechanical,
   deterministic work goes into a script, not into agent steps; procedures go
   into on-demand `docs/` files, not the core; repeated lookups get cached (like
@@ -200,13 +201,15 @@ image, the harness, an external service — instead of fixing it at its source:
   Desktop; a stopped Rancher Desktop is started), and on the host only when no
   engine answers or with `CG_TEST_DOCKER=0`. **Read the last line** —
   `ALL TESTS PASSED` is the only pass; a truncated run is not a pass. One
-  suite runs per host at a time: `run.sh` and
-  `docker.sh` wait for a run that holds the lock and name it on stderr.
-  `CG_TEST_JOBS=1` forces serial execution when a failure needs isolating.
-  Then a **read-only sanity run** of `scripts/preflight.sh` in both modes
-  against the live target repo. Output must be valid JSON and its decisions
-  must match observable reality. A behavior change in `preflight.sh` updates or
-  adds its test case in the same PR. A change to the gate also runs
+  suite runs per host at a time: `run.sh` and `docker.sh` wait for a run that
+  holds the lock and name it on stderr. `CG_TEST_JOBS=1` forces serial
+  execution when a failure needs isolating.
+  Then a **read-only sanity run** of `scripts/preflight.sh` in the `review` and
+  `shepherd` modes and every other mode the change touches
+  (`scripts/monitor.sh` for the monitor) against the live target repo. Output
+  must be valid JSON and its decisions must match observable reality. A
+  behavior change in `preflight.sh` updates or adds its test case in the same
+  PR. A change to the gate also runs
   `scripts/precheck.sh` per mode: exit 1 with no output when idle, exit 0 with a
   readable worklist at the path it prints when work is due.
 - **A GitHub list payload never travels in argv.** `--arg` / `--argjson` carry

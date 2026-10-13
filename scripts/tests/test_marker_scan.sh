@@ -74,4 +74,29 @@ assert_jq '.selfheals_due | length == 1 and .[0].sha == "aaaaaaaaaaaaaaaaaaaaaaa
   && printf 'ok   %s: %s\n' "$CASE" 'the reviews page is read once' \
   || { printf 'FAIL %s: reviews page read %s times\n' "$CASE" "$(grep -c 'pulls/7/reviews' "$SANDBOX/calls.log")"; FAILED=1; }
 
+# --- review: a full first page is followed to the marker on the next one -------
+# 100 reviews by others fill page 1; the bot's review sits on page 2
+others_page() { jq -n '[range(100) | {body: "lgtm", submitted_at: "2026-07-01T00:00:00Z", user: {login: "bob"}}]'; }
+new_case review_scan_second_page
+base_config
+pr_json 7 "long-discussed PR" '[]' "$SHA7" | open_prs_fx
+others_page | fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100'
+fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100&page=2' <<EOF
+[{"body":"LGTM\n\n<!-- cg:review headRefOid=$SHA7 -->","submitted_at":"$(iso_ago 3600)"}]
+EOF
+run_preflight review
+assert_jq '(.selfheals_due | length) == 1 and .selfheals_due[0].number == 7 and .selfheals_due[0].status == "done"' \
+  'marker on page 2 → self-heal due'
+assert_jq '.reviews_due | length == 0' 'no duplicate first review'
+
+# --- review: a page past the first that fails is unknown, never absent ---------
+new_case review_scan_second_page_fails
+base_config
+pr_json 7 "long-discussed PR" '[]' "$SHA7" | open_prs_fx
+others_page | fx 'api repos/acme/widgets/pulls/7/reviews?per_page=100'
+fx_fail 'api repos/acme/widgets/pulls/7/reviews?per_page=100&page=2'
+run_preflight review
+assert_jq '(.reviews_due | length) == 0 and (.selfheals_due | length) == 0' 'nothing decided on a list read in part'
+assert_jq '.logs | any(contains("deferred"))' 'deferral surfaced in the logs'
+
 finish

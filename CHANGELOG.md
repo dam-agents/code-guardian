@@ -22,6 +22,14 @@ requests the artifact). Recommend the keys that `triggers.missing` names. A yes
 writes the key and creates the label (ONBOARDING Step 4, items 6 and 7).
 The next preflight creates `work/GITHUB.json`; no schedule changes.
 
+## 9.1.3 — 2026-10-13
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 9.1.2 — 2026-10-13
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 9.1.1 — 2026-10-12
 
 **Upgrade:** Nothing — docs are re-read per run.

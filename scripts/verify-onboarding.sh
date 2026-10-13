@@ -142,7 +142,8 @@ if [ "${CLAUDECODE:-}" != "1" ]; then
 else
   SETTINGS="$HOME_DIR/.claude/settings.json"
   MISSING_HOOKS=""
-  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh guard-definition-issue.sh; do
+  for h in log-tool-event.sh log-session-tokens.sh log-review-step.sh enforce-review-completion.sh guard-definition-issue.sh \
+           log-permission-denied.sh log-api-failure.sh; do
     grep -q "$h" "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS $h"
   done
   grep -qF '[code-guardian]' "$SETTINGS" 2>/dev/null || MISSING_HOOKS="$MISSING_HOOKS automode-rules"
@@ -266,6 +267,7 @@ EOF
       fi
     fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
+    chk_enum survey_interval_days '[0-9]+' 'an integer of days'
     chk_enum benchmark 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
     chk_enum audit_report 'enabled|disabled' 'enabled | disabled'

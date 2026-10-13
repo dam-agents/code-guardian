@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # benchmark-validate.sh — deterministic gates for the benchmark
-# (docs/benchmark.md). Read-only; prints `ok`/`FAIL <id> — <detail>; fix: …`
+# (docs/benchmark.md). Read-only; prints `ok`/`FAIL <id>: <detail>; fix: …`
 # lines and exits non-zero when any check fails.
 #
 #   benchmark-validate.sh fixture <fixture-dir>...   # before a set is used

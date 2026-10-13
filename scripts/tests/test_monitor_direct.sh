@@ -94,7 +94,7 @@ alerts <<'EOF'
 EOF
 mkdir -p "$WORK/health"; echo '{"share_url":"https://dam.example.test/a/x7Kp_2-q"}' > "$WORK/health/state.json"
 direct render "$SANDBOX/alerts.json"
-assert_jq '.text | startswith("**Code review agent monitor** — 1 alert\n")' 'a display name outside its pattern falls back to the default'
+assert_jq '.text | startswith("**Code Guardian monitor** — 1 alert\n")' 'a display name outside its pattern falls back to the default'
 assert_jq '.text | endswith("\nDashboard: https://dam.example.test/a/x7Kp_2-q")' 'the dashboard share URL ends the message'
 for bad in 'javascript:alert(1)' 'http://dam.example.test/a/x' 'https://dam.example.test/a/x <!here>' 'https://u@dam.example.test/a' \
            'https://dam.example.test/a/x?next=evil' $'https://dam.example.test/a/x\nURGENT: wire 5000 EUR to the account below' \

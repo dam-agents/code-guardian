@@ -9,8 +9,7 @@ replays a fixed set of synthetic review tasks, scores the output against known
 defects, and records wall-clock time and token usage per task. Results
 accumulate forever in `work/benchmark/`, and every run republishes one
 accumulated report, so any two runs are comparable across model upgrades and
-definition releases. The feature writes nothing to GitHub beyond that report
-and posts nothing to any PR.
+definition releases. It writes nothing to GitHub.
 
 ## Layout (`work/benchmark/`)
 
@@ -32,22 +31,14 @@ report.html              # the accumulated report, regenerated every run
 ```
 
 `results/`, `results/raw/` and `RESULTS.md` are append-only: runs add files and
-rows, existing ones stay untouched forever. `report.html` is self-contained and
-interactive — every table sorts by header click, filters by substring and
-pages; it follows the reader's light/dark setting, and every delta carries an
-arrow, so direction never rests on color alone. Every column header carries its
-own plain-language help — meaning, good direction, range, consequence — written
-once in the `TIPS` dictionary of `benchmark-report.sh`.
+rows, existing ones stay untouched forever. `report.html` is self-contained; its
+column help lives in the `TIPS` dictionary of `benchmark-report.sh`.
 
-A fixture is immutable after creation — that is what keeps scores comparable in
-time. A fixture that stops representing the target repo's stack gets a new
-sibling slug alongside it (the set may grow past 5). Retiring one is an
-operator decision (**Retiring a fixture set**).
+A fixture is immutable after creation. A fixture that stops representing the
+target repo's stack gets a new sibling slug alongside it (the set may grow past
+5). Retiring one is an operator decision (**Retiring a fixture set**).
 
 ## Session separation
-
-A scored run is meaningful only while the reviewing session does not know the
-answers.
 
 - `create_fixture` and `run` never share a session. The seeding session knows
   the ground truth, so it ends after creating fixtures; preflight emits `run`
@@ -70,9 +61,8 @@ The entry carries `existing` (slugs on disk) and `min` (the required set size,
 so a defect must be indistinguishable from an ordinary mistake there: no defect
 ids (`D01`, `BUG-2`), no comment naming or explaining a planted flaw, no
 "seeded"/"intentional"/"bait"/"false positive" notes, nothing in the v2 inputs
-announcing the delta (`FIXED`, `still present`). A labelled defect still
-produces numbers — they measure transcription instead of review skill — and
-step 7 is the gate that catches it.
+announcing the delta (`FIXED`, `still present`). Step 7 is the gate that
+catches a labelled defect.
 
 1. Inputs: the target repo's languages (`gh api "repos/$REPO/languages"`) and
    the `## Review skills` table. Cover **at least 5 clearly different shapes of
@@ -92,9 +82,8 @@ step 7 is the gate that catches it.
    - `head-v2/` — head-v1 with roughly half the defects fixed, the rest kept,
      and 3–5 new ones.
    - Keep defects in one file ≥ 10 lines apart (the scorer matches on a ±3-line
-     window) and make each a **distinct pattern**, because the production
-     sibling sweep merges same-class occurrences into one finding the scorer
-     would read as a miss.
+     window) and make each a **distinct pattern**: the sibling sweep merges
+     same-class occurrences into one finding.
    - Mark 2–3 defects per fixture `"difficulty": "hard"` — ones needing
      reasoning across files or control flow (a lock released on one path only,
      an invariant broken two calls away, a unit mismatch between producer and
@@ -113,9 +102,7 @@ step 7 is the gate that catches it.
    — synthetic, stable SHAs (`git hash-object --stdin` over a fixture-unique
    string per version).
 6. Diffs — generate them from a scratch git repo built exactly like Phase 1
-   step 1, so the patch paths are **repo-relative and match the manifest**
-   (`git diff --no-index` would prefix them with `base/` / `head-v1/`, and
-   nothing would ever score as matched):
+   step 1, so the patch paths are **repo-relative and match the manifest**:
 
    ```bash
    git -C "$PR_DIR" diff main..pr~1 > "fixture/<slug>/diff-v1.patch"
@@ -171,20 +158,18 @@ Non-zero exit → **abort before any review**: write no results, no RESULTS.md
 row, no report, publish nothing. Report the `FAIL` lines (retiring the set is
 the operator's decision — **Retiring a fixture set**), log
 `benchmark run aborted: fixture validation failed (<ids>)` as a `warn` event,
-release the run lock, and end the run. A leaky set's numbers would enter the
-append-only history looking valid.
+and end the run — no run lock is held yet.
 
-**Then take the run lock — one scored run at a time.** Two concurrent runs
-share the `/tmp` trees and overwrite each other's phase stamps. The lock file
-is `$HOME/work/benchmark/.run-lock`, first line `<ISO> <nonce>`:
+**Then take the run lock — one scored run at a time.** The lock file is
+`$HOME/work/benchmark/.run-lock`, first line `<ISO> <nonce>`:
 
 - Lock present, its ISO younger than **6 h** → a sibling run is live: **stand
   down**, report it, touch nothing of the sibling's (its lock, its
   `/tmp/benchmark-pr-*` trees, its phase state), and end the run. This holds
   for preflight-emitted and operator-asked runs alike.
 - Absent or older → write your own `<ISO> <NONCE>` line. **Every terminal path
-  removes it** — the normal cleanup, the fixture-validation abort, the
-  results-validation dead end. A crash leaves it to expire by TTL.
+  removes it** — the normal cleanup, the results-validation dead end. A crash
+  leaves it to expire by TTL.
 
 Then take one timestamp `TS` (compact + ISO) for the whole run and one usage
 nonce, printed so the value itself lands in the transcript. The phase-state
@@ -210,9 +195,7 @@ bash "$HOME/scripts/benchmark-phase.sh" end "$PSTATE" "<slug>-first" "$NONCE"
 verbatim: wall-clock from the stamps, tokens as the difference between two
 usage snapshots (skill fan-outs included), or `tokens: null` when the harness
 gives no snapshot. **Never derive a duration by hand** — from file mtimes,
-elapsed guesses or arithmetic. An estimate is indistinguishable from a
-measurement once it is in the results file, and it breaks the speed-regression
-comparison the field exists for.
+elapsed guesses or arithmetic.
 
 ### Phase 1 — review replay, per fixture (before any ground-truth read)
 
@@ -227,19 +210,15 @@ zero files across **all** fixtures — that is missing fixture coverage.
 reviewer subagent (the mechanism the skill fan-out uses); the session only
 orchestrates — builds trees, runs fan-outs, brackets phases, collects paths and
 counts. It never loads fixture sources, diffs, skill outputs or review bodies.
-That is what lets one session hold every fixture at full depth, and it mirrors
-production, where every review starts from a fresh context.
 
 **Every subagent prompt inside a phase bracket — skill fan-out and reviewer
 alike — carries the usage nonce and the instruction to print
-`usage-nonce:<NONCE>` as its first output line.** The snapshot sums every
-transcript holding the nonce, so a subagent spawned without it is work the
-token columns silently miss. On a harness without subagents, review inline and
+`usage-nonce:<NONCE>` as its first output line.** The snapshot sums only the
+transcripts holding the nonce. On a harness without subagents, review inline and
 fall back to **Segmented run** when depth would degrade.
 
 Loop over the slugs sequentially — fixtures and phases never run concurrently
-(`benchmark-phase.sh` refuses an overlapping `begin`, because the token delta
-spans the whole session and contention would distort `seconds`). Per fixture:
+(`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)):
@@ -260,9 +239,11 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 2. **First review** — bracket it `"<slug>-first"`. Inside the bracket: run the
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
    routing list = `git -C "$PR_DIR" diff --name-only main..pr`; briefs rendered
-   by you from `scripts/templates/skill-brief.md`, because no live PR means no
-   `review-pr.sh` helper applies; each subagent's prompt is the one line
-   `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
+   by you from `scripts/templates/skill-brief.md`, its severity rubric the
+   bullets under **Severity:** of [finding-form.md](finding-form.md), because
+   no live PR means no `review-pr.sh` helper applies; each subagent's prompt
+   is the one line `prepare` would write, naming the skill, PR #0 and that
+   brief). Then spawn
    **one fresh reviewer subagent**, without a model or effort override, whose
    prompt is [`scripts/templates/reviewer-brief.md`](../scripts/templates/reviewer-brief.md)
    rendered verbatim — nothing added, nothing cut. Each value is substituted
@@ -292,9 +273,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    ``- Re-review: follow docs/review-rereview.md; prior review = `$B/prior-review.md`; scope = delta (request-equivalent trigger); findings-json with `new`/`still`/`fixed`; changes-since-prior = `$B/diff-v1-v2.patch`, which stands in for the compare call (prior HEAD = `pr~1`, range `ahead`) — make no compare call.``
    Archive its skill outputs the same way.
 4. Record per task the `seconds` and `tokens` the phase helper printed,
-   verbatim, plus `suppressed` from the reviewer subagent (0 when none). A
-   memory preference that suppresses a seeded defect is a scoring confound, and
-   this field makes it visible.
+   verbatim, plus `suppressed` from the reviewer subagent (0 when none).
 
 ### Phase 2 — scoring, report, publish (ground truth now)
 
@@ -321,12 +300,10 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    (STE). A re-review judge also receives `prior-review.md` and scores
    `loop_risk` (5 = no circling: fixes acknowledged, never re-flagged or asked
    to be reverted; reads `churn`/`false_fixed` as evidence). **Judge scores
-   stay beside the deterministic metrics, never inside them** — the quality
-   index comes from scorer output only
-   ([benchmark-report.sh](../scripts/benchmark-report.sh)), so the
-   deterministic set is the comparison baseline whatever the judge does. The
-   report prints `finding_accuracy` in its own `find-acc` column: high f1 beside
-   a low `find-acc` marks true positives matched by position, not by mechanism.
+   stay beside the deterministic metrics, never inside them**: the quality
+   index comes from scorer output only. High f1 beside a low `find-acc` (the
+   report's `finding_accuracy` column) marks true positives matched by
+   position, not by mechanism.
 7. Assemble `results/<ts>.json` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
@@ -337,8 +314,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
    ```
 
-8. **Validate the assembled results before anything reads them** — the history
-   is append-only, so a wrong shape is permanent:
+8. **Validate the assembled results before anything reads them**:
 
    ```bash
    bash "$HOME/scripts/benchmark-validate.sh" results "$HOME/work/benchmark/results/<ts>.json"
@@ -363,28 +339,28 @@ spans the whole session and contention would distort `seconds`). Per fixture:
    [artifact.md](artifact.md): tools absent → log and skip, never fail the run.
 
    A failed publish is logged; the local `report.html` is current regardless.
-10. Report to the chat UI: the run's **quality index** with its delta against
-    the previous run **of the same model and effort** — read both from
+10. Report to the chat UI, each delta against the previous run **of the same
+    model and effort** ("baseline" without one), read from
     `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
     (one JSON row per run with `cost_usd`; the weights and the price lookup
-    live only in that script) — per-fixture headline scores, run totals
-    (seconds, output tokens, estimated cost when the price table covers the
-    model — **Model prices**) with their deltas, any non-zero
-    `churn`/`false_fixed` named explicitly (the going-in-circles signals), the
-    run's **style line** — `ste.sentences_over_20` of `ste.sentences` and
-    `ste.avg_sentence_words` over the first reviews, with the same delta
-    ([review.md](review.md) → **The sentence bar is 20 words**); the delta
-    needs a previous run of the same `ste.v`, and reads "baseline" without
-    one — any
-    skill with no fixture coverage, any **saturated fixture** (`f1 = 1.0` in
-    this and the previous run of the same model and effort — recommend a harder sibling), and
-    the report URL when published. First run of a model: "baseline".
+    live only in that script):
+    - the run's **quality index** and per-fixture headline scores;
+    - run totals — seconds, output tokens, estimated cost when the price table
+      covers the model (**Model prices**);
+    - any non-zero `churn`/`false_fixed`, named (the going-in-circles
+      signals);
+    - the **style line** — `ste.sentences_over_20` of `ste.sentences` and
+      `ste.avg_sentence_words` over the first reviews
+      ([review.md](review.md) → **The sentence bar is 20 words**); its delta
+      needs a previous run of the same `ste.v`;
+    - any skill with no fixture coverage, any **saturated fixture** (`f1 =
+      1.0` in this and the previous run of the same model and effort —
+      recommend a harder sibling), and the report URL when published.
 11. Clean up every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
     `.s-*` variants), your phase-state directory, your nonce cache
     (`${TMPDIR:-/tmp}/.bench-usage-$NONCE`) and temp payload files; **remove
-    the run lock**; log
-    `benchmark run scored (avg f1=<x> over <n> fixtures)`; back up `work/`
-    last.
+    the run lock**; log `benchmark run scored (avg f1=<x> over <n> fixtures)`;
+    back up `work/` last.
 
 ### `results/<ts>.json`
 
@@ -410,9 +386,7 @@ spans the whole session and contention would distort `seconds`). Per fixture:
 `model` is the **exact model id** of the session as the harness names it; when
 unavailable, write `unknown` and log it. `effort` is the reasoning effort the
 session ran at, read from the harness (`CLAUDE_EFFORT` on Claude Code), else
-`unknown`; reviewer and skill subagents run without an effort override. Every run therefore pins
-the full provenance — definition version, model id, effort, harness version —
-and the report shows what changed in the definition between tested versions.
+`unknown`; reviewer and skill subagents run without an effort override.
 Deltas compare runs of the same model **and** effort; a run without `effort`
 matches only another run without it, and a run at effort `unknown` gets no
 delta — report it as `effort unknown`.
@@ -435,9 +409,8 @@ publish markers are added when the first publish succeeds):
 
 The fallback when delegated execution is unavailable (a harness without
 subagents) and one session cannot give every fixture the same review depth: a
-manual run split into segments, **one fixture per session**. A baseline with a
-depth gradient across fixtures measures the context budget, not the
-configuration. Operator-triggered only — a scheduled run is never segmented.
+manual run split into segments, **one fixture per session**. Operator-triggered
+only — a scheduled run is never segmented.
 
 - **One identity across segments.** Segment 1 takes the run's `TS` + `trigger`
   and creates the ledger `$HOME/work/benchmark/.run-notes-<TS>.md`, recording
@@ -467,9 +440,9 @@ configuration. Operator-triggered only — a scheduled run is never segmented.
 ## Model prices (cost column)
 
 The report prices each run's summed token counters into an `est $` column.
-Prices are operator-maintained in `work/CONFIG.md` as a table the report reads
-directly (`benchmark-report.sh`); an absent table, an unmatched model or
-unmeasured tokens render "—", never a guess:
+Prices are operator-maintained in `work/CONFIG.md` as one table that every
+consumer reads through `scripts/lib/prices.sh`; an absent table, an unmatched
+model or unmeasured tokens render "—", never a guess:
 
 ```markdown
 ## Benchmark model prices
@@ -490,24 +463,21 @@ holds the **current** prices and the report prices all history with them, so
 cost deltas reflect token usage, not price moves.
 Update it in the direct session like any other config change.
 
-**A stale row is silent** — it misreports every cost figure in both reports by
-whatever factor it is wrong by. Verify a row against the current published
-prices when you add or change it, and read the audit's drift warning
-([audit.md](audit.md) → task 27), which measures the table against the
-platform's own attributed spend every week.
+**A stale row is silent.** Verify a row against the current published prices
+when you add or change it; the audit's drift warning ([audit.md](audit.md) →
+task 27) compares the table with the platform's attributed spend every week.
 
 ## Retiring a fixture set (operator decision, direct session)
 
-A fixture is immutable, so a set that turns out invalid — validation fails, or
-it stopped representing the repo — is **retired and replaced**, never edited in
-place. Only the operator decides; the agent reports and waits. Check the run
-lock first: a live run reads the fixture trees, so it finishes or its lock
-expires before anything moves.
+A set that turns out invalid — validation fails, or it stopped representing
+the repo — is **retired and replaced**, never edited in place. Only the
+operator decides; the agent reports and waits. Check the run lock first: a live
+run finishes, or its lock expires, before anything moves.
 
 1. `mkdir -p fixture/retired && mv fixture/<slug> fixture/retired/<slug>` per
    retired slug. Retired fixtures stay on disk forever — past results
-   reference them, and `fixture/retired/` is outside the `fixture/*/` glob
-   preflight counts, so the set reads as incomplete and `create_fixture`
+   reference them. Preflight counts only the `fixture/*/` directories holding
+   a `manifest.json`, so the set reads as incomplete and `create_fixture`
    becomes due.
 2. Mark the affected history **non-comparable**: add one line under the
    RESULTS.md header naming the timestamps and the reason, e.g.
@@ -521,9 +491,7 @@ expires before anything moves.
 
 A trial run scores the definition **as currently checked out**, typically a
 feature branch, without touching the permanent history: its results live only
-under the trial's own folder and never enter `RESULTS.md`, `report.html` or the
-published artifact, so the monthly baseline stays clean while a PR is tuned in
-cycles.
+under the trial's own folder.
 
 - **Trigger: operator only, in the direct session** — "run a trial benchmark",
   optionally naming the PR/branch. Repeatable at will. A trial takes the

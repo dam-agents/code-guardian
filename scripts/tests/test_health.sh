@@ -53,6 +53,7 @@ ev "$AGO" monitor info precheck "monitor gate: nothing to do"
 ev "$AGO" session info tokens "in=1 out=2"
 ev "$AGO" session info review_step "PR #4 abc1234 done"
 ev "$AGO" session info review_step "PR #4 abc1234 locked"
+ev "$AGO" session info review_step "PR #4 skill:code-review done"
 ev "$AGO" session error api_failure "overloaded: 529 <@U0123ABCD>"
 ev "$AGO" session error api_failure "invalid_request: prompt too long"
 ev "$AGO" review error preflight "could not list open PRs on acme/widgets (API error: HTTP 502)"
@@ -68,7 +69,7 @@ hours
 assert_jq '.[] | select(.h == "'"$H"'") | .gate == {"review": 2, "monitor": 1} and .gate_err == 1 and .sessions == 1
   and .reviews == 1 and .model_fail == 1 and .gh_fail == 1 and .gh_warn == 1 and .classifier == 1 and .tool_fail == 1
   and .pod_boots == 1 and .backup_err == 1 and .direct_sent == 1 and .direct_fail == 1 and .errors == 7 and .warns == 3' \
-  'one hour row counts every signal; agent-side API errors are not model failures'
+  'one hour row counts every signal; a skill step is no review; agent-side API errors are not model failures'
 OUT="$(cat "$WORK/health/hours.jsonl")"
 assert_out_absent 'channel|U0123ABCD|rm -rf|acme|529' 'no free text of an event reaches a row'
 
@@ -179,6 +180,11 @@ has "$P" 'class="tile ok"' 'the status tiles'
 has "$P" 'Last 7 days, per hour' 'the hourly charts'
 has "$P" '<td>no_gate_tick</td>' 'hours with no gate tick are an incident of their own'
 lacks "$P" 'https?://' 'no external asset'
+h_case h_report_default_name
+grep -v 'bot_display_name' "$WORK/CONFIG.md" > "$SANDBOX/config.md" && mv "$SANDBOX/config.md" "$WORK/CONFIG.md"
+record
+henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
+has "$SANDBOX/page.html" '<h1>Code Guardian — health</h1>' 'a missing display name reads as the documented default'
 
 # --- publish: create once, then update in place ----------------------------------------------------
 h_case h_publish '- health_dashboard: dam'

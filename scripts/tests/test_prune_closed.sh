@@ -66,6 +66,22 @@ printf '# PR #2: draft PR\n\n## PR-local overrides\n\n- [2026-09-28 from user] I
 run_preflight review
 assert_jq '.prunes_due | length == 0' 'the history file of an open PR is no prune candidate'
 
+# --- a description-mention row without a review row: its PR prunes once closed --
+# a draft's description mention is answered with no review row or file; the
+# audit trim keeps `body-<n>` rows, so the prune is what deletes them
+new_case prune_mention_body_row
+base_config
+pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
+closed_pr_fx 5 "$SHA5" false
+{
+  printf '| comment_id | number | handled_at | action |\n'
+  printf '| body-1 | 1 | %s | answer |\n' "$(iso_ago 3600)"
+  printf '| body-5 | 5 | %s | answer |\n' "$(iso_ago 3600)"
+} > "$WORK/MENTIONS.md"
+run_preflight review
+assert_jq '.prunes_due | length == 1 and .[0].number == 5 and .[0].state == "CLOSED"' \
+  'a closed PR with a description-mention row prunes; an open one stays'
+
 # --- a history file without a row and without a verified state stays ---------
 new_case prune_file_without_row_unanswered
 base_config

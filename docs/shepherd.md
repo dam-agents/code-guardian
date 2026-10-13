@@ -13,35 +13,32 @@ conflicts (`conflict: true`; such nudges are author-directed), decided whether
 an approved PR is ready to land (**Ready to land**, under
 `merge_ready_nudge: enabled`), and updated the ledger's bookkeeping columns.
 A PR whose reviews could not be read at all is **deferred**: no class, no
-nudge, its ledger row carried over verbatim until a sweep can read it.
-**Rows with a due nudge were left untouched** — advancing them is your
-post-send record step.
+nudge, its ledger row carried over verbatim. **Rows with a due nudge were left
+untouched** — advancing them is your post-send record step.
 
 ## Hard rules
 
 - **Send only what is in `nudges_due`, at most once each.** Per entry, **send
   first**, then **immediately** apply its `row_update` (`nudges`, `level`,
   `status`) plus `last_nudge_at` = the current UTC time to the PR's ledger row.
-  The record is the very next action after the send. A failed send leaves the
-  row untouched and is logged (chat UI + `nudge_send` error event —
-  [logging.md](logging.md)); the next sweep re-emits and retries it. Never
-  re-fire a nudge preflight did not emit.
+  A failed send leaves the row untouched and is logged (chat UI + `nudge_send`
+  error event — [logging.md](logging.md)); the next sweep re-emits it.
 - **Roster-only tagging.** Every `<@…>` token is a `mention` string copied
   verbatim from the entry (`mentions`, `candidates`, `escalation`) — never
-  composed; no `<!…>` broadcast (`here`, `channel`, `everyone`, a group). A person without one (non-roster, no valid `slack_id`) is named in
-  plain text. Before each send, run `. "$HOME/scripts/lib/common.sh" &&
-  mentions_check "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted
-  heredoc): it must exit 0; a failure names the bad tokens — fix the message,
-  never send it. Seed expertise in the roster is operator-authored: never
-  overwrite it, only append to "Observed areas".
+  composed; no `<!…>` broadcast (`here`, `channel`, `everyone`, a group). A
+  person without one (non-roster, no valid `slack_id`) is named in plain text.
+  Before each send, run `. "$HOME/scripts/lib/common.sh" && mentions_check
+  "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted heredoc):
+  it must exit 0; a failure names the bad tokens — fix the message, never send
+  it.
 - **One shared channel, no DMs**: send via
   `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
   `chatId`).
 
 ## Scope and brief
 
-Every reviewer-directed entry carries `brief` — the `triage` of the agent's last review
-when that review read the current head, else `null`
+Every reviewer-directed entry carries `brief` — the `triage` of the agent's
+last review when that review read the current head, else `null`
 ([review-mechanics.md](review-mechanics.md) → **Summary body format**). Under
 `shepherd_scope: needs_human` ([config.md](config.md)) preflight emits no
 reviewer-directed nudge for a PR whose `brief.class` is `quick-check`; a PR
@@ -49,11 +46,11 @@ with no current triage counts as one that needs a person.
 
 ## Target selection (`needs_target_selection: true`)
 
-When a reviewer-directed nudge has no target with a valid `slack_id` — no
-persisted target and no requested reviewer is mentionable — pick **2 of the
-entry's `candidates`** (1 if that is all there is; the mentionable roster
-minus the author) and mark them `*` — a Slack-only suggestion, never requested
-on GitHub; with no candidate, send without mentions and persist nothing:
+The entry is reviewer-directed and none of its targets is mentionable. Pick
+**2 of the entry's `candidates`** (1 if that is all there is; the mentionable
+roster minus the author) and mark them `*` — a Slack-only suggestion, never
+requested on GitHub; with no candidate, send without mentions and persist
+nothing:
 
 - Build keywords from the PR title plus changed paths and extensions
   (`gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'`).
@@ -61,13 +58,14 @@ on GitHub; with no candidate, send without mentions and persist nothing:
   Tie-break by contributor volume on the target repo. Nothing scores → the
   two highest-volume candidates.
 - **Persist the chosen pair** into the ledger row's `reviewers` cell before
-  sending, so later sweeps reuse the cell instead of recomputing.
+  sending; later sweeps reuse it.
 
 ## Message templates (tone rises with level; always link the PR)
 
 Wording follows ASD-STE100 ([review.md](review.md) → **Criteria & review
 style**). `<m1>`/`<m2>`, `<author-m>`, `<escalation-m>` are that person's
-`mention` string (**Hard rules**).
+`mention` string (**Hard rules**). `<focus>` is the brief's `why` when present
+(**Brief tail**), else drawn from the targets' expertise plus the PR content.
 
 **Reviewer-directed** (`awaiting_review`):
 
@@ -76,19 +74,24 @@ style**). `<m1>`/`<m2>`, `<author-m>`, `<escalation-m>` are that person's
 - L3: `🚨 PR #<n> "<title>" has waited <age> for review. <m1> <m2> please prioritise this when you can. Focus: <focus>. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has gone <age> without a review despite reminders. Looping in <escalation-m> (<escalation_owner>) to help find a reviewer. Focus: <focus>. <url>`
 
-**Author-directed** (`changes_requested`; never re-ping the reviewer):
+**Author-directed** (`changes_requested`; never re-ping the reviewer).
+`<reviewer>` is the entry's `changes_by` logins in plain text, joined with
+`, `:
 
 - L1: `🔧 PR #<n> "<title>" has changes requested by <reviewer>. <author-m> could you address the feedback and re-request review when ready? <url>`
 - L2: `⏰ PR #<n> "<title>" still has open change requests from <reviewer>. <author-m> a follow-up would move this forward. <url>`
 - L3: `🚨 PR #<n> "<title>" has had requested changes unresolved for <age>. <author-m> please push an update or reply to the reviewer. <url>`
 - L4: `📣 PR #<n> "<title>" by <author> has sat with unresolved change requests for <age>. Looping in <escalation-m> (<escalation_owner>). <author-m> let's get this unblocked. <url>`
 
-**Ready to land** (`class: "ready_to_land"`, author-targeted, sent once) — an
-approved PR with no conflict, a green check rollup and no open critical of the
-agent's own. There is no ladder: silence after an approval reads the same as
-"still waiting", and one message fixes that.
+**Ready to land** (`class: "ready_to_land"`, author-targeted) — an approved PR
+with no conflict, a green check rollup and no open critical of the agent's
+own. One message, no ladder, no focus line:
 
 - `✅ PR #<n> "<title>" is approved, the checks pass and it has no conflicts. <author-m> it is ready to land. <url>`
+
+Its `row_update` sets `ready-notified`, which preflight keeps for the approval
+it announced: an approval submitted after the message — once new commits
+dropped the first — is announced again.
 
 **Conflict-directed** (`conflict: true`, any review class including approved;
 always author-targeted) — lead with the conflict fact, then the author-directed
@@ -98,42 +101,32 @@ tone ladder:
 - L2+: the author-directed templates' rising tone, keeping the conflict
   wording.
 
-A ready-to-land nudge takes no focus line and no level: preflight marks the row
-`ready-notified`, and the mark covers the approval it announced. It is sticky
-for that approval, so the PR is told exactly once. An approval submitted after
-the message — the second one, once new commits dropped the first — is a new
-landing moment and is announced again.
-
 **Brief tail** — when `brief` is non-null, `Focus:` is `why`, and every
 reviewer-directed template ends, before `<url>`, with the parts that have a
 value: `≈ <minutes> min · Checked: <verified>`. A `forced` match adds
 `· Sensitive path: <forced>`.
 
-The focus line comes from the targets' expertise plus the PR content. Level 4 =
-widen and hold: include the `escalation` entry's `mention` (missing → send
-without it and log). Preflight marks the row `held` afterwards — no further
-messages until the class changes.
+**Level 4** = widen and hold: include the `escalation` entry's `mention`
+(missing → send without it and log). Its `row_update` sets `held`, and
+preflight emits no further nudge until the class changes.
 
 ## Expertise auto-refinement
 
 While you are awake for a shepherd run: for each worklist PR authored by a
 roster member, derive area keywords from its title plus changed paths and
 **append** genuinely new ones to that member's "Observed areas" in
-`work/DEVELOPERS.md`. Dedup, keep them short, never touch seed expertise.
+`work/DEVELOPERS.md`. Dedup, keep them short, never touch seed expertise — it
+is operator-authored.
 
 ## PR facts (`work/PR-EVENTS.jsonl`)
 
 Each sweep appends one line per fact the first time it sees it, and never
-rewrites one: `first_review` (the earliest independent review, with the hours
-from `eligible_since`) and `conflict`. The weekly audit counts project health
-from this file ([audit.md](audit.md) → task 33), which the ledger cannot serve
-— pruning deletes a merged PR's row, and that is exactly the population a
-latency median must keep. `first_review` carries the review's own
-`submitted_at`, so a PR reviewed before the file existed is still recorded
-correctly; a conflict is only observable while it lasts, so it is dated at the
-sweep that saw it. `nudged` (ts = the row's `last_nudge_at`, with its
-`level`) is written once per nudge the agent recorded, by the next sweep or
-before a prune.
+rewrites one: `first_review` (the earliest independent review, dated by its
+own `submitted_at`, with the hours from `eligible_since`) and `conflict`
+(dated by the sweep that saw it). `nudged` (ts = the row's `last_nudge_at`,
+with its `level`) is written once per nudge the agent recorded, by the next
+sweep or before a prune. The weekly audit counts project health from this file
+([audit.md](audit.md) → task 33); it outlives the ledger row a prune deletes.
 
 ## Ledger & history
 
@@ -146,10 +139,10 @@ cell.
 ## Shepherd-run self-check
 
 Every send matched a `nudges_due` entry · every reviewer-directed nudge with a
-`brief` carried its tail · every sent nudge's `row_update` was
-written immediately AFTER the send, with a real UTC `last_nudge_at`, and a
-failed send left its row untouched · only copied `mention` strings, and
-`mentions_check` passed before each send · targets persisted when selected · a
-ready-to-land entry sent to its author alone, once · send failures logged ·
-observed areas appended additively · `work/` backed up last
+`brief` carried its tail · every sent nudge's `row_update` was written
+immediately AFTER the send, with a real UTC `last_nudge_at`, and a failed send
+left its row untouched · only copied `mention` strings, and `mentions_check`
+passed before each send · targets persisted when selected · a ready-to-land
+entry sent to its author alone, once · send failures logged · observed areas
+appended additively · `work/` backed up last
 ([persistence.md](persistence.md)).

@@ -107,6 +107,12 @@ WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=1 \
   bash "$REPO_ROOT/scripts/harness/claude-code/install.sh" >/dev/null 2>&1
 run_verify_cc
 assert_out 'ok   hooks' 'a fresh install passes'
+# the PermissionDenied and StopFailure hooks are adapter hooks too
+jq 'del(.hooks.PermissionDenied, .hooks.StopFailure)' "$FAKE_HOME/.claude/settings.json" > "$SANDBOX/settings.json" \
+  && mv "$SANDBOX/settings.json" "$FAKE_HOME/.claude/settings.json"
+run_verify_cc
+assert_out 'FAIL hooks .*log-permission-denied\.sh' 'a missing PermissionDenied hook is named'
+assert_out 'FAIL hooks .*log-api-failure\.sh' 'a missing StopFailure hook is named'
 
 new_case missing_work_pointer
 seed_home; seed_memory; seed_lessons
@@ -433,6 +439,16 @@ verify_config '- definition_issues: yes'
 run_verify
 assert_rc 1 'an unknown switch value fails'
 assert_out 'FAIL config-definition_issues' 'names the key'
+
+new_case survey_interval_days_value
+seed_home; seed_memory; seed_lessons
+verify_config '- survey_interval_days: weekly'
+run_verify
+assert_rc 1 'a survey interval that is no integer fails'
+assert_out 'FAIL config-survey_interval_days' 'names the key'
+verify_config '- survey_interval_days: 14'
+run_verify
+assert_out 'ok   config-survey_interval_days' 'an integer of days passes'
 
 new_case report_surface_legacy_gist
 seed_home; seed_memory; seed_lessons

@@ -58,12 +58,6 @@ DIR="${1:-}"
 [ -n "$DIR" ] && [ -d "$DIR/results" ] || {
   printf 'usage: benchmark-report.sh [index] <work/benchmark dir with results/>\n' >&2; exit 2; }
 
-# Tolerant per-file load: one corrupt/truncated results file is skipped with
-# its data alone — it never discards the rest of the history. `fixtures`
-# written as an array (a pre-validation shape drift) is keyed back by its
-# `fixture` field, so an old run still renders under its slug instead of
-# under 0,1,2… — history is append-only, so the reader tolerates what is
-# already stored (benchmark-validate.sh keeps new writes to the object shape).
 # operator-maintained price table (work/CONFIG.md → ## Benchmark model
 # prices), parsed by the shared reader in lib/prices.sh — one home, one parse,
 # so the weekly trend report prices identically. Missing file/section → [].
@@ -72,6 +66,12 @@ CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
 . "$SCRIPT_DIR/lib/report-tip.sh"   # REPORT_TIP_CSS, REPORT_TIP_JS
 PRICES="$(prices_json "$CONFIG_MD")"
 
+# Tolerant per-file load: one corrupt/truncated results file is skipped with
+# its data alone — it never discards the rest of the history. `fixtures`
+# written as an array (a pre-validation shape drift) is keyed back by its
+# `fixture` field, so an old run still renders under its slug instead of
+# under 0,1,2… — history is append-only, so the reader tolerates what is
+# already stored (benchmark-validate.sh keeps new writes to the object shape).
 ALL="$(for f in "$DIR"/results/*.json; do
          [ -f "$f" ] || continue
          jq -c 'select(type == "object")

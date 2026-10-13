@@ -2,44 +2,14 @@
 # work-backup.sh — durable backup / restore of the NFS-resident work/ state to
 # the `work_repo` of work/CONFIG.md, performed ENTIRELY inside a private tmpfs
 # clone so the shared work/ directory never has a .git mutated under concurrent
-# runs. That concurrent .git rename-churn on the virtiofs-over-NFS home is the
-# source of the "Stale file handle" (ESTALE) + .nfs* silly-rename failures.
-# Details and rationale: docs/persistence.md.
+# runs (the source of "Stale file handle" / .nfs* failures on the shared home).
 #
 #   work-backup.sh persist   # end of run: snapshot work/ -> commit -> push
 #   work-backup.sh restore   # fresh volume: remote state -> work/ (data only)
 #
-# Pod-local transient files (mkdir locks, *.tmp, the benchmark run lock) are
-# never carried in either direction; logs and every other work/ file are.
-# A persist that would delete an append-only or unreconstructable record
-# (PROTECTED below) is refused: that shape means work/ was never hydrated, and
-# pushing it would move the backup tip past the history. An operator-intended
-# deletion passes with WORK_BACKUP_ALLOW_DELETE=1.
-#
-# Durability model — nothing authoritative ever lives on tmpfs:
-#   - live state      : work/ on the persistent home volume (survives restart)
-#   - backup/history  : the `work_repo` remote (survives restart)
-#   - tmpfs clone     : disposable scratch in /dev/shm, RAM-backed and WIPED on
-#                       pod restart — so it is re-seeded from the remote on
-#                       every call and never trusted to persist. Worst case (a
-#                       restart between commit and push) loses only the not-yet
-#                       -pushed snapshot; the data is still on work/ and the
-#                       next run re-snapshots and pushes it.
-# Concurrency: reviews stay fully parallel — only the backup step itself is
-# serialized. Concurrent sessions in one pod share this clone, so persist takes
-# a mkdir lock next to it (lock-or-skip: finding a fresh lock means another
-# persist is running — skip; it snapshots the same shared work/ moments later,
-# and the next run sweeps up any remainder. Stale locks from crashed runs
-# expire by TTL). Across pods, concurrency is resolved at the remote: a
-# rejected (non-fast-forward) push re-seeds from the new remote tip and retries
-# in-run. work/ files are only ever READ here (via tar), never renamed, so no
-# ESTALE.
-#
-# persist never fails the run: all its paths exit 0 (a missed backup is retried
-# next run). restore reports its outcome by exit code for onboarding:
-#   0 restored, every tracked file verified in work/ · 2 nothing to restore
-#   (no work_repo, an empty remote, or a remote without CONFIG.md) · 1 failed
-#   (unreachable, clone or copy error, or a file that did not arrive intact).
+# What travels, the protected records, the concurrency model and restore's
+# exit codes (0 restored · 2 nothing to restore · 1 failed; persist always
+# exits 0): docs/persistence.md → Backup & restore.
 # Requires: git, tar, coreutils. Sources scripts/log.sh for events.
 set -u
 

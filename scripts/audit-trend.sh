@@ -14,15 +14,8 @@
 # check counts).
 #
 # Every mode is deterministic and offline: no API calls, no model calls. The
-# history is append-only — a week file is written once and never edited, and
-# an `audit` row supersedes a `backfill` row for the same week in the report
-# while both stay on disk.
-#
-# Costs are computed at render time from the CONFIG price table via the shared
-# reader (lib/prices.sh), so the whole history reprices when the table changes
-# and a cost delta reflects token usage, not a price move. Tokens with no
-# matching price row are excluded and the cell is marked a floor ("≥"), never
-# guessed.
+# append-only history and the render-time pricing (lib/prices.sh):
+# docs/trends.md → Layout, Cost.
 set -u
 export LC_ALL=C
 
@@ -37,7 +30,7 @@ DIR="${1:-}"; shift 2>/dev/null || true
 [ -n "$DIR" ] || { printf 'usage: audit-trend.sh [append|backfill|index|report] <work/audit dir> [args]\n' >&2; exit 2; }
 
 CONFIG_MD="${TREND_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
-CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch
+CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch, epoch2iso
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ISO week label (2026-W37) of an epoch — the row key, so a week has one row
@@ -779,6 +772,7 @@ DAYS_HTML="$(printf '%s' "$DERIVED" | jq -r --argjson tips "$TIPS" "$JQ_VIEW$JQ_
 
 LATEST="$(printf '%s' "$DERIVED" | jq -r '(last // {}) | .week // "no weeks yet"')"
 PRICED="$(printf '%s' "$PRICES" | jq 'length')"
+BOT_H="$(cfg bot_display_name)"; BOT_H="$(printf '%s' "${BOT_H:-Code Guardian}" | jq -Rr '@html')"
 
 cat <<EOF
 <!doctype html>
@@ -842,7 +836,7 @@ tr:hover td{background:color-mix(in srgb,var(--seq) 8%,transparent)}
 .d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
 td.dash{color:var(--ink-muted)}
 </style>
-<h1>Code review agent — weekly trends</h1>
+<h1>${BOT_H} — weekly trends</h1>
 <p class="meta">Latest week: ${LATEST} · ${WEEKS} week(s) on record · ${PRICED}
 price row(s) loaded. One row per ISO week, appended by the weekly audit; rows
 marked <b>backfill</b> were reconstructed from the review history and carry

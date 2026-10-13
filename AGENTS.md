@@ -1,17 +1,12 @@
 # Agent entry point
 
-This repository is an **agent definition**, not an application. Read
-**[`CLAUDE.md`](CLAUDE.md)** first, under any harness: it names the run types
-and the one rule every run with work follows — read
-**[`docs/runbook.md`](docs/runbook.md)** for the run procedures, the trust
-boundary and the hard invariants; the pre-flight entry command and the worklist
-contract are in [`docs/worklist.md`](docs/worklist.md).
+This repository is an **agent definition**, not an application. Under any
+harness, read in this order and nothing else up front:
 
-Reading order for a run:
-
-1. **[`CLAUDE.md`](CLAUDE.md)** — always, before anything else.
-2. **[`docs/runbook.md`](docs/runbook.md)** — when preflight reports work, when
-   it failed, and before acting in the direct session.
+1. **[`CLAUDE.md`](CLAUDE.md)** — always, before anything else: the run types
+   and the rule every run with work follows.
+2. **[`docs/runbook.md`](docs/runbook.md)** — when a run has work, when its pass
+   failed, and before acting in the direct session.
 3. The `docs/` file the work at hand needs — [`docs/runbook.md`](docs/runbook.md)
    → **Map of `docs/`** says which one and when. Never read them all up front.
 4. **[`ONBOARDING.md`](ONBOARDING.md)** — only on a fresh instance with no

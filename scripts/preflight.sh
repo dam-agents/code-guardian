@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
 # preflight.sh — deterministic heartbeat pre-flight for code-guardian.
 #
-# Detects, never acts. The script computes the run's worklist — which PRs need
-# a review, an artifact, a nudge, a prune, a self-heal, or label cleanup — so
-# the agent only wakes up when there is real work, and when it does, the agent
-# performs every action itself per docs/ (reliability first). The script:
+# Detects, never acts: it computes the run's worklist, and the agent performs
+# every action in it per docs/. GET calls only, no git commit or push. Its local
+# writes are bookkeeping alone:
 #
-#   - makes NO GitHub writes at all (only GET calls),
-#   - runs NO git commit/push (the agent persists at end of run),
-#   - writes locally only: bookkeeping — the REVIEWS.md `done`->`awaiting_label`
-#     flip (keeps the re-review trigger gate's transition logs one-shot),
-#     shepherd-ledger bookkeeping for rows with no nudge due, PR-EVENTS.jsonl
-#     facts, the housekeeping batch's wait marker, dead PR holds removed —
-#     plus HEARTBEAT.log /
-#     SHEPHERD.log lines, structured events in work/logs/ (scripts/log.sh —
-#     docs/logging.md), the
-#     per-pass /tmp scratch directory (removed on exit), the skill install
-#     cache, the git credential helper (`gh auth setup-git`, before the agent
-#     clones), the project profile refresh (work/PROFILE.{json,md} + its /tmp
-#     mirror, scripts/profile.sh — docs/profile.md), the stale-clone sweep, and
-#     the audit-mode cleanups (log retention, ledger trims) with that mode's own
-#     worklist at work/audit/last-worklist.json.
+#   - the REVIEWS.md `done -> awaiting_label` flip (keeps the re-review trigger
+#     gate's transition logs one-shot), shepherd-ledger bookkeeping for rows
+#     with no nudge due, work/PR-EVENTS.jsonl facts, the housekeeping batch's
+#     wait marker (work/.housekeeping-since), dead PR holds and stale clones
+#     removed;
+#   - HEARTBEAT.log and SHEPHERD.log lines, structured events in work/logs/
+#     (scripts/log.sh, docs/logging.md);
+#   - the skill install cache, the project profile (work/PROFILE.{json,md} and
+#     its /tmp mirror, scripts/profile.sh), the git credential helper
+#     (`gh auth setup-git`, before the agent clones) and the per-pass /tmp
+#     scratch (removed on exit);
+#   - in audit mode, the retention (docs/logging.md → Retention) and that
+#     mode's own worklist at work/audit/last-worklist.json (docs/trends.md).
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
 #                             / prunes_due / status_resets_due / artifacts_due
@@ -41,7 +38,7 @@
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); purely local, no API calls
-#   preflight.sh survey    -> survey_due (the area to read, its caps and
+#   preflight.sh survey    -> survey_due (the area to read and its
 #                             history) when `survey: enabled` and the interval
 #                             passed (docs/survey.md)
 #   preflight.sh memory    -> the memory budget object alone (memory_budget_json),
@@ -103,6 +100,8 @@ log()     { LOGS+=("$1"); logev info preflight "$1"; }
 # same, for a degradation the agent must see in the chat UI and that should be
 # queryable as a warning in the structured log
 log_warn() { LOGS+=("$1"); logev warn preflight "$1"; }
+# the worklist's `logs`: every line logged so far, as a JSON array
+logs_json() { printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -sc '[.[] | select(length>0)]'; }
 
 # Pod-restart marker: $HOME persists across restarts but the rest of the
 # filesystem is reset, so an ephemeral sentinel outside $HOME is absent iff the
@@ -133,21 +132,23 @@ report_surface() { # <key> <var>
 # exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
 BENCH_LOCK_TTL_MIN=360
 
+# The answer of a local mode (survey, benchmark): its heartbeat, then the
+# worklist, `<mode>_due` included when one is due.
+local_out() { # <nothing_to_do bool> <due json | null>
+  printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
+  logev info heartbeat "mode=$MODE nothing_to_do=$1 $MODE=$([ "$1" = "false" ] && echo 1 || echo 0)"
+  jq -n --arg mode "$MODE" --argjson nothing "$1" --argjson due "$2" --argjson logs "$(logs_json)" \
+    '{mode:$mode, nothing_to_do:$nothing, logs:$logs}
+     + (if $due == null then {} else {($mode + "_due"):$due} end)'
+  exit 0
+}
+
 # ============================================================ SURVEY MODE ====
 # Local like the benchmark: choosing the area needs the profile and the ledger,
 # both on disk, so a disabled or gated tick never touches the network. The pass
 # itself is docs/survey.md — one area per run, capped by scripts/survey.sh.
 if [ "$MODE" = "survey" ]; then
-  survey_out() { # <nothing_to_do bool> <survey_due json | null>
-    printf '%s\n' "$NOW_ISO survey nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=survey nothing_to_do=$1 survey=$([ "$1" = "false" ] && echo 1 || echo 0)"
-    jq -n --argjson nothing "$1" --argjson due "$2" \
-      --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-      '{mode:"survey", nothing_to_do:$nothing, logs:$logs}
-       + (if $due == null then {} else {survey_due:$due} end)'
-    exit 0
-  }
-  [ "$(cfg survey)" = "enabled" ] || { log "survey disabled — nothing to do"; survey_out true null; }
+  [ "$(cfg survey)" = "enabled" ] || { log "survey disabled — nothing to do"; local_out true null; }
 
   SURVEY_DIR="$WORK/survey"
   SURVEY_LEDGER="$SURVEY_DIR/LEDGER.md"
@@ -161,7 +162,7 @@ if [ "$MODE" = "survey" ]; then
     d=$(( (NOW_EPOCH - $(iso2epoch "$SURVEY_LAST")) / 86400 ))
     if [ "$d" -lt "$SURVEY_INTERVAL_D" ]; then
       log "last survey ${d}d ago (< ${SURVEY_INTERVAL_D}d) — nothing to do"
-      survey_out true null
+      local_out true null
     fi
   fi
 
@@ -172,7 +173,7 @@ if [ "$MODE" = "survey" ]; then
   case "$SURVEY_AREAS" in (''|null) SURVEY_AREAS='[]';; esac
   if [ "$(printf '%s' "$SURVEY_AREAS" | jq length)" -eq 0 ]; then
     log "no module in work/PROFILE.json — nothing to survey (docs/profile.md)"
-    survey_out true null
+    local_out true null
   fi
 
   # Selection, deterministic and local: never surveyed first, then the oldest
@@ -200,7 +201,7 @@ if [ "$MODE" = "survey" ]; then
             open: ([$h[] | select(.dir | startswith($m.path)) | .open] | add // 0) } ]
     | sort_by([(if .last == null then 0 else 1 end), (.last // ""), (- .open), .path])
     | first // null')"
-  [ -n "$SURVEY_PICK" ] && [ "$SURVEY_PICK" != "null" ] || { log "no area to survey"; survey_out true null; }
+  [ -n "$SURVEY_PICK" ] && [ "$SURVEY_PICK" != "null" ] || { log "no area to survey"; local_out true null; }
 
   SURVEY_SLUG="$(printf '%s' "$SURVEY_PICK" | jq -r '.slug')"
   SURVEY_PATH="$(printf '%s' "$SURVEY_PICK" | jq -r '.path')"
@@ -212,7 +213,7 @@ if [ "$MODE" = "survey" ]; then
   case "$SURVEY_PASSES" in (''|*[!0-9]*) SURVEY_PASSES=0;; esac
 
   log "survey due: $SURVEY_PATH (pass $((SURVEY_PASSES + 1)), last ${SURVEY_LASTP:-never})"
-  survey_out false "$(jq -nc --arg s "$SURVEY_SLUG" --arg p "$SURVEY_PATH" \
+  local_out false "$(jq -nc --arg s "$SURVEY_SLUG" --arg p "$SURVEY_PATH" \
     --arg n "$(printf '%s' "$SURVEY_PICK" | jq -r '.name')" \
     --arg l "${SURVEY_LASTP:-}" --argjson pass "$((SURVEY_PASSES + 1))" \
     --argjson hs "$SURVEY_SLICE" --arg rep "$EFF_SURVEY" \
@@ -232,19 +233,10 @@ fi
 # month, and only `trigger: scheduled` results feed it — manual and trial
 # runs never move the official cadence.
 if [ "$MODE" = "benchmark" ]; then
-  bench_out() { # <nothing_to_do bool> <benchmark_due json | null>
-    printf '%s\n' "$NOW_ISO benchmark nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    logev info heartbeat "mode=benchmark nothing_to_do=$1 benchmark=$([ "$1" = "false" ] && echo 1 || echo 0)"
-    jq -n --argjson nothing "$1" --argjson due "$2" \
-      --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-      '{mode:"benchmark", nothing_to_do:$nothing, logs:$logs}
-       + (if $due == null then {} else {benchmark_due:$due} end)'
-    exit 0
-  }
   BENCH="$(cfg benchmark)"
   if [ "$BENCH" != "enabled" ]; then
     log "benchmark disabled — nothing to do"
-    bench_out true null
+    local_out true null
   fi
   BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
   report_surface benchmark_report EFF_REPORT
@@ -259,7 +251,7 @@ if [ "$MODE" = "benchmark" ]; then
   BENCH_COUNT="$(printf '%s' "$BENCH_SLUGS_JSON" | jq length)"
   if [ "$BENCH_COUNT" -lt "$BENCH_MIN_FIXTURES" ]; then
     log "benchmark enabled, fixture set incomplete ($BENCH_COUNT/$BENCH_MIN_FIXTURES) — create_fixture due"
-    bench_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
+    local_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
       '{action:"create_fixture", existing:$e, min:$m}')"
   fi
   # run lock: one scored run at a time. The lock is a file the running
@@ -274,7 +266,7 @@ if [ "$MODE" = "benchmark" ]; then
     BENCH_LOCK_AGE_M=$(( (NOW_EPOCH - $(iso2epoch "${BENCH_LOCK_TS:-1970-01-01T00:00:00Z}")) / 60 ))
     if [ "$BENCH_LOCK_AGE_M" -ge 0 ] && [ "$BENCH_LOCK_AGE_M" -lt "$BENCH_LOCK_TTL_MIN" ]; then
       log "benchmark run already in progress (lock ${BENCH_LOCK_AGE_M}m old) — nothing to do"
-      bench_out true null
+      local_out true null
     fi
     log "stale benchmark run lock (${BENCH_LOCK_AGE_M}m ≥ ${BENCH_LOCK_TTL_MIN}m) — emitting run over it"
   fi
@@ -287,7 +279,7 @@ if [ "$MODE" = "benchmark" ]; then
     [ -f "$rn" ] || continue
     if [ -n "$(find "$rn" -maxdepth 0 -mtime -7 2>/dev/null)" ]; then
       log "segmented benchmark run in progress ($(basename "$rn")) — nothing to do"
-      bench_out true null
+      local_out true null
     fi
     log "stale segmented-run notes ($(basename "$rn"), >7d) — emitting run over it"
   done
@@ -304,11 +296,11 @@ if [ "$MODE" = "benchmark" ]; then
     BENCH_AGE_D=$(( (NOW_EPOCH - $(iso2epoch "$LAST_TS")) / 86400 ))
     if [ "$BENCH_AGE_D" -lt 27 ]; then
       log "benchmark ran ${BENCH_AGE_D}d ago (< 27d) — nothing to do"
-      bench_out true null
+      local_out true null
     fi
   fi
   log "benchmark run due on $BENCH_COUNT fixture(s) (last scheduled run: ${LAST_TS:-never})"
-  bench_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
+  local_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
     --arg j "$BENCH_JUDGE" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
     '{action:"run", fixtures:$f, fixture_root:$r, judge:$j, report:$rep,
       last_run:(if $l == "" then null else $l end)}')"
@@ -419,35 +411,23 @@ ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/arti
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 # the monitor's alert keys, echoed in the worklist config — the alerts
-# themselves are scripts/monitor.sh's (docs/monitor.md)
-STALL_ALERT_THRESHOLD="$(cfg stall_alert_threshold)"
-STALL_ALERT_THRESHOLD="${STALL_ALERT_THRESHOLD:-4}"
-case "$STALL_ALERT_THRESHOLD" in
-  (off|none) STALL_ALERT_THRESHOLD=0;;
-  (*[!0-9]*|'') STALL_ALERT_THRESHOLD=4;;   # unparseable -> documented default
-esac
-MODEL_ALERT_THRESHOLD="$(cfg model_alert_threshold)"
-case "$MODEL_ALERT_THRESHOLD" in
-  (off|none) MODEL_ALERT_THRESHOLD=0;;
-  (*[!0-9]*|'') MODEL_ALERT_THRESHOLD=2;;
-esac
-GITHUB_ALERT_THRESHOLD="$(cfg github_alert_threshold)"
-case "$GITHUB_ALERT_THRESHOLD" in
-  (off|none) GITHUB_ALERT_THRESHOLD=0;;
-  (*[!0-9]*|'') GITHUB_ALERT_THRESHOLD=2;;
-esac
-CLASSIFIER_ALERT_THRESHOLD="$(cfg classifier_alert_threshold)"
-case "$CLASSIFIER_ALERT_THRESHOLD" in
-  (off|none) CLASSIFIER_ALERT_THRESHOLD=0;;
-  (*[!0-9]*|'') CLASSIFIER_ALERT_THRESHOLD=20;;
-esac
+# themselves are scripts/monitor.sh's (docs/monitor.md). A count key that is
+# missing or not a number reads as its documented default, off|none as 0.
+cfg_count() { # <key> <default>
+  local v; v="$(cfg "$1")"
+  case "$v" in (off|none) printf 0;; (*[!0-9]*|'') printf '%s' "$2";; (*) printf '%s' "$v";; esac
+}
+STALL_ALERT_THRESHOLD="$(cfg_count stall_alert_threshold 4)"
+MODEL_ALERT_THRESHOLD="$(cfg_count model_alert_threshold 2)"
+GITHUB_ALERT_THRESHOLD="$(cfg_count github_alert_threshold 2)"
+CLASSIFIER_ALERT_THRESHOLD="$(cfg_count classifier_alert_threshold 20)"
 ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
 case "$ANOMALY_FACTOR" in
   (off|none) ANOMALY_FACTOR=0;;
   ('') ANOMALY_FACTOR=4;;
   (*) # 0 or a number of 1 or more, printed as a JSON number
       ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
-        | awk '{ f = $1 + 0; if (f == 0 || f >= 1) print f }')"
+        | jq -R 'tonumber | select(. == 0 or . >= 1)' 2>/dev/null)"
       if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
       else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
 esac
@@ -618,7 +598,7 @@ PROFILE_JSON_OUT='null'
 fail_out() {
   logev error preflight "$1"
   jq -n --arg mode "$MODE" --arg err "$1" \
-    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+    --argjson logs "$(logs_json)" \
     '{mode:$mode, nothing_to_do:true, error:$err, logs:$logs}'
   exit 2
 }
@@ -659,15 +639,15 @@ record_nudge_facts() {
   [ -f "$SHEPHERD" ] || return 0
   local new
   new="$(grep -E '^\| *[0-9]+ *\|' "$SHEPHERD" 2>/dev/null \
-    | awk -F'|' '{ for (i = 2; i <= 8; i++) gsub(/^ +| +$/, "", $i)
-                   if ($7 != "" && $7 != "-") printf "%s\t%s\t%s\n", $2, $7, $8 }' \
     | jq -cnR --rawfile ev <(cat "$PR_EVENTS" 2>/dev/null) '
       def ep: sub("\\.[0-9]+Z$"; "Z") | (fromdateiso8601? // null);
       ($ev | split("\n") | map(fromjson? // empty | select(type == "object" and .kind == "nudged"))
        | group_by(.pr) | map({key: (.[0].pr | tostring), value: (map(.ts | ep) | max)})
        | from_entries) as $last
-      | inputs | split("\t") | select(length == 3)
-      | {pr: (.[0] | tonumber), kind: "nudged", ts: .[1], level: (.[2] | tonumber? // null)}
+      # | PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |
+      | inputs | split("|") | map(gsub("^ +| +$"; ""))
+      | select((.[6] // "") | . != "" and . != "-")
+      | {pr: (.[1] | tonumber), kind: "nudged", ts: .[6], level: (.[7] // "" | tonumber? // null)}
       | (.ts | ep) as $t
       | select($t != null and (($last[.pr | tostring] // null) == null or $t > $last[.pr | tostring]))' 2>/dev/null)"
   [ -n "$new" ] && printf '%s\n' "$new" >> "$PR_EVENTS" 2>/dev/null
@@ -693,13 +673,21 @@ pr_file_numbers() {
     f="${f##*/pr-}"; f="${f%%.*}"; case "$f" in (''|*[!0-9]*) ;; (*) printf '%s\n' "$f";; esac
   done | sort -un
 }
-# prune candidates: every row in row order, then every PR file owner without a
-# row — the urgent alert, an override or a CI triage marker writes the file
-# before the first review, a draft's status reset deletes the row, and a prune
-# cut short leaves the rest of the PR's files behind
+# the PR numbers of the work/MENTIONS.md `body-<n>` rows, which the audit trim
+# keeps until the PR's prune deletes them (docs/review-bookkeeping.md → Pruning)
+mention_body_numbers() {
+  grep -E '^\| *body-[0-9]+ *\|' "$WORK/MENTIONS.md" 2>/dev/null | cut -d'|' -f2 \
+    | tr -d ' ' | sed 's/^body-//' | sort -un
+}
+# prune candidates: every row in row order, then every PR file or description
+# mention owner without a row — the urgent alert, an override or a CI triage
+# marker writes the file before the first review, a draft's status reset
+# deletes the row, a prune cut short leaves the rest of the PR's files behind,
+# and a draft's description mention is answered with no review at all
 prune_candidates() {
   reviews_rows | cut -d'|' -f2 | tr -d ' '
-  pr_file_numbers | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-')
+  { pr_file_numbers; mention_body_numbers; } | sort -un \
+    | grep -vxF -f <(reviews_rows | cut -d'|' -f2 | tr -d ' '; echo '-')
 }
 
 # stale-clone sweep: clones a dead session never removed (live-run cleanup is
@@ -734,35 +722,22 @@ flip_awaiting_label_held() { # number
 }
 
 # marker scans distinguish three outcomes: a timestamp (marker found), ""
-# (endpoints answered, marker verified absent), and the sentinel __api_error__
-# (an endpoint failed twice — unknown, never to be treated as absent). Callers
+# (every page answered, marker verified absent), and the sentinel __api_error__
+# (a read with no answer — unknown, never to be treated as absent). Callers
 # bump API_ERRS on the sentinel and stop probing once it reaches 2 — by then
 # the API is down for the run, and each skipped call costs a retry + sleep.
 API_ERRS=0
 # Scratch for the parallel reads and the per-PR answers one scan hands the next
-# (the reviews page, prune states, file lists, skill and profile status). One
+# (the reviews list, prune states, file lists, skill and profile status). One
 # directory per pass; precheck.sh sweeps one a killed pass left behind.
 PF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/cg-pf.XXXXXX")"
 trap 'rm -rf "$PF_TMP"' EXIT
 REVIEWS_BODY="$PF_TMP/reviews-page"
 
 # marker-based remote dedup, anchored at one SHA -> prints GitHub timestamp
+# (lib/common.sh); the reviews list stays in REVIEWS_BODY for the scan below
 remote_reviewed_at() { # number full_sha
-  local m="<!-- $REVIEW_MARKER headRefOid=$2 -->" body ts err=0
-  : > "$REVIEWS_BODY" 2>/dev/null
-  if body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")"; then
-    { printf 'pr=%s\n' "$1"; printf '%s' "$body"; } > "$REVIEWS_BODY" 2>/dev/null
-    ts="$(printf '%s' "$body" \
-      | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty')"
-    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
-  else err=1; fi
-  if body="$(gh_get "repos/$REPO/issues/$1/comments?per_page=100")"; then
-    ts="$(printf '%s' "$body" \
-      | jq -r --arg m "$m" '[.[] | select(.body | contains($m)) | .created_at] | last // empty')"
-    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
-  else err=1; fi
-  [ "$err" -eq 1 ] && printf '__api_error__'
-  return 0
+  marker_reviewed_at "$REPO" "$1" "$REVIEW_MARKER" "$2" "$REVIEWS_BODY"
 }
 
 # unanchored: any marker-carrying review at ANY SHA -> prints "sha<TAB>ts"
@@ -772,7 +747,7 @@ remote_reviewed_any() { # number
   if [ "$(head -1 "$REVIEWS_BODY" 2>/dev/null)" = "pr=$1" ]; then
     body="$(tail -n +2 "$REVIEWS_BODY")"
   else
-    body="$(gh_get "repos/$REPO/pulls/$1/reviews?per_page=100")" || { printf '__api_error__'; return 0; }
+    body="$(gh_get_all "repos/$REPO/pulls/$1/reviews?per_page=100")" || { printf '__api_error__'; return 0; }
   fi
   printf '%s' "$body" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=" '
         [.[] | select(.body != null) | select(.body | contains($m))
@@ -890,15 +865,17 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
   logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
-  jq -n --arg mode "$MODE" --argjson nothing "$nothing" \
-    --argjson reviews "$1" --argjson cleanups "$2" --argjson selfheals "$3" \
-    --argjson prunes "$4" --argjson artifacts "$5" --argjson nudges "$6" \
-    --argjson alerts "$7" --argjson mentions "$8" --argjson skills "$9" \
-    --argjson resets "$resets" --argjson cifail "$cifail" --argjson merges "$merges" --argjson fixes "$fixes" \
-    --argjson hkonly "$hk_only" \
-    --argjson profile "${PROFILE_JSON_OUT:-null}" --argjson config "${CONFIG_JSON:-null}" --argjson memory "${MEMORY_JSON:-null}" \
-    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    "$READ_SET_JQ"'{mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
+  # every list reaches jq on stdin, never in argv: a due review carries its
+  # slice, and one argument is capped at MAX_ARG_STRLEN (128 KiB). The order of
+  # the printf list is the order of the binding list.
+  printf '%s\n' "${1:-null}" "${2:-null}" "${3:-null}" "${4:-null}" "${5:-null}" "${6:-null}" "${7:-null}" "${8:-null}" "${9:-null}" \
+      "$resets" "$cifail" "$merges" "$fixes" \
+      "${PROFILE_JSON_OUT:-null}" "${CONFIG_JSON:-null}" "${MEMORY_JSON:-null}" \
+      "$(logs_json)" \
+    | jq -s --arg mode "$MODE" --argjson nothing "$nothing" --argjson hkonly "$hk_only" \
+    "$READ_SET_JQ"'. as [$reviews, $cleanups, $selfheals, $prunes, $artifacts, $nudges, $alerts, $mentions, $skills,
+                         $resets, $cifail, $merges, $fixes, $profile, $config, $memory, $logs]
+    | {mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
       selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
@@ -1304,11 +1281,13 @@ if [ "$MODE" = "review" ]; then
           | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(
               (split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $ext
               | $r.exts | index($ext) != null) ])')"
-        entry="$(printf '%s' "$entry" | jq -c --argjson s "$slice" --argjson r "$routing" --argjson tr "$trunc" \
-          '. + $s + {files_truncated:$tr, skill_routing:$r}')"
-        [ "$trunc" = "true" ] && log "PR #$n: changed-file list capped at 1000 — build the full list from the diff"
+        # the slice and the routing carry up to 1000 paths each: they reach jq
+        # on stdin, never in argv (MAX_ARG_STRLEN, 128 KiB per argument)
+        entry="$(printf '%s\n' "$entry" "$slice" "$routing" | jq -cs --argjson tr "$trunc" \
+          '. as [$e, $s, $r] | $e + $s + {files_truncated:$tr, skill_routing:$r}')"
+        [ "$trunc" = "true" ] && log "PR #$n: changed-file list capped at 1000 — prepare builds the list from the diff"
       fi
-      NEW_DUE="$(printf '%s' "$NEW_DUE" | jq -c --argjson e "$entry" '. + [$e]')"
+      NEW_DUE="$(printf '%s\n' "$NEW_DUE" "$entry" | jq -cs '.[0] + [.[1]]')"
     done < <(printf '%s' "$REVIEWS_DUE" | jq -c '.[]')
     REVIEWS_DUE="$NEW_DUE"; rm -f "$FILES_TMP"
   fi
@@ -1717,7 +1696,7 @@ if [ "$MODE" = "shepherd" ]; then
     row="$(shep_row "$n")"
     eligible="$(row_field "$row" 3)"
     if [ -z "$eligible" ]; then
-      eligible="$(gh api "repos/$REPO/issues/$n/timeline?per_page=100" 2>/dev/null | jq -r '[.[] | select(.event=="ready_for_review") | .created_at] | last // empty')"
+      eligible="$(gh_get_all "repos/$REPO/issues/$n/timeline?per_page=100" | jq -r '[.[] | select(.event=="ready_for_review") | .created_at] | last // empty')"
       [ -z "$eligible" ] && eligible="$created"
     fi
     reviewers="$(row_field "$row" 4)"
@@ -1729,12 +1708,12 @@ if [ "$MODE" = "shepherd" ]; then
     status="$(row_field "$row" 9)"
 
     # Classification, with an outage never allowed to read as an answer: REST
-    # first, GraphQL as the second opinion (during the 2026-08-17 incident the
-    # REST endpoint returned 404 bodies carrying a GraphQL error while the
-    # GraphQL endpoint answered correctly), and if neither responds the PR is
+    # (every page) first, GraphQL as the second opinion (during the 2026-08-17
+    # incident the REST endpoint returned 404 bodies carrying a GraphQL error
+    # while the GraphQL endpoint answered correctly), and if neither responds the PR is
     # deferred with its ledger row carried over untouched — the same deferral
     # the review path makes on __api_error__.
-    reviews_json="$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null)"
+    reviews_json="$(gh_get_all "repos/$REPO/pulls/$n/reviews?per_page=100")"
     cls="$(printf '%s' "$reviews_json" | classify_reviews "$author")"
     if [ -z "$cls" ]; then
       reviews_json="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
@@ -1857,18 +1836,28 @@ if [ "$MODE" = "shepherd" ]; then
         nudge_status="nudging"
       fi
       [ "$nudge_class" != "ready_to_land" ] && [ "$next_level" -ge 4 ] && nudge_status="held"
+      # who requested the changes: the independent reviewers whose newest
+      # review is CHANGES_REQUESTED, the rule classify_reviews applies
+      changes_by='[]'
+      [ "$cls" = "changes_requested" ] && changes_by="$(printf '%s' "$reviews_json" \
+        | jq -c --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+            [ .[] | select(.user.login != $b and .user.login != $a)
+                  | select((.body // "") | contains($m) | not) ]
+            | group_by(.user.login) | map(last | select(.state == "CHANGES_REQUESTED") | .user.login)' 2>/dev/null)"
+      [ -n "$changes_by" ] || changes_by='[]'
       # every Slack mention the agent sends is a `mention` string of this entry:
       # the targets', the candidates' it picks from, the escalation owner's
       NUDGES_DUE="$(printf '%s' "$NUDGES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg t "$title" --arg a "$author" --arg u "$url" \
         --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson r "$ROSTER_JSON" \
         --arg eo "$ESCALATION_OWNER" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
+        --argjson cb "$changes_by" \
         '[$tg | split(",")[] | gsub("[!* ]"; "") | select(. != "")] as $ts
         | [$ts[] as $x | first($r[] | select(.login == $x))] as $m
         | ($m|length==0 and $c!="changes_requested" and $c!="ready_to_land" and ($conf|not)) as $sel
         | {number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
            candidates:(if $sel then [$r[] | select(.login != $a)] else [] end),
-           conflict:$conf, brief:$br, needs_target_selection:$sel,
+           conflict:$conf, brief:$br, changes_by:$cb, needs_target_selection:$sel,
            escalation:({login:$eo, slack_id:""}
                        + (if $l >= 4 then (first($r[] | select(.login == $eo)) // {}) else {} end)),
            row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"
@@ -1911,7 +1900,7 @@ if [ "$MODE" = "audit" ]; then
   if [ "$AUDIT_ENABLED" != "enabled" ]; then
     log "audit_report disabled — audit skipped"
     printf '%s\n' "$NOW_ISO audit nothing_to_do=true audit_report=disabled" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-    jq -n --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
+    jq -n --argjson logs "$(logs_json)" \
       '{mode:"audit", nothing_to_do:true, logs:$logs}'
     exit 0
   fi
@@ -2050,10 +2039,10 @@ if [ "$MODE" = "audit" ]; then
   # dropped before the match, so "10 failed", "failed=2" or a SHA ending in 0
   # ("9c1e2a0 failed") still counts
   err_lines="$( { cat "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
-    | awk '{ l = tolower($0)
-             gsub(/(^|[^0-9a-z._#-])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)/, " ", l)
-             gsub(/(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9a-z.]|$)/, " ", l)
-             if (l ~ /fail|error|anomal/) print }' \
+    | jq -rR '. as $l | ascii_downcase
+        | gsub("(^|[^0-9a-z._#-])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)"; " ")
+        | gsub("(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9a-z.]|$)"; " ")
+        | select(test("fail|error|anomal")) | $l' 2>/dev/null \
     | while IFS= read -r l; do ts="${l%% *}"; e="$(iso2epoch "$ts")"; [ "$e" -ge "$SINCE_EPOCH" ] && printf '%s\n' "$l"; done)"
   err_count="$(printf '%s' "$err_lines" | grep -c . || true)"
   if [ "$err_count" -gt 0 ]; then check log_errors warn "$err_count error-ish log lines this week; last: $(printf '%s\n' "$err_lines" | tail -1 | cut -c1-160)"
@@ -2466,8 +2455,10 @@ if [ "$MODE" = "audit" ]; then
   # not. Direct sessions (job `session`) and unrecorded models
   # are left out. Under `default` no schedule pins a model, so any recorded
   # run is a warn: the platform's default decided what it ran on.
-  SM_OUT="$(jq -rn --argjson ses "$SESSIONS_WEEK" --arg rm "$(cfg review_model)" "$MODEL_JQ"'
-    ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
+  # stdin, not argv: a busy week's sessions pass MAX_ARG_STRLEN (128 KiB)
+  SM_OUT="$(printf '%s' "$SESSIONS_WEEK" | jq -r --arg rm "$(cfg review_model)" "$MODEL_JQ"'
+    . as $ses
+    | ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
     | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | ($runs | group_by([.job, .model])
        | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
@@ -2485,7 +2476,7 @@ if [ "$MODE" = "audit" ]; then
   else check session_models warn "session models could not be compared — stats.sessions unreadable"; fi
 
   # Wake-ups — the preflight and monitor passes that found work, from the
-  # `heartbeat` events emit(), survey_out(), bench_out() and monitor.sh write:
+  # `heartbeat` events emit(), local_out() and monitor.sh write:
   # a gated fire that started a session, or an ungated pass (the direct
   # session, the rerun after a broken gate). `by_work.<kind>` counts the runs
   # that carried that work (`runs`) and its items; one run can carry several
@@ -2550,7 +2541,7 @@ if [ "$MODE" = "audit" ]; then
   #   pod_restart  — a `pod_boot` warn falls inside the run's own event window
   #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran
   #   terminated   — SessionEnd ran but the pipeline stopped mid-way (orderly
-  #                  shutdown from outside; see docs/audit.md task 28)
+  #                  shutdown from outside; see docs/audit.md task 29)
   # `aborted_clean` counts runs that *did* terminate explicitly — the cheap
   # outcome the Stop hook drives, so a rise here against falling `stalled` is
   # the mitigation working, not a regression.
@@ -2654,10 +2645,13 @@ if [ "$MODE" = "audit" ]; then
     mv "$lf.tmp" "$lf"
   done
   # mention ledger: rows older than 14d fall outside the 7-day scan window and
-  # can never be re-emitted — drop them (header/unparseable lines are kept)
+  # can never be re-emitted — drop them (header/unparseable lines are kept).
+  # A `body-<n>` row stays: an open PR's description is scanned at any age, and
+  # the PR's prune deletes the row (docs/review-bookkeeping.md → Pruning).
   if [ -f "$WORK/MENTIONS.md" ]; then
     : > "$WORK/MENTIONS.md.tmp"
     while IFS= read -r line; do
+      case "$line" in ('| body-'*) printf '%s\n' "$line" >> "$WORK/MENTIONS.md.tmp"; continue;; esac
       ts="$(printf '%s' "$line" | cut -d'|' -f4 | tr -d ' ')"
       e="$(iso2epoch "$ts")"
       { [ "$e" -eq 0 ] || [ "$e" -ge "$KEEP_EPOCH" ]; } && printf '%s\n' "$line" >> "$WORK/MENTIONS.md.tmp"
@@ -2714,16 +2708,19 @@ if [ "$MODE" = "audit" ]; then
     def zrate($x1; $n1; $x2; $n2): (($x1 + $x2) / ($n1 + $n2)) as $p
       | ($p * (1 / $n1 + 1 / $n2)) as $v
       | if $v <= 0 then 0 else (($x1 / $n1 - $x2 / $n2) / ($v | sqrt)) end;
-    ($rows | map(select(.week < $wk)) | .[-4:]) as $base
+    . as $rows
+    | ($rows | map(select(.week < $wk)) | .[-4:]) as $base
     | ([$base[] | .week] | if length == 0 then "" else "\(.[0])…\(.[-1])" end) as $span
     | ([$base[] | (.defs // [.version]) | .[] | strings] | unique | join(", ")) as $dbase
     | (($ra.reviews.defs // []) | join(", ")) as $dcur
     | " — definition this week: \(if $dcur == "" then "unrecorded" else $dcur end), before: \(if $dbase == "" then "unrecorded" else $dbase end)" as $defs
     | "ok\tno earlier week on record in work/audit/ — the comparison starts with the trend history" as $nohist
     |'
+  # the rows reach jq on stdin: one row per recorded week, so the history
+  # passes MAX_ARG_STRLEN (128 KiB) after about half a year
   shift_check() { # <check id> <jq program after SHIFT_DEFS> <what failed>
     local out
-    out="$(jq -rn --argjson ra "$REVIEWS_AGG" --argjson rows "$TREND_ROWS" \
+    out="$(printf '%s' "$TREND_ROWS" | jq -r --argjson ra "$REVIEWS_AGG" \
       --arg wk "$(epoch2iso "$NOW_EPOCH" '%G-W%V')" "$SHIFT_DEFS$2" 2>/dev/null)"
     if [ -n "$out" ]; then check "$1" "${out%%$'\t'*}" "${out#*$'\t'}"
     else check "$1" warn "$3 could not be compared — trend history unreadable"; fi
@@ -3125,9 +3122,9 @@ if [ "$MODE" = "audit" ]; then
       conflicts:$ev.conflicts, hot_areas:$hot}')"
 
   # The week's classifier refusals and API failures, from the harness hooks
-  # (docs/monitor.md → In the weekly audit): what the classifier refused and
-  # why, and the outages the model had. The monitor alerts on them as they
-  # happen; this is the week's account the audit triages (docs/audit.md task 5).
+  # (docs/audit.md task 38): what the classifier refused and why, and the
+  # outages the model had. The monitor alerts on them as they happen; this is
+  # the week's account the audit triages.
   GUARD_WEEK="$(week_events | jq -sc --arg s "$SINCE_ISO" '
     def ep: (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) // 0;
     [.[] | select(.ts >= $s)] as $w
@@ -3160,17 +3157,17 @@ if [ "$MODE" = "audit" ]; then
     check model_availability warn "$AF_N run(s) ended on an API failure this week, in $(printf '%s' "$GUARD_WEEK" | jq '.api_failures.outages | length') outage(s): $(printf '%s' "$GUARD_WEEK" | jq -r '.api_failures.by_class | to_entries | map("\(.key)×\(.value)") | join(", ")')"
   else check model_availability ok "no run ended on an API failure this week"; fi
 
-  STATS="$(jq -n --arg since "$SINCE_ISO" \
-    --argjson al "$AWAITING_JSON" \
-    --argjson open "$OPEN_COUNT" --argjson ra "$REVIEWS_AGG" \
-    --argjson dur "$REVIEW_DUR" --argjson ph "$REVIEW_PHASES" \
-    --argjson hb "$hb_total" --argjson idle "$hb_idle" --argjson np "$NUDGED_JSON" \
-    --argjson le "$ev_err" --argjson lw "$ev_warn" --argjson tw "$TOKENS_WEEK" \
-    --argjson sw "$STALLS_WEEK" --argjson rx "$REACTIONS" --argjson art "$ARTIFACTS_WEEK" \
-    --argjson proj "$PROJECT_JSON" --argjson wk "$WAKEUPS_WEEK" --argjson rs "$REVIEW_SHAPE" \
-    --argjson disk "$DISK_JSON" --argjson ses "$SESSIONS_WEEK" --argjson ovr "$OVERRULED" \
-    --argjson guard "$GUARD_WEEK" \
-    '{since:$since, open_prs:$open, awaiting_label:$al,
+  # Every JSON part travels on stdin, one document per line, never in argv: the
+  # week's sessions alone near MAX_ARG_STRLEN (128 KiB per argument), and a
+  # too-long argument kills jq with no output — the audit then printed nothing.
+  STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
+      "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
+      "${REACTIONS:-null}" "${ARTIFACTS_WEEK:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" \
+    | jq -cs --arg since "$SINCE_ISO" '
+    . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
+          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard]
+    | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
@@ -3178,15 +3175,16 @@ if [ "$MODE" = "audit" ]; then
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
       classifier:$guard.classifier, api_failures:$guard.api_failures}')"
+  [ -n "$STATS" ] || log_warn "audit stats: the stats object did not build — the worklist carries stats null"
 
   # wording note: never write the substring "fail"/"error" into this line —
   # the next audit's log_errors grep would flag it as a false positive
   printf '%s\n' "$NOW_ISO audit nothing_to_do=false checks=$(printf '%s' "$CHECKS" | jq length) red=$(printf '%s' "$CHECKS" | jq '[.[]|select(.status=="fail")]|length')" >> "$WORK/HEARTBEAT.log" 2>/dev/null
-  AUDIT_JSON="$(jq -n --argjson stats "$STATS" --argjson checks "$CHECKS" \
-    --argjson failures "${FAILURES:-[]}" \
-    --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" \
-    '{mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
-      failures:$failures, logs:$logs}')"
+  AUDIT_JSON="$(printf '%s\n' "${STATS:-null}" "${CHECKS:-[]}" "${FAILURES:-[]}" \
+      "$(logs_json)" \
+    | jq -s '. as [$stats, $checks, $failures, $logs]
+      | {mode:"audit", nothing_to_do:false, stats:$stats, checks:$checks,
+         failures:$failures, logs:$logs}')"
   # bookkeeping: the same worklist on disk is the trend artifact's input, so a
   # week's numbers reach work/audit/ without passing through the agent
   # (docs/trends.md). Overwritten every audit; the week files are the record.

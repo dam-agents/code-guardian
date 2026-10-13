@@ -11,17 +11,9 @@
 # status: sent | unknown | failed | off | capped | none. `unknown` — the call
 # went out and no answer came back; its ids are held, never sent twice in one
 # tick. `attempted` marks a call that reached the endpoint; each counts
-# against the daily cap. `send` checks the opt-in, the roster id and the cap,
-# renders, checks the text and sends; it records nothing in the alert ledger —
-# monitor.sh acknowledges the sent ids and counts the attempt.
-#
-# The text is built from fixed templates only. Every value an alert carries
-# passes a type check first — a UTC time, a whole number, a class word from a
-# fixed set, a PR number — and an alert with any value outside its type is
-# skipped (left to the session), never sent with it. Free text from the events
-# log (API error details, refused commands, reasons) never reaches the message.
-# The finished text passes one more check: no Slack control sequence, no
-# mention, no link but the dashboard's own share URL.
+# against the daily cap. `send` records nothing in the alert ledger —
+# monitor.sh acknowledges the sent ids and counts the attempt. The templates,
+# type checks and text check: docs/monitor.md → Direct delivery.
 
 set -u
 export LC_ALL=C
@@ -49,7 +41,7 @@ render() { # <alerts.json>
   local name url
   # the display name and the share URL: one line each, checked whole
   # (\A…\z: a `$` would also match before a trailing newline)
-  name="$(jq -rn --arg n "$(cfg bot_display_name)" '$n | select(test("\\A[A-Za-z0-9][A-Za-z0-9 _-]{0,39}\\z")) // "Code review agent"')"
+  name="$(jq -rn --arg n "$(cfg bot_display_name)" '$n | select(test("\\A[A-Za-z0-9][A-Za-z0-9 _-]{0,39}\\z")) // "Code Guardian"')"
   url="$(jq -r '.share_url // "" | strings
     | select(test("\\Ahttps://[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+(:[0-9]{1,5})?/[A-Za-z0-9/_~%=&-]{1,200}\\z"))' \
     "$WORK/health/state.json" 2>/dev/null)"
