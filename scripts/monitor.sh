@@ -1,25 +1,13 @@
 #!/usr/bin/env bash
 # monitor.sh — the monitor's detector: the agent's health alerts, apart from
-# the review heartbeat (docs/monitor.md).
-#
-# Detects; its only outward calls are two opt-ins. Reads local files only —
-# the events log, the review usage baseline, the review ledger, the harness
-# settings — and makes no GitHub call, so the review gate stays free of health
-# checks and a monitor tick costs no API quota. Its writes are bookkeeping: the
-# alert ledger work/MONITOR.json (claims, deliveries, direct sends), the
-# stall-alert day claim, the anomaly marker and baseline, the technical history
-# work/health/ (health.sh), HEARTBEAT.log and the events log. Under
-# monitor_slack_direct it DMs the due alerts itself (monitor-direct.sh), and
-# under health_dashboard it publishes the dashboard (health.sh publish).
+# the review heartbeat (docs/monitor.md). Local files only, no GitHub call;
+# its writes are bookkeeping and the technical history (health.sh), its only
+# outward calls the two opt-ins (monitor-direct.sh, health.sh publish).
 #
 #   monitor.sh            -> worklist JSON: alerts_due[] (each with an `id`),
 #                            stall_alert, review_anomaly, direct, suppressed,
 #                            config, logs; nothing_to_do when none is due
 #   monitor.sh ack <id>…  -> records the alerts as delivered (send-then-record)
-#
-# An alerts_due entry is claimed for CLAIM_TTL_S when emitted: a later tick in
-# that time skips it, and after it the alert is emitted again — a session that
-# died before its ack (a model outage is the usual cause) loses nothing.
 #
 # Requires: bash, jq, sed/grep/cut/tr/sort, GNU or BSD date; curl for the
 # opt-ins. No awk, no gh.
@@ -234,8 +222,8 @@ REVIEW_INTERVAL_QUIET="$(int_key review_interval_quiet 60)"
 [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
-HB_LAST="$(cat "$LOG_DIR"/events-*.jsonl 2>/dev/null | grep -F '"job":"review"' \
-  | grep -E '"event":"(precheck|heartbeat)"' | jq -r -R 'fromjson? | .ts' 2>/dev/null | sort | tail -1)"
+HB_LAST="$( { events_jsonl precheck; events_jsonl heartbeat; } \
+  | jq -r 'select(.job == "review") | .ts' 2>/dev/null | sort | tail -1)"
 if [ -n "$HB_LAST" ]; then
   HB_AGE=$(( NOW_EPOCH - $(iso2epoch "$HB_LAST") ))
   if [ "$HB_AGE" -gt "$HB_GAP_MAX_S" ]; then

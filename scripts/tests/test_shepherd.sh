@@ -211,6 +211,30 @@ run_preflight shepherd
 if [ "$(nudged_facts | jq -s 'length == 2 and .[1].level == 3')" = true ]; then printf 'ok   %s: a later nudge is a new fact\n' "$CASE"
 else printf 'FAIL %s: nudged facts: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
 
+# the pod has no awk: the ledger row is read without it
+new_case shepherd_nudged_fact_noawk
+shep_setup
+pr_json 1 "nudged PR" '[]' "$SHA1" | open_prs_fx
+nudge_row 1 "$(iso_ago 3600)" 2
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_preflight shepherd
+if [ "$(nudged_facts | jq -s 'length == 1 and .[0].pr == 1 and .[0].level == 2')" = true ]; then
+  printf 'ok   %s: the recorded nudge is a fact without awk\n' "$CASE"
+else printf 'FAIL %s: nudged facts without awk: %s\n' "$CASE" "$(nudged_facts)"; FAILED=1; fi
+
+# --- the reviews list is read to its last page --------------------------------
+# a person's newest review sits past the first 100 the API returns
+new_case shepherd_reviews_second_page
+shep_setup
+pr_json 1 "long-discussed PR" '[]' "$SHA1" | open_prs_fx
+jq -n '[range(100) | {user: {login: "bob"}, state: "CHANGES_REQUESTED", body: "", submitted_at: "2026-07-02T00:00:00Z"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+printf '[{"user":{"login":"bob"},"state":"APPROVED","body":"","submitted_at":"2026-07-03T00:00:00Z"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100&page=2"
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'the approval on page 2 silences the PR'
+assert_file_contains "$WORK/SHEPHERD.md" '| approved |' 'the ledger records the newest review'
+
 # --- the bot's own review is not a human review -------------------------------
 new_case shepherd_pr_facts_bot_excluded
 shep_setup

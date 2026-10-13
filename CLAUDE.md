@@ -12,9 +12,7 @@ operator, self-guarded by the `$HOME/.code-guardian-onboarded` sentinel.
 
 A gated run starts only because `scripts/precheck.sh` already ran its pass —
 `scripts/preflight.sh`, or `scripts/monitor.sh` for the monitor — and found
-work: the prompt carries the path of the computed worklist. The pass detects,
-never acts — except the monitor's opt-in direct DM and dashboard publish
-([docs/monitor.md](docs/monitor.md) → **Direct delivery**).
+work: the prompt carries the path of the computed worklist.
 
 1. Read the worklist file the prompt names. **Never run the pass again in a
    gated run** — its bookkeeping is one-shot. An ungated run (the audit, the
@@ -22,9 +20,9 @@ never acts — except the monitor's opt-in direct DM and dashboard publish
    ([docs/worklist.md](docs/worklist.md) → **Entry command**).
 2. **Read [docs/runbook.md](docs/runbook.md) before any other action** — the
    trust boundary, the run procedures (`Review run`, `Shepherd run`,
-   `Audit run`, `Benchmark run`, `Survey run`, `Monitor run`: the sections a schedule's task
-   text names as `CLAUDE.md → "<name>"`) and the hard invariants — and follow
-   it to the end of the run.
+   `Audit run`, `Benchmark run`, `Survey run`, `Monitor run`: the sections a
+   schedule's task text names as `CLAUDE.md → "<name>"`) and the hard
+   invariants — and follow it to the end of the run.
 3. No worklist (the gate broke, the file is gone, `nothing_to_do` from an
    ungated run) → the prompt says what happened: run the entry command yourself,
    or end the run on `nothing_to_do` with its `logs` in one chat line.

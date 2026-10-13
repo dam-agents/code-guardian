@@ -42,27 +42,25 @@ _Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automat
 Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker line is
 **mandatory** — it drives dedup — and uses the full 40-char SHA.
 
-**`findings-json`** — the machine-readable copy of `### Findings`, one line
-right above the marker, in every posted full review. Per finding: `status`
-(`new`|`still`|`fixed`; first reviews all `new`), `severity`
-(`critical`|`warning`|`suggestion`), `file`, `line` (null when not anchorable),
-`also` (the sibling-sweep locations of the same finding, `[{file, line}]`;
-omitted when there is one), `late` (`true` on a `new` finding that was already
-present at the prior reviewed SHA, [review-rereview.md](review-rereview.md) →
-**Re-review output**; omitted otherwise), `inline`, `summary` (≤ ~10 words),
-`fix` (the **Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical`
-and `warning` are the blocking set, so this line is the machine-readable
-approval bar the next re-review checks against. Every anchor is a real line of
-the file it names — `post` nulls one that is not and reports it. Keep the JSON
-free of `--` sequences — HTML-comment safety, use `–`. No findings → `[]`.
-Rapid reviews carry no such line. A review without `fix` (pre-3.3.0) or without
-`also` (pre-3.22.0) parses as before.
+**`findings-json`** — the machine-readable copy of `### Findings`, in every
+posted full review. Per finding: `status` (`new`|`still`|`fixed`; first
+reviews all `new`), `severity` (`critical`|`warning`|`suggestion`), `file`,
+`line` (null when not anchorable), `also` (the sibling-sweep locations of the
+same finding, `[{file, line}]`; omitted when there is one), `late` (`true` on
+a `new` finding that was already present at the prior reviewed SHA,
+[review-rereview.md](review-rereview.md) → **Re-review output**; omitted
+otherwise), `inline`, `summary` (≤ ~10 words), `fix` (the **Fix:** line in
+≤ ~15 words; `null` on `suggestion` and `fixed`). `critical` and `warning` are
+the blocking set, so this line is the machine-readable approval bar the next
+re-review checks against. Every anchor is a real line of the file it names —
+`post` nulls one that is not and reports it. No `--` in the JSON (HTML-comment
+safety): `post` writes it as `–`. No findings → `[]`. Rapid reviews carry no
+such line. An older line without `fix` or `also` stays valid.
 
 **`review-meta`** — machine state for the next round and for the author's fix
-round, one line above `findings-json`, in every posted full review. It is
-never rendered for a reader: nothing in it appears in the review body, and the
-visible dropped-suggestion count stays as it is. The line absent (pre-4.1.0),
-unparsable or missing a key → every consumer keeps the behavior it had
+round, in every posted full review. Never rendered: nothing in it appears in
+the review body, and the `_N suggestion(s) dropped_` line stays. The line
+absent, unparsable or missing a key → every consumer keeps the behavior it had
 without it. `post` writes `diff_digest`
 ([review-rereview.md](review-rereview.md) → **Re-review output**) and `rereview`
 itself — how the next round is
@@ -75,9 +73,9 @@ portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
 the branch, `-e` in place of `--` — and `clean` what a clean run prints
 (`no hits`, or the locations a hit is correct at); commands that only read,
 never a command that changes a file. `deferred` — every 🟢 the budget dropped
-([finding-form.md](finding-form.md)), so the next round settles them instead
-of deriving them again. `triage` — your call on whether a person must read
-this PR, for the shepherd ([shepherd.md](shepherd.md) → **Scope and brief**):
+([finding-form.md](finding-form.md)), for the author's fix round
+(review-remediation reads it). `triage` — your call on whether a person must
+read this PR, for the shepherd ([shepherd.md](shepherd.md) → **Scope and brief**):
 `class` `needs-human` (a person must judge design, architecture, product
 behavior or a risk the review cannot settle) or `quick-check` (the review
 covered it; a person only confirms), `why` (≤ ~15 words, what the person must
@@ -92,22 +90,21 @@ reads as `needs-human`.
 1. Inline-eligible = `(file, line)` inside a diff hunk: `path` repo-relative,
    `line` in the new file (`side: "RIGHT"`; `"LEFT"` + old line for deleted
    code); multi-line adds `start_line`, both ends in one hunk. A finding with
-   `also` locations takes one comment per location, so each site carries the
-   fix, and every one of them counts toward the cap and the priority of rule 4.
+   `also` locations takes one comment per location, each counted toward the
+   cap and the priority of rule 4.
 2. Outside every hunk, or no precise line → summary-only. `post` checks each
    comment against the hunk index and moves the ineligible ones under
-   `### Findings not anchorable inline`, because otherwise the whole POST 422s.
+   `### Findings not anchorable inline` (`inline: false` in `findings-json`).
 3. `✅ Looks good` → summary-only, never inline (first reviews only).
-4. **Cap 25 inline comments** — `post` keeps 🔴/🟡 first and moves excess 🟢 to
-   the summary.
+4. **Cap 25 inline comments** — `post` keeps the most severe and moves the
+   rest to the summary.
 5. **Re-reviews: only `🆕 New` and `🔎 Missed earlier` findings inline** —
    carryovers keep their existing thread, `✅ Fixed` get nothing.
 
-**Suggestion blocks** — strongly recommended: give every inline finding whose
-fix is local and unambiguous (about 5 lines or fewer) a ` ```suggestion `
-block, so the author applies it in one click. The block replaces exactly the
-anchored line(s) — matching indentation, replacement lines only, one block per
-comment. Never for style preferences.
+**Suggestion blocks** — strongly recommended on every inline finding whose fix
+is local and unambiguous (about 5 lines or fewer): a ` ```suggestion ` block
+that replaces exactly the anchored line(s) — matching indentation,
+replacement lines only, one block per comment. Never for style preferences.
 
 ## Review tracking state
 
@@ -129,12 +126,12 @@ comment. Never for style preferences.
   authoritative.
 - `review-pr.sh` writes every row (`prepare` locks, `step` refreshes, `rapid`
   sets `RAPID`, `post` / `abort` finish, `row` the bookkeeping rows), and it
-  and preflight write one at a time: concurrent runs share the file
-  (`with_state_lock` in [common.sh](../scripts/lib/common.sh)). In the manual fallback, rewrite the
+  and preflight write one at a time (`with_state_lock` in
+  [common.sh](../scripts/lib/common.sh)). In the manual fallback, rewrite the
   PR's line in place; rows are full of `|`, so give sed another delimiter:
 
   ```bash
-  sed -E "s#^\| *<n> \|.*#| <n> | <sha> | <ts> | <verdict> | <status> |#" work/REVIEWS.md \
+  sed -E "s#^\| *<n> *\|.*#| <n> | <sha> | <ts> | <verdict> | <status> |#" work/REVIEWS.md \
     > work/REVIEWS.md.tmp && mv work/REVIEWS.md.tmp work/REVIEWS.md
   ```
 
@@ -150,29 +147,24 @@ holder of the PR** in the events since the lock. The core rule: a run with a
 `locked` step on the PR is its holder; it still owes the PR while its newest
 `review_step` there is non-terminal ([review.md](review.md) → **Completion
 enforcement**), and it is alive while its newest event of any kind is inside
-`HOLDER_QUIET_MIN` (20 — above the 16.7-min longest gap a healthy review
-shows). A run that ended releases the PR at once, however many milestones it
-logged first; a run that never locked it holds nothing. Preflight's fallback:
-with no `locked` step since the lock (it can predate log retention after a
-crash), a recent event naming the PR counts as life when its run has not ended
-the PR. A live holder's PR is omitted and logged `holder … — left
-running`. The check is a local log read; the rule and its windows live in
-[lib/holds.sh](../scripts/lib/holds.sh). Two signals must both go quiet: the
-row timestamp ([review.md](review.md) → **Lock heartbeat**) and the event
-stream.
+`HOLDER_QUIET_MIN` (20). A run that ended releases the PR at once, however
+many milestones it logged first; a run that never locked it holds nothing.
+Preflight's fallback: with no `locked` step since the lock (it can predate log
+retention after a crash), a recent event naming the PR counts as life when
+its run has not ended the PR. A live holder's PR is omitted and logged
+`holder … — left running`. The check is a local log read; the rule and its
+windows live in [lib/holds.sh](../scripts/lib/holds.sh). Two signals must both
+go quiet: the row timestamp ([review.md](review.md) → **Lock heartbeat**) and
+the event stream.
 
-**The skill fan-out has its own window.** Between `fanned out (n=<N>)` and
-`verified` the holder is blocked on its subagents: it writes no event and
-touches no tree, so both signals go quiet for the longest phase of the review
-and a healthy run reads as a dead one. A holder whose newest event is
-`fanned out (n=…)` therefore stays alive for `FANOUT_QUIET_MIN` (60) instead.
-The phase is the only one that is structurally silent, so no other step widens
-the window; calibrate the value against `stats.reviews.phases.skills`
-([audit.md](audit.md) task 23).
+**The skill fan-out has its own window.** A holder whose newest event is
+`fanned out (n=…)` is blocked on its subagents until `verified`, and stays
+alive for `FANOUT_QUIET_MIN` (60) instead; calibrate the value against
+`stats.reviews.phases.skills` ([audit.md](audit.md) task 23).
 
 - **As the holder you own the PR to a terminal state whatever your lock age.**
-  Keep refreshing and finish. Step f is the safety: a second job that posted at
-  your SHA turns your run into a self-healing abort, so no duplicate posts.
+  Keep refreshing and finish. Step f's dedup re-check is the safety: a second
+  job that posted at your SHA turns your post into `duplicate`.
 - **As the taker, Check 1 re-checks exclusivity for every entry, whatever its
   `takeover` flag.** `takeover: true` means preflight saw no life, not proof of
   death; `takeover: false` only means its snapshot saw no lock, and that
@@ -182,10 +174,9 @@ the window; calibrate the value against `stats.reviews.phases.skills`
   above, read over every retained event (a `locked` step at any age counts).
   Then it stands down — `outcome: stand_down`, nothing touched,
   `holder alive at Check 1 — stood down` logged — and you take the next PR.
-  An older tree with no such event is a dead run's leftover and is reclaimed;
-  the lock write comes after this check. Standing down protects a finished
-  fan-out, which the reclaim's `rm -rf` would destroy
-  ([skills.md](skills.md) → **Clone, credential helper, cleanup**).
+  An older tree with no such event is a dead run's leftover and is reclaimed
+  ([skills.md](skills.md) → **Clone, credential helper, cleanup**); the lock
+  write comes after this check.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 
@@ -226,16 +217,14 @@ together with the history section above:
 ```
 
 `def` is the definition version that wrote the review, `suppressed` counts
-the audit note ([review.md](review.md) → **PR context**),
-`ste` measures the posted
-prose against the sentence bar, and `size` is the PR itself — a count GitHub
-had not finished computing is `null`, never `0` ([audit.md](audit.md) → task
-33). A row written before a field existed carries none of it, and the audit
-reads each as a floor.
+the audit note ([review.md](review.md) → **PR context**), `ste` measures the
+posted prose against the sentence bar, `findings[]` adds `late: true` where
+set, and `size` is the PR itself — a count GitHub had not finished computing
+is `null`, never `0` ([audit.md](audit.md) → task 33). A row written before a
+field existed carries none of it, and the audit reads each as a floor.
 
-Pruning deletes the history file, the ledger row stays — so the weekly numbers
-count the reviews of the week, not only the reviews of the PRs that are still
-open ([audit.md](audit.md), [trends.md](trends.md)). Every reader goes through
+Pruning deletes the history file; the ledger row stays. Every reader
+([audit.md](audit.md), [trends.md](trends.md)) goes through
 `scripts/lib/review-records.sh`, which unions the ledger with the history files
 still on disk and keeps one record per `(pr, ts)`. Retention: 180 days
 ([logging.md](logging.md) → **Retention**). Only the audit trims this file.

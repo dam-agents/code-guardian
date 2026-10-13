@@ -205,6 +205,16 @@ run_profile check
 assert_jq '.status == "disabled"' 'disabled key short-circuits'
 [ -f "$WORK/PROFILE.json" ] && { printf 'FAIL %s: profile written despite disabled\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing written\n' "$CASE"
 
+# --- disabled after a profile was built: the slice ignores the leftover file ---
+new_case profile_disabled_leftover
+base_config; mk_fixture
+run_profile check
+assert_jq '.status == "regenerated" or .status == "current"' 'a profile exists before the switch'
+printf -- '- project_profile: disabled\n' >> "$WORK/CONFIG.md"
+printf '[{"filename":"packages/a/src/query.ts","status":"modified"},{"filename":"pnpm-lock.yaml"}]\n' > "$SANDBOX/files.json"
+run_profile slice "$SANDBOX/files.json"
+assert_jq '.profile_slice == [] and .history_slice == [] and ([.files[].class] == ["code","lockfile"])' 'no rows from the leftover profile, built-in classes only'
+
 # --- remote unreachable: keep what exists, never fail the run ------------------
 new_case profile_unreachable
 base_config; mk_fixture

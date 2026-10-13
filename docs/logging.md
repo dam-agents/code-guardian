@@ -23,8 +23,8 @@ file per UTC day), one JSON object per line:
   worklist writes its own lines under the harness session id. Read one fire as
   that pair, matched on `job` and on the minute the gate's `precheck` event
   names.
-- **job** — `review` | `shepherd` | `audit` | `benchmark` | `monitor` | `session` (from
-  `LOG_JOB`).
+- **job** — `review` | `shepherd` | `audit` | `benchmark` | `survey` |
+  `monitor` | `session` (from `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
   only under `log_level: debug`.
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
@@ -42,10 +42,10 @@ never fails a run and creates `work/logs/` on first write.
 
 ### The shape is a contract, not a convention
 
-Three readers parse these lines — the `Stop` hook, preflight's live-holder and
-stall detection, and the audit's triage. A line written any other way is
-invisible to them, and an invisible terminal step reads as a review that never
-finished. A hand-rolled line matches exactly:
+The `Stop` hook, preflight's live-holder detection, the monitor's pass and the
+audit parse these lines; a line written any other way is invisible to them,
+and an invisible terminal step reads as a review that never finished. A
+hand-rolled line matches exactly:
 
 - **File** — `work/logs/events-<UTC YYYY-MM-DD>.jsonl` for the write day. No
   other name is ever read.
@@ -63,10 +63,9 @@ finished. A hand-rolled line matches exactly:
 `log.sh` sources it, so anything sourcing `log.sh` inherits it; the harness
 hooks source it explicitly, **above** their `command -v jq` guard.
 
-Where `jq`/`gh` on `PATH` are symlinks to a version manager (mise shims on the
-DAM pod), every exec re-resolves its toolchain — ~250 ms against ~17 ms for the
-real binary. `preflight.sh` execs `jq` ~90× per run and the hooks fire per tool
-call, so `toolpath_init` resolves each shimmed tool once per shell process (via
+Where `jq`/`gh` on `PATH` are version-manager shims (mise on the DAM pod),
+every exec re-resolves its toolchain (~250 ms against ~17 ms).
+`toolpath_init` resolves each shimmed tool once per shell process (via
 `mise bin-paths`, cached in `work/.cache/toolpaths`) and shadows it with a
 function calling the binary directly.
 
@@ -94,7 +93,9 @@ function calling the binary directly.
    ephemeral `/tmp` sentinel is absent iff the pod restarted since the last
    run). Detect-only, never gating behavior. A run with no matching
    `heartbeat`/session activity after a `pod_boot` is a restart that
-   interrupted work.
+   interrupted work. `scripts/precheck.sh` adds one `precheck` line per gate
+   pass, and `scripts/monitor.sh` (`LOG_JOB=monitor`) its own `heartbeat`
+   summary and alert events ([monitor.md](monitor.md)).
 2. **Harness adapter** (automatic) — every **failed tool call** becomes a
    `tool_failure` error event: tool name, truncated input, and the fullest
    error context available (`tool_response`, then error/stderr/stdout fields,
@@ -112,9 +113,8 @@ function calling the binary directly.
    from the session transcript and its subagents' transcripts, deduped by
    message id, then `subagents=<n>`, the transcript's wall time `secs=<n>`
    and, when n > 0, the subagents' share as
-   `sub_tokens=in:…,out:…,cr:…,cw:…`); one scheduled run is one fresh
-   session, so this is per-job consumption — join on `run` with the
-   `heartbeat` event for the mode. A resumed session ends again with its
+   `sub_tokens=in:…,out:…,cr:…,cw:…`); the run's other events name its job
+   ([trends.md](trends.md) → **Runs**). A resumed session ends again with its
    cumulative totals, so a run's last `tokens` event is its usage. A session
    that called the Agent tool and has no subagent transcript beside its own
    (`<session>/subagents/*.jsonl`) also logs one warn
@@ -160,8 +160,9 @@ adapter active, duty 4 above extends to logging tool failures manually.
   shape — so they survive a turn that ends before the agent logs them.
   Idempotent per (run, PR, step) via a `/tmp/.cg-steps-<session>` marker dir;
   lock refreshes are logged every time, because they are the liveness signal.
-  The steps needing agent knowledge (`fanned out`, `verified`,
-  `aborted <reason>`) stay manual. It also logs one **`review_cost`** event
+  The steps that need the agent's decision (`fanned out`, `verified`,
+  `aborted <reason>`) come from `review-pr.sh step` / `abort`, or from the
+  agent in the manual fallback. It also logs one **`review_cost`** event
   per review, whoever logged its steps: the usage between this run's
   `<sha7> locked` and `<sha7> done` steps of the PR, summed like the `tokens`
   event, and the window's shape (`review-window.jq`, `tool_failure` events) —
@@ -222,10 +223,10 @@ adapter active, duty 4 above extends to logging tool failures manually.
   replacing only its own entries; and it installs `agents/review-skill.md` as
   `~/.claude/agents/review-skill.md`, the subagent type of the skill fan-out
   ([skills.md](skills.md) → **Invocation & audit log**), limited to the tools
-  a skill run needs. `install.sh --check` prints the parts not current
-  (`hooks`, `automode-rules` — the `[code-guardian]` rules differ from the
-  ones this definition writes —, `tool-deny`, `skill-agent`). On another harness it prints a notice and
-  exits 0.
+  a skill run needs. `install.sh --check` prints the parts not current:
+  `hooks`, `automode-rules` (the `[code-guardian]` rules differ from the ones
+  this definition writes), `tool-deny`, `skill-agent`. On another harness it
+  prints a notice and exits 0.
 
 Registration is user-global, so every hook script no-ops unless
 `$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
@@ -239,20 +240,22 @@ no-secrets-in-logs invariant.
 The weekly audit verifies the adapter matches the detected harness
 (`harness_adapter` check): a Claude Code pod without registered hooks, current
 auto-mode rules (the tracking-issue rule names `definition_repo`), the deny
-list or a current `review-skill` agent is a warn.
+list or a current `review-skill` agent is a warn. The monitor checks the same
+parts on every tick (`harness_drift`, [monitor.md](monitor.md)).
 
-## Retention — the weekly audit cleans up
+## Retention
 
-Cleanup happens **only in the audit run** (`preflight.sh audit`,
-script-side), keeping at least 14 days:
+The audit run (`preflight.sh audit`, script-side) cleans up, keeping at least
+14 days:
 
 - `work/logs/events-*.jsonl` older than 14 days are deleted — with the weekly
   cadence a file is 14–21 days old when it dies.
 - `work/HEARTBEAT.log` and `work/SHEPHERD.log` are trimmed in place to the last
   14 days; unparseable lines are kept.
 - `work/MENTIONS.md` ([mentions.md](mentions.md)) is trimmed to rows younger
-  than 14 days — older rows are outside the 7-day scan window and can never be
-  re-emitted.
+  than 14 days, outside the 7-day scan window. A `body-<n>` row stays — an open
+  PR's description is scanned at any age — until the PR's prune deletes it
+  ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
 - `work/REVIEW-LEDGER.jsonl` ([review-mechanics.md](review-mechanics.md) →
   **Review ledger**) is trimmed to rows younger than **180 days** — it outlives
   the reviewed PR, and the trend backfill reads back over past weeks.
@@ -261,6 +264,9 @@ script-side), keeping at least 14 days:
 - `work/AUDIT.log` is exempt (one line per week).
 - The cleanup logs itself (`log_cleanup`, info). With `work/` git-backed, older
   logs stay recoverable from the work repo's history.
+- The monitor's pass trims its own records: `work/health/`
+  ([health.md](health.md)), `work/MONITOR.json` and `work/REVIEW-USAGE.jsonl`
+  ([monitor.md](monitor.md)).
 
 The audit also triages the week's events — error and warn counts into `stats`,
 the `events_errors` and `recurring_errors` checks (an `event` recurring ≥3× in
@@ -268,16 +274,11 @@ a week is flagged) — and the report surfaces every one of them
 ([audit.md](audit.md)).
 
 **Every `level: error` event** gets a second pass: the script groups them into
-`failures[]` (`event`, `tool`, `error`, `count`, `first`, `last`), normalizing
-SHAs, numbers and `/tmp` paths so one root cause is one entry, and for
-`tool_failure` also stripping the command text and keeping the tool name.
-`first`/`last` date each signature: a `last` older than a shipped fix means it
-is already resolved. The agent diagnoses each and, under
-`definition_issues: enabled`, may file an anonymous tracking issue (audit.md
-task 3).
-
-This is why **an error event's `msg` must carry its real error text**: a
-placeholder, or a bare `null`, makes the signature undiagnosable.
+`failures[]`, normalizing SHAs, numbers and `/tmp` paths so one root cause is
+one entry, and for `tool_failure` also stripping the command text and keeping
+the tool name. The agent diagnoses each ([audit.md](audit.md) task 3), so
+**an error event's `msg` carries its real error text** — never a placeholder
+or a bare `null`.
 
 ## Reading the log
 

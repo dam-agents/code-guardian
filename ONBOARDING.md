@@ -4,17 +4,10 @@ Bootstraps a fresh code-guardian agent, **once per agent instance**. It guards
 itself with a sentinel, and every step is idempotent, so a failed run is safe
 to re-run from the top.
 
-Two git repositories exist after onboarding and must never overlap:
-
-| Path | Repo | Purpose |
-| --- | --- | --- |
-| `/home/agent` | the **definition repo** (`origin`), derived in Step 0 from this file's URL | Agent definition (`CLAUDE.md`, `AGENTS.md`, `docs/`, `scripts/`, `ONBOARDING.md`, `README.md`, `LICENSE`). Evolved via PRs. |
-| `/home/agent/work` | **plain data directory**, not a repo; backed up to `work_repo` when configured | Runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`). |
-
-`work/` is git-ignored by the outer repo (allowlist `.gitignore`) and holds no
-`.git` of its own — backup runs off-volume via a tmpfs clone
-(`docs/persistence.md` → **Backup & restore**), so the two stay fully
-independent.
+After onboarding, `/home/agent` is the definition repo (`origin`, resolved in
+Step 0) and `/home/agent/work` a plain data directory of runtime state,
+git-ignored by it and backed up to `work_repo` when configured
+(`docs/persistence.md` → **Two stores: shared live state + durable backup**).
 
 **Created from the starter kit.** A platform that offers this definition as a
 kit ([`kit.yaml`](kit.yaml)) grants the connections, seeds the definition into
@@ -42,11 +35,10 @@ if [ -f "$HOME/.code-guardian-onboarded" ]; then
 fi
 ```
 
-Sentinel exists → **stop here**. It lives in persistent `$HOME`, so onboarding
-runs once per volume, not per heartbeat.
+Sentinel exists → **stop here**: onboarding runs once per volume.
 
-Then route git auth through `gh` for every host it is authenticated with
-(idempotent; re-run by every heartbeat that reviews):
+Then route git auth through `gh` for every authenticated host (idempotent;
+preflight re-runs it before every review):
 
 ```bash
 gh auth setup-git
@@ -66,8 +58,8 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    **operator-only** to fix (`gh auth login --hostname <host>`), so report and
    stop.
 
-   Then verify the preconditions the pipeline silently depends on. The weekly
-   audit re-checks both (`token_scopes`, `cli_deps`), per host:
+   Then verify the token scopes and the commands, which the weekly audit
+   re-checks (`token_scopes` per host, `cli_deps`):
 
    ```bash
    gh api user -i 2>/dev/null | sed -n 's/^[Xx]-[Oo][Aa]uth-[Ss]copes:[[:space:]]*//p'   # want: repo
@@ -76,18 +68,14 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    ```
 
    - A missing **scope** is **operator-only**: report it and ask them to widen
-     the token, never work around it. Which scopes are required and why is in
-     README → **Token scopes**; the optional one only affects the roster
-     import.
-   - A missing **command** blocks onboarding: report and stop. Installing OS
-     packages is not possible on the pod (no package manager, no sudo,
-     read-only prefixes), so `awk`, `diff` and a login-shell `python3` are
-     deliberately **not** required anywhere in this definition. Keep it that
-     way.
-   - A `SHIMMED:` line does **not** block: the runtime resolves it per run
-     (`docs/logging.md` → **Tool path resolution**). Report it — the fix
-     belongs in the pod image, and the audit's `tool_shims` check keeps warning
-     until it lands.
+     the token (README → **Token scopes**; the optional one only affects the
+     roster import).
+   - A missing **command** blocks onboarding: report and stop — the pod
+     cannot install packages. `awk`, `diff` and a login-shell `python3` are
+     **not** required anywhere in this definition.
+   - A `SHIMMED:` line does **not** block (`docs/logging.md` → **Tool path
+     resolution**): report it as a pod-image fix; the audit's `tool_shims`
+     check warns until it lands.
 2. **Work backup repository** — ask once, do not block:
 
    > Where should I keep a durable backup of my state (config, memory, review history)? Give me the repo as `[host/]owner/repo` — an empty one for a new agent, or the existing backup to continue a previous agent — or say "local-only" and the state lives on this volume alone.
@@ -114,11 +102,10 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    host-qualified from here on (`docs/config.md`). No file → a new agent.
 3. **Definition repo & branch** — on a restore, the backup's
    `definition_repo` and `definition_branch`. Otherwise derive the **host**,
-   `OWNER/REPO` and the branch from the URL of this runbook as the operator gave it
-   (`https://<host>/OWNER/REPO/blob/<branch>/ONBOARDING.md`, or its raw form);
-   for a fork that is the fork, never upstream. A kit-created instance carries
-   no such URL, because the kit seeded the definition into `$HOME` already —
-   read both values from that checkout instead:
+   `OWNER/REPO` and the branch from the URL of this runbook as the operator
+   gave it (`https://<host>/OWNER/REPO/blob/<branch>/ONBOARDING.md`, or its
+   raw form); for a fork that is the fork, never upstream. A kit-created
+   instance has no such URL — read both values from the seeded checkout:
 
    ```bash
    git -C "$HOME" remote get-url origin              # host + OWNER/REPO
@@ -156,13 +143,10 @@ definition files — is what makes a repo at `$HOME` safe. Do **not**
 `git clone` into `$HOME` (it needs an empty dir); init, fetch and hard-reset
 instead, which never touches untracked files.
 
-`$DEF_BRANCH` is the branch **this instance runs from** — the one Step 0.3
-resolved, or `main`. It is persisted as `definition_branch` in Step 4 and
-used for updates and for keeping the checkout in place
-(`docs/persistence.md` → **Tracked branch**); definition PRs are still based on
-`main`. The commands below are idempotent over a seeded checkout: they move a
-kit-created instance from the kit's pinned commit onto `$DEF_BRANCH`, which is
-what every later update tracks.
+`$DEF_BRANCH` is the branch this instance runs from — Step 0.3's, else `main`
+(`docs/persistence.md` → **Tracked branch**). The commands below are
+idempotent, and move a kit-created instance from the kit's pinned commit onto
+it.
 
 ```bash
 cd /home/agent
@@ -200,8 +184,7 @@ then logs tool failures manually.
 
 ## Step 2 — Confirm `work/` is invisible to the outer repo
 
-The allowlist `.gitignore` hides everything under `work/`. No detach step is
-needed; just confirm nothing leaks:
+Confirm the allowlist `.gitignore` hides `work/` and the HOME secrets:
 
 ```bash
 cd /home/agent
@@ -213,11 +196,10 @@ fix `.gitignore` before continuing**. Do not write the sentinel.
 
 ## Step 3 — Provision `work/` (runtime state)
 
-**3a — a work backup repo was named** → restore prior state from it. `work/`
-is a **plain data directory, not a git clone**, so restore just copies the
-remote's files in. `work-backup.sh` resolves the remote from `work/CONFIG.md`,
-so the key is written **before** the restore that brings the rest of that file
-— and again after it, in case the restored copy predates the key:
+**3a — a work backup repo was named** → restore prior state from it.
+`work-backup.sh` reads the remote from `work/CONFIG.md`, so the key is written
+**before** the restore and again after it, in case the restored copy predates
+the key:
 
 ```bash
 if [ -n "$WORK_REPO" ]; then
@@ -246,11 +228,8 @@ fi
 Never make `work/` a git repo.
 
 **3b — local-only, or the 3a remote held no agent state** → create the seed
-files below **only if missing**. Never overwrite an existing `MEMORY.md` or
-`LESSONS.md`: they hold long-term knowledge that is not reconstructable.
-Review-tracking rows are reconstructed in Step 5, which needs the
-`review_marker` from Step 4 first, so the empty `REVIEWS.md` header just needs
-to exist.
+files below **only if missing** — never overwrite an existing `MEMORY.md` or
+`LESSONS.md`. `REVIEWS.md` starts as its header; Step 5 adds the rows.
 
 ```bash
 mkdir -p /home/agent/work/reviews
@@ -337,10 +316,9 @@ fi
 Every instance-specific value lives in `work/CONFIG.md` — exact key semantics
 in `docs/config.md`, which you read first. Gather the values below in order,
 one question per message (**Questions to the operator** above), then write
-the file in exactly the shape of the Final shape example: the runtime reads
-`- <key>: <value>` bullets under those key names, so any other label is
-invisible to it. Then run `bash "$HOME/scripts/verify-onboarding.sh"`, apply
-what it reports, and show the file to the operator.
+the file in exactly the shape of the **Final shape** example. Then run
+`bash "$HOME/scripts/verify-onboarding.sh"`, apply what it reports, and show
+the file to the operator.
 
 **Re-onboarding note:** if Step 3a brought an existing `CONFIG.md`, **keep its
 values** and ask only for missing keys. Never silently overwrite operator-set
@@ -350,11 +328,8 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
 1. **`github_repo`** — always write the resolved target reference, with its
    host whenever any configured host is not `github.com` (`docs/config.md`;
-   the same holds for every reference below). It is the
-   only source the runtime has: a scheduled run starts a fresh shell with no
-   session exports, so a missing key stops every run at pre-flight. Write
-   **`work_repo`** too when Step 0.2 named one (Step 3a already added it);
-   omitting it is local-only persistence.
+   the same holds for every reference below). Write **`work_repo`** too when
+   Step 0.2 named one (Step 3a already added it).
 2. **`definition_repo`** and **`definition_branch`** — always write both Step
    0.3 values, `definition_branch` even when it is `main`, so the tracked
    branch is explicit.
@@ -377,7 +352,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 6. **Labels and per-review delivery**, each asked in turn:
    - **`rereview_label`** — default `code-guardian-review`. Ask:
 
-     > First reviews are automatic, but re-reviews after new commits run **only** when someone adds a label to the PR — the label requests a complete review of the whole PR, and I remove it once it is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
+     > First reviews are automatic, but re-reviews after new commits run **only** on request — mainly a label someone adds to the PR, which requests a complete review of the whole PR; I remove it once the review is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
 
      Label missing on the target repo → create it:
      `gh label create "<label>" --repo "$REPO" --description "Request a code-guardian re-review" --color FBCA04`.
@@ -450,26 +425,25 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 7. **Review skills + `artifact_skill`** — fully config-driven
    (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or
    the `[host/]owner/repo` it installs from; artifact format
-   `<skill>@<[host/]owner/repo>` or `none`). Present the default public set — see the example below, where
-   `issue-fit` ships in this definition repo, so its `source` is the instance's
-   `definition_repo` — and let the operator adjust rows, triggers and sources.
+   `<skill>@<[host/]owner/repo>` or `none`). Present the default public set —
+   the example below, where `issue-fit` ships in this definition repo, so its
+   `source` is the instance's `definition_repo` — and let the operator adjust
+   rows, triggers and sources.
    **Validate every row before writing:**
    - Repo-sourced rows and the artifact skill:
      `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed;
      otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list;
-     otherwise drop the row after confirming, because a missing harness skill
-     would log `skill-errored` on every PR.
+     otherwise drop the row after confirming.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
 8. **`slack_notifications`** — strictly opt-in; it gates the shepherd nudging.
    Ask:
 
    > Do you want Slack notifications? When enabled, I watch how long each open PR waits for human review and nudge reviewers/authors in the shared Slack channel, escalating over time. It needs a Slack connection and a developer roster — I'll walk you through building one.
 
-   **No, or no reply** → `disabled`; everything else works, only the shepherd
-   sweep is skipped, and it can be enabled later in chat (then re-run this
-   sub-step, the roster, item 9 and Step 6b). **Yes** → `enabled`, then build
-   the roster below and pick the escalation owner.
+   **No, or no reply** → `disabled`; enabling it later in chat re-runs this
+   item, the roster, item 9 and Step 6b. **Yes** → `enabled`, then build the
+   roster below and pick the escalation owner.
 9. **`escalation_owner`** (Slack only, after the roster exists) — ask: *Who
    should I escalate to when a PR stays unreviewed despite repeated reminders
    (nudge level 4)? Pick one person from the roster.* It must be a roster login
@@ -484,20 +458,18 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
-    then ask in turn, one question each, for **`benchmark_judge`** (a pinned model id for the LLM-judged quality
-    scores; default `off` = deterministic scoring only) and
-    **`benchmark_report`** (`dam` default / `off`), offer
+    then ask in turn, one question each, for **`benchmark_judge`** (a pinned
+    model id for the LLM-judged quality scores; default `off` = deterministic
+    scoring only) and **`benchmark_report`** (`dam` default / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
-    **Model prices**, which enables the cost column of this report **and** of
-    the weekly trend artifact), and register the schedule in Step 6d. The
-    first scheduled run creates the fixture set, and the first scores land on
-    the next monthly tick, or sooner on an on-demand ask.
+    **Model prices**), and register the schedule in Step 6d. The first
+    scheduled run creates the fixture set, and the first scores land on the
+    next monthly tick, or sooner on an on-demand ask.
 11. **Ready-to-land nudge** (only when Slack is enabled) — ask:
 
     > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line saying it is ready to land. Once per approval, to the author. Without it an approved PR goes quiet, which reads the same as still waiting. Turn it on?
 
-    **Yes** → `merge_ready_nudge: enabled`. Default off; it needs no schedule
-    of its own, because the shepherd sweep already runs.
+    **Yes** → `merge_ready_nudge: enabled`; default off.
 
     Then ask about the nudge scope (`docs/shepherd.md` → **Scope and brief**):
 
@@ -528,15 +500,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     > I check for new PRs every 5 minutes, around the clock; a check that finds nothing starts no session and costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want fewer checks outside them; I then check once an hour there, so a PR opened at night waits up to an hour.
 
-    Write all four keys explicitly, even at the default, because the audit
-    compares the registered crons against them. Validate before writing: both
-    intervals must be divisors of 60 (`1 2 3 4 5 6 10 12 15 20 30 60`), and
-    `active_hours` must be an ascending `HH-HH` range — a window spanning
-    midnight is not expressible as one cron, so express it as two
-    operator-managed schedules and leave the keys at their 24/7 values. For a
-    window, tell the operator the trade the quiet cadence makes: a PR opened
-    at 02:00 waits up to `review_interval_quiet` minutes, an `urgent_label` one
-    included.
+    Write all four keys explicitly, even at the default. Validate before
+    writing: both intervals must be divisors of 60
+    (`1 2 3 4 5 6 10 12 15 20 30 60`), and `active_hours` an ascending
+    `HH-HH` range — a window spanning midnight becomes two operator-managed
+    schedules, with the keys left at their 24/7 values. For a window, tell the
+    operator that a PR opened in a quiet hour, an urgent one included, waits up
+    to `review_interval_quiet` minutes.
 14. **`definition_issues`** — whether the agent files tracking issues on the
     definition repo (`docs/runbook.md` → **Definition-repo issues**). First
     read the repo's visibility:
@@ -664,8 +634,8 @@ The roster is the **only** set of people the agent may ever @-mention
 
 ## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
 
-Skip this when Step 3a restored the state; run it on the 3b path. Otherwise
-rebuild the tracking files from the target repo: every posted agent review
+Skip this when Step 3a restored the state. On the 3b path, rebuild the
+tracking files from the target repo: every posted agent review
 carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value)
 plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
 
@@ -680,22 +650,17 @@ plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
    fabricated. `## PR-local overrides` stays empty unless the thread contains an
    explicit dispute resolution (tag `[from PR comments]`).
 
-The agent then skips already-reviewed SHAs correctly on the very first
-heartbeat. `work/` stays a plain directory, and end-of-run persistence is
-skipped.
+The first heartbeat then skips the already-reviewed SHAs.
 
 ## Step 6 — Ensure the scheduled jobs exist
 
-Independent schedules — the shepherd one only under
-`slack_notifications: enabled`, the benchmark one only under
-`benchmark: enabled`, the survey one only under `survey: enabled`. Never use
-an in-process cron tool — only platform schedules survive restarts and are
-visible to the operator.
+Independent platform schedules, never an in-process cron tool — the shepherd
+one only under `slack_notifications: enabled`, the benchmark one only under
+`benchmark: enabled`, the survey one only under `survey: enabled`.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
-schedule gate**); the audit is ungated because its worklist carries work
-whenever `audit_report` is enabled. Every schedule here also carries
+schedule gate**); the audit is ungated. Every schedule here also carries
 **`model: <review_model>`**, none under `review_model: default`
 (`docs/config.md`), and the **`sessionTitle`** its step names
 (`docs/runbook.md` → **Session titles**).
@@ -714,8 +679,8 @@ share one. For each schedule this step defines:
 | same `name`, different cron, `task`, `precheck`, `model` or `sessionTitle` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
-only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a create.
-Delete the ones the configuration rules out: the quiet-hour and off-day
+only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a
+create. Delete the ones the configuration rules out: the quiet-hour and off-day
 heartbeats under a 24/7 cadence, and a sweep whose name no longer matches its
 cadence shorthand.
 
@@ -781,18 +746,12 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 > Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
 **6f — Agent monitor.** Every instance gets it, without a question: the
-health alerts of `docs/monitor.md` — model and GitHub outages, classifier
-refusals, harness drift, a silent review gate, a failing backup, stalled and
-anomalous reviews. An idle tick costs no model call. Create
+health alerts of `docs/monitor.md`. Create
 `name: code-guardian-monitor-15m`, cron `*/15 * * * *`, `sessionMode: fresh`,
 `precheck: bash "$HOME/scripts/precheck.sh" monitor`,
 `sessionTitle: Report agent alerts`, `task`:
 
 > Agent monitor. The precheck already ran scripts/monitor.sh and found alerts due: read the worklist JSON at the path its output names, and never run monitor.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of the worklist in one message (chat UI, plus the escalation DM when slack_notifications is enabled), acknowledge them with `scripts/monitor.sh ack <ids>` only after the send, never repair or re-run anything in response, and back up work/ (`scripts/work-backup.sh persist`).
-
-Cadence note: the nudge rules are hour-granular (24 h age gate, 20 h cooldown,
-2-day escalation), so an hourly work-hours sweep loses nothing versus a
-continuous one — it only saves the pre-flight passes at night and on weekends.
 
 ## Step 7 — Record the version, write the sentinel, verify, report
 
@@ -819,18 +778,14 @@ heartbeat builds it instead.
 bash "$HOME/scripts/profile.sh" generate
 ```
 
-Then verify the result. Every instance must end up with the same structure,
-differing only in configuration values, and must reach everything a run depends
-on:
+Then verify the result:
 
 ```bash
 bash "$HOME/scripts/verify-onboarding.sh" --live
 ```
 
-`--live` runs the structure checks plus one read-only pass over the live
-environment (authentication per host, bot identity, target/definition/work-repo
-access, the re-review label, every skill source, and one `preflight.sh review`
-as the end-to-end proof); drop the flag for structure only. Each `FAIL` line
+`--live` adds one read-only pass over the live environment, ending with one
+`preflight.sh review`; drop the flag for structure only. Each `FAIL` line
 names the broken file or surface and carries its `fix:` instruction — apply
 them (file templates: Steps 3b/4) and re-run until the script prints `PASS`.
 `warn` lines are informational and never block.
@@ -841,10 +796,11 @@ with the verification result (the `PASS` line plus any warnings):
 1. The final `work/CONFIG.md`, verbatim.
 2. What runs where: target repo, the review cadence (under an active window
    also the quiet-hour interval a night or weekend PR waits for), shepherd
-   cadence when Slack is on, audit day, benchmark day when enabled, the model
-   every scheduled session runs on (`review_model`), whether anonymous issues
-   go to the definition repo (`definition_issues`), and state persistence (the
-   `work_repo` backup or local-only).
+   cadence when Slack is on, audit day, benchmark and survey days when
+   enabled, the monitor every 15 minutes (with its direct DM and dashboard
+   when enabled), the model every scheduled session runs on (`review_model`),
+   whether anonymous issues go to the definition repo (`definition_issues`),
+   and state persistence (the `work_repo` backup or local-only).
 3. Day-to-day usage:
    - The first review of every open non-draft PR lands automatically (chat UI +
      GitHub).
@@ -853,8 +809,9 @@ with the verification result (the `PASS` line plus any warnings):
      agent removes the label once it is posted — or re-requests
      **`<bot_login>`**'s review on GitHub (with `rereview_trigger`
      `review-request`/`both`), or asks for it in the connected Slack channel or
-     in a comment @-mentioning **`<bot_login>`**. The last two are delta-only
-     (`docs/review-on-demand.md` → **On-demand review**).
+     in a comment @-mentioning **`<bot_login>`**. Every trigger but the label
+     gives a delta re-review (`docs/review-rereview.md` → **Re-review
+     output**).
    - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
      jump the queue, rapid-preliminary-first: without a critical finding the
      rapid pass approves, and the full review can cancel that approval.

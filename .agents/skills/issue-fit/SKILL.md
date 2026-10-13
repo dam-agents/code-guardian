@@ -21,11 +21,12 @@ caller's review; this skill never posts, comments, or edits anything.
 
 - **Repo slug** and **PR number** (required).
 - **PR title, body, head branch, and diff** — reuse them when the caller
-  already fetched them; otherwise `gh api "repos/<repo>/pulls/<n>"` and
-  `gh pr diff <n> --repo <repo>`.
+  already fetched them; otherwise `gh api "repos/<repo>/pulls/<n>"`, and the
+  diff from a checkout of the branch (`git diff origin/<base>...HEAD`) or
+  `gh api "repos/<repo>/pulls/<n>" -H 'Accept: application/vnd.github.diff'`.
 
-Use plain REST (`gh api`) everywhere — some deployments' auth proxies
-rewrite only REST paths, so GraphQL-backed `gh` subcommands can 401.
+Use plain REST (`gh api`) everywhere: behind an auth proxy that rewrites only
+REST paths, GraphQL-backed `gh` subcommands fail.
 
 ## Resolving the linked issue
 
@@ -77,11 +78,10 @@ to the main review; this skill judges scope only.
 ## Report
 
 The output is a markdown section body for the caller to include verbatim.
-Findings use the caller's standard format — severity levels, finding
-bullets, and verdict weight are the caller's, not redefined here; one or two
-sentences per finding, `file:line` where it anchors to code. No methodology
-narration, no restating the diff. Open with the link line; a clean run ends
-after one ✅ line:
+Findings take the caller's finding format, severity names and verdict rules;
+one or two sentences per finding, `file:line` where it anchors to code. No
+methodology narration, no restating the diff. Open with the link line; a clean
+run ends after one ✅ line:
 
 ```
 Linked issue: #<n> "<title>" (closing keyword | inferred from <branch name / plain reference>)

@@ -12,21 +12,18 @@ change to the definition itself.
 | `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
 | `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone. |
 
-`work/` is **not** a git repo. The home volume is virtiofs over a host NFS
-export, and a `.git` there — rewritten by every commit while another concurrent
-run holds a ref open — produces `Stale file handle` (ESTALE) and `.nfs*`
-silly-rename corruption. So all git plumbing happens off the shared volume, in
-a private per-pod tmpfs clone under `/dev/shm`; `work/` itself is only ever
-read.
+`work/` is **not** a git repo: on the shared NFS-backed volume, a `.git`
+rewritten under concurrent runs breaks with `Stale file handle` (ESTALE) and
+`.nfs*` silly-renames. All git plumbing happens in a private per-pod tmpfs
+clone under `/dev/shm`; `work/` itself is only ever read.
 
 The outer `.gitignore` is an allowlist (`/*`, then re-include the definition
 files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
 `.config`) are invisible to the outer repo. A fresh volume seeds `work/` from
 the ONBOARDING.md templates (Step 3b) or restores it from the backup remote,
-and a definition update (`git reset --hard "origin/$DEF_BRANCH"`) never
-collides with live state. **Never run `git clean` in `/home/agent`** and never
-`git add` outside the allowlist; the backup's `git add -A` is confined to the
-tmpfs clone.
+and a definition update never collides with live state. **Never run
+`git clean` in `/home/agent`** and never `git add` outside the allowlist; the
+backup's `git add -A` is confined to the tmpfs clone.
 
 ## Backup & restore (`scripts/work-backup.sh`)
 
@@ -39,28 +36,21 @@ every run where the agent did work, as the very last action — a no-op without
 LOG_JOB=<mode> bash "$HOME/scripts/work-backup.sh" persist
 ```
 
-The script (full rationale in its header) snapshots the current `work/` files
-into a **disposable tmpfs clone**, commits and pushes, re-seeding that clone
-from the remote on every call so a wiped tmpfs never matters. Nothing
-authoritative lives on tmpfs: the live state is `work/`, the history is the
-remote. Concurrency resolves at the remote — a rejected non-fast-forward push
-re-seeds from the new tip and retries in-run, and `work/` is authoritative, so
-every push converges to it. Within one pod, concurrent sessions share the
-clone, so the persist step is serialized by a mkdir lock next to it
-(lock-or-skip: a skipped persist is safe, because the running one snapshots the
-same shared `work/` moments later). Never force-push. A push that fails all
-retries is logged and retried next run — not a run failure, because the data is
-safe on `work/`.
+The script snapshots `work/` into a **disposable tmpfs clone**, re-seeded from
+the remote on every call, then commits and pushes: the live state is `work/`,
+the history is the remote. A rejected non-fast-forward push re-seeds from the
+new tip and retries in-run; concurrent persists in one pod share the clone and
+are lock-or-skip (the running one snapshots the same `work/`). Never
+force-push. `persist` never fails the run: a push that fails all retries is
+logged and retried next run.
 
-Both directions carry every `work/` file — logs, ledgers, `audit/`,
-`benchmark/`, `survey/` included — except pod-local transient state: mkdir
-locks (`*.lock`), `*.tmp` and `benchmark/.run-lock`. A persist that would
-delete `CONFIG.md`, `MEMORY.md`, `LESSONS.md`, `REVIEW-LEDGER.jsonl`,
+Both directions carry every `work/` file except pod-local transient state:
+mkdir locks (`*.lock`), `*.tmp` and `benchmark/.run-lock`. A persist that
+would delete `CONFIG.md`, `MEMORY.md`, `LESSONS.md`, `REVIEW-LEDGER.jsonl`,
 `PR-EVENTS.jsonl`, `audit/weeks/`, `benchmark/RESULTS.md` or
-`benchmark/results/` is refused and
-logged as an error: that snapshot comes from an unhydrated `work/`, so restore
-first. A deletion the operator asked for passes with
-`WORK_BACKUP_ALLOW_DELETE=1`.
+`benchmark/results/` is refused and logged as an error: that snapshot comes
+from an unhydrated `work/`, so restore first. A deletion the operator asked
+for passes with `WORK_BACKUP_ALLOW_DELETE=1`.
 
 `restore` is the inverse — remote → `work/`, data only, never a `.git` — run
 once on a fresh volume (ONBOARDING Step 3a). It copies from a fresh clone of
@@ -110,14 +100,9 @@ Outside `work/`, nothing needs a copy — each part comes back by itself:
 
 `definition_branch` in `work/CONFIG.md` (missing = `main`) is the branch of
 `$DEFINITION_REPO` **this instance runs from**: its update source and the
-branch `/home/agent` stays on. It is a deployment choice, per agent.
-
-It is **not** a repo-wide convention. `main` remains the repository's
-development branch and release history — the base of every definition PR and
-the changelog that only grows
-([self-modification.md](self-modification.md) §12). Use `DEF_BRANCH` for
-"where does this instance's code come from", `main` for "how does the repo
-evolve".
+branch `/home/agent` stays on, chosen per agent. `main` stays the base of
+every definition PR and the release history
+([self-modification.md](self-modification.md) §12).
 
 ```bash
 DEF_BRANCH="$(cfg definition_branch)"; DEF_BRANCH="${DEF_BRANCH:-main}"
@@ -218,13 +203,11 @@ gh pr create --repo "$DEF_HOST/$DEFINITION_REPO" --base main --head "fix/<short-
   --title "<title>" --body "<what and why>"
 ```
 
-The definition repo may sit on another GitHub host than the target repo, so
-**every definition-repo call names its host** — `-R "$DEF_HOST/$DEFINITION_REPO"`
-for `gh pr`/`gh issue`, `--hostname "$DEF_HOST"` for `gh api`
-([config.md](config.md)). The outer-repo `origin` URL already carries it, so
-plain `git fetch`/`push` need nothing extra.
+**Every definition-repo call names its host** —
+`-R "$DEF_HOST/$DEFINITION_REPO"` for `gh pr`/`gh issue`,
+`--hostname "$DEF_HOST"` for `gh api` ([config.md](config.md)); plain
+`git fetch`/`push` use the outer-repo `origin` URL, which carries it.
 
 After the PR merges, return the checkout to this instance's
-`definition_branch` (**Tracked branch**), so the next run is not left on a
-feature branch. The agent's job ends at "PR opened". Use fresh descriptive
-branch names; runtime state never goes to this repo.
+`definition_branch` (**Tracked branch**). The agent's job ends at "PR opened".
+Use fresh descriptive branch names; runtime state never goes to this repo.

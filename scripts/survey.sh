@@ -40,6 +40,9 @@ MAX_LINES=6000
 
 out()  { printf '%s\n' "$1"; exit 0; }
 fail() { out "$(jq -nc --arg e "$1" --arg c "$CMD" '{outcome:"error", step:$c, error:$e}')"; }
+# lines of a file, 0 when empty or unreadable (`grep -c` prints 0 and exits 1
+# on an empty file)
+nlines() { local n; n="$(grep -c '' "$1" 2>/dev/null)"; printf '%s' "${n:-0}"; }
 
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
@@ -119,7 +122,7 @@ if [ "$CMD" = "prepare" ]; then
     printf '%s\n' "$rel" >> "$LIST"
   done < <(find "$AREA" -type f 2>/dev/null | sort)
 
-  total="$(grep -c '' "$LIST" 2>/dev/null || printf 0)"
+  total="$(nlines "$LIST")"
   [ "$total" -gt 0 ] || out "$(jq -nc --arg s "$SLUG" --arg p "$path" \
     '{outcome:"empty", slug:$s, path:$p, reason:"no reviewable file in the area"}')"
 
@@ -128,7 +131,7 @@ if [ "$CMD" = "prepare" ]; then
   n=0; lines=0
   while IFS= read -r rel; do
     [ "$n" -lt "$MAX_FILES" ] || break
-    l="$(grep -c '' "$CLONE/$rel" 2>/dev/null || printf 0)"
+    l="$(nlines "$CLONE/$rel")"
     [ "$lines" -gt 0 ] && [ $((lines + l)) -gt "$MAX_LINES" ] && break
     printf '%s\n' "$rel" >> "$KEEP"
     n=$((n + 1)); lines=$((lines + l))
@@ -164,7 +167,7 @@ if [ "$CMD" = "record" ]; then
   # the commit the pass read and the files it covered, while the clone is still here
   CLONE="$TMP_ROOT/survey-$SLUG"
   SHA="$(git -C "$CLONE" rev-parse HEAD 2>/dev/null || true)"
-  nfiles="$(grep -c '' "$TMP_ROOT/survey-$SLUG.keep" 2>/dev/null || printf 0)"
+  nfiles="$(nlines "$TMP_ROOT/survey-$SLUG.keep")"
 
   F="$SDIR/$SLUG.md"
   [ -f "$F" ] || printf '# Survey — %s\n' "$path" > "$F"
@@ -180,7 +183,7 @@ if [ "$CMD" = "record" ]; then
   # rewrite the row in place (rows are full of `|`, so sed gets another delimiter)
   new="| $SLUG | $path | $NOW_ISO | $passes | $total |"
   if [ -n "$row" ]; then
-    sed -E "s#^\| *$SLUG \|.*#$new#" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null && mv "$LEDGER.tmp" "$LEDGER"
+    sed -E "s#^\| *$SLUG *\|.*#$new#" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null && mv "$LEDGER.tmp" "$LEDGER"
   else
     printf '%s\n' "$new" >> "$LEDGER"
   fi
@@ -194,11 +197,8 @@ if [ "$CMD" = "report" ]; then
   ROWS="$(grep -E '^\| *[A-Za-z0-9_.-]+ *\|' "$LEDGER" 2>/dev/null \
     | grep -vE '^\| *(area|-+) *\|' \
     | while IFS='|' read -r _ slug path last passes findings _rest; do
-        jq -nc --arg s "$(printf '%s' "$slug" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg p "$(printf '%s' "$path" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg l "$(printf '%s' "$last" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg n "$(printf '%s' "$passes" | sed -e 's/^ *//' -e 's/ *$//')" \
-               --arg f "$(printf '%s' "$findings" | sed -e 's/^ *//' -e 's/ *$//')" \
+        jq -nc --arg s "$(trim "$slug")" --arg p "$(trim "$path")" --arg l "$(trim "$last")" \
+               --arg n "$(trim "$passes")" --arg f "$(trim "$findings")" \
                '{slug:$s, path:$p, last:$l, passes:$n, findings:$f}'
       done | jq -sc 'sort_by(.last) | reverse')"
   ROWS="${ROWS:-[]}"

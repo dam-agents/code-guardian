@@ -84,7 +84,8 @@
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
-# limits.txt, findings.annotated.json), .fix (the agent-fix clone). GitHub
+# limits.txt, findings.annotated.json), .fix (the agent-fix clone), .ci/ (the
+# CI evidence files; preflight's stale-clone sweep removes them). GitHub
 # writes happen only in `rapid` and `post` (the review the agent wrote, the
 # label removal and approval dismissal docs/review.md mandates), the progress
 # status under review_progress, and the opt-in `merge`, `fix-start` (label
@@ -121,7 +122,7 @@ PAYLOAD="$PR_DIR.post.json"
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
-CARRY_MAX_HOPS=3        # HEAD moves a carried first review survives (docs/review.md)
+CARRY_MAX_HOPS=3        # HEAD moves a carried review survives (docs/review-rereview.md → Carried review after a HEAD move)
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -166,7 +167,7 @@ write_row() { with_state_lock "$REVIEWS" write_row_held "$@"; }
 write_row_held() { # sha ts verdict status — replace in place, else append
   local line="| $N | $1 | $2 | $3 | $4 |"
   if [ -n "$(row_for)" ]; then
-    sed -E "s#^\| *$N \|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
+    sed -E "s#^\| *$N *\|.*#$line#" "$REVIEWS" > "$REVIEWS.$$.tmp" && mv "$REVIEWS.$$.tmp" "$REVIEWS" && return 0
     rm -f "$REVIEWS.$$.tmp"; return 1
   else
     [ -f "$REVIEWS" ] || printf '# Reviewed PRs\n\n| PR | Commit | Timestamp | Verdict | Status |\n|----|--------|-----------|---------|--------|\n' > "$REVIEWS"
@@ -359,20 +360,9 @@ trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger
   [ "$l" -eq 0 ] || [ "$r" -eq 0 ]
 }
 
-# marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__ when unknown
-remote_reviewed_at() { # <sha>
-  local m="<!-- $REVIEW_MARKER headRefOid=$1 -->" body ts err=0
-  if body="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100")"; then
-    ts="$(printf '%s' "$body" | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty' 2>/dev/null)"
-    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
-  else err=1; fi
-  if body="$(gh_get "repos/$REPO/issues/$N/comments?per_page=100")"; then
-    ts="$(printf '%s' "$body" | jq -r --arg m "$m" '[.[] | select(.body | contains($m)) | .created_at] | last // empty' 2>/dev/null)"
-    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
-  else err=1; fi
-  [ "$err" -eq 1 ] && printf '__api_error__'
-  return 0
-}
+# marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
+# when unknown (lib/common.sh)
+remote_reviewed_at() { marker_reviewed_at "$REPO" "$N" "$REVIEW_MARKER" "$1"; }   # <sha>
 
 # ------------------------------------------------------------- PR context ----
 # body, comments, reviews and inline threads, own artefacts dropped and bots
@@ -623,7 +613,6 @@ risk_json() { # <truncated> — the collected rows on stdin → $CTX/risk.json
   rm -f "$CTX/added.tsv"
 }
 
-# --------------------------------------------------------- skill routing ----
 # ================================================================= prepare ====
 emit_ready() { # <resumed-bool> — the prepare summary from the state files
   local j
@@ -1003,7 +992,7 @@ cmd_sweep() {
   for a in "$@"; do case "$a" in (--tree) tree=true;; (*) [ -n "$re" ] || re="$a";; esac; done
   [ -n "$re" ] || fail "usage: sweep <n> <ERE> [--tree]"
   [ -d "$PR_DIR" ] || fail "no clone for PR #$N"
-  # --tree: a claim sweep (docs/review.md → Sibling sweep). A stale statement
+  # --tree: a claim sweep (docs/review.md → Claim sweep). A stale statement
   # sits in files the diff does not touch, so the changed-file scope cannot find
   # it; this mode locates every hit in the clone instead of counting them.
   if [ "$tree" = "true" ]; then
@@ -1031,10 +1020,8 @@ cmd_sweep() {
 # own (docs/review.md → Guarding a running review).
 cmd_guard() {
   need_ctx
-  local phase="guard"
-  while [ $# -gt 0 ]; do case "$1" in (--phase) phase="${2:-guard}"; shift 2;; (*) shift;; esac; done
-  head_guard "$phase"
-  out "$(jq -nc --arg s "$(ctx_get '.head_sha' | cut -c1-7)" --arg p "$phase" '{outcome:"ok", phase:$p, head:$s}')"
+  head_guard guard
+  out "$(jq -nc --arg s "$(ctx_get '.head_sha' | cut -c1-7)" '{outcome:"ok", phase:"guard", head:$s}')"
 }
 
 # ================================================================= collect ====
@@ -1349,7 +1336,7 @@ cmd_compose_brief() {
   printf -- '- PR-local overrides (`reviews/pr-%s.md`) — a finding they cover is suppressed:\n%s\n' "$N" "${ovr:-  none}"
   printf -- '- memory rules in force (`work/MEMORY.md`):\n%s\n' "${mem:-  none}"
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
-  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -- '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}],"triage":{"class":"needs-human|quick-check","why":"<≤ ~15 words>","verified":"<≤ ~15 words>","minutes":<int>}}` — the portable form of each class sweep, and your call on whether a person must read this PR (docs/review-mechanics.md → Summary body format)\n'
+  printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -e '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}],"triage":{"class":"needs-human|quick-check","why":"<≤ ~15 words>","verified":"<≤ ~15 words>","minutes":<int>}}` — the portable form of each class sweep, and your call on whether a person must read this PR (docs/review-mechanics.md → Summary body format)\n'
   local fh; fh="$(forced_human_path)"
   [ -n "$fh" ] && printf -- '- triage is forced to `needs-human`: `%s` matches `human_review_paths` — say in `why` what a person must judge there\n' "$fh"
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
@@ -1369,7 +1356,7 @@ cmd_rapid() {
   case "$verdict" in (APPROVE|REQUEST_CHANGES) ;; (*) fail "--verdict must be APPROVE | REQUEST_CHANGES";; esac
   local sha; sha="$(ctx_get '.head_sha')"
   local m="<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" r
-  r="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m))] | length' 2>/dev/null)"
+  r="$(gh_get_all "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg m "$m" '[.[] | select(.body != null) | select(.body | contains($m))] | length' 2>/dev/null)"
   [ "${r:-0}" -gt 0 ] && out "$(jq -nc '{outcome:"already_posted", phase:"rapid"}')"
   { cat "$body"; printf '\n\n%s\n' "$m"; } | jq -Rs --arg sha "$sha" --arg v "$verdict" '{commit_id:$sha, event:$v, body:.}' > "$PAYLOAD"
   local resp
@@ -1396,7 +1383,7 @@ cmd_rapid() {
 # one just posted; a failed dismissal is logged, not fatal.
 dismiss_approvals() {
   local ids aid last=null what="review"; [ "$4" = "rapid" ] && what="rapid review"
-  ids="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" \
+  ids="$(gh_get_all "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$BOT_LOGIN" \
       --arg m "<!-- $REVIEW_MARKER headRefOid=" --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=" --argjson me "$1" \
       '.[] | select(.id != $me and .state == "APPROVED" and ((($b != "") and ((.user.login // "") == $b)) or ((.body // "") | contains($m)) or ((.body // "") | contains($mr)))) | .id' 2>/dev/null)"
   for aid in $ids; do
@@ -1447,7 +1434,7 @@ cmd_post() {
     rm -f "$CARRY"      # the PR is gone: nothing will start from this work
     local scope=critical sevs='["critical"]' ra=0
     if [ "$(printf '%s' "$PJ" | jq -r .merged)" = "true" ]; then
-      ra="$(gh_get "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" \
+      ra="$(gh_get_all "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=$sha -->" \
         '[.[] | select(.state == "APPROVED" and ((.body // "") | contains($mr)))] | length' 2>/dev/null)"
     fi
     [ "${ra:-0}" -gt 0 ] && { scope=blocking; sevs='["critical","warning"]'; }
@@ -1568,8 +1555,8 @@ cmd_post() {
   local emoji footer fj
   case "$VERDICT" in (APPROVE) emoji="✅";; (COMMENT) emoji="⚠️";; (REQUEST_CHANGES) emoji="❌";; esac
   footer="_Review by [$BOT_NAME](https://$DEF_HOST/$DEFINITION_REPO) · automated code guardian_"
-  # review-meta: the agent's own `checks` and `deferred` (docs/review.md →
-  # Summary body format) plus the digest of the diff this review read, which is
+  # review-meta: the agent's own `checks` and `deferred` (docs/review-mechanics.md
+  # → Summary body format) plus the digest of the diff this review read, which is
   # what the next `prepare` compares its own range against. Never rendered.
   # `rereview` tells the author's fix round how the next round is requested
   # (docs/config.md → rereview_trigger): the label under `label`/`both`, the
@@ -1824,7 +1811,7 @@ cmd_verify() {
     | {outcome: (if any(.[]; .status == "fail") then "issues" else "ok" end), checks: .}')"
 }
 
-# =================================================================== abort ====
+# ====================================================================== ci ====
 cmd_ci() {
   local sha=""
   while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
@@ -1872,6 +1859,7 @@ cmd_ci() {
     '{outcome:"ci", sha:$sha, terminal:$t, failing:$f}')"
 }
 
+# =================================================================== abort ====
 cmd_abort() {
   need_ctx
   local reason="$*"; [ -n "$reason" ] || reason="aborted by the agent"

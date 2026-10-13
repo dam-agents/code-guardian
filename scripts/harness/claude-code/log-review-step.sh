@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
 # Claude Code harness adapter — PostToolUse hook: derive `review_step`
-# milestones from the tool calls that *perform* them, instead of trusting the
-# agent to log each one (registered by install.sh; contract: docs/logging.md →
-# Harness adapters, steps: docs/review.md → Progress logging).
-#
-# Why this exists: the manual `logev review_step` calls of docs/review.md are
-# written by the agent, so a turn that ends mid-pipeline loses exactly the
-# events that would have pinned where it stopped — the log said "stalled after
-# doc-drift" when the real story was "three more skills ran, unlogged". These
-# events are the only stall diagnostic, so they may not depend on the agent
-# remembering to emit them.
+# milestones from the tool calls that *perform* them, so a turn that ends
+# mid-pipeline still leaves the steps it reached (registered by install.sh;
+# which steps and the `review_cost` event: docs/logging.md → Harness adapters;
+# steps: docs/review.md → Progress logging).
 #
 # Derivation is evidence-based and idempotent: each step is emitted at most
 # once per (PR, step) per run, keyed on a /tmp marker dir, and only from a tool
-# call that already succeeded. Steps the harness cannot observe (`locked`,
-# `done`, `aborted <reason>`) stay the agent's duty — the row write is a file
-# edit whose PR and verdict are not recoverable from the payload.
-#
-# It also writes each review's `review_cost` event (cost_track below).
+# call that already succeeded; a lock refresh is logged every time. Steps that
+# need the agent's decision (`fanned out`, `verified`, `aborted <reason>`) come
+# from `review-pr.sh step` / `abort`.
 #
 # Never blocks the agent and never fails a run: all error paths exit 0.
 set -u
@@ -121,11 +113,10 @@ case "$tool" in
     # Skill names come from work/CONFIG.md — the `## Review skills` table plus
     # the artifact skill — never a hard-coded list: each instance configures its
     # own set, and a name missing here silently loses that skill's step.
-    skills="$(sed -n '/^## Review skills$/,${ /^## Review skills$/d; /^## /q; p; }' \
-                "$LOG_WORK/CONFIG.md" 2>/dev/null | grep -E '^\|' \
-              | cut -d'|' -f2 | tr -d '[:blank:]' | grep -vE '^(skill|[-:]*)$')"
-    art="$(sed -n 's/^- artifact_skill:[[:space:]]*//p' "$LOG_WORK/CONFIG.md" 2>/dev/null \
-           | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/^[`"'"'"']//' -e 's/@.*$//' -e 's/[[:space:]]*$//')"
+    CONFIG="$LOG_WORK/CONFIG.md"
+    . "$(cd "$(dirname "$0")/../.." && pwd)/lib/common.sh" 2>/dev/null || exit 0
+    skills="$(cfg_table 'Review skills' | cut -d'|' -f2 | tr -d '[:blank:]' | grep -vE '^(skill|[-:]*)$')"
+    art="$(cfg artifact_skill)"; art="${art%%@*}"
     case "$art" in (none) art="";; esac
     for s in $skills $art; do        # unquoted: empty values expand to no word
       case "$txt" in (*"$s"*) emit "$pr" "skill:$s done" "skill-$s"; exit 0;; esac

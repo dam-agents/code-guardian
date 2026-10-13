@@ -4,6 +4,7 @@
 #
 #   health.sh record <conditions.json>  -> hourly rows, incidents, service status
 #   health.sh report                    -> the dashboard HTML on stdout
+#   health.sh due                       -> rc 0 when a publish is due
 #   health.sh publish                   -> the dashboard to the DAM Artifact
 #                                          Library, updated in place; {status, …}
 #
@@ -39,6 +40,7 @@ LOG_JOB=monitor
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 . "$SCRIPT_DIR/lib/common.sh"
+BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 
 # scratch of this process, removed on any exit (a gate that stops the pass)
 TMPD="$(mktemp -d "${TMPDIR:-/tmp}/cg-health.XXXXXX" 2>/dev/null)" || TMPD=""
@@ -63,7 +65,7 @@ ROW_JQ='
     gate: (map(select(.event == "precheck")) | group_by(.job) | map({key: .[0].job, value: length}) | from_entries),
     gate_err: n(.event == "precheck" and .level == "error"),
     sessions: n(.event == "tokens"),
-    reviews: n(.event == "review_step" and (.msg | test(" done$"))),
+    reviews: n(.event == "review_step" and (.msg | test("^PR #[0-9]+:? +([0-9a-f]{7,40} +)?done$"))),
     model_fail: n(.event == "api_failure" and ((.msg | capture("^(?<c>[a-z_]+):") | .c) // "unknown" | IN("invalid_request", "max_output_tokens") | not)),
     gh_fail: n(.event == "preflight" and .level == "error" and (.msg | startswith("could not list open PRs"))),
     gh_warn: n(.event == "gh_api" or (.event == "preflight" and .level == "warn" and (.msg | test("API error")))),
@@ -179,8 +181,7 @@ status_now() {
 
 # ---------------------------------------------------------------- report ----
 report() {
-  local name rows incidents status schedules body
-  name="$(cfg bot_display_name)"; [ -n "$name" ] || name="Code review agent"
+  local status schedules body
   status="$(jq -c . "$STATUS" 2>/dev/null)"; [ -n "$status" ] || status='{"services":[]}'
   schedules="$(jq -c 'if type == "array" then . else [] end' "$SCHEDULES" 2>/dev/null)"; [ -n "$schedules" ] || schedules='null'
   body="$( { jq -cR 'fromjson? // empty' "$HOURS" 2>/dev/null | jq -sc .; jq -cR 'fromjson? // empty' "$INCIDENTS" 2>/dev/null | jq -sc .; } \
@@ -342,7 +343,7 @@ tbody tr:last-child td{border-bottom:0}
 tr.open td{color:var(--bad)}
 ${REPORT_TIP_CSS}
 </style>
-<h1>$(printf '%s' "$name" | jq -Rr @html) — health</h1>
+<h1>$(printf '%s' "$BOT_NAME" | jq -Rr @html) — health</h1>
 <p class="meta">Updated ${NOW_ISO}. The monitor writes one row of counts per UTC hour and
 one row per incident, and keeps them for ${HEALTH_KEEP_DAYS} days. A grey bar is an hour
 before the history began. Point to a bar for its numbers. Semantics: docs/health.md.</p>
@@ -355,7 +356,7 @@ EOF
 
 # --------------------------------------------------------------- publish ----
 publish() {
-  local name args res rc id html why
+  local args res rc id html
   . "$SCRIPT_DIR/lib/mcp.sh"
   . "$SCRIPT_DIR/lib/redact.sh"
   mkdir -p "$DIR" 2>/dev/null && [ -n "$TMPD" ] || { pub_failed "no scratch directory"; return 0; }
@@ -393,8 +394,7 @@ publish() {
     fi
   fi
   if [ -z "$id" ] || [ "$rc" -eq 3 ]; then
-    name="$(cfg bot_display_name)"; [ -n "$name" ] || name="Code review agent"
-    jq -nc --arg t "$name health" --rawfile c "$html" \
+    jq -nc --arg t "$BOT_NAME health" --rawfile c "$html" \
       '{title: $t, content: $c, file_name: "health.html", type: "html", visibility: "public"}' > "$args"
     res="$(mcp_call create_artifact "$args")"; rc=$?
   fi

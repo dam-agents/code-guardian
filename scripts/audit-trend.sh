@@ -14,15 +14,8 @@
 # check counts).
 #
 # Every mode is deterministic and offline: no API calls, no model calls. The
-# history is append-only — a week file is written once and never edited, and
-# an `audit` row supersedes a `backfill` row for the same week in the report
-# while both stay on disk.
-#
-# Costs are computed at render time from the CONFIG price table via the shared
-# reader (lib/prices.sh), so the whole history reprices when the table changes
-# and a cost delta reflects token usage, not a price move. Tokens with no
-# matching price row are excluded and the cell is marked a floor ("≥"), never
-# guessed.
+# append-only history and the render-time pricing (lib/prices.sh):
+# docs/trends.md → Layout, Cost.
 set -u
 export LC_ALL=C
 
@@ -37,7 +30,7 @@ DIR="${1:-}"; shift 2>/dev/null || true
 [ -n "$DIR" ] || { printf 'usage: audit-trend.sh [append|backfill|index|report] <work/audit dir> [args]\n' >&2; exit 2; }
 
 CONFIG_MD="${TREND_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
-CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch
+CONFIG="$CONFIG_MD"; . "$SCRIPT_DIR/lib/common.sh"   # cfg, iso2epoch, epoch2iso
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ISO week label (2026-W37) of an epoch — the row key, so a week has one row

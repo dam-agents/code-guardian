@@ -2,16 +2,15 @@
 
 Read this file on every review run whose worklist has a non-empty
 `merges_due`. It runs only under `auto_merge: enabled` with an
-`auto_merge_label` ([config.md](config.md)); both are off until the repository
-admin opts in at onboarding.
+`auto_merge_label` ([config.md](config.md)).
 
 `scripts/preflight.sh review` has already decided everything. A PR is due only
 when **every** gate holds:
 
 - a person put `auto_merge_label` on it — the label is the consent, and only
   someone with triage rights on the repository can add it;
-- the agent's review of the current head is `APPROVE`, `done`, with no open 🔴 or 🟡,
-  and its `triage` is `quick-check` with no `forced` path
+- the agent's review of the current head is `APPROVE`, `done`, with no open
+  🔴 or 🟡, and its `triage` is `quick-check` with no `forced` path
   ([review-mechanics.md](review-mechanics.md) → **Summary body format**);
 - GitHub reports the PR `mergeable_state: clean` or `has_hooks` (branch
   protection, required reviews and required checks satisfied), no person's
@@ -36,15 +35,14 @@ leave the entry to the next run):
    gone or the review of this head is no longer a `done` `APPROVE` (`skipped`),
    and merges with `auto_merge_method` and the head SHA as the server-side
    guard.
-2. `merged` → log `PR #<n>: auto-merged at <sha7>`. Nothing else: the merge
-   event names the bot, and the next sweep prunes the PR.
+2. `merged` → log `PR #<n>: auto-merged at <sha7>`. Nothing else.
 3. `failed` → the script has written the failure marker, so this head is never
    tried again. Post one PR comment:
    `🛡️ **<bot_display_name>** — auto-merge did not run at <sha7>: <reason>. A person can merge the PR.`
 4. `skipped` → log the reason and do nothing else.
-5. `error` → a transport fault, a rate limit, a base branch that moved under
-   the call, or an unreadable PR. Log the reason and post nothing: the head
-   has no marker, so the next run tries again.
+5. `error` (a transport fault, a rate limit, a base branch that moved under
+   the call, an unreadable PR) → log the reason and post nothing; the head has
+   no marker, so the next run tries again.
 
 Never merge a PR outside `merges_due`, and never merge by another route.
 

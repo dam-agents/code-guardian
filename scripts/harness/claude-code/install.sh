@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
-# Claude Code harness adapter — registers the adapter hooks in
-# ~/.claude/settings.json (idempotent; contract: docs/logging.md → Harness
-# adapters): log-tool-event.sh on PostToolUseFailure + PostToolUse,
-# log-review-step.sh on PostToolUse (Bash|Task), log-session-tokens.sh on
-# SessionEnd, enforce-review-completion.sh on Stop, guard-definition-issue.sh
-# on PreToolUse (Bash), log-permission-denied.sh on PermissionDenied,
-# log-api-failure.sh on StopFailure. It also keeps the auto-mode classifier rules for the
-# agent's documented writes (autoMode.environment / autoMode.allow, entries
-# tagged [code-guardian]),
-# the tool deny list (permissions.deny ← denied-tools.txt, so the unused
-# tools' definitions leave every request) and the `review-skill` subagent type
-# (~/.claude/agents/review-skill.md ← agents/review-skill.md).
-# On any other harness it prints a notice and exits 0 — the agent then logs
-# tool failures manually per docs/logging.md. Changes take effect from the
-# next session.
+# Claude Code harness adapter — keeps four parts current in ~/.claude
+# (idempotent; what each part is: docs/logging.md → Harness adapters): the
+# adapter hooks in settings.json, the [code-guardian] auto-mode classifier
+# rules (autoMode.environment / autoMode.allow), the tool deny list
+# (permissions.deny ← denied-tools.txt) and the `review-skill` subagent type
+# (agents/review-skill.md). On any other harness it prints a notice and exits
+# 0. Changes take effect from the next session.
 #
 #   install.sh           # install or refresh
 #   install.sh --check   # print the parts not current (hooks, automode-rules,

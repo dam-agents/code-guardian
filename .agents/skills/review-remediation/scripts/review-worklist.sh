@@ -26,23 +26,23 @@
 #   rereview          how the next round is requested: `trigger` with `label`
 #                     and/or `login` from review-meta (`source: review`), else
 #                     a review request to the review's author (`fallback`)
-#   inline            the review's inline comments {path, line, body} — the
+#   inline            this round's inline comments {path, line, body} — the
 #                     full text and suggestion blocks behind each summary
 #   sections          the review's rendered sections that carry findings,
 #                     most findings first: {heading, findings, blocking} —
 #                     which source (the reviewer's own `### Findings`, or a
 #                     review skill's own section) reported how much
 #   comments          the PR's own comment thread, the reviewer's own posts
-#                     dropped: {author, created_at, body} — where a human
-#                     settles a finding as intended
-#   authors           logins that posted findings-json reviews; author_check
-#                     is "multiple" when there is more than one and no
-#                     --reviewer narrowed them
+#                     dropped, the newest 15: {author, created_at, body} —
+#                     where a human settles a finding as intended
+#   rounds, authors   how many findings-json reviews, and the logins that
+#                     posted them; author_check is "multiple" when there is more
+#                     than one and no --reviewer narrowed them
 # A ` – ` (en dash between spaces) inside a check's `run` is a ` -- ` the
 # review's transport rewrote for HTML-comment safety; it is restored here.
 #
 # `--verify` compares the work against the list, in the checkout, before the
-# push: it diffs the reviewed SHA against HEAD and prints
+# push: it diffs the reviewed SHA against the working tree and prints
 #   covered / unfixed  per blocking finding, the files of its class (its own
 #                      and every `also`) the work carries, and the ones it
 #                      does not — the working tree counts, so it reads the
@@ -65,14 +65,14 @@ while [ $# -gt 0 ]; do
     (--reviewer) [ $# -ge 2 ] || err "--reviewer needs a value"; REVIEWER="$2"; shift 2;;
     (--verify) VERIFY=true; shift;;
     (--worklist) [ $# -ge 2 ] || err "--worklist needs a value"; WL_FILE="$2"; shift 2;;
-    (-h|--help) sed -n '2,52p' "$0"; exit 0;;
-    (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; fi; shift;;
+    (-h|--help) awk 'NR > 1 { if (!/^#/) exit; print }' "$0"; exit 0;;
+    (-*) err "unknown option $1";;
+    (*) if [ -z "$REPO" ]; then REPO="$1"; elif [ -z "$N" ]; then N="$1"; else err "unexpected argument $1"; fi; shift;;
   esac
 done
 
 command -v jq >/dev/null 2>&1 || err "jq is required"
-command -v gh >/dev/null 2>&1 || err "gh is required"
-[ -n "$REPO" ] && [ -n "$N" ] || err "usage: review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>]"
+[ -n "$REPO" ] && [ -n "$N" ] || err "usage: review-worklist.sh <owner/repo> <pr-number> [--reviewer <login>] [--verify [--worklist <file>]]"
 case "$N" in (''|*[!0-9]*) err "pr-number must be a number, got '$N'";; esac
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/review-worklist.XXXXXX")" || err "cannot create a temp dir"
@@ -84,26 +84,28 @@ trap 'rm -rf "$T"' EXIT
 # diffs the reviewed SHA against the working tree and never runs a check
 # command.
 cmd_verify() { # <worklist-json-file>
-  local wl="$1" base
-  git rev-parse --git-dir >/dev/null 2>&1 || err "--verify runs inside the PR's checkout; this is not a git working tree"
+  local wl="$1" base top
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || err "--verify runs inside the PR's checkout; this is not a git working tree"
   base="$(jq -r '.review.commit_id // ""' "$wl")"
   [ -n "$base" ] || err "the worklist carries no reviewed SHA to diff against"
   git cat-file -e "$base^{commit}" 2>/dev/null || err "the reviewed SHA $base is not in this checkout — fetch the branch first"
-  # the working tree, not HEAD: verify runs before the commit as readily as after
-  { git diff --name-only "$base" 2>"$T/err" \
-      || err "git diff $base failed: $(tr '\n' ' ' < "$T/err" | cut -c1-200)"
-    git ls-files --others --exclude-standard 2>/dev/null; } | sort -u > "$T/changed.txt"
+  # the working tree, not HEAD: verify runs before the commit as readily as
+  # after; paths are repo-relative from any subdirectory, a move lists both
+  git -C "$top" diff --no-renames --name-only "$base" > "$T/changed.raw" 2>"$T/err" \
+    || err "git diff $base failed: $(tr '\n' ' ' < "$T/err" | cut -c1-200)"
+  git -C "$top" ls-files --others --exclude-standard >> "$T/changed.raw" 2>/dev/null
+  sort -u "$T/changed.raw" > "$T/changed.txt"
 
-  jq -Rn --slurpfile w "$wl" --rawfile changed "$T/changed.txt" --arg base "$base" '
+  jq -n --slurpfile w "$wl" --rawfile changed "$T/changed.txt" --arg base "$base" '
     ($w[0]) as $wl
     | ($changed | split("\n") | map(select(length > 0))) as $files
     # every location of one finding: its own file plus every `also`
     | [ $wl.blocking[]? | . as $f
         | {summary, severity,
            files: ([$f.file] + [($f.also // [])[]?.file] | map(select(. != null)) | unique)} ] as $cls
-    | [ $cls[] | . as $c
+    | [ $cls[]
         | (.files - $files) as $missing
-        | {summary, severity, files, missing: $missing, covered: ((.files - $missing))} ] as $checked
+        | {summary, severity, files, missing: $missing, covered: (.files - $missing)} ] as $checked
     | [ $checked[] | select((.missing | length) > 0) ] as $unfixed
     | ([ $cls[].files[] ] | unique) as $named
     | ($files - $named) as $outside
@@ -128,17 +130,23 @@ if [ "$VERIFY" = "true" ] && [ -n "$WL_FILE" ]; then
   jq -e 'type == "object"' "$WL_FILE" >/dev/null 2>&1 || err "--worklist $WL_FILE is not a JSON object"
   cmd_verify "$WL_FILE"
 fi
+command -v gh >/dev/null 2>&1 || err "gh is required"
 
-# every page of reviews; a page under 100 entries is the last one
-page=1
-while :; do
-  gh api "repos/$REPO/pulls/$N/reviews?per_page=100&page=$page" > "$T/reviews.$page.json" 2>"$T/err" \
-    || err "reviews page $page: $(tr '\n' ' ' < "$T/err" | cut -c1-300)"
-  jq -e 'type == "array"' "$T/reviews.$page.json" >/dev/null 2>&1 || err "reviews page $page is not a list"
-  [ "$(jq length "$T/reviews.$page.json")" -ge 100 ] && [ "$page" -lt 20 ] || break
-  page=$((page + 1))
-done
-jq -s 'add' "$T"/reviews.*.json > "$T/reviews.json"
+# every page of a list endpoint as one array in <out>; a page under 100
+# entries is the last. Page 1 is <url> as given, page p is <url>&page=<p>.
+pages() { # <url> <out> → 1 with the reason in $T/err
+  local p=1 u="$1"
+  while :; do
+    gh api "$u" > "$2.p$p" 2>"$T/err" || return 1
+    jq -e 'type == "array"' "$2.p$p" >/dev/null 2>&1 || { echo "page $p is not a list" > "$T/err"; return 1; }
+    [ "$(jq length "$2.p$p")" -ge 100 ] && [ "$p" -lt 20 ] || break
+    p=$((p + 1)); u="${1%&page=1}&page=$p"
+  done
+  jq -s 'add' "$2".p* > "$2"
+}
+
+pages "repos/$REPO/pulls/$N/reviews?per_page=100&page=1" "$T/reviews.json" \
+  || err "reviews: $(tr '\n' ' ' < "$T/err" | cut -c1-300)"
 
 gh api "repos/$REPO/pulls/$N" > "$T/pr.json" 2>"$T/err" \
   || err "pull request: $(tr '\n' ' ' < "$T/err" | cut -c1-300)"
@@ -152,11 +160,9 @@ if [ "$(jq length "$T/rounds.json")" -eq 0 ]; then
 fi
 
 rid="$(jq -r '.[-1].id' "$T/rounds.json")"
-gh api "repos/$REPO/pulls/$N/reviews/$rid/comments?per_page=100" > "$T/inline.json" 2>/dev/null || printf '[]' > "$T/inline.json"
-jq -e 'type == "array"' "$T/inline.json" >/dev/null 2>&1 || printf '[]' > "$T/inline.json"
+pages "repos/$REPO/pulls/$N/reviews/$rid/comments?per_page=100" "$T/inline.json" || printf '[]' > "$T/inline.json"
 # the PR's own comment thread: where a human settles a finding as intended
-gh api "repos/$REPO/issues/$N/comments?per_page=100" > "$T/comments.json" 2>/dev/null || printf '[]' > "$T/comments.json"
-jq -e 'type == "array"' "$T/comments.json" >/dev/null 2>&1 || printf '[]' > "$T/comments.json"
+pages "repos/$REPO/issues/$N/comments?per_page=100" "$T/comments.json" || printf '[]' > "$T/comments.json"
 
 jq -n --arg repo "$REPO" --argjson n "$N" \
   --slurpfile rounds "$T/rounds.json" --slurpfile pr "$T/pr.json" --slurpfile inl "$T/inline.json" \
@@ -214,7 +220,8 @@ jq -n --arg repo "$REPO" --argjson n "$N" \
      inline: [ $inline[] | select(type == "object") | {path, line: (.line // .original_line), body} ],
      sections: sections($rev.body),
      comments: [ $cmts[] | select(type == "object") | select(.user.login != $rev.user.login)
-                 | {author: .user.login, created_at, body: ((.body // "")[0:1200])} ] | .[-15:]}' \
+                 | {author: .user.login, created_at, body: ((.body // "")[0:1200])} ]
+               | sort_by(.created_at) | .[-15:]}' \
   > "$T/wl.json" || err "the worklist could not be assembled"
 [ "$VERIFY" = "true" ] || { cat "$T/wl.json"; exit 0; }
 cmd_verify "$T/wl.json"

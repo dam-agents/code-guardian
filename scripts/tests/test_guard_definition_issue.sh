@@ -81,6 +81,14 @@ passes 'gh api -X POST "repos/$DEFAULT_REPO/issues" -f title=x' 'a variable that
 passes 'gh issue create -R acme/guardian-web -t x -b y' 'a repo whose name extends the definition name'
 passes 'gh issue list -R acme/guardian; gh issue comment 5 -R acme/widgets -b x' 'a definition read, then a target write'
 passes 'gh api graphql -f owner=acme -f name=widgets -f query='"'"'mutation { addComment(input:{subjectId:"x", body:"y"}) { clientMutationId } }'"'" 'a mutation naming the target repo'
+blocked 'gh issue create \\
+  --title x --body y' 'a write continued over a backslash-newline'
+blocked 'gh issue list -R acme/widgets \\
+  ; gh issue create -t x' 'a continued line still splits at ;'
+# the pod has no awk: the hook joins continued lines without it
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_hook Bash 'gh issue create -R acme/guardian -t x'
+assert_rc 2 'blocked without awk on the PATH'
 run_hook Read 'gh issue create'; assert_rc 0 'another tool passes'
 run_hook Bash ''; assert_rc 0 'an empty command passes'
 

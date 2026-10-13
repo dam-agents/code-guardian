@@ -708,7 +708,7 @@ run_slice() { # <files.json>
     done | jq -s . )"
   [ -n "$memory" ] || memory='[]'
   local profile
-  if [ -f "$PROFILE_JSON" ]; then profile="$PROFILE_JSON"
+  if [ -f "$PROFILE_JSON" ] && [ "$(cfg project_profile)" != disabled ]; then profile="$PROFILE_JSON"
   else profile="$TMP/empty-profile.json"; jq -n --argjson noise "$(builtin_noise_json)" '{noise:$noise, modules:[], docs:[], decisions:[], conventions:[], ownership:[], checks:{workflows:[],required:[]}, history:{dirs:[]}, structure:{doc_roots:[],adr_dirs:[]}}' > "$profile"; fi
   jq -c --slurpfile p "$profile" --slurpfile files "$files" --argjson memory "$memory" -n '
     def glob2re: [match("\\*\\*/|\\*\\*|\\*|\\?|[^*?]+"; "g") | .string]

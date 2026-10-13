@@ -31,8 +31,8 @@ orientation and skills. Optimize for delivery speed.
 
 1. Review the diff only (`$PR_DIR.diff`; on a re-review prefer the range since
    the prior review) for **🔴 Critical findings only**. On a re-review, a 🔴
-   of the prior review (its `findings-json` in `reviews/pr-<n>.md`) or of
-   `prepare`'s `carry` that the range does not fix counts too and is listed.
+   of `prepare`'s `prior_findings` or `carry` that the range does not fix
+   counts too and is listed.
    The verdict is `APPROVE` when there is none, `REQUEST_CHANGES` otherwise —
    🟡 and the check rollup never hold the rapid verdict.
 2. Write `rapid.md`, body only, no inline comments:
@@ -52,7 +52,7 @@ orientation and skills. Optimize for delivery speed.
    review can cancel it.`
 3. `review-pr.sh rapid <n> --verdict <V> --body <ctx>/rapid.md`. It dedups on
    the **rapid marker** `<!-- <review_marker>:rapid headRefOid=<full-sha> -->`
-   at the live HEAD (`already_posted` → go to phase 2), posts one review with
+   at the reviewed SHA (`already_posted` → go to phase 2), posts one review with
    `event: <V>` and the marker appended, sets the REVIEWS.md verdict cell to
    `RAPID` with a fresh timestamp (status stays `in_progress`), logs `rapid
    posted`, and writes the progress status. A `REQUEST_CHANGES` dismisses the
@@ -64,8 +64,8 @@ orientation and skills. Optimize for delivery speed.
 `:rapid` marker is invisible to the normal dedup, so the full review posts as
 usual; a verdict below `APPROVE` revokes the rapid approval. Watch rules
 evaluate once, after it. A rapid post is **never** terminal. A died run is
-recovered by the stale-lock takeover — verdict `RAPID` tells the next run to
-skip phase 1.
+recovered by the stale-lock takeover: the `RAPID` row makes `prepare` return
+`rapid_posted: true`, and the next run skips phase 1.
 
 ## PR closed mid-review — findings become an issue
 
@@ -92,8 +92,8 @@ checks alone — and `critical` (🔴) otherwise. The outcome says what is left:
 **Crash recovery.** A closed PR whose row is an `in_progress` lock with verdict
 `RAPID` arrives as a review entry flagged `closed: true`, not as a prune.
 `prepare` runs it in mode `closed` — lock refreshed with verdict `RAPID`, no
-clone, no skills (the branch may be gone), Check 1 gates not applied — then
-review the diff and `post`.
+clone, no skills (the branch may be gone), Check 1's closed and trigger gates
+waived — then review the diff and `post`.
 
 ## Self-check
 

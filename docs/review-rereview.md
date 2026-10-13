@@ -91,7 +91,7 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   block as `🔁 Still present` one-liners, keep the prior verdict, and write
   `Range holds base-branch merges only — no change to this PR's own diff.`
   under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
-  `### Findings`. No prior digest (pre-4.1.0) → the normal delta round.
+  `### Findings`. No prior digest → the normal delta round.
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR
@@ -145,13 +145,12 @@ compare call and reports it as `carry`:
   depth. Extension-triggered skills route from that range, `always` skills run
   over the whole clone, exactly as on a delta re-review
   ([skills.md](skills.md) → **Triggers & file routing**). A carried re-review
-  posts as a re-review: the carry range wins over the delta range — it is the
-  narrower one and the carried findings cover everything before it — and
-  `delta` classifies them with the rest against the same unchanged prior.
+  posts as a re-review: the carry range wins over the delta range, and `delta`
+  classifies the carried findings with the rest against the same prior.
 - **An empty `carry.files` means HEAD's tree is back at the carried SHA** (it
   returned there, or a commit and its revert). The carried findings are
-  current, there is no range to review, and every skill routes over the whole
-  PR as on any first review.
+  current, there is no range to review, and the skills route as they would
+  without a carry.
 - **Settle every carried finding at its anchor** at the live HEAD, the way a
   re-review settles a prior (**Re-review output**): read its `file:line`, keep
   it when the defect is still there, drop it when the range fixed it. A

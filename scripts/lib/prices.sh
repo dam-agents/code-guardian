@@ -1,7 +1,8 @@
 # prices.sh — the operator-maintained model price table, parsed once for every
-# consumer (docs/benchmark.md → Model prices). Sourced by benchmark-report.sh
-# and audit-trend.sh; the table has one home in work/CONFIG.md and one reader
-# here, so the two reports read the same prices and price a token alike.
+# consumer (docs/benchmark.md → Model prices). Sourced by benchmark-report.sh,
+# audit-trend.sh and monitor.sh (the anomaly alert's cost rule); the table has
+# one home in work/CONFIG.md and one reader here, so every consumer prices a
+# token alike.
 #
 #   . scripts/lib/prices.sh
 #   PRICES="$(prices_json "/path/to/CONFIG.md")"   # [] when absent

@@ -515,7 +515,7 @@ assert_jq '.stats.tokens.by_model.unknown.runs == 1 and .stats.tokens.by_model["
 assert_jq '.stats.stalls.wasted_output_tokens == 300' 'a stalled run wastes its last cumulative output, not the sum'
 
 # --- classifier refusals and API failures: the week's account ----------------
-# docs/monitor.md → In the weekly audit: what the classifier refused, and the
+# docs/audit.md task 38: what the classifier refused, and the
 # outages (failures under 60 min apart; agent-side classes left out)
 new_case audit_guard_week
 base_config '- model_alert_threshold: off'
@@ -564,6 +564,20 @@ printf '%s PR #57 9c1e2a0 failed to post: 422\n%s review post failed: 0f3e2a1 is
 run_preflight audit
 assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
   'a hex token next to a failure word is not a zero count'
+# the pod has no awk: the lines are matched without it
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines"))' \
+  'the error lines are matched without awk'
+
+# --- the review worklist echoes the monitor's anomaly factor, read without awk ---
+new_case review_config_anomaly_factor
+base_config '- review_anomaly_factor: 2.5'
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
+PATH="$SANDBOX/noawk:$PATH" run_preflight review
+assert_jq '.config.review_anomaly_factor == 2.5' 'a configured factor is echoed without awk'
+assert_jq '.logs | any(contains("review_anomaly_factor")) | not' 'and read as a valid value'
 
 # --- wake-ups: the preflight and monitor passes that found work, by kind -----
 new_case audit_wakeups
@@ -1238,5 +1252,25 @@ OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" \
        PATH="$SANDBOX/ghcut:$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/preflight.sh" audit)"
 assert_jq '.stats.overruled | .scanned == 0 and .unread == ["3"]' \
   'a REST call that prints page 1 and then fails leaves the PR unread'
+
+
+# --- mention ledger retention: a description row outlives the 14 days --------
+# an open PR's description is scanned at any age, so its `body-<n>` row stays
+# until the PR's prune; a comment row older than 14 days is dropped
+new_case audit_mentions_trim
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '| comment_id | number | handled_at | action |\n'
+  printf '| 101 | 1 | %s | answer |\n' "$(iso_ago 1728000)"
+  printf '| body-1 | 1 | %s | answer |\n' "$(iso_ago 1728000)"
+  printf '| 102 | 1 | %s | answer |\n' "$(iso_ago 3600)"
+} > "$WORK/MENTIONS.md"
+run_preflight audit
+assert_jq '.mode == "audit"' 'audit ran'
+OUT="$(cat "$WORK/MENTIONS.md")"
+assert_out_absent '^\| 101 \|' 'an old comment row is trimmed'
+assert_out_contains '^| body-1 |' 'an old description row stays'
+assert_out_contains '^| 102 |' 'a fresh row stays'
 
 finish

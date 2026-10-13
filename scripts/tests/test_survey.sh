@@ -77,6 +77,21 @@ assert_jq '.truncated == true and .remainder == 20' 'the rest is left for the ne
 assert_jq '[.files[] | select(endswith(".lock"))] | length == 0' 'a noise glob is not surveyed as code'
 assert_jq '.sha | test("^[0-9a-f]{40}$")' 'the pass names the commit it reads'
 
+# --- an empty file in the area is counted as 0 lines, never a broken pass -----
+new_case survey_prepare_empty_file
+base_config '- survey: enabled'
+mkdir -p "$WORK/survey" "$SANDBOX/repo/src/api"
+profile_fx '[{"path":"src/api","name":"api"}]'
+git -C "$SANDBOX/repo" init -q 2>/dev/null
+printf 'line\n' > "$SANDBOX/repo/src/api/a.py"
+: > "$SANDBOX/repo/src/api/b.py"
+printf 'line\nline\n' > "$SANDBOX/repo/src/api/c.py"
+git -C "$SANDBOX/repo" add -A 2>/dev/null
+git -C "$SANDBOX/repo" -c user.email=t@t -c user.name=t commit -qm init 2>/dev/null
+OUT="$(CG_SURVEY_CLONE_URL="$SANDBOX/repo" TMPDIR="$SANDBOX" \
+       bash "$REPO_ROOT/scripts/survey.sh" prepare "$WORK" src_api 2>/dev/null)"
+assert_jq '.outcome == "ready" and .counted.files == 3 and .counted.lines == 3' 'an empty file is listed with 0 lines'
+
 # --- the first pass of an area learns its path from the profile --------------
 new_case survey_record_first_pass
 base_config '- survey: enabled'
@@ -98,6 +113,18 @@ assert_jq '.outcome == "recorded" and .pass == 2 and .counts.critical == 1' 'the
 assert_file_contains "$WORK/survey/src_api.md" '## Pass 2' 'the pass is appended to the area file'
 assert_file_contains "$WORK/survey/src_api.md" 'findings-json' 'the findings travel with it'
 assert_file_contains "$WORK/survey/LEDGER.md" '| src_api | src/api | 20' 'the ledger row carries the new pass'
+
+# --- a padded ledger row is rewritten in place, as ledger_row finds it -----------
+new_case survey_record_padded_row
+base_config '- survey: enabled'
+mkdir -p "$WORK/survey"
+survey_ledger "| src_api    | src/api | $(iso_ago 1209600) | 1 | 2 |"
+printf '[{"severity":"warning","summary":"duplicated parser","file":"src/api/a.ts","line":2}]' > "$SANDBOX/f.json"
+OUT="$(TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/f.json" 2>/dev/null)"
+assert_jq '.outcome == "recorded" and .pass == 2' 'the padded row is read'
+assert_file_contains "$WORK/survey/LEDGER.md" '^| src_api | src/api | .* | 2 | 1 |$' 'the padded row carries the new pass'
+[ "$(grep -c 'src_api' "$WORK/survey/LEDGER.md")" = 1 ] && printf 'ok   %s: one row per area\n' "$CASE" \
+  || { printf 'FAIL %s: the area has more than one row\n' "$CASE"; FAILED=1; }
 
 # --- report renders every area -----------------------------------------------
 new_case survey_report

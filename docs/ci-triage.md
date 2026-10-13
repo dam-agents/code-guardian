@@ -10,9 +10,8 @@ no re-run, no label, no commit, and it never changes a posted verdict.
 
 ## When it fires
 
-CI is usually still running when a review starts, so the rollup is read twice.
-The procedure, the marker and the comment are the same either way, so a commit
-is triaged at most once:
+The same procedure, marker and comment serve both paths, so a commit is
+triaged at most once:
 
 - **At the end of a review** — after the review posts and the watch rules are
   evaluated, for the SHA that was reviewed.
@@ -24,17 +23,17 @@ is triaged at most once:
 ## Procedure (per PR)
 
 1. `review-pr.sh ci <n> [--sha <sha>]` returns
-   `{sha, terminal, failing:[{name, conclusion, url, evidence}]}`. `evidence`
-   is a file path: the failing job's log tail, else the check run's own output,
-   else absent. **`terminal: false` → stop.** No comment, no marker; a later
-   heartbeat reads the rollup again.
+   `{sha, terminal, failing:[{name, conclusion, url, evidence}]}`. `evidence`,
+   for the first three failing checks, is a file path: the failing job's log
+   tail, else the check run's own output, else `null`. **`terminal: false` or
+   `error` → stop.** No comment, no marker; a later heartbeat reads the rollup
+   again.
 2. Read every `evidence` file. For each failing check name the **probable
    cause** and the **smallest fix**. Evidence with no diagnosable cause — an
    infrastructure error, a cancelled job, an empty log — gets no block; when no
    check is diagnosable, log
    `PR #<n>: CI at <sha-short> not diagnosable — no comment`, write the marker,
-   and stop. The marker is written because the evidence for that SHA does not
-   improve.
+   and stop.
 3. Post one comment, whatever the number of failing checks
    (`gh api "repos/$REPO/issues/<n>/comments" -f body=…`). Wording follows
    ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
@@ -58,9 +57,10 @@ is triaged at most once:
 ## Known bounds
 
 - A job that never finishes inside the 24 h window is never triaged.
-- `cancelled` and `action_required` are not failures.
+- Only a `failure` or `timed_out` conclusion fails a check; `cancelled` and
+  `action_required` do not.
 - State reconstruction (ONBOARDING Step 5) does not rebuild the markers, so a
-  reconstructed instance may triage a live SHA once more. Harmless.
+  reconstructed instance may triage a live SHA once more.
 
 ## Self-check
 

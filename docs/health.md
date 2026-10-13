@@ -56,7 +56,8 @@ dashboard.html    # the last published page
 | Direct Slack alerts | — | the opt-in cannot send, or a failed send in 6 h |
 
 Otherwise `ok`; `na` for the backup without `work_repo` and for direct alerts
-without `monitor_slack_direct: enabled`. `status_sig` joins every state.
+without `monitor_slack_direct: enabled`. `status.json` → `sig` joins every
+state.
 
 ## The dashboard
 
@@ -77,9 +78,10 @@ tick at all.
 
 ## Publish (`health_dashboard: dam`)
 
-- The monitor's pass publishes when `status_sig` changed since the last
-  publish, or the last publish is 3 h old — never within 30 min of a failed
-  attempt, and never in a tick whose direct send found the endpoint down.
+- The monitor's pass publishes when `sig` differs from the `status_sig` of
+  the last publish, or the last publish is 3 h old — never within 30 min of a
+  failed attempt, and never in a tick whose direct send found the endpoint
+  down.
 - It calls the platform-outbound MCP tools itself (`scripts/lib/mcp.sh`):
   `list_schedules` for the schedules table (best-effort), then
   `update_artifact {id, content}` on the kept id — a new version under the same
@@ -91,8 +93,7 @@ tick at all.
 - The page passes `redact_file` before the publish, and its share URL is public
   to anyone holding it (README → **Runtime requirements**).
 - Each publish logs a `health` event: `dashboard published → DAM <id>`, or
-  `dashboard not published: <reason>` (warn). The share URL ends every direct
-  DM.
+  `dashboard not published: <reason>` (warn).
 
 **Cost** — no token. A tick reads the daily events files since the newest row
 (two on a running monitor, about 1 s on the pod); a publish adds up to three

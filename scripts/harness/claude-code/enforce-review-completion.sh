@@ -6,9 +6,9 @@
 #
 # Reads this run's own `review_step` events and reconstructs, per PR, whether
 # it reached a terminal state (`done` / `aborted …`). A PR that was `locked`
-# but never terminated means the turn is ending mid-pipeline — the exact
-# failure mode the runbook's hard invariants forbid (docs/runbook.md) (e.g. ending after a skill's
-# "report to the user"). Exit 2 + stderr makes the model continue, naming the
+# but never terminated means the turn is ending mid-pipeline (e.g. after a
+# skill's "report to the user"), which the hard invariants forbid
+# (docs/runbook.md). Exit 2 + stderr makes the model continue, naming the
 # PRs, their last logged step, and the steps still owed.
 #
 # Deliberately narrow: it enforces only the ordering the log already proves —
@@ -29,8 +29,8 @@ set -u
 MAX_BLOCKS=3
 INPUT="$(cat 2>/dev/null || true)"
 [ -z "$INPUT" ] && exit 0
-# resolve shimmed tools before the jq guard and the first jq call (this hook
-# fires per tool call, so the shim tax dominates it) — ../../lib/toolpath.sh
+# resolve shimmed tools before the jq guard and the first jq call —
+# ../../lib/toolpath.sh
 . "$(cd "$(dirname "$0")/../.." && pwd)/lib/toolpath.sh" 2>/dev/null || true
 command -v jq >/dev/null 2>&1 || exit 0
 

@@ -144,7 +144,7 @@ assert_out_contains '^# src/alpha.ts:1 — lines ' 'context leads with its text 
 run_rp sweep 1 'query\(\)'
 assert_jq '.changed_files_hits | length == 2' 'sweep finds both changed-file occurrences'
 assert_jq '.untouched_code_hits == 0' 'no untouched occurrences'
-# --tree is the claim sweep (docs/review.md → Sibling sweep): a stale statement
+# --tree is the claim sweep (docs/review.md → Claim sweep): a stale statement
 # sits outside the diff, so the changed-file scope reports it as a bare count and
 # only --tree can name it.
 run_rp sweep 1 'export const'
@@ -770,6 +770,27 @@ printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "duplicate"' 'duplicate detected before posting'
 assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | 2026-09-02T10:00:00Z | SEE-GITHUB | done |" 'row self-healed with the GitHub timestamp'
+
+# --- post: the marker past the first 100 reviews is still found -------------------
+setup post_duplicate_second_page
+run_rp prepare 1
+jq -n '[range(100) | {id: ., state: "COMMENTED", user: {login: "bob"}, submitted_at: "2026-09-01T10:00:00Z", body: "lgtm"}]' \
+  | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+printf '[{"id":105,"state":"COMMENTED","user":{"login":"test-bot"},"submitted_at":"2026-09-02T10:00:00Z","body":"old <!-- cg:review headRefOid=%s -->"}]' "$B1_SHA" \
+  | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100&page=2'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "duplicate"' 'the marker on page 2 is a duplicate'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" && { printf 'FAIL %s: a review was posted\n' "$CASE"; FAILED=1; } || printf 'ok   %s: nothing posted\n' "$CASE"
+
+# --- a row written with padded cells is rewritten in place, never duplicated ------
+setup row_padded
+printf '|  1  | 0000000000000000000000000000000000000000 | %s | COMMENT | awaiting_label |\n' "$(iso_ago 7200)" >> "$WORK/REVIEWS.md"
+run_rp prepare 1
+assert_file_contains "$WORK/REVIEWS.md" "| 1 | $B1_SHA | .* | - | in_progress |" 'the lock replaces the padded row'
+[ "$(grep -cE '^\| *1 *\|' "$WORK/REVIEWS.md")" = 1 ] && printf 'ok   %s: one row for the PR\n' "$CASE" \
+  || { printf 'FAIL %s: %s rows for the PR\n' "$CASE" "$(grep -cE '^\| *1 *\|' "$WORK/REVIEWS.md")"; FAILED=1; }
+run_rp abort 1 "reset"
 
 # --- post: the dedup check unreadable after its retry → abort, lock released -------
 setup post_dedup_unreadable

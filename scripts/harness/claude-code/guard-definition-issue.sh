@@ -22,9 +22,9 @@ esac
 command -v jq >/dev/null 2>&1 || exit 0
 
 [ "$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)" = "Bash" ] || exit 0
-# a backslash-newline continues the line
+# a backslash-newline continues the line (sed, not awk: the pod has no awk)
 RAW="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null \
-  | awk '{ if (sub(/\\$/, "")) printf "%s ", $0; else print }')"
+  | sed -e ':a' -e '/\\$/{' -e '$!N' -e 's/\\\n/ /' -e 'ta' -e '}')"
 [ -n "$RAW" ] || exit 0
 CMD="$(printf '%s' "$RAW" | tr '\n\t' '  ')"
 # one simple command per line: split on ; & | ( ) ` and newlines

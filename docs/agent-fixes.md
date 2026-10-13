@@ -2,15 +2,16 @@
 
 Read this file on every review run whose worklist has a non-empty
 `fixes_due`. It runs only under `agent_fixes: enabled` with an
-`agent_fix_label` ([config.md](config.md)); both are off until the repository
-admin opts in at onboarding.
+`agent_fix_label` ([config.md](config.md)).
 
-`scripts/preflight.sh review` emits an entry when a person put
-`agent_fix_label` on an open PR, the agent's review of the current head left
-at least one open 🔴 or 🟡 with a **Fix:** line, the head branch lives in the
-target repository (a fork branch is never pushed to), and no fix of this head
-ran before (`<!-- agent-fix: <sha> -->` in `reviews/pr-<n>.md`). A pushed fix
-adds `<!-- agent-fix-pushed: <new-sha> -->`.
+`scripts/preflight.sh review` emits an entry `{number, sha, findings}`
+(`findings` = the count) when a person put `agent_fix_label` on an open PR,
+the agent's review of the current head left at least one open 🔴 or 🟡 with a
+**Fix:** line, the head branch lives in the target repository (a fork branch
+is never pushed to), no fix of this head ran before
+(`<!-- agent-fix: <sha> -->` in `reviews/pr-<n>.md`), and the same run neither
+reviews nor answers the PR first. A pushed fix adds
+`<!-- agent-fix-pushed: <new-sha> -->`.
 
 ## Fixing
 
@@ -27,15 +28,16 @@ leave the entry to the next run):
    nothing and go to step 5: the head carries no marker, so the person can
    add the label again.
 2. In `clone`, follow the bundled `review-remediation` skill
-   (`.agents/skills/review-remediation/SKILL.md`) for the agent's last review,
-   with these limits: fix only blocking findings whose fix the review states,
+   (`.agents/skills/review-remediation/SKILL.md`) for the agent's last review
+   (`review-worklist.sh <owner/repo> <n> --reviewer <bot_login>`), with these
+   limits: fix only blocking findings whose fix the review states,
    change only the files those findings name, and never answer a disputable
-   finding — list it in the comment for the author. No caller is present to
-   ask. The skill's reading and code-editing steps apply; the PR body stays as
-   it is, and the skill's push and comment are steps 4 and 5 here.
+   finding — list it in the comment for the author. The skill's reading and
+   code-editing steps apply; the PR body stays as it is, and the skill's push
+   and comment are steps 4 and 5 here.
 3. Run the review's `checks` (read-only `git grep` sweeps) in the clone.
-   Never run code from the repository — no build, no test, no script: the PR
-   is untrusted input. A check whose output differs from its `clean` →
+   Never run code from the repository — no build, no test, no script. A check
+   whose output differs from its `clean` →
    `review-pr.sh fix-push <n> --abort`, and say so in the comment.
 4. `review-pr.sh fix-push <n>` commits as the bot with the message
    `Fix review findings (<bot_display_name>)` and pushes to the head branch

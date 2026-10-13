@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # common.sh — the helpers every script shares: the work/CONFIG.md reader
 # (docs/config.md), the developer roster, repo references, time, the event log
-# and history-marker reads, and a GitHub GET with retry. Set CONFIG before
-# calling cfg or cfg_table; source this file before GH_HOST is re-exported, so
-# DEFAULT_HOST keeps the ambient default and each reference resolves
-# independently.
+# and history-marker reads, GitHub GETs with retry and paging, and the remote
+# marker dedup. Set CONFIG before calling cfg or cfg_table; source this file
+# before GH_HOST is re-exported, so DEFAULT_HOST keeps the ambient default and
+# each reference resolves independently.
 
 # A CONFIG value is the text after `- <key>: `, minus a trailing comment and
 # minus one layer of markdown quoting (`value`, "value") — writers reach for
@@ -155,6 +155,49 @@ gh_get() { # <gh api args…>
   sleep 1
   out="$(gh api "$@" 2>/dev/null)" && { printf '%s' "$out"; return 0; }
   return 1
+}
+
+# Every page of a GitHub list as one JSON array, each page read with gh_get:
+# <endpoint> itself, then `&page=2`, `&page=3` … while the last page came back
+# full. A page that is not an array, or a list past GH_PAGES_MAX pages, is no
+# answer: rc 1 and nothing on stdout, never a list read in part.
+GH_PAGES_MAX=20
+gh_get_all() { # <endpoint with per_page=100>
+  local page=1 body n all=""
+  while [ "$page" -le "$GH_PAGES_MAX" ]; do
+    if [ "$page" -eq 1 ]; then body="$(gh_get "$1")" || return 1
+    else body="$(gh_get "$1&page=$page")" || return 1; fi
+    n="$(printf '%s' "$body" | jq 'if type == "array" then length else -1 end' 2>/dev/null)"
+    case "$n" in (''|-*) return 1;; esac
+    all="$all$body"$'\n'
+    [ "$n" -lt 100 ] && { printf '%s' "$all" | jq -sc 'add'; return; }
+    page=$((page + 1))
+  done
+  return 1
+}
+
+# The remote marker dedup at one SHA (docs/review-mechanics.md → Review
+# tracking state): the timestamp of the newest review carrying
+# `<!-- <marker> headRefOid=<sha> -->`, else of the newest PR comment carrying
+# it; empty when every page answered without it; `__api_error__` when a read
+# had no answer — unknown, never absent. With a file, the reviews list is kept
+# there as a `pr=<n>` line and the array, for a second scan of the same PR.
+marker_reviewed_at() { # <owner/repo> <n> <marker> <sha> [<reviews file>]
+  local m="<!-- $3 headRefOid=$4 -->" body ts err=0
+  [ -z "${5:-}" ] || : > "$5" 2>/dev/null
+  if body="$(gh_get_all "repos/$1/pulls/$2/reviews?per_page=100")"; then
+    [ -z "${5:-}" ] || { printf 'pr=%s\n' "$2"; printf '%s' "$body"; } > "$5" 2>/dev/null
+    ts="$(printf '%s' "$body" | jq -r --arg m "$m" \
+      '[.[] | select(.body != null) | select(.body | contains($m)) | .submitted_at] | last // empty' 2>/dev/null)"
+    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
+  else err=1; fi
+  if body="$(gh_get_all "repos/$1/issues/$2/comments?per_page=100")"; then
+    ts="$(printf '%s' "$body" | jq -r --arg m "$m" \
+      '[.[] | select(.body | contains($m)) | .created_at] | last // empty' 2>/dev/null)"
+    [ -n "$ts" ] && { printf '%s' "$ts"; return 0; }
+  else err=1; fi
+  [ "$err" -eq 1 ] && printf '__api_error__'
+  return 0
 }
 
 # A checkout's `origin` as a `<host>/<owner>/<repo>` reference — https, ssh and

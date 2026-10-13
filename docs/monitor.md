@@ -7,8 +7,8 @@ health alert is the monitor's. `scripts/precheck.sh monitor` runs
 review usage baseline, the review ledger, the harness settings — no GitHub
 call, no write beyond its own bookkeeping and the technical history
 ([health.md](health.md)). Its only outward calls are the opt-in **Direct
-delivery** below and the opt-in dashboard publish. An idle fire starts no
-session.
+delivery** below and the opt-in dashboard publish ([health.md](health.md) →
+**Publish**). An idle fire starts no session.
 
 ## The alerts
 
@@ -32,24 +32,25 @@ events come from the harness hooks `StopFailure` (`api_failure`) and
 `PermissionDenied` (`classifier_block`) ([logging.md](logging.md) → **Harness
 adapters**). A GitHub failure's class comes from the error text: `auth`
 (HTTP 401), `rate_limit`, `access` (HTTP 403/404), `server_error` (HTTP 5xx),
-`network`, `unknown`.
+`network`, `unknown`. The weekly audit counts the week's refusals and model
+outages ([audit.md](audit.md) task 38).
 
 **The ledger** — `work/MONITOR.json`, `{alerts: {<id>: {kind, first, claimed,
 sent}}}`, one writer at a time. An `alerts_due` entry is claimed when emitted
 and is due again 30 min later until `monitor.sh ack <id>…` records it as
-sent, so a session that died before its ack (a model outage is the usual
-cause) loses nothing. A sent alert is never emitted again: each tick counts
-it in `suppressed` and logs `suppressed <n> alert(s) already reported`. A
-condition kind that clears leaves the ledger, so its return alerts again.
-A row stays while a tick still finds its alert, else 14 days after its
-claim or send; `alerts_due` holds one entry per id. `stall_alert` and
-`review_anomaly` keep their own detection-time claims (below), not the ledger.
+sent. A sent alert is never emitted again: each tick counts it in
+`suppressed` and logs `suppressed <n> alert(s) already reported`. A condition
+kind that clears leaves the ledger, so its return alerts again. A row stays
+while a tick still finds its alert, else 14 days after its claim or send;
+`alerts_due` holds one entry per id. `stall_alert` and `review_anomaly` keep
+their own detection-time claims (below), not the ledger.
 
 ## Monitor run
 
 1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` and
-   the facts of its row above. Under **Direct delivery** it holds only what
-   the pass did not send, and `direct` says why.
+   the facts of its row above; `stall_alert` and `review_anomaly` are
+   worklist keys of their own. Under **Direct delivery** `alerts_due` holds
+   only what the pass did not send, and `direct` says why.
 2. Send **one message** for the whole run, in the chat UI: one line per
    alert — what happened, when (UTC), the numbers, the likely cause and the
    one operator action, if any:
@@ -97,9 +98,9 @@ cannot stop them.
 - **Message** — one Slack DM to the escalation owner
   (`send_channel_message`, `chatId` = the roster id), never the shared
   channel: a header, one bullet per alert from a fixed template, at most 10
-  alerts, and the dashboard share URL when one is kept ([health.md](health.md)).
-  `stall_alert` and `review_anomaly` need an analysis and stay with the
-  session.
+  alerts, and the dashboard share URL when one is kept
+  ([health.md](health.md)). `stall_alert` and `review_anomaly` need an
+  analysis and stay with the session.
 - **Type checks** — every value is a UTC time, a whole number, a class word,
   an adapter part or a PR number; an alert with any other value is skipped and
   stays due for the session. The text of an event — error details, commands,
@@ -127,11 +128,9 @@ The monitor counts the stalled reviews of the last 24 h — one per dead lock
 `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
 `stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
 UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock at
-detection). One stall is normal (HEAD moved, pod restart); a cluster means
-reviews are redone at full cost. Report count, threshold, the PR numbers and
-the `per_day_7d` trend; investigate per [logging.md](logging.md) → triage and
-record a recurring cause as an operational lesson
-([preferences.md](preferences.md)).
+detection). Report count, threshold, the PR numbers and the `per_day_7d`
+trend; investigate per [logging.md](logging.md) and record a recurring cause
+as an operational lesson ([preferences.md](preferences.md)).
 
 ## Review anomaly alert (`review_anomaly`)
 
@@ -140,9 +139,8 @@ usage between its `locked` and `done` steps, subagents included, and the shape
 of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
 ([logging.md](logging.md) → **Harness adapters**). The monitor judges every
 event of the last 24 h newer than `work/.review-anomaly-seen` once, under a
-`mkdir` claim. Each rule's limit is **max(floor, factor × median)** — the
-repo sets its own norm, the floor stops a count from alerting on noise. A
-review at or over any limit is an entry:
+`mkdir` claim. Each rule's limit is **max(floor, factor × median)**. A review
+at or over any limit is an entry:
 
 | Rule | Field | Floor |
 | --- | --- | --- |
@@ -159,8 +157,8 @@ review at or over any limit is an entry:
   from 10 reviews on; before that a new repo is judged on the floors alone,
   and `cost`, `time` and `context` wait.
 - **Baseline** — `work/REVIEW-USAGE.jsonl` keeps the last 30 judged reviews
-  per model, so the median outlives the 14-day event retention and a quiet
-  repo still reaches 10. First contact seeds it from every retained event.
+  per model, beyond the 14-day event retention. First contact seeds it from
+  every retained event.
 - **Entry** — `review_anomaly: {factor, reviews: [{pr, sha, ts, model,
   reasons: [{rule, value, limit, median, ratio}], unit, cost, samples, secs,
   msgs, subagents, input, output, cache_read, cache_creation, peak_ctx,
@@ -176,14 +174,6 @@ and the likely cause — `repeats` or many `msgs` on a small diff is a loop,
 legitimate cost. A chronic problem enters the median and stops alerting: the
 weekly audit's review-shape line shows that drift ([audit.md](audit.md)
 task 37).
-
-## In the weekly audit
-
-Preflight's audit mode adds the week's account: `stats.classifier` (`blocks`,
-`runs`, `by_day`, `by_tool`, `by_reason`, `top` patterns) with the
-`classifier_blocks` check, and `stats.api_failures` (`failures`, `runs`,
-`by_class`, `outages`) with the `model_availability` check. The audit
-triages them ([audit.md](audit.md) task 38).
 
 ## Self-check
 

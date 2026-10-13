@@ -5,14 +5,15 @@ Read this file on every **audit run** (`preflight.sh audit` returned
 `stats` + `checks`); you walk the task list — verify, add the judgment checks,
 compute the derived metrics, send the report.
 
-**The audit fixes nothing.** Its only GitHub writes are an anonymous tracking
-issue for a definition bug found in task 3, under `definition_issues: enabled`,
-and the trend artifact's publish; its local
-writes beyond `AUDIT.log` are the memory consolidation of task 34 and the trend
-append of task 36. Routine findings (pending prunes, stale
-locks) heal on the next heartbeat; everything else goes to the operator. A
-skipped task is an incomplete audit — a task that is impossible this week
-(missing data, API error) is reported as `warn` with the reason, never dropped.
+**The audit fixes nothing.** Beyond the report, its only outward writes are
+the anonymous tracking issue of task 3 and the trend artifact's publish (task
+36); its local writes beyond `AUDIT.log` are memory (the lessons the tasks
+record per [preferences.md](preferences.md), the consolidation of task 34),
+the profile notes of task 35 and the trend append of task 36. Routine findings
+(pending prunes, stale locks) heal on the next heartbeat; everything else goes
+to the operator. A skipped task is an incomplete audit — a task that is
+impossible this week (missing data, API error) is reported as `warn` with the
+reason, never dropped.
 
 ## Task list
 
@@ -43,25 +44,20 @@ skipped task is an incomplete audit — a task that is impossible this week
    - Report one line per signature: count + what failed + cause + the fix.
      Unresolved after a genuine attempt → `cause unclear` with what you ruled
      out. Never pad the report with a guess.
-   - **A definition bug gets an anonymous issue on `$DEFINITION_REPO`** under
-     `definition_issues: enabled`, filed per [runbook.md](runbook.md) →
-     **Definition-repo issues**: title `[audit] <symptom>`, body in the closed
-     list — where, symptom, synthetic reproduction, count and window length,
-     proposed fix — and that it came from the weekly audit. One issue per
-     signature: the script returns the open one (`exists`). The report line
-     carries the finding with its evidence in full and the issue link, or
-     `issue withheld` with the reason (`disabled`, `blocked`). Best-effort: a
-     failure is logged and the report still carries the finding. This issue
-     is the audit's *only* definition-repo write; the fix itself takes the
-     operator ([self-modification.md](self-modification.md)).
+   - **A definition bug gets an anonymous issue on `$DEFINITION_REPO`**, filed
+     per [runbook.md](runbook.md) → **Definition-repo issues** with the title
+     `[audit] <symptom>` — one per signature (`exists` returns the open one).
+     The report line carries the finding with its evidence in full and the
+     issue link, or `issue withheld` with the reason (`disabled`, `blocked`,
+     `error`). The fix itself takes the operator
+     ([self-modification.md](self-modification.md)).
 4. Everything else the script checks is already in `checks[]` — connectivity,
    scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
    of every volume a run writes to (work/, the review clones, the backup's
-   tmpfs), skills, roster,
-   definition currency, benchmark fixture and results integrity, the memory
-   budget, artifact outcome logging, the profile's currency, the definition
-   repo's open-issue backlog
-   (see [preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
+   tmpfs), skills, roster, definition currency, benchmark fixture and results
+   integrity, the memory budget, artifact outcome logging, the profile's
+   currency, the definition repo's open-issue backlog
+   ([preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
    do not recompute. Two special cases:
    - A missing **token scope** is **operator-only**: report what it breaks
      (README → **Token scopes**), never work around it.
@@ -79,18 +75,15 @@ skipped task is an incomplete audit — a task that is impossible this week
    `…-review-offdays` ones the cadence keys call for), the shepherd sweep
    (under `slack_notifications: enabled`), the monthly benchmark (under
    `benchmark: enabled`), the weekly survey (under `survey: enabled`), the
-   monitor and this audit job all exist and are **enabled**, with crons matching ONBOARDING
-   Step 6. Missing or disabled → **fail**.
+   monitor and this audit job all exist and are **enabled**, with crons
+   matching ONBOARDING Step 6. Missing or disabled → **fail**.
    - **Each must also be firing, not merely enabled.** Per entry,
      `status.lastRun` within 1.5× the interval of **its own cron**, measured
      from that cron's last firing opportunity rather than from now, and
      `status.lastResult` = `success`. Reconstruct that opportunity by walking
      backwards from now to the newest minute the cron's day, hour and minute
      fields all admit — for `*/5 8-21 * * 1-5` read at 07:00 on a Friday,
-     Thursday 21:55 — and measure the age from there. This is what keeps a
-     window-limited schedule honest: a Friday-morning audit sees the active
-     heartbeat's `lastRun` from the previous evening, which is correct for a
-     `Mon-Fri 08-21` cron and would read as dead against wall clock.
+     Thursday 21:55 — and measure the age from there.
    - Enabled but not running, or a failing last result → **fail**, naming the
      offender, its `lastRun` and its `lastResult`.
    - A registered cron that contradicts the cadence keys → **warn** naming both
@@ -98,9 +91,8 @@ skipped task is an incomplete audit — a task that is impossible this week
      schedule (ONBOARDING Step 6a).
    - **Gates:** every Step 6 schedule except this audit carries
      `spec.precheck` = `bash "$HOME/scripts/precheck.sh" <its mode>`. A missing
-     or wrong one → **warn**: that job wakes the model on idle ticks
-     (worklist.md → **The schedule gate**). A `precheck` on the audit → **warn**
-     too; the audit is ungated by design.
+     or wrong one → **warn** (worklist.md → **The schedule gate**). A
+     `precheck` on the audit → **warn** too.
    - **Models:** every Step 6 schedule carries `spec.model` = `review_model`,
      none under `default` ([config.md](config.md)). A missing or different
      one → **warn** naming the schedule and both values; the fix is Step 6's
@@ -112,7 +104,7 @@ skipped task is an incomplete audit — a task that is impossible this week
      different one → **warn** naming the schedule and both values; the fix is
      Step 6's re-registration.
    - Judge **only the schedules ONBOARDING Step 6 defines**. An operator's own
-     temporary monitor is theirs to watch — report an unrecognised schedule as
+     schedule is theirs to watch — report an unrecognised schedule as
      **info**, never a failure.
    - One-time schedules named `code-guardian-review-pr-<n>` are dispatched
      reviews ([runbook.md](runbook.md) → **Review run** step 1): leave them out
@@ -142,8 +134,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 12. **Overrides respected** — no finding dismissed in that PR's
     `## PR-local overrides` reappeared in a later review of the same PR.
 13. **Feedback operationalized** — every `Feedback Log` entry has a matching
-    Custom Rule or Ignore List entry. Feedback recorded but never turned into a
-    rule is a silent regression.
+    Custom Rule or Ignore List entry.
 
 ### D. Shepherd health (when Slack is enabled)
 
@@ -235,30 +226,26 @@ measurement.
     names no kind of their work (written before that kind was counted), which
     the report states once as a floor.
 27. **Spend ground truth** — one `mcp__platform-outbound__get_metrics` call
-    (`days: 7`, `granularity: "summary"` — that granularity's totals cover
-    every session in the window, which `session`/`call` rows do not: they cap
-    at 200). It reports the **cost the platform attributed**, against which
-    `stats.tokens` priced by the `## Benchmark model prices` table
-    ([config.md](config.md)) is only an estimate. Report `totalCostUsd` and the
-    `byModel` split, then judge:
+    (`days: 7`, `granularity: "summary"`; the `session` and `call` rows cap at
+    200). It reports the **cost the platform attributed**, against which
+    `stats.tokens` priced by the `## Benchmark model prices` table is only an
+    estimate. Report `totalCostUsd` and the `byModel` split, then judge:
     - **Price-table drift** — the estimate (`stats.tokens.by_model` priced by
       the table, the figure task 36 writes as `cost_usd`) over `totalCostUsd`
       outside **0.5×–2.0×** → **warn** with both figures and the model rows to
       re-check against current published prices. Judge it while you compose the
-      report, once task 36 produced the number. The band is wide on purpose:
-      this detects a stale price row, it does not reconcile the two figures —
-      the populations differ at the window edges, the estimate excludes
-      unpriced models, and telemetry counts direct sessions too.
-      Correcting the table belongs to the operator in a direct session; the
-      audit reports it ([benchmark.md](benchmark.md) → **Model prices**).
+      report, once task 36 produced the number. Correcting the table belongs
+      to the operator in a direct session ([benchmark.md](benchmark.md) →
+      **Model prices**).
     - **Unpriced model** — a `byModel` model no table row matches → **warn**
       naming it: the model behind a `≥` cost cell, which `cost_floor` alone
       cannot name. Under 1 % of the week's `calls` it is the harness-internal
       model of the next bullet → one **info** line.
     - **Production model** — the `byModel` entry with the most `calls` is what
       the week's runs actually ran on; report it, and **warn** when it does not
-      match `review_model` (under `default`, report only). The second low-call, low-cost model
-      beside it is harness-internal (session titles), not a model change.
+      match `review_model` (under `default`, report only). The second
+      low-call, low-cost model beside it is harness-internal (session titles),
+      not a model change.
     - `available: false` → one **info** line, `spend not measured on this
       deployment`, and task 36's extras omit the key. Never a fail.
     - **Per review** — each spend figure divided by `stats.reviews.total`, 2
@@ -289,16 +276,14 @@ measurement.
 29. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
     `by_cause` (`pod_restart` / `hard_kill` / `terminated`),
-    `wasted_output_tokens`, `redone_prs` and `per_day`. The split matters: the
-    three causes have different owners — `pod_restart` and `hard_kill` are
-    platform, `terminated` is a session ended from outside mid-pipeline. Rising
-    `aborted_clean` while `stalled` falls is the Stop hook working, so read the
-    two together, never `stalled` alone. Any non-zero `stalled` is a **warn**
-    with the causes named; a day above 15 % is a **fail**. Runs still in flight
-    are excluded by the script. `wasted_output_tokens` is a **floor**: it sums
-    the per-run `tokens` events, which a `hard_kill` never got to write —
-    report it as "≥", and never read a low figure as a cheap week when
-    `by_cause.hard_kill` is non-zero.
+    `wasted_output_tokens`, `redone_prs` and `per_day`. `pod_restart` and
+    `hard_kill` are the platform's; `terminated` is a session ended from
+    outside mid-pipeline. Rising `aborted_clean` while `stalled` falls is the
+    Stop hook working, so read the two together, never `stalled` alone. Any
+    non-zero `stalled` is a **warn** with the causes named; a day above 15 % is
+    a **fail**. `wasted_output_tokens` is a **floor** — a `hard_kill` writes
+    no `tokens` event: report it as "≥", and never read a low figure as a
+    cheap week when `by_cause.hard_kill` is non-zero.
 30. **Reaction feedback** — `stats.reactions` sums 👍/👎 on the bot's latest
     inline and issue comments. For each `down_urls` entry (≤ 10): read the
     thread; an explicit correction or dismissal → record it per
@@ -316,13 +301,13 @@ measurement.
     own design records, and the finding class behind it is reconsidered and
     recorded per [preferences.md](preferences.md). Each note names the document
     that settled it, so *Action needed* names the document the week argued with
-    most. Then read the week's
-    **posted** findings the author refuted in a PR comment — every
-    `## PR-local overrides` bullet added this week ([review.md](review.md) → **A
-    human dismissal settles the finding for this PR**). A bullet whose reason is
-    an in-tree document is a decision check that did not fire: name the document
-    and the finding in *Action needed*. A bullet whose reason generalizes is
-    routed per [preferences.md](preferences.md) → **Dispute resolutions from PR
+    most. Then read the week's **posted** findings the author refuted in a PR
+    comment — every `## PR-local overrides` bullet added this week
+    ([review.md](review.md) → **A human dismissal settles the finding for this
+    PR**). A bullet whose reason is an in-tree document is a decision check
+    that did not fire: name the document and the finding in *Action needed*. A
+    bullet whose reason generalizes is routed per
+    [preferences.md](preferences.md) → **Dispute resolutions from PR
     comments**.
 32. **Review style** — `stats.ste` and the `review_style` check: the sentence
     bar on the week's posted reviews ([review.md](review.md) → **The sentence
@@ -380,23 +365,25 @@ measurement.
     `secs`, `msgs`, `peak_ctx`, `repeats`, `failures` and `max_out`, this week
     against the week before, the reviews this week's anomaly alerts named, and
     the stored baseline per model ([monitor.md](monitor.md)
-    → **Review anomaly alert**). The alert compares a review with the repo's
-    own median, so a slow rise moves the median with it: a median up by half
-    or more against the week before, with a similar review count, is a
-    **warn** naming the field. A model below `baseline_min` is reported as
-    `baseline n/10 — cost, time and context not judged yet`, never a warn.
-38. **Classifier and model availability** — `stats.classifier` and
-    `stats.api_failures` ([monitor.md](monitor.md) → **In the weekly
-    audit**). Per `top` pattern of the `classifier_blocks` check, decide: a
-    documented step of the agent (a script or subagent a procedure names) is
-    an `autoMode.allow` rule the definition lacks — report it as a
-    **definition bug** with the proposed rule text, per task 3; anything
-    else is a refusal that stands, one line with the reason. A pattern whose
-    rule already shipped but whose `harness_adapter` check names
-    `automode-rules` is an install that was not re-run. Per outage of
-    `model_availability`: start, length, runs lost, the classes; two or more
-    outages a week, or an `authentication_failed` / `cloud_credential_error`
-    class, is **Action needed** (operator-only).
+    → **Review anomaly alert**). A slow rise moves the alert's own median with
+    it: a median up by half or more against the week before, with a similar
+    review count, is a **warn** naming the field. A model below `baseline_min`
+    is reported as `baseline n/10 — cost, time and context not judged yet`,
+    never a warn.
+38. **Classifier and model availability** — the week's account of what the
+    monitor alerts on as it happens: `stats.classifier` (`blocks`, `runs`,
+    `by_day`, `by_tool`, `by_reason`, `top` patterns) behind the
+    `classifier_blocks` check, and `stats.api_failures` (`failures`, `runs`,
+    `by_class`, `outages`) behind the `model_availability` check. Per `top`
+    pattern, decide: a documented step of the agent (a script or subagent a
+    procedure names) is an `autoMode.allow` rule the definition lacks — report
+    it as a **definition bug** with the proposed rule text, per task 3;
+    anything else is a refusal that stands, one line with the reason. A
+    pattern whose rule already shipped but whose `harness_adapter` check names
+    `automode-rules` is an install that was not re-run. Per outage: start,
+    length, runs lost, the classes; two or more outages a week, or an
+    `authentication_failed` / `cloud_credential_error` class, is **Action
+    needed** (operator-only).
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
@@ -419,7 +406,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Wake-ups: <wakeups.runs> — <kind> <runs>, … per by_work kind with runs > 0 (+<unlabelled> unlabelled — omit when 0; `not measured this week` when wakeups is null)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
-• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the priced view is the benchmark report's ([benchmark.md](benchmark.md) → **Model prices**)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the *Spend* line prices them
 • Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27)
 • Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
@@ -438,13 +425,10 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 ```
 
 - **Always sent, green or not.** Under `slack_notifications: enabled` the
-  report goes to Slack **every week**, an all-🟢 zero-stall one included: it is
-  the standing signal that the agent is alive and auditing itself, so its
-  absence is itself the alert. Send via
+  report goes to Slack **every week**, an all-🟢 one included, via
   `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
   `chatId`); a failure sends the full report to the chat UI and logs. Slack
   disabled → chat UI only. Always echo to the chat UI.
 - Append one line to `work/AUDIT.log`
-  (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>` — never the substrings
-  "fail" or "error", which next week's log grep would flag), then back up
-  `work/` ([persistence.md](persistence.md)).
+  (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>`), then back up `work/`
+  ([persistence.md](persistence.md)).

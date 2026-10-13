@@ -434,6 +434,16 @@ run_verify
 assert_rc 1 'an unknown switch value fails'
 assert_out 'FAIL config-definition_issues' 'names the key'
 
+new_case survey_interval_days_value
+seed_home; seed_memory; seed_lessons
+verify_config '- survey_interval_days: weekly'
+run_verify
+assert_rc 1 'a survey interval that is no integer fails'
+assert_out 'FAIL config-survey_interval_days' 'names the key'
+verify_config '- survey_interval_days: 14'
+run_verify
+assert_out 'ok   config-survey_interval_days' 'an integer of days passes'
+
 new_case report_surface_legacy_gist
 seed_home; seed_memory; seed_lessons
 verify_config '- audit_trend: gist,dam'

@@ -3,10 +3,11 @@
 The shape every finding takes, whoever writes it — the diff review
 ([review.md](review.md)), a skill subagent's reformat ([skills.md](skills.md) →
 **Invocation & audit log**), the benchmark reviewer
-([benchmark.md](benchmark.md)), the survey ([survey.md](survey.md)). The shape, the severity bar, the approval bar
-and the conciseness rules bind every writer; bullets marked *review only* apply
-when the review itself is composed. Wording follows ASD-STE100
-([review.md](review.md) → **Criteria & review style**).
+([benchmark.md](benchmark.md)), the survey ([survey.md](survey.md)). The
+shape, the severity bar, the approval bar and the conciseness rules bind every
+writer; bullets marked *review only* apply when the review itself is composed.
+Wording follows ASD-STE100 ([review.md](review.md) → **Criteria & review
+style**).
 
 One finding is one line, plus a **Fix:** line when it blocks; paths are
 repo-relative:
@@ -43,6 +44,8 @@ a diagram never block on their own.
 **The approval bar.** 🔴 and 🟡 are blocking: they hold the verdict below
 `APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
 carries the fix that resolves it, so the bar reads off the findings themselves.
+*Review only:* any 🔴 → `REQUEST_CHANGES`, else any 🟡 → `COMMENT`, else
+`APPROVE` — over your findings and every skill section together.
 
 **Blocking findings are complete and uncapped.** Report every 🔴 and 🟡 that
 survives verification, however many that is. A first review is the complete
