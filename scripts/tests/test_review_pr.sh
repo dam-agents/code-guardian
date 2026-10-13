@@ -914,6 +914,30 @@ jq -e -s 'any(.[]; .status == "in_progress" and (.started_at | length) > 0 and (
   && printf 'ok   %s: a new run starts now\n' "$CASE" \
   || { printf 'FAIL %s: check run body %s\n' "$CASE" "$(cat "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
 
+# --- an unreadable token login adopts no run: it creates its own ---------------
+setup progress_unknown_identity '- review_progress: enabled'
+printf '{"check_runs":[{"id":57,"status":"in_progress","app":{"slug":"acme-app"}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?check_name=cg%3Areview&filter=latest"
+fx_fail "api -X POST repos/acme/widgets/statuses/$B1_SHA -f state=success -f context=cg:review -f description=done" 1
+run_rp progress 1 "$B1_SHA" success "done"
+assert_call 'POST repos/acme/widgets/check-runs' 'the refused status falls back to a run of its own'
+grep -q 'check-runs/57' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: an open run was patched without a known login\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no open run is adopted without a known login\n' "$CASE"
+# the created run names its App: the next update completes that run, not a third one
+setup progress_learns_identity '- review_progress: enabled'
+fx_fail "api -X POST repos/acme/widgets/statuses/$B1_SHA -f state=pending -f context=cg:review -f description=queued" 1
+fx_fail "api -X POST repos/acme/widgets/statuses/$B1_SHA -f state=success -f context=cg:review -f description=done" 1
+printf '{"id":58,"status":"in_progress","app":{"slug":"acme-app"}}' | fx 'api -X POST repos/acme/widgets/check-runs --input -'
+run_rp progress 1 "$B1_SHA" pending "queued"
+jq -e '.login == "acme-app[bot]" and .kind == "app"' "$WORK/GITHUB.json" >/dev/null 2>&1 \
+  && printf 'ok   %s: the created run names the token login\n' "$CASE" \
+  || { printf 'FAIL %s: GITHUB.json %s\n' "$CASE" "$(cat "$WORK/GITHUB.json" 2>/dev/null)"; FAILED=1; }
+printf '{"check_runs":[{"id":58,"status":"in_progress","app":{"slug":"acme-app"}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?check_name=cg%3Areview&filter=latest"
+run_rp progress 1 "$B1_SHA" success "done"
+assert_call 'PATCH repos/acme/widgets/check-runs/58' 'the next update completes the run it created'
+
 # --- review_progress off: the subcommand writes nothing -------------------------
 setup progress_disabled
 run_rp progress 1 "$B1_SHA" success "x"

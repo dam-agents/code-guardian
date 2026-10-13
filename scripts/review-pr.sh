@@ -326,13 +326,15 @@ check_help() {
   return 0
 }
 # One line per update in the summary, so the run shows the review's timeline;
-# an update completes the open run of this SHA in place, else creates a run.
+# an update completes this App's open run of the SHA in place, else creates a
+# run. An unreadable token login matches no run, so it creates its own, and
+# the created run's App becomes the token's login for the next update.
 check_write() { # <sha> <state> <description> [target_url] — updates this SHA's open run, else creates one
   local run id now me body
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; me="$(token_login)"
   run="$(gh api "repos/$REPO/commits/$1/check-runs?check_name=$(uri "$REVIEW_MARKER")&filter=latest" 2>/dev/null \
         | jq -c --arg me "$me" '[.check_runs[]? | select(.status != "completed")
-                 | select($me == "" or ((.app.slug // "") + "[bot]") == $me)][0] // empty' 2>/dev/null)"
+                 | select(((.app.slug // "") + "[bot]") == $me)][0] // empty' 2>/dev/null)"
   id="$(printf '%s' "$run" | jq -r '.id // empty' 2>/dev/null)"
   body="$(jq -nc --arg n "$REVIEW_MARKER" --arg sha "$1" --arg s "$2" --arg d "$3" --arg u "${4:-}" --arg t "$now" \
       --arg p "$(printf '%s' "$run" | jq -r '.output.summary // empty' 2>/dev/null)" --arg help "$(check_help)" '
@@ -344,7 +346,11 @@ check_write() { # <sha> <state> <description> [target_url] — updates this SHA'
   if [ -n "$id" ]; then
     printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>&1
   else
-    printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - >/dev/null 2>&1
+    local resp app
+    resp="$(printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - 2>/dev/null)" || return 1
+    app="$(printf '%s' "$resp" | jq -r '.app.slug // empty' 2>/dev/null)"
+    [ -z "$me" ] && [ -n "$app" ] && identity_record "$app[bot]"
+    return 0
   fi
 }
 progress_write() { # <sha> <state> <description> [target_url]

@@ -61,14 +61,22 @@ noreply_email() { # <login> [host]
 # Re-reads the token's login (gh_login) when the cache is stale or [force]; a
 # failed read keeps the cache as it is.
 identity_refresh() { # [force]
-  local f="$WORK/GITHUB.json" now login old age
-  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local f="$WORK/GITHUB.json" login age
   if [ "${1:-}" != force ] && [ -f "$f" ]; then
     age=$(( ($(date -u +%s) - $(iso2epoch "$(jq -r '.checked_at // empty' "$f" 2>/dev/null)" 2>/dev/null || echo 0)) / 60 ))
     [ "$age" -lt "$IDENTITY_TTL_MIN" ] && return 0
   fi
   login="$(gh_login)"
   [ -n "$login" ] || return 1
+  identity_record "$login"
+}
+# Writes <login> into the cache as the token's login, with a changed login's
+# warn. A read of the token (identity_refresh) or a write that names its
+# author (a created check run's App) gives the login.
+identity_record() { # <login>
+  local f="$WORK/GITHUB.json" now login="$1" old
+  [ -n "$login" ] || return 1
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   old="$(token_login)"
   { if [ -f "$f" ]; then cat "$f"; else printf '{}'; fi; } 2>/dev/null \
     | jq -c --arg l "$login" --arg k "$(login_kind "$login")" --arg o "$old" --arg ok "$(login_kind "$old")" --arg t "$now" '

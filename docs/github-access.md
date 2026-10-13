@@ -96,6 +96,11 @@ The check run carries more than the one-line status:
   button that a GitHub App does not get.
 - **Start and end times** — GitHub shows the review's duration from them.
 
+An update completes the open run of the token's own App. An unreadable token
+login matches no run, so the update creates a run of its own. The App that
+GitHub names on the created run is the token's login from then on
+(`work/GITHUB.json`), so the next update completes that run.
+
 ## Access check — `scripts/github-access.sh`
 
 `bash "$HOME/scripts/github-access.sh"` prints one JSON report:
