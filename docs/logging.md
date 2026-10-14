@@ -263,7 +263,7 @@ The audit run (`preflight.sh audit`, script-side) cleans up, keeping at least
 - `work/HEARTBEAT.log` and `work/SHEPHERD.log` are trimmed in place to the last
   14 days; unparseable lines are kept.
 - `work/MENTIONS.md` ([mentions.md](mentions.md)) is trimmed to rows younger
-  than 14 days, outside the 7-day scan window. A `body-<n>` row stays — an open
+  than 14 days, past the scan's 7-day limit. A `body-<n>` row stays — an open
   PR's description is scanned at any age — until the PR's prune deletes it
   ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
 - `work/REVIEW-LEDGER.jsonl` ([review-mechanics.md](review-mechanics.md) →

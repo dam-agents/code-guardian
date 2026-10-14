@@ -339,6 +339,13 @@ printf '{}\n' > "$WORK/health/status.json"
 run_verify
 assert_out 'ok   work-layout' 'the technical history work/health/ is part of the layout'
 
+new_case mention_scan_floor_known
+seed_home; seed_memory; seed_lessons
+verify_config
+printf '2026-10-14T10:00:00Z\n' > "$WORK/.mention-scan-since"
+run_verify
+assert_out 'ok   work-layout' 'the mention scan floor is part of the layout'
+
 new_case review_anomaly_factor_below_one
 seed_home; seed_memory; seed_lessons
 verify_config '- review_anomaly_factor: 0.5'
