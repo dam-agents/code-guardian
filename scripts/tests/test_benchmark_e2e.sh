@@ -244,6 +244,11 @@ git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr~1
 OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - "$FIX/ts-cart/diff-v1.patch" 2>&1; printf 'rc=%s' "$?")"
 assert_out_contains '^rc=0$' 'origin/main...HEAD in a first-review worktree is the v1 diff'
 assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'git -C "$PR_DIR" worktree prune' 'the documented re-review prunes the first review worktrees'
+# step 3 clears the skill outputs only after step 2 has archived them
+ARCHIVE_LN="$(grep -n -F 'cp -a "$PR_DIR.out"' "$REPO_ROOT/docs/benchmark.md" | head -1 | cut -d: -f1)"
+CLEAR_LN="$(grep -n -F 'rm -rf "$PR_DIR".out "$PR_DIR".s-*' "$REPO_ROOT/docs/benchmark.md" | head -1 | cut -d: -f1)"
+OUT="archive=${ARCHIVE_LN:-none} clear=${CLEAR_LN:-none} order=$([ -n "$ARCHIVE_LN" ] && [ -n "$CLEAR_LN" ] && [ "$ARCHIVE_LN" -lt "$CLEAR_LN" ] && echo ok || echo bad)"
+assert_out_contains 'order=ok' 'the documented re-review clears the skill outputs after the first review archives them'
 rm -rf "$PR_DIR.s-demo" && git -C "$PR_DIR" worktree prune
 git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr
 OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - <(git -C "$PR_DIR" diff main..pr) 2>&1; printf 'rc=%s' "$?")"
