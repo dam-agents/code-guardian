@@ -839,13 +839,18 @@ hk_batch_since() { # <pending count>
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
-  local hk_only=false hk_n=0 hk_since hk_age=0
+  local hk_only=false hk_n=0 hk_since hk_age=0 art_rel
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
+  for a in "$1" "$2" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
+  # an artifact `retry_release` only releases the trigger of a published
+  # artifact (docs/artifact.md): tier 2, unlike a `generate`
+  art_rel="$(printf '%s' "$5" | jq '[.[] | select(.action == "retry_release")] | length')"
+  [ "$(printf '%s' "$5" | jq length)" -gt "$art_rel" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
+  hk_n="$art_rel"
   for a in "$3" "$4" "$resets"; do
     hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
   done

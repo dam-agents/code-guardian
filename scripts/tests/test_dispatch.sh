@@ -127,6 +127,27 @@ jq '.mentions_due = [{number:16, id:601}]' "$WL" > "$WL.m" && mv "$WL.m" "$WL"
 run_ds rest "$WL"
 assert_out_contains '^title: Answer mention on #16$' 'a mention names its number alone'
 
+# --- an artifact retry_release is bookkeeping: it starts no session ----------
+new_case dispatch_retry_release
+mkdir -p "$SANDBOX/tmp"; WL="$SANDBOX/tmp/cg-worklist-review-r.json"
+jq -n '{mode:"review", nothing_to_do:false, reviews_due:[{number:7, kind:"first"}, {number:8, kind:"first"}], mentions_due:[],
+        ci_failures_due:[], merges_due:[], fixes_due:[],
+        artifacts_due:[{number:9, action:"retry_release", triggers:["assignee"]}, {number:8, action:"retry_release", triggers:["label"]}],
+        urgent_alerts_due:[], selfheals_due:[], label_cleanups_due:[], prunes_due:[], status_resets_due:[], skills:{}, logs:[], config:{}}' > "$WL"
+run_ds plan "$WL"
+assert_jq '[.dispatch[].number] == [8]' 'a retry_release makes no session of its own'
+assert_file_jq "$SANDBOX/tmp/cg-worklist-review-r-pr8.json" '.artifacts_due == [{number:8, action:"retry_release", triggers:["label"]}]' 'a dispatched PR takes its retry with it'
+run_ds rest "$WL" 8
+REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"
+assert_file_jq "$REST" '[.reviews_due[].number] == [7] and [.artifacts_due[].number] == [9] and (.read_set | index("docs/artifact.md") != null)' 'the run keeps the other retry and reads its file'
+assert_out_contains '^title: Review PR #7$' 'a retry does not name the run'
+jq '.reviews_due = [] | .artifacts_due = [.artifacts_due[0]] | .housekeeping_only = true' "$WL" > "$WL.h" && mv "$WL.h" "$WL"
+run_ds rest "$WL"
+assert_out_contains '^title: Tidy review state$' 'a run with a retry alone tidies the review state'
+jq '.reviews_due = [{number:7, kind:"first"}] | .artifacts_due[0].action = "generate" | del(.housekeeping_only)' "$WL" > "$WL.g" && mv "$WL.g" "$WL"
+run_ds plan "$WL"
+assert_jq '[.dispatch[].number] == [9]' 'a generate is a unit of its own'
+
 # --- review_model pins every dispatched session ------------------------------
 new_case dispatch_model
 base_config '- review_model: sonnet'

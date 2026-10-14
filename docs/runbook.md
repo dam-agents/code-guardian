@@ -125,9 +125,9 @@ missing or failing `rename_session` leaves the title as it is.
 
 ## Review run
 
-Fires when any of `reviews_due` / `label_cleanups_due` / `artifacts_due` /
-`urgent_alerts_due` / `mentions_due` / `ci_failures_due` / `merges_due` /
-`fixes_due` is non-empty, or a housekeeping batch came due
+Fires when any of `reviews_due` / `label_cleanups_due` / `urgent_alerts_due` /
+`mentions_due` / `ci_failures_due` / `merges_due` / `fixes_due` is non-empty,
+`artifacts_due` holds a `generate`, or a housekeeping batch came due
 ([worklist.md](worklist.md) → **The schedule gate**). Output channels: the
 chat UI **and** a GitHub PR review — every reviewed PR produces both. Trust
 the worklist for *what to do*; keep your own safety re-checks — HEAD
@@ -158,9 +158,10 @@ freshness, trigger still present, pre-post dedup, the mention ledger — for
    [review-rereview.md](review-rereview.md) when `prepare` returns a non-null
    `carry`, [review-urgent.md](review-urgent.md) when `post` returns a
    `closed_*` outcome, [review-on-demand.md](review-on-demand.md) when a
-   mention asks for a review. **With `housekeeping_only`** the set is
-   [review-bookkeeping.md](review-bookkeeping.md) alone: go straight to step 4,
-   then steps 11 and 12. No `read_set` (the manual fallback) → read the
+   mention asks for a review. **With `housekeeping_only`** the set holds
+   [review-bookkeeping.md](review-bookkeeping.md) for the bookkeeping arrays
+   and [artifact.md](artifact.md) for `artifacts_due`: go straight to step 4,
+   step 7, then steps 11 and 12. No `read_set` (the manual fallback) → read the
    **Where** file of every due key in [worklist.md](worklist.md) → **The
    pre-flight contract**. Configuration comes from the worklist's `config`
    object, the repository map from each entry's `profile_slice` and
@@ -395,7 +396,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [review.md](review.md) | `read_set` names it (`reviews_due`, `mentions_due`, `ci_failures_due` or `fixes_due` non-empty), or an on-demand review — per-PR sequence, PR context, criteria, first-review output, merging, guards, overrides, errors, self-check |
 | [review-rereview.md](review-rereview.md) | `read_set` names it (a re-review is due), or `prepare` returns a `carry` — re-review output, delta scope, carried reviews, stale-approval dismissal |
 | [review-urgent.md](review-urgent.md) | `read_set` names it (an `urgent` or `closed` entry, `urgent_alerts_due`), or `post` returns `closed_*` — rapid-first delivery, the closed-PR issue |
-| [review-bookkeeping.md](review-bookkeeping.md) | `read_set` names it (self-heals, label cleanups, prunes, status resets) — the only file of a `housekeeping_only` run |
+| [review-bookkeeping.md](review-bookkeeping.md) | `read_set` names it (self-heals, label cleanups, prunes, status resets) |
 | [monitor.md](monitor.md) | Every monitor run, or an operator ask about an alert — the alerts, the ledger and ack, delivery, the stall and anomaly rules |
 | [health.md](health.md) | The operator asks why the agent did not run, about a past outage or the health dashboard — the hourly history, incidents, service status, publish |
 | [review-on-demand.md](review-on-demand.md) | A channel message or a mention asks for a review of a specific PR |

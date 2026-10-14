@@ -21,12 +21,12 @@ audit runs its script as its platform **`precheck`**
 ([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
 whether the model is woken, so idle ticks cost nothing, and a started run
 receives the worklist the gate already computed. Bookkeeping that nobody waits
-on — prunes, self-heals, status resets — rides along with the next run that
-has real work ([`docs/worklist.md`](docs/worklist.md) →
-**The schedule gate**). Every scheduled session carries a title that says what
-it does — `Review PR #1457`, `Triage CI on PR #1457`,
-`Audit agent health 2026-10-09` ([`docs/runbook.md`](docs/runbook.md) →
-**Session titles**).
+on — prunes, self-heals, status resets, artifact trigger release retries —
+rides along with the next run that has real work
+([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
+scheduled session carries a title that says what it does — `Review PR #1457`,
+`Triage CI on PR #1457`, `Audit agent health 2026-10-09`
+([`docs/runbook.md`](docs/runbook.md) → **Session titles**).
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An
 optional active window checks hourly in the quiet hours outside it.
