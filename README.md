@@ -49,9 +49,9 @@ PR what is due:
   review (summary + inline comments, signed with `bot_display_name`, carrying
   the hidden dedup marker), label bookkeeping, and tracking in
   `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Reviews are concise and
-  assume agent-written, agent-read code. Re-review scope follows the trigger:
-  the label asks for the whole PR again, a review request, the delta label or
-  an on-demand ask for the delta only.
+  assume agent-written, agent-read code unless memory names another audience.
+  Re-review scope follows the trigger: the label asks for the whole PR again,
+  a review request, the delta label or an on-demand ask for the delta only.
 - The same heartbeat answers comments and PR descriptions addressed to the bot:
   questions get a reply, explicit review feedback is recorded to memory and
   confirmed in the reply, and "please re-review" is served on demand
@@ -235,7 +235,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `mention_replies` | asked (default `enabled`) | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
 | `mention_authors` | asked (default `collaborators`) | Whose GitHub mentions are handled: repository owners, members and collaborators, or `anyone` (`docs/config.md`). |
 | `project_profile` | asked (default `enabled`) | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
-| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
+| `artifact_skill` | asked (default `none`; suggested `pr-artifact@dam-agents/dam`) | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published publicly to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
 | `artifact_label` | asked with the artifact skill (default off) | PR label that requests the visual artifact, beside the assignment of `bot_login` — the artifact trigger of a GitHub App `bot_login`. The agent removes it once the artifact is published. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
