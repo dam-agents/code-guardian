@@ -93,6 +93,7 @@ assert_jq '(.reviews_due | length) == 1 and (.prunes_due | length) == 1' 'both a
 assert_jq '.nothing_to_do == false' 'the review starts the run'
 assert_jq 'has("housekeeping_only") == false' 'a run with real work is not a housekeeping run'
 assert_jq '.logs | any(contains("ride along"))' 'the free ride is logged'
+assert_file_contains "$WORK/$MARKER" '^prune:5$' 'a run with work records the items it took'
 assert_jq '.read_set | index("docs/review.md") != null and index("docs/review-bookkeeping.md") != null' 'the review core and the bookkeeping file are both read'
 
 # --- nothing pending clears the wait -----------------------------------------

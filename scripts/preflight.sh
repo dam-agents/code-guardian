@@ -475,9 +475,9 @@ CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
 # Housekeeping deferral (docs/worklist.md → **The schedule gate**): bookkeeping
 # alone never starts a session immediately — it rides along with the next run
 # that has work of its own, and forces a run of its own only past this wait or
-# this many pending items no run has taken yet. The count caps both the batch
-# and the per-row state check each pending prune costs every tick; an item a
-# run left due no longer counts toward it.
+# this many pending items no run has taken yet. An item a run took and left
+# due waits for HOUSEKEEPING_DEFER_H alone (its key sits below the marker's
+# timestamp, emit()).
 HOUSEKEEPING_DEFER_H=6
 HOUSEKEEPING_MAX_ITEMS=10
 HOUSEKEEPING_SINCE="$WORK/.housekeeping-since"
