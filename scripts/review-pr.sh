@@ -1191,7 +1191,8 @@ cmd_collect() {
           esac
           bl="$(grep -m1 -E '^[[:space:]]*Budget reached' "$f" | sed 's/^[[:space:]]*//')"
           [ -n "$bl" ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: $bl" '. + [$w]')"
-          results="$(printf '%s' "$results" | jq --arg s "$s" --arg st ran --argjson n "${n:-0}" --arg f "$f" '. + {($s): {status:$st, findings:$n, file:$f}}')"
+          results="$(printf '%s' "$results" | jq --arg s "$s" --arg st ran --argjson n "${n:-0}" --arg f "$f" --argjson b "$([ -n "$bl" ] && echo true || echo false)" \
+            '. + {($s): ({status:$st, findings:$n, file:$f} + (if $b then {budget_stopped:true} else {} end))}')"
         else
           lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s skipped (skill-errored)" '. + [$l]')"
           results="$(printf '%s' "$results" | jq --arg s "$s" '. + {($s): {status:"skill-errored", findings:0, file:null}}')"
@@ -1373,7 +1374,7 @@ cmd_compose_brief() {
 
   # skills: table order, sections only for the ones that ran (`collect`
   # decides ran vs skill-errored; before it, the routed status stands)
-  local skills s st sec ran="" omitted="" skipped="" nskipped=0
+  local skills s st sec ran="" omitted="" skipped="" nskipped=0 stopped="" nstopped=0
   skills="$(skills_table_json)"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
@@ -1381,7 +1382,9 @@ cmd_compose_brief() {
     [ -f "$CTX/collect.json" ] && st="$(jq -r --arg s "$s" --arg d "$st" '.[$s].status // $d' "$CTX/collect.json" 2>/dev/null)"
     sec="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .section')"
     case "$st" in
-      (run|ran) ran="$ran$sec"$'\n';;
+      (run|ran) ran="$ran$sec"$'\n'
+        [ "$(jq -r --arg s "$s" '.[$s].budget_stopped // false' "$CTX/collect.json" 2>/dev/null)" = true ] \
+          && { stopped="$stopped$s, "; nstopped=$((nstopped+1)); };;
       (*) omitted="$omitted$s ($st), "; skipped="$skipped$s, "; nskipped=$((nskipped+1));;
     esac
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
@@ -1393,6 +1396,7 @@ cmd_compose_brief() {
   local limits="" dlines
   [ "$(ctx_get '.clone')" = failed ] && limits="$limits the clone failed — findings come from the diff only."
   [ "$nskipped" -gt 0 ] && limits="$limits $nskipped skill(s) did not run: ${skipped%, }."
+  [ "$nstopped" -gt 0 ] && limits="$limits $nstopped skill(s) stopped at the $SKILL_BUDGET_MIN min time budget: ${stopped%, }."
   case "$(ctx_get '.context')" in
     (failed)  limits="$limits the PR context did not load — comments and reviews are not in this review.";;
     (partial) limits="$limits the inline threads did not load — this review does not read them.";;

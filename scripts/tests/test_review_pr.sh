@@ -270,6 +270,10 @@ assert_jq '.audit_lines == ["PR #1: doc-drift ran (findings=1)", "PR #1: typescr
 assert_jq '.form_warnings | any(test("^typescript-engineering: output [0-9]+ min after the fan-out, past the '"$BUDGET"' min budget$"))' 'an output past the budget after the fan-out warns'
 assert_jq '.form_warnings | any(startswith("doc-drift: output")) | not' 'an output inside the budget does not warn'
 assert_jq '.form_warnings | index("doc-drift: Budget reached — not checked: src/gamma.ts") != null' 'the budget line warns with what was not checked'
+assert_jq '.skills["doc-drift"].budget_stopped == true and (.skills["typescript-engineering"] | has("budget_stopped") | not)' 'only the skill with the budget line is recorded as stopped'
+run_rp compose-brief 1
+assert_out_contains "_Limits: 1 skill(s) stopped at the $BUDGET min time budget: doc-drift\\._" 'the limits line names the skill that stopped at the budget'
+assert_out_contains '### Documentation Check' 'a skill stopped at the budget keeps its section'
 rm -f "$(PR_DIR).ctx/fanout.ts"
 run_rp collect 1
 assert_jq '.form_warnings | any(contains("after the fan-out")) | not' 'no fan-out record, no budget check'

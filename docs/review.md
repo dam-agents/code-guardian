@@ -331,8 +331,9 @@ their full text here. One format for every channel (chat UI, GitHub body,
 history file).
 
 **`_Limits: …_`** — the conditions this review ran under, as facts, never a
-score or a confidence: a clone that failed, a skill that did not run, a PR
-context that did not load, a diff past 2000 lines.
+score or a confidence: a clone that failed, a skill that did not run or
+stopped at its time budget, a PR context that did not load, a diff past 2000
+lines.
 `review-pr.sh compose-brief` composes the line from this run's own state and
 prints it in the skeleton — nothing to report, no line — and `post` refuses a
 body that drops it.
