@@ -108,11 +108,11 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   its file.
 - **Verification and the sweep cover the range's files.** `prepare` already
   routed extension-triggered skills from that list ([skills.md](skills.md) →
-  **Triggers & file routing**); `always` skills run unchanged. A skill routed
-  no file is skipped `no-matching-files` (section omitted) and its prior
-  findings are settled from the prior review — blocking ones through
-  `findings-json`, 🟢 through its prior section text — as one-liners in the
-  buckets above.
+  **Triggers & file routing**); `always` skills run over the whole clone,
+  focused on the range. A skill routed no file is skipped `no-matching-files`
+  (section omitted) and its prior findings are settled from the prior review —
+  blocking ones through `findings-json`, 🟢 through its prior section text — as
+  one-liners in the buckets above.
 
 Delta-scope conciseness (all channels):
 
@@ -144,7 +144,7 @@ compare call and reports it as `carry`:
 - **The work is delta-scope, the output is the kind's own.** Review
   `carry.files` — the range between the carried SHA and HEAD — at first-review
   depth. Extension-triggered skills route from that range, `always` skills run
-  over the whole clone, exactly as on a delta re-review
+  over the whole clone focused on it, exactly as on a delta re-review
   ([skills.md](skills.md) → **Triggers & file routing**). A carried re-review
   posts as a re-review: the carry range wins over the delta range, and `delta`
   classifies the carried findings with the rest against the same prior.

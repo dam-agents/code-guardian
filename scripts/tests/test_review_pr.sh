@@ -65,7 +65,12 @@ assert_call() { # <grep pattern> <description> — a gh call was made
   if grep -q -- "$1" "$SANDBOX/gh.log"; then printf 'ok   %s: %s\n' "$CASE" "$2"
   else printf 'FAIL %s: %s (no gh call matching %s)\n' "$CASE" "$2" "$1"; FAILED=1; fi
 }
+assert_file_lacks() { # <file> <grep pattern> <description>
+  if grep -q -- "$2" "$1" 2>/dev/null; then printf 'FAIL %s: %s (pattern %s found in %s)\n' "$CASE" "$3" "$2" "$1"; FAILED=1
+  else printf 'ok   %s: %s\n' "$CASE" "$3"; fi
+}
 PR_DIR() { printf '%s/tmp/review-pr-1' "$SANDBOX"; }
+BUDGET="$(sed -n 's/^SKILL_BUDGET_MIN=\([0-9][0-9]*\).*/\1/p' "$RP")"   # the script's one constant
 POST_SLUG() { printf 'api repos/acme/widgets/pulls/1/reviews -X POST --input %s/tmp/review-pr-1.post.json' "$SANDBOX"; }
 
 # --- prepare: a first review ---------------------------------------------------
@@ -104,6 +109,15 @@ B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
 grep -q 'PR #1' "$B" && grep -q 'typescript-engineering' "$B" && grep -q "$(PR_DIR).s-typescript-engineering" "$B" && grep -q 'src/gamma.ts' "$B" \
   && printf 'ok   %s: brief carries PR, skill, workdir and routed files\n' "$CASE" || { printf 'FAIL %s: brief incomplete\n' "$CASE"; FAILED=1; }
 grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
+# no profile: no slice file, and the orientation names no missing path
+# (docs/profile.md → Using it)
+[ -e "$(PR_DIR).ctx/profile.md" ] && { printf 'FAIL %s: a slice was written without a profile\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no profile, no slice file\n' "$CASE"
+assert_file_contains "$B" 'no repository map is available' 'without a profile the brief says no map is available'
+assert_file_lacks "$B" 'PROFILE\.md\|profile\.md' 'without a profile the brief names no map path'
+[ -n "$BUDGET" ] && assert_file_contains "$B" "Time budget: $BUDGET minutes" 'the brief carries the budget minutes of the script constant'
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'Scope: the whole clone' 'an always skill scopes the whole clone'
+assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" 'Focus' 'a first review gives an always skill no focus'
 assert_file_contains "$(PR_DIR).ctx/context.json" '"looks ok"' 'human comment kept in context'
 grep -q 'mine' "$(PR_DIR).ctx/context.json" && { printf 'FAIL %s: own marker comment leaked into context\n' "$CASE"; FAILED=1; } || printf 'ok   %s: own past review dropped from context\n' "$CASE"
 jq -e '."src/alpha.ts".right | index(6) != null and index(1) == null' "$(PR_DIR).ctx/hunks.json" >/dev/null && printf 'ok   %s: hunk index has the added line, not line 1\n' "$CASE" || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
@@ -146,6 +160,10 @@ grep -q 'Blocking severity\|{{SEVERITY}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
 run_rp step 1 "fanned out (n=2)"
 assert_jq '.outcome == "ok"' 'step ok'
 assert_event 'fanned out (n=2)' 'milestone logged'
+FO="$(cat "$(PR_DIR).ctx/fanout.ts" 2>/dev/null)"
+case "$FO" in (''|*[!0-9]*) printf 'FAIL %s: no fan-out record (%s)\n' "$CASE" "$FO"; FAILED=1;;
+  (*) [ $(( $(date -u +%s) - FO )) -lt 120 ] && printf 'ok   %s: the fan-out step records its epoch time\n' "$CASE" \
+        || { printf 'FAIL %s: fan-out record not current: %s\n' "$CASE" "$FO"; FAILED=1; };; esac
 assert_event 'locked (refresh, fanned out (n=2))' 'lock refresh logged'
 
 # --- context / sweep -----------------------------------------------------------
@@ -184,6 +202,78 @@ assert_jq '.outcome == "aborted"' 'abort reported'
 grep -qE '^\| *1 \|' "$WORK/REVIEWS.md" && { printf 'FAIL %s: row not deleted on first-review abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: first-review abort deletes the row\n' "$CASE"
 assert_event 'aborted test abort' 'abort event'
 ls -d "$SANDBOX"/tmp/review-pr-1* >/dev/null 2>&1 && { printf 'FAIL %s: leftovers after abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no leftovers after abort\n' "$CASE"
+
+# --- the profile slice: the rows the PR touches and the conventions, one file per PR ---
+# (docs/profile.md → Using it). The convention file has `## ` headings of its own,
+# so a cut of PROFILE.md at the next `## ` would lose its tail.
+mk_profile() {
+  jq -n '{profile:1, repo:"github.com/acme/widgets", default_branch:"main",
+    modules:[{path:"src", name:"widgets-src", kind:"npm", workspace:false, role:"the widget sources", src:"src/package.json"},
+             {path:"lib", name:"untouched-lib", kind:"npm", workspace:false, role:"not in this PR", src:"lib/package.json"}],
+    docs:[], decisions:[],
+    conventions:[{path:"CLAUDE.md", bytes:61, content:"# Rules\n\n## Style\nIndent with tabs in src/.\n\n## Tests\nRun make test.", src:"CLAUDE.md"}],
+    ownership:[{pattern:"src/**", owners:"@acme/core", src:"CODEOWNERS"}],
+    checks:{workflows:[], required:[]},
+    noise:[{glob:"pnpm-lock.yaml", class:"lockfile", src:"builtin"}],
+    history:{days:90, reviews:0, findings:0, fixed:0, still:0, dirs:[], classes:[]},
+    notes:[], structure:{doc_roots:[], adr_dirs:[]}}' > "$WORK/PROFILE.json"
+  {
+    printf -- '---\nprofile: 1\nrepo: github.com/acme/widgets\n---\n\n## Modules (2)\n\n'
+    printf '| path | name | kind | workspace | role | src |\n| --- | --- | --- | --- | --- | --- |\n'
+    printf '| src | widgets-src | npm | - | the widget sources | src/package.json |\n'
+    printf '| lib | untouched-lib | npm | - | not in this PR | lib/package.json |\n\n'
+    printf '## Conventions\n\n### CLAUDE.md (61 bytes)\n\n# Rules\n\n## Style\nIndent with tabs in src/.\n\n## Tests\nRun make test.\n\n'
+    printf '## Ownership (1)\n\n| pattern | owners | src |\n| --- | --- | --- |\n| src/** | @acme/core | CODEOWNERS |\n\n'
+    printf '## Noise (1 globs — never reviewed as code)\n\n| glob | class | src |\n| --- | --- | --- |\n| pnpm-lock.yaml | lockfile | builtin |\n\n'
+    printf '## History (90 d · 0 reviews · 0 findings · 0 fixed · 0 still open)\n\n_No findings recorded in the window._\n'
+  } > "$WORK/PROFILE.md"
+}
+setup brief_profile_slice
+mk_profile
+run_rp prepare 1
+SL="$(PR_DIR).ctx/profile.md"
+[ -f "$SL" ] && printf 'ok   %s: prepare writes the slice\n' "$CASE" || { printf 'FAIL %s: no slice at %s\n' "$CASE" "$SL"; FAILED=1; }
+for sk in doc-drift typescript-engineering; do
+  assert_file_contains "$(PR_DIR).ctx/briefs/$sk.md" "read \`$SL\`" "the $sk brief names the slice"
+  assert_file_lacks "$(PR_DIR).ctx/briefs/$sk.md" 'PROFILE\.md' "the $sk brief does not send the skill to the whole map"
+done
+assert_file_contains "$SL" "^# PR #1 .*Full map: \`$WORK/PROFILE.md\` — read it only for a path outside these rows" 'the header names the PR and the full map'
+assert_file_contains "$SL" '^- src — widgets-src \[npm\]: the widget sources$' 'a touched module row'
+assert_file_contains "$SL" '^- src/\*\* → @acme/core$' 'a touched ownership row'
+assert_file_lacks "$SL" 'untouched-lib' 'no row of an untouched module'
+assert_file_contains "$SL" '^### CLAUDE.md (61 bytes)$' 'the conventions copy keeps its file heading'
+assert_file_contains "$SL" '^Run make test.$' 'the conventions copy is whole past its own ## headings'
+assert_file_lacks "$SL" 'Noise\|History' 'no section the PR does not touch'
+run_rp abort 1 "reset"
+[ -e "$SL" ] && { printf 'FAIL %s: the slice outlived the abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the slice goes with the context directory\n' "$CASE"
+
+setup brief_profile_disabled '- project_profile: disabled'
+mk_profile
+run_rp prepare 1
+[ -e "$(PR_DIR).ctx/profile.md" ] && { printf 'FAIL %s: a disabled profile still wrote a slice\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a disabled profile writes no slice\n' "$CASE"
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'no repository map is available' 'a disabled profile: the brief says no map is available'
+run_rp abort 1 "reset"
+
+# --- collect: the wall-clock budget warns, it never changes a finding ------------
+touch_at() { # <epoch> <file>
+  touch -t "$(date -d "@$1" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$1" +%Y%m%d%H%M.%S)" "$2"
+}
+setup collect_budget
+run_rp prepare 1
+run_rp step 1 "fanned out (n=2)"
+printf -- '- 🟢 **Suggestion:** a nit (`src/alpha.ts:6`)\nBudget reached — not checked: src/gamma.ts\n' > "$(PR_DIR).out/doc-drift.txt"
+printf -- '- 🟢 **Suggestion:** another nit (`src/gamma.ts:1`)\n' > "$(PR_DIR).out/typescript-engineering.txt"
+touch_at $(( $(cat "$(PR_DIR).ctx/fanout.ts") + (BUDGET + 10) * 60 )) "$(PR_DIR).out/typescript-engineering.txt"
+run_rp collect 1
+assert_jq '.audit_lines == ["PR #1: doc-drift ran (findings=1)", "PR #1: typescript-engineering ran (findings=1, files=2)"]' 'the budget line and the late output leave the findings counts alone'
+assert_jq '.form_warnings | any(test("^typescript-engineering: output [0-9]+ min after the fan-out, past the '"$BUDGET"' min budget$"))' 'an output past the budget after the fan-out warns'
+assert_jq '.form_warnings | any(startswith("doc-drift: output")) | not' 'an output inside the budget does not warn'
+assert_jq '.form_warnings | index("doc-drift: Budget reached — not checked: src/gamma.ts") != null' 'the budget line warns with what was not checked'
+rm -f "$(PR_DIR).ctx/fanout.ts"
+run_rp collect 1
+assert_jq '.form_warnings | any(contains("after the fan-out")) | not' 'no fan-out record, no budget check'
+run_rp abort 1 "reset"
 
 # --- risk prescan: the sensitive paths and the second-look patterns of the diff ---
 setup risk_prescan
@@ -421,7 +511,11 @@ jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+
 run_rp prepare 1 --on-demand
 assert_jq '.delta.reachable == true and .delta.status == "ahead" and (.delta.files == ["src/gamma.ts"])' 'prepare resolves the delta range from the last review marker'
 assert_jq '.skills["typescript-engineering"].files == ["src/gamma.ts"]' 'an extension skill routes from the range, not the whole PR diff'
-assert_jq '.skills["doc-drift"].status == "run"' 'an always skill is unaffected by the range'
+assert_jq '.skills["doc-drift"].status == "run" and .skills["doc-drift"].files == []' 'an always skill still runs, unrestricted'
+DD="$(PR_DIR).ctx/briefs/doc-drift.md"
+assert_file_contains "$DD" 'Scope: the whole clone (an `always` skill). Focus' 'an always skill keeps the whole clone and gets a focus'
+assert_file_contains "$DD" '^- src/gamma.ts$' 'the focus lists the range'
+assert_file_lacks "$DD" '^- src/alpha.ts$' 'the focus holds the range only'
 run_rp abort 1 "reset"
 
 # an unreachable range (force-pushed away) falls back to the whole PR diff
@@ -1311,6 +1405,8 @@ assert_jq '.carry.reachable == true and .carry.hops == 1 and (.carry.files == ["
 assert_jq '(.carry.findings | length) == 1 and .carry.findings[0].summary == "unbounded query"' 'the carried findings come with it'
 assert_jq '.skills["typescript-engineering"].files == ["src/gamma.ts"]' 'extension skills route from the carry range'
 assert_jq '.skills["doc-drift"].status == "run"' 'an always skill still runs over the whole clone'
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^- src/gamma.ts$' 'an always skill gets the carry range as its focus'
+assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" '^- src/alpha.ts$' 'the focus holds the carry range only'
 assert_jq '.prior_findings == []' 'the carry is not a published prior'
 run_rp abort 1 "reset"
 

@@ -42,7 +42,8 @@ skill with status `run` runs; a clean-run section is the correct output.
 ## Triggers & file routing
 
 - **`always`** — runs on every reviewed PR, against the whole clone
-  (`$PR_DIR`) with the base ref `origin/<baseRefName>` for diffing.
+  (`$PR_DIR`) with the base ref `origin/<baseRefName>` for diffing; on a
+  reachable range below, the range's routable files are its focus.
 - **extension list** (for example `.ts,.js`) — runs iff ≥1 changed file routes
   to it, and receives the routed file list (paths relative to `$PR_DIR`) plus
   the base branch. The changed-file list is the reviewed scope's: the diff at
@@ -78,11 +79,12 @@ and its brief file, which the subagent reads itself. `prepare` renders the
 brief from
 [`scripts/templates/skill-brief.md`](../scripts/templates/skill-brief.md):
 the skill's own checkout — `$PR_DIR.s-<skill>` whenever two or more skills
-run, `$PR_DIR` for a lone skill — the base ref and routed files, the profile
-pointers and risk prescan, the output file `$PR_DIR.out/<skill>.txt` in the
-finding form ([finding-form.md](finding-form.md) — reformat, never reduce;
-its severity rubric quoted),
-and the run rules: no circling, the pod's shim workaround
+run, `$PR_DIR` for a lone skill — the base ref and routed files, the PR's
+profile slice ([profile.md](profile.md) → **Using it**) and risk prescan, the
+output file `$PR_DIR.out/<skill>.txt` in the finding form
+([finding-form.md](finding-form.md) — reformat, never reduce; its severity
+rubric quoted), and the run rules: no circling, the wall-clock budget
+(`SKILL_BUDGET_MIN` of `review-pr.sh`), the pod's shim workaround
 ([self-modification.md](self-modification.md) §5a), output as data.
 
 **Log the fan-out** with `review-pr.sh step <n> "fanned out (n=<N>)"`
@@ -90,11 +92,12 @@ immediately before launching. **Wait by taking the subagents' results**, which
 the harness returns when each finishes — no `sleep` poll over `$PR_DIR.out`.
 **Collect** with `review-pr.sh collect <n>`: it reads every output file, emits
 one audit line per configured skill (below — echo them to the chat UI), warns
-about findings missing their `**Fix:**` line or `path:line` anchor, and logs
-the `skill_timing` event from the files' mtimes. A missing or empty output
-file is `skill-errored`. It guards the live HEAD first, so a commit that
-landed during the fan-out stops the review there ([review.md](review.md) →
-**Guarding a running review**).
+about findings missing their `**Fix:**` line or `path:line` anchor, about an
+output written past the budget after the logged fan-out or holding the brief's
+`Budget reached` line, and logs the `skill_timing` event from the files'
+mtimes. A missing or empty output file is `skill-errored`. It guards the live
+HEAD first, so a commit that landed during the fan-out stops the review there
+([review.md](review.md) → **Guarding a running review**).
 
 **Then compose the sections in table order**, whatever order the subagents
 finished in: each file's findings become that skill's `### <section>`, merged

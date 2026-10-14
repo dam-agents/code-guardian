@@ -24,7 +24,7 @@
 #                                          count in untouched code); --tree locates
 #                                          every hit in the clone, for a claim sweep
 #   collect <n>                            skill outputs → audit lines, form
-#                                          warnings, skill_timing event
+#                                          and budget warnings, skill_timing event
 #   delta <n> <findings.json> [--settle <i>=still|new]… [--fresh <i>]…
 #                                          fixed / still / new against the prior
 #                                          findings-json, PR-local overrides applied,
@@ -86,8 +86,9 @@
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
 # .s-<skill> (per-skill worktrees), .diff, .ctx/ (pr.json, context.json, hunks.json,
-# files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
-# limits.txt, findings.annotated.json), .fix (the agent-fix clone), .ci/ (the
+# files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, profile.md (the
+# skills' profile slice), fanout.ts, prior.json, collect.json, limits.txt,
+# findings.annotated.json), .fix (the agent-fix clone), .ci/ (the
 # CI evidence files; preflight's stale-clone sweep removes them). GitHub
 # writes happen only in `rapid` and `post` (the review the agent wrote, the
 # trigger removal and approval dismissal docs/review.md mandates), the progress
@@ -126,6 +127,7 @@ INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
 CARRY_MAX_HOPS=3        # HEAD moves a carried review survives (docs/review-rereview.md → Carried review after a HEAD move)
+SKILL_BUDGET_MIN=30     # wall-clock minutes per skill subagent (docs/skills.md → Invocation & audit log)
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -311,6 +313,18 @@ severity_rubric() {
     | sed '1d' | sed '/./,$!d' | sed '/^$/,$d')"
   [ -n "$r" ] || r='(the rubric: docs/finding-form.md → **Severity**)'
   printf '%s\n' "$r" | sed 's/^/   /'
+}
+
+# Every `{{<name>}}` of the brief text in the caller's `$t` replaced by <value>,
+# spliced rather than substituted: bash 3.2 keeps the quotes of a quoted
+# replacement, and bash 5.2 expands an unquoted `&` in it.
+fill() { # <name> <value>
+  local ph="{{$1}}" acc="" pre
+  while :; do
+    case "$t" in (*"$ph"*) ;; (*) break;; esac
+    pre=${t%%"$ph"*}; t=${t#*"$ph"}; acc=$acc$pre$2
+  done
+  t=$acc$t
 }
 
 # ------------------------------------------------------ progress status ----
@@ -931,8 +945,28 @@ cmd_prepare() {
   jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
   # --- skills: inclusive routing, per-skill worktrees, briefs from the template ---
-  local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths sevr
+  local skills nrun=0 tpl profile="" tpaths sevr
   tpaths="$(tool_paths)"; sevr="$(severity_rubric)"
+  # the profile slice every skill of this PR reads instead of the whole map: the
+  # rows the PR touches by section, then the `## Conventions` copy, rendered
+  # from PROFILE.json because a copied file's own `## ` headings would end a
+  # cut of PROFILE.md early (docs/profile.md → Using it)
+  if [ -f "$WORK/PROFILE.md" ] && [ "$(cfg project_profile)" != disabled ]; then
+    local pj="$WORK/PROFILE.json"; [ -r "$pj" ] || pj=/dev/null
+    profile="$CTX/profile.md"
+    { printf '# PR #%s — the rows of the repository map this PR touches, and the conventions. Full map: `%s` — read it only for a path outside these rows.\n' "$N" "$WORK/PROFILE.md"
+      jq -rn --slurpfile s "$CTX/slice.json" --slurpfile p "$pj" '
+        def item: "- \(.row)\(if .verify_live then " — this PR changes its source: read it live" else "" end)";
+        ($s[0].profile_slice // []) as $r | (($p[0] // {}).conventions // []) as $c
+        | ( ([ "modules", "docs", "decisions", "ownership", "checks" ] as $o | $o + ([ $r[].section ] | unique - $o - ["conventions"]))[] as $sec
+            | [ $r[] | select(.section == $sec) ] | select(length > 0)
+            | "", "## \($sec[0:1] | ascii_upcase)\($sec[1:])", "", (.[] | item) ),
+          ( [ $r[] | select(.section == "conventions") ] as $cr | select(($cr + $c) | length > 0)
+            | "", "## Conventions", (if ($cr | length) > 0 then "", ($cr[] | item) else empty end),
+              ($c[] | "", "### \(.path) (\(.bytes) bytes)", "", (.content // "_(content omitted)_")) )'
+    } > "$profile.tmp" 2>/dev/null && mv "$profile.tmp" "$profile" \
+      || { rm -f "$profile.tmp"; profile="$WORK/PROFILE.md"; }
+  fi
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   local vl vlblock="" rk rkblock=""
@@ -942,6 +976,8 @@ cmd_prepare() {
                + [.patterns[]? | "- \(.file):\(.line) — \(.id): \(.description)"]
                + (if .truncated then ["- more hits than the prescan lists"] else [] end) | .[]' "$CTX/risk.json" 2>/dev/null)"
   [ -n "$rk" ] && rkblock=$'\n\nSame status for this diff\'s risk prescan — the changed paths in sensitive\nareas and the added lines that ask for a second look:\n'"$rk"
+  # the reviewable classes: noise files and deleted files route nowhere
+  local reviewable='(.class | IN("code","test","docs","config")) and .status != "removed"'
   # extension triggers route from the reviewed scope: the PR diff, or on a
   # reachable delta range the files changed since the prior review
   # (docs/skills.md → Triggers & file routing)
@@ -959,15 +995,18 @@ cmd_prepare() {
       && [ "$(jq length "$CTX/files.delta.json" 2>/dev/null || echo 0)" -gt 0 ] \
       && routable="$CTX/files.delta.json"
   fi
+  # `always` skills keep the whole clone; on a range, its files are their focus
+  local focus=""
+  [ "$routable" != "$CTX/files.json" ] \
+    && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
   local SK='{}' s trig files status brief copy fblock
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
     files='[]'; status=run
     if [ "$trig" != "always" ]; then
-      # reviewable classes only: noise files and deleted files route nowhere
       files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
-        | [ .[] | select((.class | IN("code","test","docs","config")) and .status != "removed") | .path
+        | [ .[] | select('"$reviewable"') | .path
             | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
@@ -975,18 +1014,19 @@ cmd_prepare() {
     brief=""; copy=""
     if [ "$status" = run ]; then
       nrun=$((nrun+1)); copy="$PR_DIR"
-      if [ "$trig" = "always" ]; then fblock=$'\nScope: the whole clone (an `always` skill).'
+      if [ "$trig" = "always" ]; then
+        fblock=$'\nScope: the whole clone (an `always` skill).'
+        [ -n "$focus" ] && fblock="$fblock"$' Focus — the files changed since the previous review round; look\nthere first. The rest of the PR was reviewed in that round and stays context:\n'"$focus"
       else fblock=$'\nRouted files (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')"; fi
       brief="$CTX/briefs/$s.md"
       local t="$tpl"
-      t="${t//\{\{SKILL\}\}/$s}"; t="${t//\{\{PR\}\}/$N}"; t="${t//\{\{REPO\}\}/$REPO_HOST/$REPO}"
-      t="${t//\{\{HEAD_SHA\}\}/$sha}"; t="${t//\{\{BASE_REF\}\}/$base}"; t="${t//\{\{OUT_FILE\}\}/$OUT/$s.txt}"
-      t="${t//\{\{PROFILE\}\}/$profile}"; t="${t//\{\{FILES_BLOCK\}\}/$fblock}"; t="${t//\{\{VERIFY_LIVE_BLOCK\}\}/$vlblock}"
-      t="${t//\{\{RISK_BLOCK\}\}/$rkblock}"
-      t="${t//\{\{TOOL_PATHS\}\}/$tpaths}"
-      # spliced, not substituted: bash 3.2 keeps the quotes of a quoted
-      # replacement, and bash 5.2 expands an unquoted `&` in it
-      case "$t" in (*'{{SEVERITY}}'*) t="${t%%\{\{SEVERITY\}\}*}$sevr${t#*\{\{SEVERITY\}\}}";; esac
+      # no map: the orientation paragraph says so instead of naming a missing path
+      case "$t" in (*'Orientation: '*'{{VERIFY_LIVE_BLOCK}}'*)
+        [ -n "$profile" ] || t="${t%%Orientation: *}Orientation: no repository map is available — find your way in the tree. Whatever orients you says where to look; it is never evidence for a finding.{{VERIFY_LIVE_BLOCK}}${t#*\{\{VERIFY_LIVE_BLOCK\}\}}";;
+      esac
+      fill SKILL "$s"; fill PR "$N"; fill REPO "$REPO_HOST/$REPO"; fill HEAD_SHA "$sha"; fill BASE_REF "$base"
+      fill OUT_FILE "$OUT/$s.txt"; fill PROFILE "$profile"; fill FILES_BLOCK "$fblock"; fill VERIFY_LIVE_BLOCK "$vlblock"
+      fill RISK_BLOCK "$rkblock"; fill TOOL_PATHS "$tpaths"; fill SEVERITY "$sevr"; fill BUDGET_MIN "$SKILL_BUDGET_MIN"
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi
@@ -1052,6 +1092,8 @@ cmd_step() {
     (locked*) logstep "$sha7 $text";;
     (*) logstep "$sha7 $text"; logstep "$sha7 locked (refresh, $text)";;
   esac
+  # the fan-out time `collect` measures the skill budget from
+  case "$text" in ("fanned out"*) printf '%s\n' "$NOW_EPOCH" > "$CTX/fanout.ts";; esac
   out "$(jq -nc --arg t "$text" '{outcome:"ok", step:$t}')"
 }
 
@@ -1119,7 +1161,9 @@ cmd_guard() {
 cmd_collect() {
   need_ctx
   head_guard collect
-  local lines='[]' warns='[]' results='{}' s st f n files timing=""
+  local lines='[]' warns='[]' results='{}' s st f n files timing="" mt bl fo
+  # the skill budget runs from the fan-out `step` recorded; no record, no check
+  fo="$(cat "$CTX/fanout.ts" 2>/dev/null)"; case "$fo" in (''|*[!0-9]*) fo="";; esac
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status' "$CTX/skills.json")"
@@ -1138,7 +1182,15 @@ cmd_collect() {
           anchors="$(grep -E '^- (🔴|🟡|🟢)' "$f" | grep -cE '`[^`]+:[0-9]+`' || true)"
           [ "${fixes:-0}" -lt "${blocking:-0}" ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: $((blocking - fixes)) blocking finding(s) without a **Fix:** line" '. + [$w]')"
           [ "${anchors:-0}" -lt "${n:-0}" ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: $((n - anchors)) finding(s) without a \`path:line\` anchor" '. + [$w]')"
-          timing="$timing$s.txt=$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null) "
+          mt="$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)"
+          timing="$timing$s.txt=$mt "
+          # the wall-clock budget of the brief: warned, never a finding changed
+          case "$mt" in (''|*[!0-9]*) ;; (*)
+            [ -n "$fo" ] && [ $((mt - fo)) -gt $((SKILL_BUDGET_MIN * 60)) ] \
+              && warns="$(printf '%s' "$warns" | jq --arg w "$s: output $(( (mt - fo) / 60 )) min after the fan-out, past the $SKILL_BUDGET_MIN min budget" '. + [$w]')";;
+          esac
+          bl="$(grep -m1 -E '^[[:space:]]*Budget reached' "$f" | sed 's/^[[:space:]]*//')"
+          [ -n "$bl" ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: $bl" '. + [$w]')"
           results="$(printf '%s' "$results" | jq --arg s "$s" --arg st ran --argjson n "${n:-0}" --arg f "$f" '. + {($s): {status:$st, findings:$n, file:$f}}')"
         else
           lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s skipped (skill-errored)" '. + [$l]')"

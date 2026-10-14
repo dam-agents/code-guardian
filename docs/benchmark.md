@@ -240,8 +240,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
    routing list = `git -C "$PR_DIR" diff --name-only main..pr`; briefs rendered
    by you from `scripts/templates/skill-brief.md`, its severity rubric the
-   bullets under **Severity:** of [finding-form.md](finding-form.md), because
-   no live PR means no `review-pr.sh` helper applies; each subagent's prompt
+   bullets under **Severity:** of [finding-form.md](finding-form.md) and its
+   time budget the `SKILL_BUDGET_MIN` of `review-pr.sh`, because no live PR
+   means no `review-pr.sh` helper applies; each subagent's prompt
    is the one line `prepare` would write, naming the skill, PR #0 and that
    brief). Then spawn
    **one fresh reviewer subagent**, without a model or effort override, whose

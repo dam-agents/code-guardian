@@ -112,9 +112,12 @@ builds its `files[]` from the diff, whole.
 
 ## Using it
 
-- **Skill briefs** carry the path `work/PROFILE.md`, the PR's `verify_live`
-  rows and `structure_changed` ([skills.md](skills.md) → **Invocation & audit
-  log**), so a subagent reads the profile instead of mapping the repository.
+- **Skill briefs** point to the PR's slice, one file `prepare` writes for all
+  its skills: a header naming `work/PROFILE.md` (read only for a path outside
+  the slice), the `profile_slice` rows by section, the `## Conventions` copy;
+  the brief adds the `verify_live` rows and `structure_changed`
+  ([skills.md](skills.md) → **Invocation & audit log**). No profile, or
+  `disabled` → no slice, and the brief says no map is available.
 - **The review** uses `profile_slice` and `history_slice` for orientation and
   priority — which module a hunk belongs to, which doc page covers it, where
   this repository's findings have clustered — and the `## Conventions` copy in
