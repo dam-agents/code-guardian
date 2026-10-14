@@ -1435,16 +1435,19 @@ if [ "$MODE" = "review" ]; then
     # author_association reads a private organization member as CONTRIBUTOR or
     # NONE when the token cannot see the membership (the default visibility),
     # so an author it leaves out gets one permission GET per run: triage or
-    # more admits; read admits on a private repository only. A GET that did
-    # not answer (no permission, not a 404) returns 2: left out this run, and
-    # the mention holds the floor.
+    # more admits; read admits on a private repository only. A 404 and a 403
+    # that is not a rate limit are answers with no access: a token without push
+    # access gets "Must have push access" on every call. A GET that did not
+    # answer returns 2: left out this run, and the mention holds the floor.
     ACCESS_CACHE="|"; REPO_PRIVATE=""
     mention_author_has_access() { # <login>
       case "$ACCESS_CACHE" in *"|$1=y|"*) return 0;; *"|$1=n|"*) return 1;; *"|$1=u|"*) return 2;; esac
       local p r=n
       p="$(gh api "repos/$REPO/collaborators/$1/permission" 2>/dev/null \
-           | jq -r 'select(type == "object") | .role_name // .permission
-                    // (select(((.status // "") | tostring) == "404" or .message == "Not Found") | "none")' 2>/dev/null)"
+           | jq -r 'select(type == "object") | ((.status // "") | tostring) as $s | (.message // "" | tostring) as $m
+                    | .role_name // .permission
+                      // (select($s == "404" or $m == "Not Found" or ($m | startswith("Must have push access"))
+                                 or ($s == "403" and ($m | test("rate limit"; "i") | not))) | "none")' 2>/dev/null)"
       case "$p" in
         '') r=u;;
         admin|maintain|write|triage) r=y;;

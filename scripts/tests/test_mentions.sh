@@ -359,4 +359,48 @@ assert_out_contains '1 mention(s) by accounts outside mention_authors (collabora
 assert_out_contains 'access check of hidden did not answer' 'the fault is logged'
 assert_cmd 'the mention holds the floor at its created_at' [ "$(mark)" = "$C1" ]
 
+# --- a 404 or a 403 refusal is an answer; a rate-limit 403 is not -------------
+# A token without push access gets the 403 refusal on every call.
+new_case mention_floor_access_404
+base_config
+ASSOC=NONE ic_comment 101 hidden User "@test-bot ping" 7 | jq --arg t "$(iso_ago 1800)" '.created_at = $t' | ic_fx
+fx_fail "api repos/$TEST_REPO/collaborators/hidden/permission"
+fx_out "api repos/$TEST_REPO/collaborators/hidden/permission" '{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}'
+B=$(date -u +%s); run_preflight review; A=$(date -u +%s)
+assert_out_contains '1 mention(s) by accounts outside mention_authors (collaborators) left out' 'a 404 is no access'
+assert_jq '.logs | any(test("did not answer")) | not' 'a 404 is an answer, not a fault'
+assert_cmd 'the mention holds no floor' mark_between $((B - 900)) $((A - 900))
+
+new_case mention_floor_access_no_push
+base_config
+ASSOC=NONE ic_comment 101 hidden User "@test-bot ping" 7 | jq --arg t "$(iso_ago 1800)" '.created_at = $t' | ic_fx
+fx_fail "api repos/$TEST_REPO/collaborators/hidden/permission"
+fx_out "api repos/$TEST_REPO/collaborators/hidden/permission" '{"message":"Must have push access to view collaborator permission.","documentation_url":"https://docs.github.com/rest","status":"403"}'
+B=$(date -u +%s); run_preflight review; A=$(date -u +%s)
+assert_out_contains '1 mention(s) by accounts outside mention_authors (collaborators) left out' 'the push-access refusal is no access'
+assert_jq '.logs | any(test("did not answer")) | not' 'the refusal is an answer, not a fault'
+assert_cmd 'the mention holds no floor' mark_between $((B - 900)) $((A - 900))
+
+new_case mention_floor_access_rate_limited
+base_config
+C1="$(iso_ago 1800)"
+ASSOC=NONE ic_comment 101 hidden User "@test-bot ping" 7 | jq --arg t "$C1" '.created_at = $t' | ic_fx
+fx_fail "api repos/$TEST_REPO/collaborators/hidden/permission"
+fx_out "api repos/$TEST_REPO/collaborators/hidden/permission" '{"message":"API rate limit exceeded for user ID 1.","documentation_url":"https://docs.github.com/rest","status":"403"}'
+run_preflight review
+assert_out_contains 'access check of hidden did not answer' 'a rate limit is no answer'
+assert_cmd 'the mention holds the floor at its created_at' [ "$(mark)" = "$C1" ]
+
+# --- a read answer whose repository visibility does not answer -----------------
+new_case mention_floor_visibility_unanswered
+base_config
+C1="$(iso_ago 1800)"
+ASSOC=NONE ic_comment 101 reader User "@test-bot ping" 7 | jq --arg t "$C1" '.created_at = $t' | ic_fx
+printf '{"permission":"read","role_name":"read"}' | fx "api repos/$TEST_REPO/collaborators/reader/permission"
+fx_fail "api repos/$TEST_REPO"
+run_preflight review
+assert_jq '.mentions_due == []' 'the mention is left out this run'
+assert_out_contains 'access check of reader did not answer' 'the fault is logged'
+assert_cmd 'the mention holds the floor at its created_at' [ "$(mark)" = "$C1" ]
+
 finish
