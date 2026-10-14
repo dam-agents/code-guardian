@@ -27,8 +27,8 @@ echo.
   after 6 hours of waiting or 10 pending items that no run took yet. That run's
   worklist carries `housekeeping_only: true` and reads the short set
   ([runbook.md](runbook.md) → **Review run** step 2). Every run that takes the
-  batch restarts the wait, and an item it leaves due counts toward the wait
-  alone.
+  batch restarts the wait, and the items it leaves due no longer count toward
+  the 10.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), read by the audit's
   `heartbeats` check and the monitor's `heartbeat_gap` alert. Each fire has one

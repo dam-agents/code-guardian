@@ -477,7 +477,7 @@ CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
 # that has work of its own, and forces a run of its own only past this wait or
 # this many pending items no run has taken yet. The count caps both the batch
 # and the per-row state check each pending prune costs every tick; an item a
-# run left due waits for the wait alone.
+# run left due no longer counts toward it.
 HOUSEKEEPING_DEFER_H=6
 HOUSEKEEPING_MAX_ITEMS=10
 HOUSEKEEPING_SINCE="$WORK/.housekeeping-since"
