@@ -49,9 +49,9 @@ PR what is due:
   review (summary + inline comments, signed with `bot_display_name`, carrying
   the hidden dedup marker), label bookkeeping, and tracking in
   `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Reviews are concise and
-  assume agent-written, agent-read code. Re-review scope follows the trigger:
-  the label asks for the whole PR again, a review request, the delta label or
-  an on-demand ask for the delta only.
+  assume agent-written, agent-read code unless memory names another audience.
+  Re-review scope follows the trigger: the label asks for the whole PR again,
+  a review request, the delta label or an on-demand ask for the delta only.
 - The same heartbeat answers comments and PR descriptions addressed to the bot:
   questions get a reply, explicit review feedback is recorded to memory and
   confirmed in the reply, and "please re-review" is served on demand

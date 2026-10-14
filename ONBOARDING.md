@@ -344,7 +344,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator,
    stating the consequence:
 
-   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
+   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and with the artifact feature on (item 7), assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
 
    A login ending in `[bot]` is a GitHub App, which a person cannot assign or
    request. Ask which user account people use for that; it becomes
