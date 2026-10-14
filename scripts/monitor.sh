@@ -218,8 +218,8 @@ fi
 # The review gate logs every tick (precheck or heartbeat event, job review).
 # Silence past 1.5x the quiet interval (at least an hour) means the schedule
 # stopped or the gate cannot start.
-REVIEW_INTERVAL_QUIET="$(int_key review_interval_quiet 60)"
-[ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60
+REVIEW_INTERVAL_QUIET="$(int_key review_interval_quiet 15)"
+[ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=15
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
 HB_LAST="$( { events_jsonl precheck; events_jsonl heartbeat; } \

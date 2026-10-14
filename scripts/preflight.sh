@@ -439,8 +439,8 @@ ANOMALY_MIN_SAMPLES=10     # baseline reviews of one model before the audit's re
 # heartbeat. Never stricter than the historical one-hour tolerance.
 REVIEW_INTERVAL_QUIET="$(cfg review_interval_quiet)"
 case "$REVIEW_INTERVAL_QUIET" in
-  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=60;;          # missing/unparseable -> default
-  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60;;
+  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=15;;          # missing/unparseable -> default
+  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=15;;
 esac
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
