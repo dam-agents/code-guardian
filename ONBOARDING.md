@@ -238,6 +238,7 @@ if [ ! -f /home/agent/work/MEMORY.md ]; then
 - Default strictness: medium
 - Default verbosity: concise (suitable for chat UI)
 - Tone: professional, constructive
+- Audience: agent-written, agent-read code
 
 ## Focus Areas
 - Correctness
@@ -343,7 +344,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator,
    stating the consequence:
 
-   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
+   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and with the artifact feature on (item 7), assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
 
    A login ending in `[bot]` is a GitHub App, which a person cannot assign or
    request. Ask which user account people use for that; it becomes
@@ -457,6 +458,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
+   - **`artifact_skill`** — default `none`. Ask:
+
+     > When someone assigns **<bot_login>** to a PR, I can make a visual artifact of the PR. I publish it to the DAM Artifact Library. The artifact is public: anyone with its link can open it, and it shows code from the PR. Turn it on? (Default: off. Suggested skill: `pr-artifact@dam-agents/dam`.)
+
+     **Yes** → validate the skill as above and write it; **no, or no reply** →
+     `artifact_skill: none`.
    - With an artifact skill, **`artifact_label`** — optional; recommend it for a
      GitHub App `bot_login`, which a person cannot assign. Ask:
 
@@ -582,8 +589,8 @@ Final shape:
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
-- artifact_skill: pr-artifact@dam-agents/dam   # or: none
-- artifact_label: code-guardian-artifact   # optional; requests the artifact beside the assignment
+- artifact_skill: none                 # default; or: pr-artifact@dam-agents/dam (publishes publicly)
+- artifact_label: code-guardian-artifact   # optional, with an artifact skill; requests the artifact beside the assignment
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off

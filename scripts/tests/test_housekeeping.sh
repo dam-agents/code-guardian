@@ -120,8 +120,8 @@ artifact_case() { # <case-name> [no-marker]
   base_config '- artifact_skill: pr-artifact@acme/skills'
   pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]' | open_prs_fx
   add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
-  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/main'
-  printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/main?recursive=1'
+  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
+  printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
   { printf '# PR #1: assigned PR\n'; [ -n "${2:-}" ] || printf '<!-- artifact-dam: dam_1 -->\n'; } > "$WORK/reviews/pr-1.md"
 }
 

@@ -20,8 +20,8 @@ new_case skills_table_bounded
   printf '| db-migration | touches a migration | chat | test row |\n'
 } > "$WORK/CONFIG.md"
 pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
-printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/main'
-printf '{"tree":[{"type":"blob","path":".agents/skills/foo/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/main?recursive=1'
+printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
+printf '{"tree":[{"type":"blob","path":".agents/skills/foo/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
 run_preflight review
 assert_jq '.reviews_due | length == 1' 'review due triggers the install'
 assert_jq '.skills | keys == ["foo"]' 'only the skills table installs'
@@ -41,11 +41,11 @@ new_case skills_parallel_order
 } > "$WORK/CONFIG.md"
 pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
 for r in skills other; do
-  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx "api --hostname github.com repos/acme/$r/commits/main"
+  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx "api --hostname github.com repos/acme/$r/commits/HEAD"
 done
-printf '{"tree":[{"type":"blob","path":".agents/skills/zeta/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/main?recursive=1'
+printf '{"tree":[{"type":"blob","path":".agents/skills/zeta/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
 printf '{"tree":[{"type":"blob","path":".agents/skills/alpha/SKILL.md"},{"type":"blob","path":".agents/skills/alpha/a.md"},{"type":"blob","path":".agents/skills/zeta/SKILL.md"},{"type":"blob","path":".agents/skills/zeta/z.md"}]}\n' \
-  | fx 'api --hostname github.com repos/acme/other/git/trees/main?recursive=1'
+  | fx 'api --hostname github.com repos/acme/other/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
 run_preflight review
 assert_jq '.skills | keys_unsorted == ["zeta", "alpha"]' 'first position of each skill kept'
 assert_jq '.skills.zeta == "installed (2 files)" and .skills.alpha == "installed (2 files)"' 'a repeated skill installs from its last source'

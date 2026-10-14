@@ -9,7 +9,7 @@
 #                                          run has none) + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
-#                                          copies, skill briefs, the context pack,
+#                                          worktrees, skill briefs, the context pack,
 #                                          the risk prescan
 #   step <n> <milestone…>                  lock heartbeat + review_step event
 #   guard <n>                              re-read the live HEAD: a commit that
@@ -85,7 +85,7 @@
 # success they print the text above, and their guard failures are JSON like
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
-# .s-<skill> (per-skill copies), .diff, .ctx/ (pr.json, context.json, hunks.json,
+# .s-<skill> (per-skill worktrees), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, prior.json, collect.json,
 # limits.txt, findings.annotated.json), .fix (the agent-fix clone), .ci/ (the
 # CI evidence files; preflight's stale-clone sweep removes them). GitHub
@@ -930,7 +930,7 @@ cmd_prepare() {
   fi
   jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
 
-  # --- skills: inclusive routing, per-skill copies, briefs from the template ---
+  # --- skills: inclusive routing, per-skill worktrees, briefs from the template ---
   local skills nrun=0 tpl profile="$WORK/PROFILE.md" tpaths sevr
   tpaths="$(tool_paths)"; sevr="$(severity_rubric)"
   skills="$(skills_table_json)"
@@ -998,10 +998,19 @@ cmd_prepare() {
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
   if [ "$nrun" -gt 1 ]; then
     mkdir -p "$OUT"
+    # a worktree of the clone per skill, on the clone's branch (-f: the clone
+    # has it checked out already); a copy when git refuses, the clone itself
+    # when that fails too
+    local br wt
+    br="$(git -C "$PR_DIR" symbolic-ref -q --short HEAD 2>/dev/null)"
     while IFS= read -r s; do
       [ -n "$s" ] || continue
-      cp -a "$PR_DIR" "$PR_DIR.s-$s" 2>/dev/null && SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg c "$PR_DIR.s-$s" '.[$s].workdir = $c')"
-      sed -i.bak "s#{{WORKDIR}}#$PR_DIR.s-$s#g" "$CTX/briefs/$s.md" 2>/dev/null; rm -f "$CTX/briefs/$s.md.bak"
+      wt="$PR_DIR.s-$s"
+      if [ -n "$br" ]; then git -C "$PR_DIR" worktree add -q -f "$wt" "$br" >/dev/null 2>&1
+      else git -C "$PR_DIR" worktree add -q --detach "$wt" HEAD >/dev/null 2>&1; fi \
+        || { rm -rf "$wt"; cp -a "$PR_DIR" "$wt" 2>/dev/null; } || { rm -rf "$wt"; wt="$PR_DIR"; }
+      SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg c "$wt" '.[$s].workdir = $c')"
+      sed -i.bak "s#{{WORKDIR}}#$wt#g" "$CTX/briefs/$s.md" 2>/dev/null; rm -f "$CTX/briefs/$s.md.bak"
     done < <(printf '%s' "$SK" | jq -r 'to_entries[] | select(.value.status=="run") | .key')
   elif [ "$nrun" -eq 1 ]; then
     mkdir -p "$OUT"
