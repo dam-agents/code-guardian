@@ -24,6 +24,14 @@ calls. A yes writes `review_interval_quiet: 15` and re-registers the review
 schedules per Step 6a; never change the key without the yes. Any other value →
 nothing.
 
+## 9.2.2 — 2026-10-14
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 9.2.1 — 2026-10-14
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 9.2.0 — 2026-10-13
 
 **Upgrade:** in the direct session, run `bash "$HOME/scripts/github-access.sh"`
