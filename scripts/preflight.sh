@@ -310,8 +310,9 @@ fi
 # API call: lib/holds.sh's live_holders over the events since the lock. When no
 # run logged a `locked` step on the PR since the lock — the step can predate log
 # retention after a crash — a recent event naming `PR #<n> ` counts as life
-# instead, from a run that has not ended the PR. Prints the live run id (8
-# chars) + minutes since its last event, or nothing.
+# instead, from a run that has not ended the PR. Prints the live run id (a
+# session UUID by 8 chars, as lib/common.sh → run_short) + minutes since its
+# last event, or nothing.
 # docs/review-mechanics.md → **Live holder**.
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
   holder_cutoffs || return 1
@@ -327,7 +328,8 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
       | select(. != null) as $l
       | ( ($l.msg // "") | test("fanned out") ) as $fan
       | ((($now - (($l | tkey) + "Z" | fromdateiso8601)) / 60) | floor) as $mins
-      | "\($l.run[0:8]) \(if $fan then "in the skill fan-out, last event" else "active" end) \($mins)m ago"' 2>/dev/null
+      | ($l.run | if test("^[0-9a-f]{8}-") then .[0:8] else . end) as $who
+      | "\($who) \(if $fan then "in the skill fan-out, last event" else "active" end) \($mins)m ago"' 2>/dev/null
 }
 
 # Drop the entries of every PR another live run holds (lib/holds.sh); the first
@@ -439,8 +441,8 @@ ANOMALY_MIN_SAMPLES=10     # baseline reviews of one model before the audit's re
 # heartbeat. Never stricter than the historical one-hour tolerance.
 REVIEW_INTERVAL_QUIET="$(cfg review_interval_quiet)"
 case "$REVIEW_INTERVAL_QUIET" in
-  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=60;;          # missing/unparseable -> default
-  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60;;
+  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=15;;          # missing/unparseable -> default
+  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=15;;
 esac
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
@@ -842,13 +844,18 @@ hk_batch_since() { # <pending count>
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
-  local hk_only=false hk_n=0 hk_since hk_age=0
+  local hk_only=false hk_n=0 hk_since hk_age=0 art_rel
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
+  for a in "$1" "$2" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
+  # an artifact `retry_release` only releases the trigger of a published
+  # artifact (docs/artifact.md): tier 2, unlike a `generate`
+  art_rel="$(printf '%s' "$5" | jq '[.[] | select(.action == "retry_release")] | length')"
+  [ "$(printf '%s' "$5" | jq length)" -gt "$art_rel" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
+  hk_n="$art_rel"
   for a in "$3" "$4" "$resets"; do
     hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
   done
@@ -862,6 +869,11 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
       log "housekeeping batch: $hk_n item(s) pending since $hk_since — a bookkeeping-only run"
     else
       log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h) — deferred to the next run with work"
+    fi
+    # a run takes the batch: an item still due after it (a release that failed
+    # again) waits a full period, not one tick
+    if [ "$nothing" = "false" ]; then
+      printf '%s\n' "$NOW_ISO" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
@@ -2541,7 +2553,9 @@ if [ "$MODE" = "audit" ]; then
   # Wasted-review accounting: a run that locked a PR and never reached a
   # terminal `review_step` threw its work away — the next heartbeat redoes the
   # review at full cost. Classified by cause, deterministically, from the log:
-  #   pod_restart  — a `pod_boot` warn falls inside the run's own event window
+  #   pod_restart  — a `pod_boot` warn falls inside the run's own event window;
+  #                  one its own gate pass logged before the session (the
+  #                  session took the gate's run id, CG_RUN_ID) does not count
   #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran
   #   terminated   — SessionEnd ran but the pipeline stopped mid-way (orderly
   #                  shutdown from outside; see docs/audit.md task 29)
@@ -2554,7 +2568,7 @@ if [ "$MODE" = "audit" ]; then
   STALL_CUTOFF="$(epoch2iso "$(( NOW_EPOCH - LOCK_TTL_MIN * 60 ))")"
   STALLS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
     [.[] | select(.ts >= $s)] as $w
-    | ($w | map(select(.event=="pod_boot") | .ts)) as $boots
+    | ($w | map(select(.event=="pod_boot"))) as $boots
     | [ $w | group_by(.run)[]
         | { run: .[0].run, day: (.[0].ts[0:10]), first: (.[0].ts), last: (.[-1].ts),
             steps: [.[] | select(.event=="review_step") | .msg
@@ -2564,12 +2578,12 @@ if [ "$MODE" = "audit" ]; then
                    | capture("output=(?<o>[0-9]+)") | .o | tonumber] | last // 0) }
         | select(.steps | any(test(" locked")))
         | select(.last <= $cut)
-        | .first as $first_ts | .last as $last_ts
+        | .first as $first_ts | .last as $last_ts | .run as $r
         | .prs = [ .steps[] | capture("^PR #(?<n>[0-9]+)") | .n ]
         | .terminal = (.steps | any(test("(^| )(done|aborted)") and (test("skill:") | not)))
         | .aborted  = (.steps | any(test("(^| )aborted")))
         | .cause = (if .terminal then "ok"
-                    elif ([$boots[] | select(. >= $first_ts and . <= $last_ts)] | length > 0)
+                    elif ([$boots[] | select(.run != $r and .ts >= $first_ts and .ts <= $last_ts)] | length > 0)
                       then "pod_restart"
                     elif (.tokens == 0) then "hard_kill"
                     else "terminated" end) ]

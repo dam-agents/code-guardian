@@ -81,10 +81,10 @@ hold_live() { # <n>
   ts="$(printf '%s\n' "$held" | sed -n 1p)"; run="$(printf '%s\n' "$held" | sed -n 2p)"
   # a hold younger than a minute may not have its owner's first event yet
   if [ $(( NOW_EPOCH - $(iso2epoch "$ts") )) -lt 60 ]; then
-    echo "held by run ${run:0:8}, taken at $ts"; return 0
+    echo "held by run $(run_short "$run"), taken at $ts"; return 0
   fi
   if [ -n "$run" ] && alive="$(hold_run_alive "$run" "$ts")" && [ -n "$alive" ]; then
-    echo "held by run ${run:0:8}, $alive"; return 0
+    echo "held by run $(run_short "$run"), $alive"; return 0
   fi
   # remove only the hold judged dead: a run that took it over meanwhile wrote a
   # new one, which is judged again

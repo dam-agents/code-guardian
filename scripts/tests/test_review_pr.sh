@@ -167,10 +167,10 @@ case "$FO" in (''|*[!0-9]*) printf 'FAIL %s: no fan-out record (%s)\n' "$CASE" "
 assert_event 'locked (refresh, fanned out (n=2))' 'lock refresh logged'
 
 # --- context / sweep -----------------------------------------------------------
-OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 6 2)"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="$SESSION" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 6 2)"
 assert_out_contains "in this PR's hunks: yes" 'an added line is in the hunks'
 assert_out_contains '     6	NEW6' 'numbered lines printed'
-OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 1 1)"
+OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="$SESSION" PATH="$T_DIR/bin:$PATH" bash "$RP" context 1 src/alpha.ts 1 1)"
 assert_out_contains "in this PR's hunks: no" 'an untouched line is pre-existing'
 # context prints text, never JSON — pin the contract its usage block states, so a
 # future rewrite fails here instead of inside a review that pipes it into jq.
@@ -969,7 +969,7 @@ grep -q '"triage"' "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: a review withou
 setup verify_posted
 run_rp verify 1
 assert_jq '.outcome == "not_locked"' 'a PR this run never locked has nothing to verify'
-OUT="$(env -u CLAUDE_CODE_SESSION_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
+OUT="$(env -u CLAUDE_CODE_SESSION_ID -u CG_RUN_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
        PATH="$T_DIR/bin:$PATH" bash "$RP" verify 1 2>/dev/null)"
 assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'without a run id verify refuses, never not_locked'
 # an earlier lock cycle of this run: its collect does not count for the next one

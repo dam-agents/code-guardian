@@ -186,16 +186,22 @@ assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 
 
 # --- the review gate went silent --------------------------------------------------
 new_case mon_heartbeat_gap
-base_config
+base_config '- review_interval_quiet: 60'
 ev 7200 review info precheck "review gate: nothing to do"
 run_monitor
-assert_jq '.alerts_due[] | select(.kind == "heartbeat_gap") | .silent_minutes >= 119 and .limit_minutes == 90' 'two silent hours past a 60-minute quiet interval alert'
+assert_jq '.alerts_due[] | select(.kind == "heartbeat_gap") | .silent_minutes >= 119 and .limit_minutes == 90' 'two silent hours past 1.5 × a 60-minute quiet interval alert'
 ev 30 review info heartbeat "mode=review nothing_to_do=true"
 run_monitor
 assert_jq '.alerts_due == []' 'a new tick clears it'
 if ! jq -e '.alerts | to_entries | any(.value.kind == "heartbeat_gap")' "$WORK/MONITOR.json" >/dev/null 2>&1; then
   printf 'ok   %s: a cleared condition leaves the ledger, so its return alerts again\n' "$CASE"
 else printf 'FAIL %s: cleared heartbeat_gap row kept\n' "$CASE"; FAILED=1; fi
+
+new_case mon_heartbeat_gap_default
+base_config
+ev 4200 review info precheck "review gate: nothing to do"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "heartbeat_gap") | .limit_minutes == 60' 'under the default quiet interval, 70 silent minutes pass the one-hour floor'
 
 # --- a backup that keeps failing ----------------------------------------------------
 mon_case mon_backup '- work_repo: acme/widgets-state'

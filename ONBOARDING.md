@@ -533,7 +533,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
-    > I check for new PRs every 5 minutes, around the clock; a check that finds nothing starts no session and costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want fewer checks outside them; I then check once an hour there, so a PR opened at night waits up to an hour.
+    > I check for new PRs every 5 minutes, around the clock; a check that finds nothing starts no session and costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want fewer checks outside them; I then check every 15 minutes there, so a PR opened at night waits up to 15 minutes.
 
     Write all four keys explicitly, even at the default. Validate before
     writing: both intervals must be divisors of 60
@@ -617,7 +617,7 @@ Final shape:
 - active_hours: 00-23                  # platform timezone, both ends inclusive; missing = 00-23
 - active_days: Mon-Sun                 # or: Mon-Fri / a comma list; missing = Mon-Sun
 - review_interval_active: 5            # minutes in the active window; divisor of 60
-- review_interval_quiet: 60            # minutes in quiet hours (nights, weekends)
+- review_interval_quiet: 15            # minutes in quiet hours (nights, weekends)
 
 ## Review skills
 

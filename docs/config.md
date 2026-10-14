@@ -296,12 +296,12 @@ below is for the manual fallback and the direct session.
   **missing = `Mon-Sun`**) delimit the **active window**; every hour outside it
   is a quiet hour. Inside the window the heartbeat runs every
   `review_interval_active` minutes (**missing = `5`**), in quiet hours every
-  `review_interval_quiet` minutes (**missing = `60`**); both are divisors of
+  `review_interval_quiet` minutes (**missing = `15`**); both are divisors of
   60. An interval bounds how long a new PR or a trigger waits for its run; a
-  tick with no work costs no model call ([worklist.md](worklist.md) → **The
-  schedule gate**). These four keys are the **source of truth for the
-  registered cron schedules** (ONBOARDING Step 6a) and for the audit's
-  cadence check.
+  tick with no work costs no model call. An artifact trigger release retry
+  waits as bookkeeping ([worklist.md](worklist.md) → **The schedule gate**).
+  These four keys are the **source of truth for the registered cron
+  schedules** (ONBOARDING Step 6a) and for the audit's cadence check.
 - **`log_level`** — `info` (default) | `debug`. Verbosity of
   `work/logs/events-*.jsonl` ([logging.md](logging.md)); `debug` additionally
   records successful external tool calls. Diagnostic only, never gating

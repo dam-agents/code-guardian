@@ -105,7 +105,7 @@ rp_fix_setup() { # <case>
 run_fix_cmd() { # <cmd> [args…]
   : > "$SANDBOX/gh.log"
   OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX" GH_CALLS_LOG="$SANDBOX/gh.log" \
-         CG_CLONE_URL="$ORIGIN" PATH="$T_DIR/bin:$PATH" bash "$RP" "$1" 1 "${@:2}" 2>/dev/null)"
+         CG_CLONE_URL="$ORIGIN" CG_RUN_ID=review-fix-run PATH="$T_DIR/bin:$PATH" bash "$RP" "$1" 1 "${@:2}" 2>/dev/null)"
 }
 
 rp_fix_setup rp_fix_round

@@ -140,12 +140,41 @@ if cat "$WORK"/logs/events-*.jsonl 2>/dev/null | grep -q 'PR #7: released — th
   printf 'ok   %s: %s\n' "$CASE" 'the release is logged'
 else printf 'FAIL %s: %s\n' "$CASE" 'the release is logged'; FAILED=1; fi
 
-# --- review-pr.sh: without a run id the PR is worked unheld --------------------
+# --- review-pr.sh: the run id without a harness session id ---------------------
+# docs/logging.md → The events log: the session passes the gate's id on as
+# CG_RUN_ID, one shell after the other; a harness session id wins over it
+rp_as() { # <session-id> <cg-run-id> <cmd> <n> → $OUT
+  local sid="$1" cg="$2"; shift 2
+  OUT="$(env -u LOG_RUN_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" \
+         CLAUDE_CODE_SESSION_ID="$sid" CG_RUN_ID="$cg" PATH="$T_DIR/bin:$PATH" bash "$RP" "$@" 2>/dev/null)"
+}
 new_case hold_no_run_id
 base_config
-OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" CLAUDE_CODE_SESSION_ID="" \
-       PATH="$T_DIR/bin:$PATH" bash "$RP" hold 7 2>/dev/null)"
-assert_jq '.outcome == "held_by_you" and (.note | contains("not held"))' 'no run id degrades to no hold'
+rp_as "" "" hold 7
+assert_jq '.outcome == "error" and (.error | contains("no run id")) and (.error | contains("export CG_RUN_ID="))' \
+  'without a run id the hold is refused, and the refusal says how to pass one'
 assert_hold_run 7 - 'no hold file written'
+rp_as "" "" step 7 verified
+assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'a review step refuses without a run id too'
+
+new_case hold_gate_run_id
+base_config
+GATE=review-20261014T100000Z-41
+rp_as "" "$GATE" hold 7
+assert_jq '.outcome == "held_by_you"' 'the gate run id takes the hold'
+assert_hold_run 7 "$GATE" 'the hold names the gate run id'
+if jq -e -s --arg r "$GATE" 'any(.[]; .run == $r and .event == "hold" and (.msg | contains("PR #7: held by this run")))' \
+     "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" >/dev/null 2>&1; then
+  printf 'ok   %s: %s\n' "$CASE" 'its events carry the gate run id'
+else printf 'FAIL %s: %s\n' "$CASE" 'its events carry the gate run id'; FAILED=1; fi
+rp_as "" "$GATE-pr9" hold 7
+assert_jq '.outcome == "held_elsewhere" and (.why | contains("held by run '"$GATE"',"))' \
+  'a dispatched session is another run, and the why names the gate run id whole'
+rp_as "" "$GATE" release 7
+assert_hold_run 7 - 'a later shell of the same run releases the hold'
+rp_as 0b8c6e1f-1111-4222-8333-444455556666 "$GATE" hold 8
+assert_hold_run 8 0b8c6e1f-1111-4222-8333-444455556666 'a harness session id wins over CG_RUN_ID'
+rp_as "" "$GATE" hold 8
+assert_jq '.outcome == "held_elsewhere" and (.why | contains("held by run 0b8c6e1f,"))' 'a session id is named by its first 8 characters'
 
 finish

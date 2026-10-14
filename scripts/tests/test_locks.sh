@@ -276,7 +276,7 @@ rm -rf "$F.lock"
 
 # --- review-pr.sh row: the bookkeeping rows under the same lock ---------------
 new_case review_pr_row
-rp_row() { OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/review-pr.sh" row "$@" 2>/dev/null)"; }
+rp_row() { OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" CG_RUN_ID=review-row-run PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/review-pr.sh" row "$@" 2>/dev/null)"; }
 rp_row 5 "$SHA1" 2026-10-01T10:00:00Z SEE-GITHUB done
 assert_jq '.outcome == "written"' 'a self-heal row is written'
 assert_file_contains "$WORK/REVIEWS.md" "^| 5 | $SHA1 | 2026-10-01T10:00:00Z | SEE-GITHUB | done |\$" 'in the row shape'

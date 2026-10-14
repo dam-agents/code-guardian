@@ -219,6 +219,16 @@ events_jsonl() { # [event]
   else cat "$LOG_DIR"/events-*.jsonl 2>/dev/null; fi | jq -c -R 'fromjson? // empty' 2>/dev/null
 }
 
+# a run id as a log line names it: a harness session UUID by its first 8
+# characters, a gate's `<mode>-<stamp>-<pid>` id whole (docs/logging.md → The
+# events log)
+run_short() { # <run-id>
+  case "$1" in
+    ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*) printf '%s' "${1:0:8}";;
+    (*) printf '%s' "$1";;
+  esac
+}
+
 # the payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
 # line of a history file or section on stdin (docs/review-mechanics.md →
 # Summary body format); nothing when the line is absent
@@ -297,14 +307,17 @@ origin_ref() { # <checkout dir>
 # trigger, not here. preflight.sh applies it to the worklist, dispatch.sh to
 # each worklist it cuts from one.
 READ_SET_JQ='def read_set:
-  if .housekeeping_only then ["docs/review-bookkeeping.md"] else
+  (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
+   then ["docs/review-bookkeeping.md"] else [] end) as $bookkeeping
+  | if .housekeeping_only then
+    $bookkeeping + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+  else
     (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
     + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
     + (if any(.reviews_due[]; .kind == "re-review") then ["docs/review-rereview.md"] else [] end)
     + (if any(.reviews_due[]; .urgent == true or .closed == true) or (.urgent_alerts_due | length) > 0
        then ["docs/review-urgent.md"] else [] end)
-    + (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
-       then ["docs/review-bookkeeping.md"] else [] end)
+    + $bookkeeping
     + (if ((.reviews_due | length) > 0 or (.mentions_due | length) > 0)
           and ((.config.watch_rules // []) | length) > 0
        then ["docs/watches.md"] else [] end)

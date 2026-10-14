@@ -14,15 +14,24 @@ file per UTC day), one JSON object per line:
 
 - **ts** — exact UTC write time, ms precision where the platform's `date`
   supports it.
-- **run** — the run identifier: `LOG_RUN_ID` env → harness session id
-  (`CLAUDE_CODE_SESSION_ID`) → start time + pid. Groups all lines of one run.
-  **A gated fire carries two of them** ([worklist.md](worklist.md) → **The
-  schedule gate**): the gate runs outside a session, so its `precheck` line and
-  the whole pass it drives (`preflight.sh`, or `monitor.sh` for the monitor)
-  share one `<timestamp>-<pid>` id, and the session that starts from the
-  worklist writes its own lines under the harness session id. Read one fire as
-  that pair, matched on `job` and on the minute the gate's `precheck` event
-  names.
+- **run** — the run identifier: `LOG_RUN_ID` env (the harness hooks) →
+  harness session id (`CLAUDE_CODE_SESSION_ID`) → `CG_RUN_ID` → start time +
+  pid. Groups all lines of one run.
+  - **The fire's id** — `<mode>-<UTC stamp>-<pid>`, minted by the gate and
+    exported as `CG_RUN_ID` to its pass (`preflight.sh`, or `monitor.sh`): the
+    `precheck` line and the whole pass log under it, the worklist is
+    `cg-worklist-<id>.json`, and every prompt that starts a session ends with
+    `run: <id>` ([worklist.md](worklist.md) → **The schedule gate**). A
+    dispatched session's id is `<id>-pr<n>`, its unit worklist's name.
+  - **The session passes it on**: every shell command that runs a
+    `$HOME/scripts/` script starts with `export CG_RUN_ID=<id>;`; a run with no
+    `run:` line (the audit, the direct session) sets one id for the session,
+    `<job>-<UTC yyyymmddThhmmssZ>`. A harness with no session id runs each
+    command in a fresh shell, so `review-pr.sh` refuses every subcommand
+    without a run id.
+  - On Claude Code the session id wins: a gated fire is a pair, the gate's id
+    and the session's, matched on `job` and on the minute the gate's
+    `precheck` event names.
 - **job** — `review` | `shepherd` | `audit` | `benchmark` | `survey` |
   `monitor` | `session` (from `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
@@ -50,7 +59,7 @@ hand-rolled line matches exactly:
 - **File** — `work/logs/events-<UTC YYYY-MM-DD>.jsonl` for the write day. No
   other name is ever read.
 - **Object** — the seven fields above, one line, no trailing comma; `event` and
-  `msg` are strings; `run` is the harness session id.
+  `msg` are strings; `run` is this run's id (**run** above).
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
 - **`artifact` `msg`** — `PR #<n>: <skill> <outcome> …`, where the audit counts
