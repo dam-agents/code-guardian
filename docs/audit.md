@@ -10,8 +10,9 @@ the anonymous tracking issue of task 3 and the trend artifact's publish (task
 36); its local writes beyond `AUDIT.log` are memory (the lessons the tasks
 record per [preferences.md](preferences.md), the consolidation of task 34),
 the profile notes of task 35 and the trend append of task 36. Routine findings
-(pending prunes, stale locks) heal on the next heartbeat; everything else goes
-to the operator. A skipped task is an incomplete audit — a task that is
+(pending prunes, stale locks) heal through the review heartbeat's worklist
+([worklist.md](worklist.md) → **The schedule gate**); everything else goes to
+the operator. A skipped task is an incomplete audit — a task that is
 impossible this week (missing data, API error) is reported as `warn` with the
 reason, never dropped.
 
