@@ -41,9 +41,9 @@ skill with status `run` runs; a clean-run section is the correct output.
 
 ## Triggers & file routing
 
-- **`always`** — runs on every reviewed PR, against the whole clone
-  (`$PR_DIR`) with the base ref `origin/<baseRefName>` for diffing; on a
-  reachable range below, the range's routable files are its focus.
+- **`always`** — runs on every reviewed PR, against the whole clone with the
+  base ref `origin/<baseRefName>` for diffing; on a reachable range below, the
+  range's routable files are its focus.
 - **extension list** (for example `.ts,.js`) — runs iff ≥1 changed file routes
   to it, and receives the routed file list (paths relative to `$PR_DIR`) plus
   the base branch. The changed-file list is the reviewed scope's: the diff at
@@ -78,10 +78,9 @@ skill's `skills.<skill>.prompt` verbatim — one line naming the skill, the PR
 and its brief file, which the subagent reads itself. `prepare` renders the
 brief from
 [`scripts/templates/skill-brief.md`](../scripts/templates/skill-brief.md):
-the skill's own checkout — `$PR_DIR.s-<skill>` whenever two or more skills
-run, `$PR_DIR` for a lone skill — the base ref and routed files, the PR's
-profile slice ([profile.md](profile.md) → **Using it**) and risk prescan, the
-output file `$PR_DIR.out/<skill>.txt` in the finding form
+the skill's own checkout `$PR_DIR.s-<skill>`, the base ref and routed files,
+the PR's profile slice ([profile.md](profile.md) → **Using it**) and risk
+prescan, the output file `$PR_DIR.out/<skill>.txt` in the finding form
 ([finding-form.md](finding-form.md) — reformat, never reduce; its severity
 rubric quoted), and the run rules: no circling, the wall-clock budget
 (`SKILL_BUDGET_MIN` of `review-pr.sh`), the pod's shim workaround
@@ -152,8 +151,9 @@ Skill findings feed the verdict like your own
 ## Clone, credential helper, cleanup
 
 Per-PR working directory `PR_DIR="/tmp/review-pr-<number>"`, with
-`$PR_DIR.out/` (skill outputs), `$PR_DIR.s-<skill>` (per-skill worktrees of
-the clone, a copy when that fails), `$PR_DIR.diff` and `$PR_DIR.ctx/` beside
+`$PR_DIR.out/` (skill outputs), `$PR_DIR.s-<skill>` (a detached worktree of
+the clone per running skill, so a skill's commit or reset moves only its own
+HEAD; a copy when that fails), `$PR_DIR.diff` and `$PR_DIR.ctx/` beside
 it — all made by `review-pr.sh prepare` and removed together, after the row is
 final, by `post`, `abort` or the phase guard that returns `head_moved`:
 exactly once per PR, never between skills, and **by exact name, never a bare

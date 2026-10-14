@@ -1051,26 +1051,21 @@ cmd_prepare() {
       '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end),
                    prompt:(if $b=="" then null else "Review skill `\($s)` for PR #\($n): read `\($b)` and follow it exactly — it holds your whole task." end)}}')"
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
-  if [ "$nrun" -gt 1 ]; then
+  if [ "$nrun" -gt 0 ]; then
     mkdir -p "$OUT"
-    # a worktree of the clone per skill, on the clone's branch (-f: the clone
-    # has it checked out already); a copy when git refuses, the clone itself
-    # when that fails too
-    local br wt
-    br="$(git -C "$PR_DIR" symbolic-ref -q --short HEAD 2>/dev/null)"
+    # a detached worktree of the clone per skill, a lone one included: a skill's
+    # commit, reset or checkout moves only its own HEAD, never the clone's or
+    # another skill's; a copy when git refuses, the clone itself when that
+    # fails too
+    local wt
     while IFS= read -r s; do
       [ -n "$s" ] || continue
       wt="$PR_DIR.s-$s"
-      if [ -n "$br" ]; then git -C "$PR_DIR" worktree add -q -f "$wt" "$br" >/dev/null 2>&1
-      else git -C "$PR_DIR" worktree add -q --detach "$wt" HEAD >/dev/null 2>&1; fi \
+      git -C "$PR_DIR" worktree add -q --detach "$wt" HEAD >/dev/null 2>&1 \
         || { rm -rf "$wt"; cp -a "$PR_DIR" "$wt" 2>/dev/null; } || { rm -rf "$wt"; wt="$PR_DIR"; }
       SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg c "$wt" '.[$s].workdir = $c')"
       sed -i.bak "s#{{WORKDIR}}#$wt#g" "$CTX/briefs/$s.md" 2>/dev/null; rm -f "$CTX/briefs/$s.md.bak"
     done < <(printf '%s' "$SK" | jq -r 'to_entries[] | select(.value.status=="run") | .key')
-  elif [ "$nrun" -eq 1 ]; then
-    mkdir -p "$OUT"
-    s="$(printf '%s' "$SK" | jq -r 'to_entries[] | select(.value.status=="run") | .key')"
-    sed -i.bak "s#{{WORKDIR}}#$PR_DIR#g" "$CTX/briefs/$s.md" 2>/dev/null; rm -f "$CTX/briefs/$s.md.bak"
   fi
   printf '%s' "$SK" > "$CTX/skills.json"
 

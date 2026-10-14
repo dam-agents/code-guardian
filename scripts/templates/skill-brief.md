@@ -1,6 +1,6 @@
 You are running the review skill `{{SKILL}}` for PR #{{PR}} of `{{REPO}}`.
 
-Working directory: `{{WORKDIR}}` — the PR branch at HEAD `{{HEAD_SHA}}`. The base
+Working directory: `{{WORKDIR}}` — a checkout of the PR head `{{HEAD_SHA}}`. The base
 ref for diffing is `origin/{{BASE_REF}}` (`git -C "{{WORKDIR}}" diff origin/{{BASE_REF}}...HEAD`).
 {{FILES_BLOCK}}
 Orientation: read `{{PROFILE}}` before touching the tree — the rows of the

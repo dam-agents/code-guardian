@@ -94,14 +94,14 @@ assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineer
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
   && printf 'ok   %s: per-skill copies and .out exist\n' "$CASE" || { printf 'FAIL %s: copies/.out missing\n' "$CASE"; FAILED=1; }
-# each copy is a worktree of the clone: on the PR branch at the same HEAD, the
-# base ref resolving through the shared refs (docs/skills.md → Clone,
-# credential helper, cleanup)
+# each copy is a detached worktree of the clone at the PR HEAD, the base ref
+# resolving through the shared refs (docs/skills.md → Clone, credential
+# helper, cleanup)
 W="$(PR_DIR).s-typescript-engineering"
-[ -f "$W/.git" ] && [ "$(git -C "$W" symbolic-ref -q --short HEAD)" = b1 ] \
+[ -f "$W/.git" ] && ! git -C "$W" symbolic-ref -q HEAD >/dev/null \
   && [ "$(git -C "$W" rev-parse HEAD)" = "$B1_SHA" ] \
   && [ "$(git -C "$W" diff --name-only origin/main...HEAD | tr '\n' ' ')" = "pnpm-lock.yaml src/alpha.ts src/gamma.ts " ] \
-  && printf 'ok   %s: a per-skill copy is a worktree on the PR branch at its HEAD, diffable against the base\n' "$CASE" \
+  && printf 'ok   %s: a per-skill copy is a detached worktree at the PR HEAD, diffable against the base\n' "$CASE" \
   || { printf 'FAIL %s: per-skill worktree wrong (.git file: %s, branch: %s)\n' "$CASE" \
          "$([ -f "$W/.git" ] && echo yes || echo no)" "$(git -C "$W" symbolic-ref -q --short HEAD 2>&1)"; FAILED=1; }
 git -C "$(PR_DIR)" rev-parse --verify -q origin/main >/dev/null && printf 'ok   %s: base ref fetched\n' "$CASE" || { printf 'FAIL %s: origin/main missing in the clone\n' "$CASE"; FAILED=1; }
@@ -407,6 +407,33 @@ ls -d "$(PR_DIR)".s-* >/dev/null 2>&1 \
 grep -qF "\`$(PR_DIR)\`" "$B" && ! grep -qF "$(PR_DIR).s-" "$B" \
   && printf 'ok   %s: the brief names the clone, never a missing checkout\n' "$CASE" \
   || { printf 'FAIL %s: the brief does not name the clone\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
+# --- a skill's git writes stay in its own checkout: a commit and a reset there
+# move neither the clone's HEAD nor another skill's, and a lone skill gets a
+# checkout of its own (docs/skills.md → Clone, credential helper, cleanup) ------
+setup prepare_checkout_isolation
+run_rp prepare 1
+W="$(PR_DIR).s-typescript-engineering"; D="$(PR_DIR).s-doc-drift"
+printf 'junk\n' >> "$W/src/alpha.ts"
+git -C "$W" "${GIT_ID[@]}" commit -qam junk >/dev/null 2>&1
+git -C "$W" reset -q --hard origin/main >/dev/null 2>&1
+[ "$(git -C "$W" rev-parse HEAD)" = "$(git -C "$(PR_DIR)" rev-parse origin/main)" ] \
+  && [ "$(git -C "$(PR_DIR)" rev-parse HEAD)" = "$B1_SHA" ] && [ "$(git -C "$D" rev-parse HEAD)" = "$B1_SHA" ] \
+  && [ "$(git -C "$D" diff --name-only origin/main...HEAD | tr '\n' ' ')" = "pnpm-lock.yaml src/alpha.ts src/gamma.ts " ] \
+  && printf 'ok   %s: a commit and a reset in one checkout leave the clone and the other checkout at the PR HEAD\n' "$CASE" \
+  || { printf 'FAIL %s: a skill write moved a shared HEAD (clone: %s, doc-drift: %s)\n' "$CASE" \
+         "$(git -C "$(PR_DIR)" rev-parse --short HEAD)" "$(git -C "$D" rev-parse --short HEAD)"; FAILED=1; }
+run_rp abort 1 "reset"
+
+setup prepare_checkout_lone
+grep -v '^| typescript-engineering ' "$WORK/CONFIG.md" > "$WORK/CONFIG.md.tmp" && mv "$WORK/CONFIG.md.tmp" "$WORK/CONFIG.md"
+run_rp prepare 1
+W="$(PR_DIR).s-doc-drift"
+assert_jq '.outcome == "ready" and (.skills | keys) == ["doc-drift"] and .skills["doc-drift"].workdir == "'"$W"'"' 'a lone skill gets its own checkout, never the clone'
+[ -f "$W/.git" ] && [ "$(git -C "$W" rev-parse HEAD)" = "$B1_SHA" ] && grep -qF "\`$W\`" "$(PR_DIR).ctx/briefs/doc-drift.md" \
+  && printf 'ok   %s: the lone checkout is a worktree at the PR HEAD, and the brief names it\n' "$CASE" \
+  || { printf 'FAIL %s: lone checkout wrong (.git file: %s)\n' "$CASE" "$([ -f "$W/.git" ] && echo yes || echo no)"; FAILED=1; }
 run_rp abort 1 "reset"
 
 # --- prepare gates ---------------------------------------------------------------
