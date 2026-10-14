@@ -505,13 +505,14 @@ ev review-20261014T100000Z-41 review_step "PR #15 abc1234 locked"
 ev g2 review_step "PR #16 def5678 locked" "$(iso_ago 4000)"
 ev other pod_boot "pod restarted since last run" "$(iso_ago 3800)"
 ev g2 review_step "PR #16 def5678 skill:doc-drift done" "$(iso_ago 3600)"
-run_preflight audit
-assert_jq '.stats.stalls.by_cause == {hard_kill: 1, pod_restart: 1}' \
+CLAUDECODE="" run_preflight audit
+assert_jq '.stats.stalls.by_cause == {unclassified: 1, pod_restart: 1}' \
   'a restart its own gate logged is no restart of the run; one another run logged inside the window is'
 
 # --- weekly token totals: one count per run (stats.tokens) -------------------
 # the tokens event carries cumulative totals and a resumed session ends twice:
-# a run counts its last event alone, an event with no run id counts on its own
+# a run counts its last event alone, an event with no run id counts on its own;
+# the events count on any harness, an adapter or not
 new_case audit_tokens_per_run
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
@@ -522,13 +523,41 @@ ev t1 tokens "input=2 output=300 cache_read=3000 cache_creation=30 msgs=9 model=
 ev t2 tokens "input=4 output=50 cache_read=500 cache_creation=5 msgs=2 model=claude-sonnet-5-5"
 jq -nc --arg t "$(iso_ago 600)" '{ts:$t, level:"info", event:"tokens", msg:"input=8 output=7 cache_read=6 cache_creation=5 msgs=1"}' \
   >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
-run_preflight audit
+CLAUDECODE="" run_preflight audit
 assert_jq '.stats.tokens | .runs == 3 and .input == 14 and .output == 357 and .cache_read == 3506 and .cache_creation == 40' \
   'a run counts its last cumulative event once; an event without a run counts on its own'
 assert_jq '.stats.tokens.by_model["claude-opus-5-5"] | .runs == 1 and .output == 300' 'by_model counts the same set'
 assert_jq '.stats.tokens.by_model.unknown.runs == 1 and .stats.tokens.by_model["claude-sonnet-5-5"].output == 50' \
   'every model row comes from the deduped set'
 assert_jq '.stats.stalls.wasted_output_tokens == 300' 'a stalled run wastes its last cumulative output, not the sum'
+
+# --- a harness with no tokens adapter measures no tokens ----------------------
+# only an adapter writes the `tokens` event (docs/logging.md → Harness
+# adapters): there a week without one is unmeasured, never a zero
+new_case audit_tokens_not_measured
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev review-20261014T100000Z-41 review_step "PR #20 abc1234 locked"
+ev review-20261014T100000Z-41 review_step "PR #20 abc1234 posted APPROVE"
+ev review-20261014T100000Z-41 review_step "PR #20 abc1234 done"
+ev review-20261014T110000Z-42 review_step "PR #21 def5678 locked"
+CLAUDECODE="" run_preflight audit
+assert_jq '.stats.tokens == null and .stats.sessions == null' 'tokens and sessions are unmeasured, not zero'
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and (.detail | startswith("not measured: no harness adapter"))' \
+  'the model check says that it measured nothing'
+assert_jq '.stats.stalls | .stalled == 1 and .by_cause == {unclassified: 1} and .wasted_output_tokens == null
+  and (.per_day | all(.wasted_output_tokens == null))' 'a stall without a session-end signal has no cause and no wasted output'
+
+# the same week on the harness with the adapter: no tokens event is a measured zero
+new_case audit_tokens_measured_zero
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev c1 review_step "PR #21 def5678 locked"
+CLAUDECODE=1 run_preflight audit
+assert_jq '.stats.tokens.runs == 0 and .stats.sessions == []' 'with the adapter, a week without a tokens event counts zero'
+assert_jq '.stats.stalls | .by_cause == {hard_kill: 1} and .wasted_output_tokens == 0' 'no tokens event there means the SessionEnd hook never ran'
 
 # --- classifier refusals and API failures: the week's account ----------------
 # docs/audit.md task 38: what the classifier refused, and the
@@ -1207,8 +1236,9 @@ assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (
 new_case audit_session_models_none
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "ok"' 'a week without recorded runs has nothing to compare'
+CLAUDECODE=1 run_preflight audit
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and .detail == "no scheduled run recorded a model this week"' \
+  'a week without recorded runs has nothing to compare'
 
 # --- findings density and missed-earlier share (docs/audit.md task 28) ---------
 base_weeks_findings() { # <findings per week> <late per week> — 15 sized first reviews, 1500 lines
