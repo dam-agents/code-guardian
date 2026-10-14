@@ -9,7 +9,7 @@
 #                                          run has none) + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
-#                                          copies, skill briefs, the context pack,
+#                                          worktrees, skill briefs, the context pack,
 #                                          the risk prescan
 #   step <n> <milestone…>                  lock heartbeat + review_step event
 #   guard <n>                              re-read the live HEAD: a commit that
