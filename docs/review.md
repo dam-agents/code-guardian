@@ -42,8 +42,8 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
    - `ready` — it writes the `in_progress` lock row, logs `locked`, writes the
      progress status, fetches context and the diff into `$PR_DIR.diff` with a
      hunk index, clones the branch with its base ref ([skills.md](skills.md) →
-     **Clone, credential helper, cleanup**), and renders the per-skill copies,
-     briefs, context pack and risk prescan.
+     **Clone, credential helper, cleanup**), and renders the per-skill
+     worktrees, briefs, context pack and risk prescan.
 
    The live trigger follows `rereview_trigger` and `rereview_delta_label` and
    sets the scope: `rereview_label` → `full: true`, else delta

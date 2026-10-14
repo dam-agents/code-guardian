@@ -89,6 +89,16 @@ assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineer
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
   && printf 'ok   %s: per-skill copies and .out exist\n' "$CASE" || { printf 'FAIL %s: copies/.out missing\n' "$CASE"; FAILED=1; }
+# each copy is a worktree of the clone: on the PR branch at the same HEAD, the
+# base ref resolving through the shared refs (docs/skills.md → Clone,
+# credential helper, cleanup)
+W="$(PR_DIR).s-typescript-engineering"
+[ -f "$W/.git" ] && [ "$(git -C "$W" symbolic-ref -q --short HEAD)" = b1 ] \
+  && [ "$(git -C "$W" rev-parse HEAD)" = "$B1_SHA" ] \
+  && [ "$(git -C "$W" diff --name-only origin/main...HEAD | tr '\n' ' ')" = "pnpm-lock.yaml src/alpha.ts src/gamma.ts " ] \
+  && printf 'ok   %s: a per-skill copy is a worktree on the PR branch at its HEAD, diffable against the base\n' "$CASE" \
+  || { printf 'FAIL %s: per-skill worktree wrong (.git file: %s, branch: %s)\n' "$CASE" \
+         "$([ -f "$W/.git" ] && echo yes || echo no)" "$(git -C "$W" symbolic-ref -q --short HEAD 2>&1)"; FAILED=1; }
 git -C "$(PR_DIR)" rev-parse --verify -q origin/main >/dev/null && printf 'ok   %s: base ref fetched\n' "$CASE" || { printf 'FAIL %s: origin/main missing in the clone\n' "$CASE"; FAILED=1; }
 B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
 grep -q 'PR #1' "$B" && grep -q 'typescript-engineering' "$B" && grep -q "$(PR_DIR).s-typescript-engineering" "$B" && grep -q 'src/gamma.ts' "$B" \

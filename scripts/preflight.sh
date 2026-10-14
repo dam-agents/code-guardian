@@ -796,11 +796,14 @@ prefetch_files() { # <number…>
 }
 
 # ------------------------------------------------------------ skill install ----
+# One install is one snapshot of the source's default branch: its HEAD SHA is
+# the ref of the tree listing and of every file fetch.
 install_skill() { # name source -> status string (local writes only)
-  local name="$1" src="$2" h slug sha cached count=0 p rel
+  local name="$1" src="$2" h slug sha ref cached count=0 p rel
   [ "$src" = "harness" ] && { printf 'harness'; return; }
   h="$(refhost "$src")"; slug="$(refslug "$src")"
-  sha="$(gh api --hostname "$h" "repos/$slug/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+  sha="$(gh api --hostname "$h" "repos/$slug/commits/HEAD" 2>/dev/null | jq -r '.sha // empty')"
+  ref="${sha:-HEAD}"
   mkdir -p "$SKILL_CACHE"
   cached="$(cat "$SKILL_CACHE/$name.sha" 2>/dev/null || true)"
   if [ -n "$sha" ] && [ "$sha" = "$cached" ] && [ -d "$HOME_DIR/.claude/skills/$name" ]; then
@@ -811,11 +814,11 @@ install_skill() { # name source -> status string (local writes only)
     [ -z "$p" ] && continue
     rel="${p#.agents/skills/$name/}"
     mkdir -p "$HOME_DIR/.claude/skills/$name/$(dirname "$rel")"
-    gh api --hostname "$h" "repos/$slug/contents/$p?ref=main" -H 'Accept: application/vnd.github.raw' \
+    gh api --hostname "$h" "repos/$slug/contents/$p?ref=$ref" -H 'Accept: application/vnd.github.raw' \
       > "$HOME_DIR/.claude/skills/$name/$rel" 2>/dev/null \
       || { logev error skill_install "$name from $src: fetch of $p did not succeed"; printf 'install-failed'; return; }
     count=$((count+1))
-  done < <(gh api --hostname "$h" "repos/$slug/git/trees/main?recursive=1" 2>/dev/null \
+  done < <(gh api --hostname "$h" "repos/$slug/git/trees/$ref?recursive=1" 2>/dev/null \
            | jq -r --arg pre ".agents/skills/$name/" '.tree[] | select(.type=="blob") | select(.path | startswith($pre)) | .path')
   [ "$count" -eq 0 ] && { logev error skill_install "$name from $src: no files found (tree listing empty or unreachable)"; printf 'install-failed'; return; }
   [ -n "$sha" ] && printf '%s' "$sha" > "$SKILL_CACHE/$name.sha"
@@ -2283,7 +2286,7 @@ if [ "$MODE" = "audit" ]; then
   DISK_JSON="$(jq -nc --argjson v "$DISK_JSON" --arg w "${work_kb:-}" '{volumes:$v, work_kb:(if $w == "" then null else ($w | tonumber) end)}')"
 
   while IFS=$'\t' read -r skill src; do
-    remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+    remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/HEAD" 2>/dev/null | jq -r '.sha // empty')"
     cached="$(cat "$SKILL_CACHE/$skill.sha" 2>/dev/null || true)"
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"
