@@ -26,7 +26,7 @@ echo.
   with the next run that has work of its own, and start a run of their own only
   after 6 hours of waiting or 10 pending items. That run's worklist carries
   `housekeeping_only: true` and reads the short set ([runbook.md](runbook.md) →
-  **Review run** step 2).
+  **Review run** step 2). Every run that takes the batch restarts the wait.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), read by the audit's
   `heartbeats` check and the monitor's `heartbeat_gap` alert. The gate logs

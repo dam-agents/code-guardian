@@ -865,6 +865,11 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
     else
       log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h) — deferred to the next run with work"
     fi
+    # a run takes the batch: an item still due after it (a release that failed
+    # again) waits a full period, not one tick
+    if [ "$nothing" = "false" ]; then
+      printf '%s\n' "$NOW_ISO" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
+    fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   # the audit's wake-up count reads these keys back (stats.wakeups); the

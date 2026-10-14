@@ -136,6 +136,9 @@ printf '%s\n' "$(iso_ago 25200)" > "$WORK/$MARKER"
 run_preflight review
 assert_jq '.nothing_to_do == false and .housekeeping_only == true' 'past the wait it forces a bookkeeping-only run'
 assert_jq '.read_set == ["docs/artifact.md"]' 'that run reads the artifact file alone'
+# the release failed again: the trigger is still on the PR at the next tick
+run_preflight review
+assert_jq '(.artifacts_due | length) == 1 and .nothing_to_do == true' 'the run restarted the wait, so the next tick defers the retry'
 
 artifact_case hk_retry_release_with_prune
 add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
@@ -147,11 +150,15 @@ assert_jq '.read_set == ["docs/review-bookkeeping.md", "docs/artifact.md"]' 'and
 
 artifact_case hk_retry_release_rides_along
 { pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]'; pr_json 7 "new PR" '[]' "$SHA1"; } | open_prs_fx
+printf '%s\n' "$(iso_ago 25200)" > "$WORK/$MARKER"
 run_preflight review
 assert_jq '(.reviews_due | length) == 1 and .artifacts_due[0].action == "retry_release"' 'the review and the retry are in one worklist'
 assert_jq '.nothing_to_do == false and (has("housekeeping_only") == false)' 'the review starts the run'
 assert_jq '.logs | any(contains("ride along"))' 'the retry rides along'
 assert_jq '.read_set | index("docs/artifact.md") != null' 'the run reads the artifact file'
+pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]' | open_prs_fx
+run_preflight review
+assert_jq '(.artifacts_due | length) == 1 and .nothing_to_do == true' 'the run with work restarted the wait, so a retry still due waits again'
 
 artifact_case hk_generate_wakes no-marker
 run_preflight review
