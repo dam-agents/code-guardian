@@ -89,6 +89,16 @@ assert_jq '.skills["doc-drift"].status == "run" and .skills["typescript-engineer
 assert_jq '.skills["typescript-engineering"].workdir == "'"$(PR_DIR)"'.s-typescript-engineering"' 'per-skill copy path'
 [ -d "$(PR_DIR).s-doc-drift" ] && [ -d "$(PR_DIR).s-typescript-engineering" ] && [ -d "$(PR_DIR).out" ] \
   && printf 'ok   %s: per-skill copies and .out exist\n' "$CASE" || { printf 'FAIL %s: copies/.out missing\n' "$CASE"; FAILED=1; }
+# each copy is a worktree of the clone: on the PR branch at the same HEAD, the
+# base ref resolving through the shared refs (docs/skills.md → Clone,
+# credential helper, cleanup)
+W="$(PR_DIR).s-typescript-engineering"
+[ -f "$W/.git" ] && [ "$(git -C "$W" symbolic-ref -q --short HEAD)" = b1 ] \
+  && [ "$(git -C "$W" rev-parse HEAD)" = "$B1_SHA" ] \
+  && [ "$(git -C "$W" diff --name-only origin/main...HEAD | tr '\n' ' ')" = "pnpm-lock.yaml src/alpha.ts src/gamma.ts " ] \
+  && printf 'ok   %s: a per-skill copy is a worktree on the PR branch at its HEAD, diffable against the base\n' "$CASE" \
+  || { printf 'FAIL %s: per-skill worktree wrong (.git file: %s, branch: %s)\n' "$CASE" \
+         "$([ -f "$W/.git" ] && echo yes || echo no)" "$(git -C "$W" symbolic-ref -q --short HEAD 2>&1)"; FAILED=1; }
 git -C "$(PR_DIR)" rev-parse --verify -q origin/main >/dev/null && printf 'ok   %s: base ref fetched\n' "$CASE" || { printf 'FAIL %s: origin/main missing in the clone\n' "$CASE"; FAILED=1; }
 B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
 grep -q 'PR #1' "$B" && grep -q 'typescript-engineering' "$B" && grep -q "$(PR_DIR).s-typescript-engineering" "$B" && grep -q 'src/gamma.ts' "$B" \
@@ -244,6 +254,39 @@ head -1 "$GUIDE" 2>/dev/null | grep -qx 'diff --git a/docs/User Guide.md b/docs/
 jq -e '."docs/User Guide.md".right == [1,2] and ."db/q.sql".left == [1,2,3] and ."db/q.sql".right == [1,2]' "$(PR_DIR).ctx/hunks.json" >/dev/null \
   && printf 'ok   %s: the hunk index keys the spaced path without its TAB and counts every content line\n' "$CASE" \
   || { printf 'FAIL %s: hunk index wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/hunks.json")"; FAILED=1; }
+run_rp abort 1 "reset"
+
+# --- per-skill checkout fallbacks: a copy when `git worktree add` fails, the
+# clone itself when the copy fails too, and the brief names the checkout the
+# skill gets (docs/skills.md → Clone, credential helper, cleanup) ---------------
+shim_dir() { # <fail-cp:0|1> → a PATH dir whose git refuses `worktree add`
+  local d="$SANDBOX/shim"
+  mkdir -p "$d"
+  printf '#!/usr/bin/env bash\ncase " $* " in (*" worktree add "*) exit 128;; esac\nexec %q "$@"\n' "$(command -v git)" > "$d/git"
+  [ "$1" = 1 ] && printf '#!/usr/bin/env bash\ncase "$*" in (*review-pr-1.s-*) exit 1;; esac\nexec %q "$@"\n' "$(command -v cp)" > "$d/cp"
+  chmod +x "$d"/*
+  printf '%s' "$d"
+}
+setup prepare_checkout_copy
+P0="$PATH"; PATH="$(shim_dir 0):$P0"; run_rp prepare 1; PATH="$P0"
+W="$(PR_DIR).s-typescript-engineering"; B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
+assert_jq '.outcome == "ready" and .skills["typescript-engineering"].workdir == "'"$W"'"' 'a refused worktree falls back to a copy'
+[ -d "$W/.git" ] && [ "$(git -C "$W" rev-parse HEAD)" = "$B1_SHA" ] \
+  && printf 'ok   %s: the copy holds its own .git at the PR HEAD\n' "$CASE" \
+  || { printf 'FAIL %s: copy wrong (.git directory: %s)\n' "$CASE" "$([ -d "$W/.git" ] && echo yes || echo no)"; FAILED=1; }
+grep -qF "\`$W\`" "$B" && printf 'ok   %s: the brief names the copy\n' "$CASE" || { printf 'FAIL %s: the brief does not name the copy\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
+setup prepare_checkout_clone
+P0="$PATH"; PATH="$(shim_dir 1):$P0"; run_rp prepare 1; PATH="$P0"
+B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
+assert_jq '.outcome == "ready" and ([.skills[] | select(.status == "run") | .workdir] == ["'"$(PR_DIR)"'", "'"$(PR_DIR)"'"])' 'a refused copy leaves each skill the clone itself'
+ls -d "$(PR_DIR)".s-* >/dev/null 2>&1 \
+  && { printf 'FAIL %s: a failed checkout left a directory behind\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no partial checkout is left\n' "$CASE"
+grep -qF "\`$(PR_DIR)\`" "$B" && ! grep -qF "$(PR_DIR).s-" "$B" \
+  && printf 'ok   %s: the brief names the clone, never a missing checkout\n' "$CASE" \
+  || { printf 'FAIL %s: the brief does not name the clone\n' "$CASE"; FAILED=1; }
 run_rp abort 1 "reset"
 
 # --- prepare gates ---------------------------------------------------------------

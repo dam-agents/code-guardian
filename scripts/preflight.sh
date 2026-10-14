@@ -441,8 +441,8 @@ ANOMALY_MIN_SAMPLES=10     # baseline reviews of one model before the audit's re
 # heartbeat. Never stricter than the historical one-hour tolerance.
 REVIEW_INTERVAL_QUIET="$(cfg review_interval_quiet)"
 case "$REVIEW_INTERVAL_QUIET" in
-  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=60;;          # missing/unparseable -> default
-  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=60;;
+  (''|*[!0-9]*) REVIEW_INTERVAL_QUIET=15;;          # missing/unparseable -> default
+  (*) [ "$REVIEW_INTERVAL_QUIET" -ge 1 ] || REVIEW_INTERVAL_QUIET=15;;
 esac
 HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 [ "$HB_GAP_MAX_S" -ge 3600 ] || HB_GAP_MAX_S=3600
@@ -798,11 +798,14 @@ prefetch_files() { # <number…>
 }
 
 # ------------------------------------------------------------ skill install ----
+# One install is one snapshot of the source's default branch: its HEAD SHA is
+# the ref of the tree listing and of every file fetch.
 install_skill() { # name source -> status string (local writes only)
-  local name="$1" src="$2" h slug sha cached count=0 p rel
+  local name="$1" src="$2" h slug sha ref cached count=0 p rel
   [ "$src" = "harness" ] && { printf 'harness'; return; }
   h="$(refhost "$src")"; slug="$(refslug "$src")"
-  sha="$(gh api --hostname "$h" "repos/$slug/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+  sha="$(gh api --hostname "$h" "repos/$slug/commits/HEAD" 2>/dev/null | jq -r '.sha // empty')"
+  ref="${sha:-HEAD}"
   mkdir -p "$SKILL_CACHE"
   cached="$(cat "$SKILL_CACHE/$name.sha" 2>/dev/null || true)"
   if [ -n "$sha" ] && [ "$sha" = "$cached" ] && [ -d "$HOME_DIR/.claude/skills/$name" ]; then
@@ -813,11 +816,11 @@ install_skill() { # name source -> status string (local writes only)
     [ -z "$p" ] && continue
     rel="${p#.agents/skills/$name/}"
     mkdir -p "$HOME_DIR/.claude/skills/$name/$(dirname "$rel")"
-    gh api --hostname "$h" "repos/$slug/contents/$p?ref=main" -H 'Accept: application/vnd.github.raw' \
+    gh api --hostname "$h" "repos/$slug/contents/$p?ref=$ref" -H 'Accept: application/vnd.github.raw' \
       > "$HOME_DIR/.claude/skills/$name/$rel" 2>/dev/null \
       || { logev error skill_install "$name from $src: fetch of $p did not succeed"; printf 'install-failed'; return; }
     count=$((count+1))
-  done < <(gh api --hostname "$h" "repos/$slug/git/trees/main?recursive=1" 2>/dev/null \
+  done < <(gh api --hostname "$h" "repos/$slug/git/trees/$ref?recursive=1" 2>/dev/null \
            | jq -r --arg pre ".agents/skills/$name/" '.tree[] | select(.type=="blob") | select(.path | startswith($pre)) | .path')
   [ "$count" -eq 0 ] && { logev error skill_install "$name from $src: no files found (tree listing empty or unreachable)"; printf 'install-failed'; return; }
   [ -n "$sha" ] && printf '%s' "$sha" > "$SKILL_CACHE/$name.sha"
@@ -841,13 +844,18 @@ hk_batch_since() { # <pending count>
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
-  local hk_only=false hk_n=0 hk_since hk_age=0
+  local hk_only=false hk_n=0 hk_since hk_age=0 art_rel
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$5" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
+  for a in "$1" "$2" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
+  # an artifact `retry_release` only releases the trigger of a published
+  # artifact (docs/artifact.md): tier 2, unlike a `generate`
+  art_rel="$(printf '%s' "$5" | jq '[.[] | select(.action == "retry_release")] | length')"
+  [ "$(printf '%s' "$5" | jq length)" -gt "$art_rel" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
+  hk_n="$art_rel"
   for a in "$3" "$4" "$resets"; do
     hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
   done
@@ -861,6 +869,11 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
       log "housekeeping batch: $hk_n item(s) pending since $hk_since — a bookkeeping-only run"
     else
       log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h) — deferred to the next run with work"
+    fi
+    # a run takes the batch: an item still due after it (a release that failed
+    # again) waits a full period, not one tick
+    if [ "$nothing" = "false" ]; then
+      printf '%s\n' "$NOW_ISO" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
@@ -2285,7 +2298,7 @@ if [ "$MODE" = "audit" ]; then
   DISK_JSON="$(jq -nc --argjson v "$DISK_JSON" --arg w "${work_kb:-}" '{volumes:$v, work_kb:(if $w == "" then null else ($w | tonumber) end)}')"
 
   while IFS=$'\t' read -r skill src; do
-    remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/main" 2>/dev/null | jq -r '.sha // empty')"
+    remote_sha="$(gh api --hostname "$(refhost "$src")" "repos/$(refslug "$src")/commits/HEAD" 2>/dev/null | jq -r '.sha // empty')"
     cached="$(cat "$SKILL_CACHE/$skill.sha" 2>/dev/null || true)"
     if [ -z "$remote_sha" ]; then check "skill_$skill" warn "source $src unreachable"
     elif [ "$remote_sha" != "$cached" ]; then check "skill_$skill" ok "update available (installs on next review)"

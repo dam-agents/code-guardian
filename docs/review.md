@@ -42,8 +42,8 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
    - `ready` — it writes the `in_progress` lock row, logs `locked`, writes the
      progress status, fetches context and the diff into `$PR_DIR.diff` with a
      hunk index, clones the branch with its base ref ([skills.md](skills.md) →
-     **Clone, credential helper, cleanup**), and renders the per-skill copies,
-     briefs, context pack and risk prescan.
+     **Clone, credential helper, cleanup**), and renders the per-skill
+     worktrees, briefs, context pack and risk prescan.
 
    The live trigger follows `rereview_trigger` and `rereview_delta_label` and
    sets the scope: `rereview_label` → `full: true`, else delta
@@ -223,12 +223,14 @@ profile's `## Checks` rows say what CI runs, as orientation only
 ([profile.md](profile.md) → **What it is, and is not**). Past 2000 diff lines:
 focus on the most critical files, still post a full review.
 
-**Audience: agent-written, agent-read code.** Human readability is not a review
-goal. Flag naming taste, cosmetic structure, comment density, file layout and
-"this would be clearer as…" restructuring **only** where they create a real
-defect risk — a misleading name that hides a bug, dead code that changes
-behavior, an abstraction that breaks its contract. Never request restructuring
-for human readers alone.
+**Audience** — the `Audience:` line of `work/MEMORY.md` → `## Review Style`;
+no line = `agent-written, agent-read code`. For agent-read code, human
+readability is not a review goal: flag naming taste, cosmetic structure,
+comment density, file layout and "this would be clearer as…" restructuring
+**only** where they create a real defect risk — a misleading name that hides a
+bug, dead code that changes behavior, an abstraction that breaks its contract.
+Any other audience (`people read and maintain this code`) makes them
+**Maintainability** findings, 🟢 unless they create such a risk.
 
 **Full-file verification** — end of step d: **every blocking finding, your
 candidates from step c and the skills'**, verified before you compose. The diff

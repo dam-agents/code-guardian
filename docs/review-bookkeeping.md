@@ -1,8 +1,7 @@
 # Review-run bookkeeping
 
 Read when the worklist's `read_set` names this file: `selfheals_due`,
-`label_cleanups_due`, `prunes_due` or `status_resets_due` is non-empty. A
-`housekeeping_only` run reads this file alone.
+`label_cleanups_due`, `prunes_due` or `status_resets_due` is non-empty.
 
 ## Label bookkeeping (`selfheals_due`, `label_cleanups_due`)
 

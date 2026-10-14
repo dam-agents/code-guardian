@@ -20,12 +20,13 @@ echo.
   monitor's claims (alert claims, the once-per-UTC-day stall-alert claim, the
   anomaly-alert marker) are already spent, so a second pass answers with less
   than the first.
-- **Bookkeeping alone waits.** `selfheals_due`, `prunes_due` and
-  `status_resets_due` never open the gate by themselves: they ride along with
-  the next run that has work of its own, and start a run of their own only after
-  6 hours of waiting or 10 pending items. That run's worklist carries
+- **Bookkeeping alone waits.** `selfheals_due`, `prunes_due`,
+  `status_resets_due` and an `artifacts_due` entry with
+  `action: retry_release` never open the gate by themselves: they ride along
+  with the next run that has work of its own, and start a run of their own only
+  after 6 hours of waiting or 10 pending items. That run's worklist carries
   `housekeeping_only: true` and reads the short set ([runbook.md](runbook.md) →
-  **Review run** step 2).
+  **Review run** step 2). Every run that takes the batch restarts the wait.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), read by the audit's
   `heartbeats` check and the monitor's `heartbeat_gap` alert. Each fire has one

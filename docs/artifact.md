@@ -78,8 +78,9 @@ log and stop this PR. A missing DAM surface never fails the run.
    gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$ARTIFACT_LABEL" '$v | @uri')" >/dev/null
    ```
 
-   A failed release is logged, not fatal: next run preflight emits a
-   `retry_release` entry.
+   A failed release is logged, not fatal: preflight emits a `retry_release`
+   entry, which waits as bookkeeping ([worklist.md](worklist.md) → **The
+   schedule gate**).
 6. **Audit line (mandatory)** — to the chat UI **and** as an `artifact` event
    ([logging.md](logging.md)), which is what the weekly audit counts:
    `PR #<n>: <artifact_skill> published → DAM <DAM_ID>, <REDACTIONS> redacted`

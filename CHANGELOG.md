@@ -11,7 +11,28 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.4.0 — 2026-10-14
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 9.3.0 — 2026-10-14
+
+**Upgrade:** the default of `review_interval_quiet` is now `15`. No quiet hours
+in `work/CONFIG.md` — `active_hours` missing or `00-23`, and `active_days`
+missing or `Mon-Sun` → nothing to do. With a window: `review_interval_quiet`
+missing → the new default applies; re-register the review schedules per
+[ONBOARDING.md](ONBOARDING.md) Step 6a. Set to `60` → offer the operator `15`
+in one line: a PR opened in a quiet hour waits up to 15 minutes instead of 60,
+an idle tick starts no session, and one gate pass costs about 30 GitHub API
+calls. A yes writes `review_interval_quiet: 15` and re-registers the review
+schedules per Step 6a; never change the key without the yes. Any other value →
+nothing.
+
+## 9.2.2 — 2026-10-14
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 9.2.1 — 2026-10-14
 
 **Upgrade:** Nothing — docs are re-read per run.
 

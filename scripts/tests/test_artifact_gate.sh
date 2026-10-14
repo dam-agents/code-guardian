@@ -12,8 +12,8 @@ artifact_case() { # <case> [history-file line…]
   base_config '- artifact_skill: pr-artifact@acme/skills' '- artifact_label: cg-artifact'
   local who='[{"login":"test-bot"}]'
   pr_json 1 "assigned PR" "${LABELS:-[]}" "$SHA1" | jq --argjson a "${ASSIGNEES:-$who}" '.assignees = $a' | open_prs_fx
-  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/main'
-  printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/main?recursive=1'
+  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
+  printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
   mkdir -p "$WORK/reviews"
   { printf '# PR #1: assigned PR\n'; for l in "$@"; do printf '%s\n' "$l"; done; } > "$WORK/reviews/pr-1.md"
   run_preflight review
