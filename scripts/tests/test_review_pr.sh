@@ -210,13 +210,15 @@ mk_profile() {
   jq -n '{profile:1, repo:"github.com/acme/widgets", default_branch:"main",
     modules:[{path:"src", name:"widgets-src", kind:"npm", workspace:false, role:"the widget sources", src:"src/package.json"},
              {path:"lib", name:"untouched-lib", kind:"npm", workspace:false, role:"not in this PR", src:"lib/package.json"}],
-    docs:[], decisions:[],
+    docs:[{paths:["src/**"], page:"docs/alpha.md", title:"Alpha & beta", stamp:"blob:1", via:"paths", src:"src/alpha.ts"}],
+    decisions:[],
     conventions:[{path:"CLAUDE.md", bytes:61, content:"# Rules\n\n## Style\nIndent with tabs in src/.\n\n## Tests\nRun make test.", src:"CLAUDE.md"}],
     ownership:[{pattern:"src/**", owners:"@acme/core", src:"CODEOWNERS"}],
     checks:{workflows:[], required:[]},
     noise:[{glob:"pnpm-lock.yaml", class:"lockfile", src:"builtin"}],
     history:{days:90, reviews:0, findings:0, fixed:0, still:0, dirs:[], classes:[]},
-    notes:[], structure:{doc_roots:[], adr_dirs:[]}}' > "$WORK/PROFILE.json"
+    notes:[{paths:"src/**", note:"Amounts are integer cents", src:"src/package.json", blob:"0", status:"current"}],
+    structure:{doc_roots:[], adr_dirs:[]}}' > "$WORK/PROFILE.json"
   {
     printf -- '---\nprofile: 1\nrepo: github.com/acme/widgets\n---\n\n## Modules (2)\n\n'
     printf '| path | name | kind | workspace | role | src |\n| --- | --- | --- | --- | --- | --- |\n'
@@ -244,6 +246,12 @@ assert_file_lacks "$SL" 'untouched-lib' 'no row of an untouched module'
 assert_file_contains "$SL" '^### CLAUDE.md (61 bytes)$' 'the conventions copy keeps its file heading'
 assert_file_contains "$SL" '^Run make test.$' 'the conventions copy is whole past its own ## headings'
 assert_file_lacks "$SL" 'Noise\|History' 'no section the PR does not touch'
+assert_file_contains "$SL" '^## Notes (agent-owned' 'the slice carries the agent-owned notes'
+assert_file_contains "$SL" '^- src/\*\* — Amounts are integer cents \[current\]$' 'a note row with its status'
+# a brief value with `&` arrives unchanged: bash 5.2 expands an unquoted `&` in
+# a ${t//…/…} replacement to the matched placeholder
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^- src/\*\* → docs/alpha.md — Alpha & beta (stamp' 'a verify_live row with & reaches the brief unchanged'
+assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" '{{' 'no placeholder left in a brief with &'
 run_rp abort 1 "reset"
 [ -e "$SL" ] && { printf 'FAIL %s: the slice outlived the abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the slice goes with the context directory\n' "$CASE"
 

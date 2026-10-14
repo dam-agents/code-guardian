@@ -948,19 +948,22 @@ cmd_prepare() {
   local skills nrun=0 tpl profile="" tpaths sevr
   tpaths="$(tool_paths)"; sevr="$(severity_rubric)"
   # the profile slice every skill of this PR reads instead of the whole map: the
-  # rows the PR touches by section, then the `## Conventions` copy, rendered
-  # from PROFILE.json because a copied file's own `## ` headings would end a
-  # cut of PROFILE.md early (docs/profile.md → Using it)
+  # rows the PR touches by section, the agent-owned notes, then the
+  # `## Conventions` copy, rendered from PROFILE.json because a copied file's
+  # own `## ` headings would end a cut of PROFILE.md early (docs/profile.md →
+  # Using it)
   if [ -f "$WORK/PROFILE.md" ] && [ "$(cfg project_profile)" != disabled ]; then
     local pj="$WORK/PROFILE.json"; [ -r "$pj" ] || pj=/dev/null
     profile="$CTX/profile.md"
-    { printf '# PR #%s — the rows of the repository map this PR touches, and the conventions. Full map: `%s` — read it only for a path outside these rows.\n' "$N" "$WORK/PROFILE.md"
+    { printf '# PR #%s — the rows of the repository map this PR touches, the agent-owned notes, and the conventions. Full map: `%s` — read it only for a path outside these rows.\n' "$N" "$WORK/PROFILE.md"
       jq -rn --slurpfile s "$CTX/slice.json" --slurpfile p "$pj" '
         def item: "- \(.row)\(if .verify_live then " — this PR changes its source: read it live" else "" end)";
-        ($s[0].profile_slice // []) as $r | (($p[0] // {}).conventions // []) as $c
+        ($s[0].profile_slice // []) as $r | (($p[0] // {}).conventions // []) as $c | (($p[0] // {}).notes // []) as $nt
         | ( ([ "modules", "docs", "decisions", "ownership", "checks" ] as $o | $o + ([ $r[].section ] | unique - $o - ["conventions"]))[] as $sec
             | [ $r[] | select(.section == $sec) ] | select(length > 0)
             | "", "## \($sec[0:1] | ascii_upcase)\($sec[1:])", "", (.[] | item) ),
+          ( $nt | select(length > 0)
+            | "", "## Notes (agent-owned — work/PROFILE-NOTES.md)", "", (.[] | "- \(.paths) — \(.note) [\(.status // "new")]") ),
           ( [ $r[] | select(.section == "conventions") ] as $cr | select(($cr + $c) | length > 0)
             | "", "## Conventions", (if ($cr | length) > 0 then "", ($cr[] | item) else empty end),
               ($c[] | "", "### \(.path) (\(.bytes) bytes)", "", (.content // "_(content omitted)_")) )'
