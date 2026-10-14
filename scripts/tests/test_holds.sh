@@ -155,7 +155,7 @@ assert_jq '.outcome == "error" and (.error | contains("no run id")) and (.error 
   'without a run id the hold is refused, and the refusal says how to pass one'
 assert_hold_run 7 - 'no hold file written'
 rp_as "" "" step 7 verified
-assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'every subcommand refuses without a run id'
+assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'a review step refuses without a run id too'
 
 new_case hold_gate_run_id
 base_config
