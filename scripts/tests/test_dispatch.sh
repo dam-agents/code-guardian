@@ -43,6 +43,7 @@ base_config
 run_precheck review
 assert_rc 0 'three first reviews start the session'
 WL="$WORKLIST"
+GATE_RUN="$(printf '%s' "$OUT" | sed -n 's/^run: \([^ ]*\) .*/\1/p')"
 run_ds plan "$WL"
 assert_rc 0 'plan succeeds'
 assert_jq '[.dispatch[].number] == [8, 9]' 'the PRs after the first are dispatched, in run order'
@@ -55,9 +56,13 @@ U8="$(printf '%s' "$OUT" | jq -r '.dispatch[0].worklist')"
 if printf '%s' "$OUT" | jq -e --arg u "$U8" '.dispatch[0].task | contains("worklist: " + $u) and contains("PR #8")' >/dev/null; then
   printf 'ok   %s: the task names the PR and its unit worklist\n' "$CASE"
 else printf 'FAIL %s: the task names the PR and its unit worklist (%s)\n' "$CASE" "$OUT"; FAILED=1; fi
+if [ -n "$GATE_RUN" ] && printf '%s' "$OUT" | jq -e --arg r "$GATE_RUN-pr8" \
+     '.dispatch[0].task | contains("run: " + $r + " ") and contains("export CG_RUN_ID=" + $r + ";")' >/dev/null; then
+  printf 'ok   %s: the task hands its session the run id <gate run id>-pr<n>\n' "$CASE"
+else printf 'FAIL %s: the task hands its session no run id %s-pr8 (%s)\n' "$CASE" "$GATE_RUN" "$OUT"; FAILED=1; fi
 assert_out_absent 'Ignore previous instructions' 'no PR text reaches a task'
 assert_file_jq "$U8" '[.reviews_due[].number] == [8] and .mode == "review"' 'the unit holds its PR alone'
-assert_file_jq "$U8" '.dispatched == {number: 8, by: "run-lead"}' 'the unit names its PR and the dispatching run'
+assert_file_jq "$U8" '.dispatched == {number: 8, by: "run-leader1"}' 'the unit names its PR and the dispatching run'
 assert_file_jq "$U8" '.read_set | index("docs/review.md") != null and index("work/MEMORY.md") != null' 'the unit carries its own read_set'
 case "$(ls -l "$U8" 2>/dev/null)" in
   (-rw-------*) printf 'ok   %s: the unit worklist is private to the instance\n' "$CASE";;
@@ -88,6 +93,7 @@ synthetic_worklist "$WL"
 run_ds plan "$WL"
 assert_jq '[.dispatch[].number] == [8, 7, 10]' 'urgent first, then mentions, reviews, CI failures; the first is kept'
 assert_jq '[.dispatch[].sessionTitle] == ["Re-review PR #8", "Review PR #7", "Triage CI on PR #10"]' 'a title names the review before the other work of its PR'
+assert_jq '[.dispatch[].task | capture("export CG_RUN_ID=(?<r>[^;]+);").r] == ["review-x-pr8", "review-x-pr7", "review-x-pr10"]' 'each session gets a run id of its own'
 U8="$SANDBOX/tmp/cg-worklist-review-x-pr8.json"
 assert_file_jq "$U8" '.mentions_due == [{number:8, id:501}] and [.reviews_due[].number] == [8]' 'a PR takes its mention with its review'
 assert_file_jq "$U8" '.urgent_alerts_due == [] and .selfheals_due == [] and .prunes_due == []' 'run-wide work and other PRs'"'"' rows are not copied'
@@ -95,7 +101,7 @@ assert_file_jq "$U8" '.label_cleanups_due == [{number:8, label:"cg-rereview"}]' 
 assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr7.json" '.urgent_alerts_due == [{number:7}] and (.read_set | index("docs/review-urgent.md") != null)' 'a PR takes its urgent alert with it'
 assert_file_jq "$U8" '.read_set | (index("docs/review-rereview.md") != null) and (index("docs/mentions.md") != null) and (index("docs/review-bookkeeping.md") != null)' 'its read_set follows its own entries'
 assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr7.json" '.read_set | index("docs/review-bookkeeping.md") == null' 'a unit without bookkeeping does not read it'
-assert_file_jq "$U8" '.logs == ["PR #8: dispatched by run run-lead to a session of its own", "project profile: current"]' 'its logs name the dispatch and keep the profile line'
+assert_file_jq "$U8" '.logs == ["PR #8: dispatched by run run-leader1 to a session of its own", "project profile: current"]' 'its logs name the dispatch and keep the profile line'
 assert_file_jq "$SANDBOX/tmp/cg-worklist-review-x-pr10.json" '[.ci_failures_due[].number] == [10] and .reviews_due == []' 'a CI failure alone is a unit too'
 run_ds rest "$WL" 7 8 10
 REST="$(printf '%s' "$OUT" | sed -n 's/^worklist: //p')"

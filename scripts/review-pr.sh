@@ -80,6 +80,10 @@
 #                                          the head so it is never tried again
 #                                          (docs/auto-merge.md)
 #
+# Every subcommand needs this run's id — the harness session id, else
+# CG_RUN_ID, the `run:` line of the prompt (docs/logging.md → The events log) —
+# and refuses without one: the run's events, holds and lock state are told
+# apart by it.
 # Every subcommand prints one JSON object with `outcome` and exits 0; the agent
 # reads the outcome. `context` and `compose-brief` are the exceptions: on
 # success they print the text above, and their guard failures are JSON like
@@ -163,6 +167,10 @@ DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 out() { printf '%s\n' "$1"; exit 0; }   # <json>
 fail() { logev error review_pr "PR #$N: $CMD — $1"; out "$(jq -nc --arg e "$1" --arg c "$CMD" '{outcome:"error", step:$c, error:$e}')"; }
 logstep() { logev info review_step "PR #$N $1"; }
+
+# this run's id, as log.sh resolves it short of its start-time fallback
+ME="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-${CG_RUN_ID:-}}}"
+[ -n "$ME" ] || fail "no run id, so this run's events, holds and lock state cannot be told apart from another run's. Start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=<id>;\` — <id> is the \`run:\` line of the prompt; a run without one sets one id for the whole session, \`<job>-<UTC yyyymmddThhmmssZ>\` (docs/logging.md → The events log)"
 
 # ------------------------------------------------------ REVIEWS.md rows ----
 # Concurrent runs rewrite the file, so every write holds its lock
@@ -522,7 +530,7 @@ live_change() { # <additions|deletions|changed_files>
 # when a foreign run is a live holder of the PR — lib/holds.sh's live_holders,
 # the rule preflight applies (docs/review-mechanics.md → Live holder).
 holder_alive() {
-  local recent=0 e me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}" foreign=0
+  local recent=0 e me="$ME" foreign=0
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
     [ -e "$e" ] || continue
     [ -n "$(find "$e" -maxdepth 0 -mmin "-$HOLDER_QUIET_MIN" 2>/dev/null)" ] && recent=1
@@ -699,7 +707,7 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
 }
 
 cmd_prepare() {
-  local ETA="" ONDEMAND=false me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  local ETA="" ONDEMAND=false me="$ME"
   while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (*) shift;; esac; done
   [ -n "$REPO" ] || fail "target repo unresolved"
   # re-entrant for the run that owns the state: a second prepare returns what
@@ -1863,8 +1871,7 @@ append_ledger() { # sha7 ts verdict body-file findings kind
 # temp paths. No GitHub call, no write. The lines that need judgment stay the
 # agent's.
 cmd_verify() {
-  local run="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
-  [ -n "$run" ] || fail "no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID), so this run's events cannot be told apart — check the terminal step, milestones, skill_timing, row, history, ledger and cleanup by hand"
+  local run="$ME"
   local cy checks="" term sha7 lts miss fanout collected row st rsha rts hts left="" f
   chk() { checks="$checks$1$TAB$2$TAB$3
 "; }
@@ -2005,11 +2012,7 @@ cmd_abort() {
 # ==================================================================== hold ====
 # The event after the hold write is the owner's first sign of life.
 cmd_hold() {
-  local why m me="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
-  if [ -z "$me" ]; then   # no stable run id: nothing could prove the owner alive
-    logev warn hold "PR #$N: no run id (LOG_RUN_ID or CLAUDE_CODE_SESSION_ID) — worked without a hold"
-    out '{"outcome":"held_by_you","note":"no run id — the PR is not held"}'
-  fi
+  local why m me="$ME"
   for m in $(hold_release_others "$N" "$me"); do
     logev info hold "PR #$m: released — this run moves on to PR #$N"
   done
@@ -2049,7 +2052,7 @@ cmd_row() {
 }
 
 cmd_release() {
-  if hold_release "$N" "${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-}}"; then
+  if hold_release "$N" "$ME"; then
     logev info hold "PR #$N: released"
   else
     logev info hold "PR #$N: release — this run held nothing"

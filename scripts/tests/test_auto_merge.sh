@@ -152,7 +152,7 @@ RP="$REPO_ROOT/scripts/review-pr.sh"
 run_merge() {
   : > "$SANDBOX/gh.log"
   OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX" GH_CALLS_LOG="$SANDBOX/gh.log" \
-         PATH="$T_DIR/bin:$PATH" bash "$RP" merge 1 --sha "$SHA1" 2>/dev/null)"
+         CG_RUN_ID=review-merge-run PATH="$T_DIR/bin:$PATH" bash "$RP" merge 1 --sha "$SHA1" 2>/dev/null)"
 }
 MERGE_SLUG="api -X PUT repos/acme/widgets/pulls/1/merge -f sha=$SHA1 -f merge_method=squash"
 

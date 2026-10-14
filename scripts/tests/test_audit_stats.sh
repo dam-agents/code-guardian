@@ -493,6 +493,22 @@ run_preflight audit
 assert_jq '.stats.stalls.stalled == 0' 'a clean week reports zero stalls'
 assert_jq '.stats.stalls.wasted_output_tokens == 0' 'nothing wasted'
 
+# --- a session under its gate's run id: the gate's own pod_boot is no restart --
+# the gate pass logs the restart before the session starts, and on a harness
+# without a session id the session logs under the gate's id (CG_RUN_ID)
+new_case audit_stalls_own_boot
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+ev review-20261014T100000Z-41 pod_boot "pod restarted since last run" "$(iso_ago 7300)"
+ev review-20261014T100000Z-41 review_step "PR #15 abc1234 locked"
+ev g2 review_step "PR #16 def5678 locked" "$(iso_ago 4000)"
+ev other pod_boot "pod restarted since last run" "$(iso_ago 3800)"
+ev g2 review_step "PR #16 def5678 skill:doc-drift done" "$(iso_ago 3600)"
+run_preflight audit
+assert_jq '.stats.stalls.by_cause == {hard_kill: 1, pod_restart: 1}' \
+  'a restart its own gate logged is no restart of the run; one another run logged inside the window is'
+
 # --- weekly token totals: one count per run (stats.tokens) -------------------
 # the tokens event carries cumulative totals and a resumed session ends twice:
 # a run counts its last event alone, an event with no run id counts on its own

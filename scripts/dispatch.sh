@@ -23,8 +23,10 @@
 #       no unit worklist from `plan` is refused. With no <n> it prints
 #       <worklist> itself and its title.
 #
-# The task text is a fixed template carrying the PR number and the unit's path
-# and nothing from the PR, because it reaches the new session as its prompt.
+# The task text is a fixed template carrying the PR number, the unit's path and
+# the session's run id — the unit file's name, `<gate run id>-pr<n>`
+# (docs/logging.md → The events log) — and nothing from the PR, because it
+# reaches the new session as its prompt.
 # A session title names the work and PR numbers alone, in the form
 # `<Verb> <object>` (TITLE_JQ); the task's first line names the PR too, for a
 # platform that takes no sessionTitle.
@@ -107,7 +109,8 @@ case "$CMD" in
     for n in $NUMS; do
       case "$n" in (''|*[!0-9]*) continue;; esac
       UNIT="$BASE-pr$n.json"
-      jq --argjson n "$n" --arg by "${LOG_RUN:0:8}" "$READ_SET_JQ$UNIT_JQ"'
+      URUN="$(basename "$UNIT" .json)"; URUN="${URUN#cg-worklist-}"
+      jq --argjson n "$n" --arg by "$(run_short "$LOG_RUN")" "$READ_SET_JQ$UNIT_JQ"'
         only_prs([$n])
         | del(.housekeeping_only)
         | .dispatched = {number: $n, by: $by}
@@ -117,6 +120,7 @@ case "$CMD" in
         || { rm -f "$UNIT"; logev error dispatch "PR #$n: the unit worklist could not be written — the run keeps the PR"; continue; }
       TASK="Review PR #$n — a review heartbeat dispatched by one that found several PRs.
 worklist: $UNIT
+run: $URUN — start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=$URUN;\` (docs/logging.md → **The events log**).
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
       TITLE="$(jq -r --argjson n "$n" "$UNIT_JQ$TITLE_JQ"'unit_title($n)' "$WL")"
       OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" --arg s "$TITLE" \

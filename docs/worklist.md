@@ -28,10 +28,10 @@ echo.
   **Review run** step 2).
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), read by the audit's
-  `heartbeats` check and the monitor's `heartbeat_gap` alert. The gate logs
-  outside a session, so its `precheck` event and the pass it drives carry their
-  own run id and the session carries another — read one fire as that pair
-  ([logging.md](logging.md) → **The events log**).
+  `heartbeats` check and the monitor's `heartbeat_gap` alert. Each fire has one
+  run id: the gate's `precheck` event and its pass log under it, the worklist
+  file carries it in its name, and the prompt's `run:` line hands it to the
+  session ([logging.md](logging.md) → **The events log**).
 - The gate broke — a crash, a pass over the gate's own 100 s budget (its prompt
   names the last logged step), the platform's two-minute limit, or a preflight
   that could not decide (no target repo, no answer from the GitHub API) — and the
@@ -136,10 +136,10 @@ key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
 by}`, and a `read_set` of its own — and prints the exact `name`
 (`code-guardian-review-pr-<n>`), `task`, `sessionTitle` and `model` (the
 config's `review_model`, absent under `default`) of each
-`mcp__platform-outbound__schedule_once` call. The task carries the PR number and
-the unit's path alone. `dispatch.sh rest` then writes the run's own worklist
-without the PRs the platform accepted and prints its session title; a PR it
-refused stays in the run. The new session takes its PR's hold first; a PR whose
+`mcp__platform-outbound__schedule_once` call. The task carries the PR number,
+the unit's path and the session's run id alone. `dispatch.sh rest` then writes
+the run's own worklist without the PRs the platform accepted and prints its
+session title; a PR it refused stays in the run. The new session takes its PR's hold first; a PR whose
 session never starts is the next heartbeat's
 ([scripts/dispatch.sh](../scripts/dispatch.sh)).
 

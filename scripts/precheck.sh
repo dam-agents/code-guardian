@@ -25,6 +25,12 @@
 #                    target repo, no answer from the API), which is a broken
 #                    gate, never an idle tick.
 #
+# Every fire gets one run id, `<mode>-<UTC stamp>-<pid>` (docs/logging.md →
+# The events log): exported as CG_RUN_ID to the pass, so the gate and the pass
+# log under it, named in the worklist file, and printed as `run:` in every
+# prompt that starts a session, which passes it on to its scripts. log.sh
+# prefers a harness session id where one exists.
+#
 # The pass is never run twice for one fire. Its bookkeeping is one-shot — the
 # `done -> awaiting_label` flip; for the monitor its alert claims, the
 # once-per-UTC-day stall-alert claim and the anomaly-alert marker — so the run
@@ -40,13 +46,6 @@ export LC_ALL=C
 MODE="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="${TMPDIR:-/tmp}"
-
-LOG_JOB="$MODE"
-# stdout is the task prompt (and an idle fire must print nothing at all), so
-# every command below it writes to a file, a variable or /dev/null
-if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then
-  logev() { :; }; log_redact() { printf '%s' "$1"; }
-fi
 
 # the pass this mode runs, the command that re-runs it in a session (preflight.sh
 # takes the mode, monitor.sh none), and its one-shot bookkeeping that a second
@@ -70,6 +69,17 @@ case "$MODE" in
     printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey|monitor).\n' "$MODE"
     exit 2;;
 esac
+
+export CG_RUN_ID="$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+# the line every session-starting prompt below ends with
+RUN_LINE="run: $CG_RUN_ID — start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=$CG_RUN_ID;\` (docs/logging.md → **The events log**)."
+
+LOG_JOB="$MODE"
+# stdout is the task prompt (and an idle fire must print nothing at all), so
+# every command below it writes to a file, a variable or /dev/null
+if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then
+  logev() { :; }; log_redact() { printf '%s' "$1"; }
+fi
 
 # The scratch of a gated fire, bounded here rather than by the session: a
 # skipped fire has no session to clean up after it, and a gate that the
@@ -105,18 +115,19 @@ else
 fi
 
 if [ "${#LIMIT[@]}" -gt 0 ] && { [ "$PRE_RC" -eq 124 ] || [ "$PRE_RC" -eq 137 ]; }; then
-  # the last line a gated pass (run id <start>-<pid>, never this gate's) logged;
-  # a pass across 00:00 UTC logged into two daily files
+  # the last line the pass logged under this gate's run id; a pass across
+  # 00:00 UTC logged into two daily files
   DAYS=("${START%%T*}"); [ "$(date -u +%Y-%m-%d)" = "${START%%T*}" ] || DAYS+=("$(date -u +%Y-%m-%d)")
   LAST="$(for d in "${DAYS[@]}"; do cat "${LOG_DIR:-/nonexistent}/events-$d.jsonl" 2>/dev/null; done \
     | jq -r --arg job "$MODE" --arg since "$START" --arg me "${LOG_RUN:-}" '
-      select(.job == $job and .ts >= $since and .run != $me and (.run | test("^[0-9]{8}T[0-9]{6}Z-[0-9]+$")))
+      select(.job == $job and .ts >= $since and .run == $me)
       | "\(.event): \(.msg)"' 2>/dev/null \
     | tail -1 | cut -c1-200)"
   LAST="$(log_redact "${LAST:-none}")"
   logev error precheck "$MODE gate: $PASS stopped at its ${BUDGET}s budget — the run starts and does the work manually — last step: $LAST"
   printf 'precheck (%s): scripts/%s did not finish in its %ss budget (last logged step: %s). Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat. One-shot bookkeeping of the stopped pass (%s) may be spent, so %s.\n' \
     "$MODE" "$PASS" "$BUDGET" "$LAST" "$SPENT" "$LOST"
+  printf '%s\n' "$RUN_LINE"
   exit 2
 fi
 
@@ -124,6 +135,7 @@ if ! printf '%s' "$JSON" | jq -e 'type == "object" and has("nothing_to_do")' >/d
   logev error precheck "$MODE gate: $PASS printed no worklist (exit $PRE_RC) — the run starts and does the work manually${WHY:+ — stderr: $WHY}"
   printf 'precheck (%s): scripts/%s printed no JSON worklist (exit %s)%s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PASS" "$PRE_RC" "${WHY:+ — stderr: $WHY}"
+  printf '%s\n' "$RUN_LINE"
   exit 2
 fi
 
@@ -133,6 +145,7 @@ if [ -n "$PRE_ERR" ]; then
   logev error precheck "$MODE gate: $PASS could not decide (exit $PRE_RC) — the run starts and does the work manually — $PRE_ERR"
   printf 'precheck (%s): scripts/%s could not decide (exit %s): %s. Read docs/runbook.md and docs/worklist.md and do the equivalent work manually — never silently skip a heartbeat.\n' \
     "$MODE" "$PASS" "$PRE_RC" "$PRE_ERR"
+  printf '%s\n' "$RUN_LINE"
   exit 2
 fi
 
@@ -143,12 +156,13 @@ fi
 
 # The worklist carries the resolved config (roster ids, hosts, markers) and the
 # per-PR inventories, and /tmp is shared: the file is this instance's to read.
-OUT="$TMP/cg-worklist-$MODE-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+OUT="$TMP/cg-worklist-$CG_RUN_ID.json"
 ( umask 077; : > "$OUT" ) 2>/dev/null || true
 if ! printf '%s\n' "$JSON" > "$OUT" 2>/dev/null; then
   logev error precheck "$MODE gate: the worklist file could not be written — the run recomputes it"
   printf 'precheck (%s): work is due, but the worklist file could not be written. Run `%s` yourself. One-shot bookkeeping of the first pass (%s) is already spent, so %s.\n' \
     "$MODE" "$RERUN" "$SPENT" "$LOST"
+  printf '%s\n' "$RUN_LINE"
   exit 0
 fi
 
@@ -174,4 +188,5 @@ printf 'worklist: %s\n' "$OUT"
 printf 'mode=%s, due: %s\n' "$MODE" "${WHAT:-see the worklist}"
 printf '%s' "$JSON" | jq -r '.logs[]? | "- " + .'
 printf 'The worklist above is already computed. Read the file, do not run %s again this run.\n' "$PASS"
+printf '%s\n' "$RUN_LINE"
 exit 0

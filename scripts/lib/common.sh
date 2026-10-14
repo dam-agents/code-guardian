@@ -219,6 +219,16 @@ events_jsonl() { # [event]
   else cat "$LOG_DIR"/events-*.jsonl 2>/dev/null; fi | jq -c -R 'fromjson? // empty' 2>/dev/null
 }
 
+# a run id as a log line names it: a harness session UUID by its first 8
+# characters, a gate's `<mode>-<stamp>-<pid>` id whole (docs/logging.md → The
+# events log)
+run_short() { # <run-id>
+  case "$1" in
+    ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*) printf '%s' "${1:0:8}";;
+    (*) printf '%s' "$1";;
+  esac
+}
+
 # the payload of the last `<!-- findings-json: … -->` or `<!-- review-meta: … -->`
 # line of a history file or section on stdin (docs/review-mechanics.md →
 # Summary body format); nothing when the line is absent
