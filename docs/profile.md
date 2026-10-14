@@ -114,9 +114,10 @@ builds its `files[]` from the diff, whole.
 
 - **Skill briefs** point to the PR's slice, one file `prepare` writes for all
   its skills: a header naming `work/PROFILE.md` (read only for a path outside
-  the slice), the `profile_slice` rows by section, the `## Notes` rows, the
-  `## Conventions` copy; the brief adds the `verify_live` rows and
-  `structure_changed` ([skills.md](skills.md) → **Invocation & audit log**).
+  the slice), the `profile_slice` rows by section, the PR's noise files (paths,
+  or classes past five), the `## Notes` rows, the `## Conventions` copy; the
+  brief adds the `verify_live` rows and `structure_changed`
+  ([skills.md](skills.md) → **Invocation & audit log**).
   No profile, or `disabled` → no slice, and the brief says no map is
   available.
 - **The review** uses `profile_slice` and `history_slice` for orientation and

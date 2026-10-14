@@ -116,6 +116,7 @@ grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CAS
 assert_file_contains "$B" 'no repository map is available' 'without a profile the brief says no map is available'
 assert_file_lacks "$B" 'PROFILE\.md\|profile\.md' 'without a profile the brief names no map path'
 [ -n "$BUDGET" ] && assert_file_contains "$B" "Time budget: $BUDGET minutes" 'the brief carries the budget minutes of the script constant'
+assert_file_contains "$B" 'again during step 1 before each new file or check' 'the budget is checked during the skill work, not only after it'
 assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" 'Scope: the whole clone' 'an always skill scopes the whole clone'
 assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" 'Focus' 'a first review gives an always skill no focus'
 assert_file_contains "$(PR_DIR).ctx/context.json" '"looks ok"' 'human comment kept in context'
@@ -245,7 +246,9 @@ assert_file_contains "$SL" '^- src/\*\* → @acme/core$' 'a touched ownership ro
 assert_file_lacks "$SL" 'untouched-lib' 'no row of an untouched module'
 assert_file_contains "$SL" '^### CLAUDE.md (61 bytes)$' 'the conventions copy keeps its file heading'
 assert_file_contains "$SL" '^Run make test.$' 'the conventions copy is whole past its own ## headings'
-assert_file_lacks "$SL" 'Noise\|History' 'no section the PR does not touch'
+assert_file_lacks "$SL" 'History' 'no section the PR does not touch'
+assert_file_contains "$SL" '^## Noise (changed files' 'the slice carries the noise files of the PR'
+assert_file_contains "$SL" '^- pnpm-lock.yaml \[lockfile\]$' 'a noise file with its class'
 assert_file_contains "$SL" '^## Notes (agent-owned' 'the slice carries the agent-owned notes'
 assert_file_contains "$SL" '^- src/\*\* — Amounts are integer cents \[current\]$' 'a note row with its status'
 # a brief value with `&` arrives unchanged: bash 5.2 expands an unquoted `&` in
@@ -254,6 +257,21 @@ assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^- src/\*\* → docs/a
 assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" '{{' 'no placeholder left in a brief with &'
 run_rp abort 1 "reset"
 [ -e "$SL" ] && { printf 'FAIL %s: the slice outlived the abort\n' "$CASE"; FAILED=1; } || printf 'ok   %s: the slice goes with the context directory\n' "$CASE"
+
+# more than five noise files: the slice names their classes, not the paths
+setup brief_profile_noise_classes
+mk_profile
+git -C "$FX" checkout -q b1
+for d in a b c d e; do mkdir -p "$FX/$d"; printf 'lockfileVersion: 9\n' > "$FX/$d/pnpm-lock.yaml"; done
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm locks
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_file_contains "$(PR_DIR).ctx/profile.md" '^- 6 files: lockfile$' 'six noise files: the slice names the count and the classes'
+assert_file_lacks "$(PR_DIR).ctx/profile.md" '^- a/pnpm-lock.yaml' 'six noise files: no path list'
+run_rp abort 1 "reset"
 
 setup brief_profile_disabled '- project_profile: disabled'
 mk_profile
