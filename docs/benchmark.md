@@ -221,7 +221,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
-   NFS — [persistence.md](persistence.md)):
+   NFS — [persistence.md](persistence.md)), with `origin/main` on the base
+   commit: the base ref every skill brief diffs against, as in a `prepare`
+   clone ([skills.md](skills.md) → **Clone, credential helper, cleanup**):
 
    ```bash
    B="<fixture_root>/<slug>"; PR_DIR="/tmp/benchmark-pr-<slug>"
@@ -230,6 +232,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench add -A
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench commit -qm base
    git -C "$PR_DIR" branch -m main && git -C "$PR_DIR" checkout -qb pr
+   git -C "$PR_DIR" update-ref refs/remotes/origin/main main
    find "$PR_DIR" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
    cp -a "$B/head-v1/." "$PR_DIR/"
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench add -A
@@ -239,13 +242,15 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 2. **First review** — bracket it `"<slug>-first"`. Inside the bracket: run the
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
    routing list = `git -C "$PR_DIR" diff --name-only main..pr`; briefs rendered
-   by you from `scripts/templates/skill-brief.md`, its severity rubric the
-   bullets under **Severity:** of [finding-form.md](finding-form.md), its
-   time budget the `SKILL_BUDGET_MIN` of `review-pr.sh` and its Orientation
-   paragraph the no-map form `prepare` writes, because a fixture has no
-   profile and no live PR means no `review-pr.sh` helper applies; each
-   subagent's prompt is the one line `prepare` would write, naming the skill,
-   PR #0 and that brief). Then spawn
+   by you from `scripts/templates/skill-brief.md`, its base ref `main`, its
+   checkout one detached worktree per skill when two or more run
+   (`git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-<skill>"`, else
+   `$PR_DIR`), its severity rubric the bullets under **Severity:** of
+   [finding-form.md](finding-form.md), its time budget the `SKILL_BUDGET_MIN`
+   of `review-pr.sh` and its Orientation paragraph the no-map form `prepare`
+   writes, because a fixture has no profile and no live PR means no
+   `review-pr.sh` helper applies; each subagent's prompt is the one line
+   `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
    **one fresh reviewer subagent**, without a model or effort override, whose
    prompt is [`scripts/templates/reviewer-brief.md`](../scripts/templates/reviewer-brief.md)
    rendered verbatim — nothing added, nothing cut. Each value is substituted
@@ -261,8 +266,10 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    pass it `manifest.json`, past results, or anything ground-truth-adjacent.
    Archive the skill outputs beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
-3. **Re-review** — bracket it `"<slug>-rereview"`. Advance the tree to v2
-   (repeat the swap-and-commit on `pr` with `head-v2/`), re-run the fan-out per
+3. **Re-review** — bracket it `"<slug>-rereview"`. Clear the first review's
+   skill state (`rm -rf "$PR_DIR".out "$PR_DIR".s-*`, then
+   `git -C "$PR_DIR" worktree prune`), advance the tree to v2 (repeat the
+   swap-and-commit on `pr` with `head-v2/`), re-run the fan-out per
    docs/review-rereview.md → **Re-review output** (routing from
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**
    fresh reviewer subagent — never the one that wrote the first review, so it
