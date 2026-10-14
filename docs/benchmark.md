@@ -222,8 +222,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)), with `origin/main` on the base
-   commit: the base ref every skill brief diffs against, as in a `prepare`
-   clone ([skills.md](skills.md) → **Clone, credential helper, cleanup**):
+   commit: the base ref of every skill brief and of the run's own diffs, which
+   no skill checkout can move, as in a `prepare` clone
+   ([skills.md](skills.md) → **Clone, credential helper, cleanup**):
 
    ```bash
    B="<fixture_root>/<slug>"; PR_DIR="/tmp/benchmark-pr-<slug>"
@@ -241,11 +242,11 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
 2. **First review** — bracket it `"<slug>-first"`. Inside the bracket: run the
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
-   routing list = `git -C "$PR_DIR" diff --name-only main..pr`; briefs rendered
-   by you from `scripts/templates/skill-brief.md`, its base ref `main`, its
-   checkout one detached worktree per skill when two or more run
-   (`git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-<skill>"`, else
-   `$PR_DIR`), its severity rubric the bullets under **Severity:** of
+   routing list = `git -C "$PR_DIR" diff --name-only origin/main..pr`; briefs
+   rendered by you from `scripts/templates/skill-brief.md`, its base ref
+   `main`, its checkout a detached worktree per skill
+   (`git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-<skill>"`), its
+   severity rubric the bullets under **Severity:** of
    [finding-form.md](finding-form.md), its time budget the `SKILL_BUDGET_MIN`
    of `review-pr.sh` and its Orientation paragraph the no-map form `prepare`
    writes, because a fixture has no profile and no live PR means no
@@ -274,7 +275,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**
    fresh reviewer subagent — never the one that wrote the first review, so it
    knows only the posted prior review, as in production. Same template, with
-   `{{PHASE}}` = `rereview`, `{{DIFF}}` = `` `git -C "$PR_DIR" diff main..pr` ``,
+   `{{PHASE}}` = `rereview`, `{{DIFF}}` = `` `git -C "$PR_DIR" diff origin/main..pr` ``,
    `{{HEAD_SHA}}` = `head_sha_v2` of `$B/pr.json`, `{{OUTPUT}}` = `delta
    re-review`, `{{OUT_FILE}}` =
    `$HOME/work/benchmark/results/raw/<ts>-<slug>-rereview.md`, and

@@ -248,6 +248,16 @@ rm -rf "$PR_DIR.s-demo" && git -C "$PR_DIR" worktree prune
 git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr
 OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - <(git -C "$PR_DIR" diff main..pr) 2>&1; printf 'rc=%s' "$?")"
 assert_out_contains '^rc=0$' 'a re-review worktree made after the prune diffs base to v2'
+# every skill, a lone one included, gets its own worktree, and the run's own
+# diffs read origin/main: a skill checkout can move the local main, not that ref
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'its checkout a detached worktree per skill$' 'the documented fan-out gives every skill a worktree'
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'routing list = `git -C "$PR_DIR" diff --name-only origin/main\.\.pr`' 'the documented routing diffs against origin/main'
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" '`{{DIFF}}` = `` `git -C "$PR_DIR" diff origin/main\.\.pr` ``' 'the documented re-review diff reads origin/main'
+V2="$(git -C "$PR_DIR" diff origin/main..pr)"
+git -C "$PR_DIR.s-demo" branch -f main HEAD >/dev/null 2>&1
+OUT="$( [ "$(git -C "$PR_DIR" rev-parse main)" = "$(git -C "$PR_DIR" rev-parse pr)" ] \
+  && [ "$(git -C "$PR_DIR" diff origin/main..pr)" = "$V2" ] && echo kept)"
+assert_out_contains '^kept$' 'a skill that moves main leaves the origin/main..pr diff unchanged'
 
 new_case e2e_leaky_fixture_is_rejected
 FIX="$SANDBOX/benchmark/fixture"
