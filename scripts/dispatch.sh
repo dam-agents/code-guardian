@@ -23,8 +23,10 @@
 #       no unit worklist from `plan` is refused. With no <n> it prints
 #       <worklist> itself and its title.
 #
-# The task text is a fixed template carrying the PR number and the unit's path
-# and nothing from the PR, because it reaches the new session as its prompt.
+# The task text is a fixed template carrying the PR number, the unit's path and
+# the session's run id — the unit file's name, `<gate run id>-pr<n>`
+# (docs/logging.md → The events log) — and nothing from the PR, because it
+# reaches the new session as its prompt.
 # A session title names the work and PR numbers alone, in the form
 # `<Verb> <object>` (TITLE_JQ); the task's first line names the PR too, for a
 # platform that takes no sessionTitle.
@@ -45,7 +47,7 @@ die() { printf 'dispatch: %s\n' "$1" >&2; exit 2; }
 # session that reviews the PR announces it first, and its bookkeeping rows, so
 # one session writes that PR's REVIEWS.md row. Run order is docs/runbook.md → Review run
 # steps 5 to 10: urgent reviews, mentions, reviews, artifacts, CI failures,
-# merges, fixes.
+# merges, fixes. An artifact `retry_release` is bookkeeping: it makes no unit.
 UNIT_JQ='
   def per_pr: ["reviews_due","mentions_due","ci_failures_due","merges_due","fixes_due","artifacts_due","urgent_alerts_due",
                "selfheals_due","label_cleanups_due","prunes_due","status_resets_due"];
@@ -56,7 +58,7 @@ UNIT_JQ='
   def units:
     ([(.reviews_due // [])[] | select(.urgent == true) | .number]
      + [(.mentions_due // [])[].number] + [(.reviews_due // [])[].number]
-     + [(.artifacts_due // [])[].number] + [(.ci_failures_due // [])[].number]
+     + [(.artifacts_due // [])[] | select(.action != "retry_release") | .number] + [(.ci_failures_due // [])[].number]
      + [(.merges_due // [])[].number] + [(.fixes_due // [])[].number])
     | map(select(type == "number"))
     | reduce .[] as $n ([]; if any(.[]; . == $n) then . else . + [$n] end);
@@ -73,7 +75,7 @@ TITLE_JQ='
          elif $r.urgent == true then "Review urgent PR #\($n)"
          else "Review PR #\($n)" end)
       elif has_pr("mentions_due"; $n) then "Answer mention on #\($n)"
-      elif has_pr("artifacts_due"; $n) then "Publish artifact for PR #\($n)"
+      elif any((.artifacts_due // [])[]; .number == $n and .action != "retry_release") then "Publish artifact for PR #\($n)"
       elif has_pr("ci_failures_due"; $n) then "Triage CI on PR #\($n)"
       elif has_pr("merges_due"; $n) then "Merge PR #\($n)"
       elif has_pr("fixes_due"; $n) then "Fix findings on PR #\($n)"
@@ -107,7 +109,8 @@ case "$CMD" in
     for n in $NUMS; do
       case "$n" in (''|*[!0-9]*) continue;; esac
       UNIT="$BASE-pr$n.json"
-      jq --argjson n "$n" --arg by "${LOG_RUN:0:8}" "$READ_SET_JQ$UNIT_JQ"'
+      URUN="$(basename "$UNIT" .json)"; URUN="${URUN#cg-worklist-}"
+      jq --argjson n "$n" --arg by "$(run_short "$LOG_RUN")" "$READ_SET_JQ$UNIT_JQ"'
         only_prs([$n])
         | del(.housekeeping_only)
         | .dispatched = {number: $n, by: $by}
@@ -117,6 +120,7 @@ case "$CMD" in
         || { rm -f "$UNIT"; logev error dispatch "PR #$n: the unit worklist could not be written — the run keeps the PR"; continue; }
       TASK="Review PR #$n — a review heartbeat dispatched by one that found several PRs.
 worklist: $UNIT
+run: $URUN — start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=$URUN;\` (docs/logging.md → **The events log**).
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
       TITLE="$(jq -r --argjson n "$n" "$UNIT_JQ$TITLE_JQ"'unit_title($n)' "$WL")"
       OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" --arg s "$TITLE" \

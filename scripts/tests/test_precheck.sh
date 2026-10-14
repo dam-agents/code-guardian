@@ -25,7 +25,8 @@ assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"pr
 new_case precheck_work_due
 base_config
 pr_json 7 "plain PR" '[]' "$SHA1" | open_prs_fx
-run_precheck review
+# a gate runs outside a session: no session id of the caller reaches log.sh
+CLAUDE_CODE_SESSION_ID="" LOG_RUN_ID="" run_precheck review
 assert_rc 0 'a first review due starts the session'
 assert_out_contains '^worklist: ' 'the gate names the worklist path'
 assert_out_contains 'reviews_due=1 (#7)' 'the summary says what is due, with the PR number'
@@ -38,6 +39,23 @@ else
 fi
 # the payload itself never travels in the prompt — only the summary does
 assert_out_absent 'head_sha' 'the worklist JSON stays out of the prompt'
+# one run id per fire (docs/logging.md → The events log): the worklist is named
+# after it, the gate and its pass log under it, and the prompt hands it on
+RUN="$(printf '%s' "$OUT" | sed -n 's/^run: \([^ ]*\) .*/\1/p')"
+case "$RUN" in
+  (review-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-[0-9]*)
+    printf 'ok   %s: the prompt names the run id <mode>-<stamp>-<pid>\n' "$CASE";;
+  (*) printf 'FAIL %s: no run id of the form review-<stamp>-<pid> in the prompt (%s)\n' "$CASE" "$RUN"; FAILED=1;;
+esac
+assert_out_contains "export CG_RUN_ID=$RUN;" 'and tells the session how to pass it on'
+if [ "$WORKLIST" = "$SANDBOX/tmp/cg-worklist-$RUN.json" ]; then
+  printf 'ok   %s: the worklist file is named after the run id\n' "$CASE"
+else printf 'FAIL %s: the worklist %s is not named after %s\n' "$CASE" "$WORKLIST" "$RUN"; FAILED=1; fi
+if jq -e -s --arg r "$RUN" '(map(select(.event == "precheck")) | length > 0 and all(.run == $r))
+                            and (map(select(.event == "heartbeat")) | length > 0 and all(.run == $r))' \
+     "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" >/dev/null 2>&1; then
+  printf 'ok   %s: the gate and its pass log under the run id\n' "$CASE"
+else printf 'FAIL %s: the gate and its pass log under different run ids\n' "$CASE"; FAILED=1; fi
 if [ -n "$WORKLIST" ] && [ "$(ls -l "$WORKLIST" 2>/dev/null | cut -c5-10)" = "------" ]; then
   printf 'ok   %s: the worklist file is readable by this instance alone\n' "$CASE"
 else printf 'FAIL %s: the worklist file is group- or world-readable\n' "$CASE"; FAILED=1; fi
@@ -75,6 +93,7 @@ assert_rc 2 'no JSON means the gate broke, not that the run is idle'
 assert_out_contains 'manually' 'the prompt tells the run to do the work itself'
 assert_out_contains 'exit 127' 'and names the exit code preflight left'
 assert_out_contains 'command not found' 'and the stderr that explains it'
+assert_out_contains '^run: review-' 'a broken gate also hands the session its run id'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'command not found' \
   'the cause also reaches the structured log'
 
@@ -117,6 +136,8 @@ cat > "$SANDBOX/scripts/preflight.sh" <<'PF'
 #!/usr/bin/env bash
 LOG_JOB=review; . "$(dirname "$0")/log.sh"
 logev info preflight "project profile: regenerating"
+# a line another run logs while the pass runs is never the pass's last step
+LOG_RUN=20261014T100000Z-999 logev info preflight "another run"
 sleep 30
 PF
 T0=$(date +%s)

@@ -13,19 +13,20 @@ order in the output.
 
 `scripts/preflight.sh review` installs or refreshes every repo-sourced skill
 (and the artifact skill when a generation is due) **only when a review or
-artifact is actually due**, mirroring `.agents/skills/<skill>/` from `main` of
-the source repo and caching by that repo's HEAD SHA. The worklist's `skills`
-object reports per-skill status: `installed (N files)` / `cached` / `harness` /
-`install-failed`.
+artifact is actually due**, mirroring `.agents/skills/<skill>/` from one
+snapshot of the source repo's default branch — its HEAD SHA — and caching by
+that SHA. The worklist's `skills` object reports per-skill status:
+`installed (N files)` / `cached` / `harness` / `install-failed`.
 
 - `install-failed` → that skill is skipped for every PR this run (section
   omitted, audit line `skipped (install-failed)`); never abort the run.
 - `harness` skills need no install.
 - Fallback (no preflight status for a configured skill): install it yourself —
-  `rm -rf ~/.claude/skills/<skill>`, enumerate
-  `gh api --hostname <src-host> "repos/<src-slug>/git/trees/main?recursive=1"`
+  `rm -rf ~/.claude/skills/<skill>`, read `<sha>` with
+  `gh api --hostname <src-host> "repos/<src-slug>/commits/HEAD" --jq .sha`, enumerate
+  `gh api --hostname <src-host> "repos/<src-slug>/git/trees/<sha>?recursive=1"`
   for paths under `.agents/skills/<skill>/`, then fetch each blob with
-  `gh api --hostname <src-host> "repos/<src-slug>/contents/<path>?ref=main" -H 'Accept: application/vnd.github.raw'`,
+  `gh api --hostname <src-host> "repos/<src-slug>/contents/<path>?ref=<sha>" -H 'Accept: application/vnd.github.raw'`,
   preserving subdirectories.
 
 ## Mandatory — not skippable
@@ -148,13 +149,13 @@ Skill findings feed the verdict like your own
 ## Clone, credential helper, cleanup
 
 Per-PR working directory `PR_DIR="/tmp/review-pr-<number>"`, with
-`$PR_DIR.out/` (skill outputs), `$PR_DIR.s-<skill>` (per-skill copies),
-`$PR_DIR.diff` and `$PR_DIR.ctx/` beside it — all made by `review-pr.sh
-prepare` and removed together, after the row is final, by `post`, `abort` or
-the phase guard that returns `head_moved`: exactly once per PR, never between
-skills, and **by exact name, never a bare `/tmp/review-pr-<n>*` glob** — for
-PR #4 that glob also matches PR #42, whose review may be running in a
-concurrent session.
+`$PR_DIR.out/` (skill outputs), `$PR_DIR.s-<skill>` (per-skill worktrees of
+the clone, a copy when that fails), `$PR_DIR.diff` and `$PR_DIR.ctx/` beside
+it — all made by `review-pr.sh prepare` and removed together, after the row is
+final, by `post`, `abort` or the phase guard that returns `head_moved`:
+exactly once per PR, never between skills, and **by exact name, never a bare
+`/tmp/review-pr-<n>*` glob** — for PR #4 that glob also matches PR #42, whose
+review may be running in a concurrent session.
 
 Preflight registers the git credential helper for every authenticated host
 (`gh auth setup-git`) before handing over review work, so `prepare`'s clone
@@ -162,7 +163,7 @@ Preflight registers the git credential helper for every authenticated host
 without flags. It fetches the base ref by explicit refspec
 (`<baseRefName>:refs/remotes/origin/<baseRefName>`), which is what makes
 `git diff origin/<baseRefName>...HEAD` resolve in the clone and in every
-per-skill copy, and for a fork PR it clones the base repository and fetches
+per-skill checkout, and for a fork PR it clones the base repository and fetches
 `pull/<n>/head`. `--depth 50` suffices unless a skill needs deeper history.
 
 **Clone failure** → every skill for this PR is `clone-failed` (sections

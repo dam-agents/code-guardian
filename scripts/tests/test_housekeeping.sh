@@ -112,6 +112,63 @@ run_preflight review
 assert_jq '(.mentions_due | length) == 1 and (.prunes_due | length) == 1' 'a mention and a pending prune'
 assert_jq '.nothing_to_do == false and (has("housekeeping_only") == false)' 'a mention starts the run at once'
 
+# --- an artifact retry_release is bookkeeping, a generate is not --------------
+# PR 1 is reviewed on its head and still assigned to the bot; its history file
+# carries the DAM marker unless the case says otherwise (docs/artifact.md).
+artifact_case() { # <case-name> [no-marker]
+  new_case "$1"
+  base_config '- artifact_skill: pr-artifact@acme/skills'
+  pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]' | open_prs_fx
+  add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+  printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
+  printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
+  { printf '# PR #1: assigned PR\n'; [ -n "${2:-}" ] || printf '<!-- artifact-dam: dam_1 -->\n'; } > "$WORK/reviews/pr-1.md"
+}
+
+artifact_case hk_retry_release_waits
+run_preflight review
+assert_jq '.artifacts_due == [{number: 1, action: "retry_release", triggers: ["assignee"]}]' 'the retry is still in the worklist'
+assert_jq '.nothing_to_do == true and (has("housekeeping_only") == false)' 'a lone retry_release does not start a session'
+assert_jq '.logs | any(contains("deferred to the next run with work"))' 'the deferral is logged'
+
+artifact_case hk_retry_release_past_wait
+printf '%s\n' "$(iso_ago 25200)" > "$WORK/$MARKER"
+run_preflight review
+assert_jq '.nothing_to_do == false and .housekeeping_only == true' 'past the wait it forces a bookkeeping-only run'
+assert_jq '.read_set == ["docs/artifact.md"]' 'that run reads the artifact file alone'
+# the release failed again: the trigger is still on the PR at the next tick
+run_preflight review
+assert_jq '(.artifacts_due | length) == 1 and .nothing_to_do == true' 'the run restarted the wait, so the next tick defers the retry'
+
+artifact_case hk_retry_release_with_prune
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+merged_pr_fx 5 "$SHA5"
+printf '%s\n' "$(iso_ago 25200)" > "$WORK/$MARKER"
+run_preflight review
+assert_jq '.housekeeping_only == true and (.prunes_due | length) == 1 and (.artifacts_due | length) == 1' 'a batch carries the prune and the retry'
+assert_jq '.read_set == ["docs/review-bookkeeping.md", "docs/artifact.md"]' 'and reads the file of each'
+
+artifact_case hk_retry_release_rides_along
+{ pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]'; pr_json 7 "new PR" '[]' "$SHA1"; } | open_prs_fx
+printf '%s\n' "$(iso_ago 25200)" > "$WORK/$MARKER"
+run_preflight review
+assert_jq '(.reviews_due | length) == 1 and .artifacts_due[0].action == "retry_release"' 'the review and the retry are in one worklist'
+assert_jq '.nothing_to_do == false and (has("housekeeping_only") == false)' 'the review starts the run'
+assert_jq '.logs | any(contains("ride along"))' 'the retry rides along'
+assert_jq '.read_set | index("docs/artifact.md") != null' 'the run reads the artifact file'
+pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]' | open_prs_fx
+run_preflight review
+assert_jq '(.artifacts_due | length) == 1 and .nothing_to_do == true' 'the run with work restarted the wait, so a retry still due waits again'
+
+artifact_case hk_generate_wakes no-marker
+run_preflight review
+assert_jq '.artifacts_due == [{number: 1, action: "generate", triggers: ["assignee"]}]' 'an artifact without a marker is due for generate'
+assert_jq '.nothing_to_do == false and (has("housekeeping_only") == false)' 'a generate starts the run at once'
+
+artifact_case hk_gate_skips_retry_release
+run_precheck review
+assert_rc 1 'a lone retry_release skips the fire'
+
 # --- a shepherd sweep never touches the review heartbeat's clock -------------
 new_case hk_shepherd_leaves_the_clock
 base_config '- slack_notifications: enabled'

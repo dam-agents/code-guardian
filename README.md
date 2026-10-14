@@ -21,15 +21,15 @@ audit runs its script as its platform **`precheck`**
 ([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
 whether the model is woken, so idle ticks cost nothing, and a started run
 receives the worklist the gate already computed. Bookkeeping that nobody waits
-on — prunes, self-heals, status resets — rides along with the next run that
-has real work ([`docs/worklist.md`](docs/worklist.md) →
-**The schedule gate**). Every scheduled session carries a title that says what
-it does — `Review PR #1457`, `Triage CI on PR #1457`,
-`Audit agent health 2026-10-09` ([`docs/runbook.md`](docs/runbook.md) →
-**Session titles**).
+on — prunes, self-heals, status resets, artifact trigger release retries —
+rides along with the next run that has real work
+([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
+scheduled session carries a title that says what it does — `Review PR #1457`,
+`Triage CI on PR #1457`, `Audit agent health 2026-10-09`
+([`docs/runbook.md`](docs/runbook.md) → **Session titles**).
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An
-optional active window checks hourly in the quiet hours outside it.
+optional active window checks every 15 minutes in the quiet hours outside it.
 `preflight.sh review` lists open non-draft PRs in one REST call and decides per
 PR what is due:
 
@@ -49,9 +49,9 @@ PR what is due:
   review (summary + inline comments, signed with `bot_display_name`, carrying
   the hidden dedup marker), label bookkeeping, and tracking in
   `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Reviews are concise and
-  assume agent-written, agent-read code. Re-review scope follows the trigger:
-  the label asks for the whole PR again, a review request, the delta label or
-  an on-demand ask for the delta only.
+  assume agent-written, agent-read code unless memory names another audience.
+  Re-review scope follows the trigger: the label asks for the whole PR again,
+  a review request, the delta label or an on-demand ask for the delta only.
 - The same heartbeat answers comments and PR descriptions addressed to the bot:
   questions get a reply, explicit review feedback is recorded to memory and
   confirmed in the reply, and "please re-review" is served on demand
@@ -235,7 +235,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `mention_replies` | asked (default `enabled`) | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
 | `mention_authors` | asked (default `collaborators`) | Whose GitHub mentions are handled: repository owners, members and collaborators, or `anyone` (`docs/config.md`). |
 | `project_profile` | asked (default `enabled`) | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
-| `artifact_skill` | defaulted to `pr-artifact@dam-agents/dam` | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
+| `artifact_skill` | asked (default `none`; suggested `pr-artifact@dam-agents/dam`) | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published publicly to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
 | `artifact_label` | asked with the artifact skill (default off) | PR label that requests the visual artifact, beside the assignment of `bot_login` — the artifact trigger of a GitHub App `bot_login`. The agent removes it once the artifact is published. |
 | `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
@@ -256,7 +256,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
-| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 60 min quiet under a window) | The heartbeat's two cadences and the window between them; each interval bounds how long a new PR waits for its run. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
+| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | The heartbeat's two cadences and the window between them; each interval bounds how long a new PR waits for its run. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one monitor alert, at most once per UTC day; `0`/`off` disables. |
 | `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one monitor alert; `0`/`off` disables. |
 | `model_alert_threshold` | not set (= `2`) | Runs ended on an API failure within one outage before the monitor alerts; `0`/`off` disables. |
