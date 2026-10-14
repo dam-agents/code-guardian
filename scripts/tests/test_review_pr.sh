@@ -417,6 +417,10 @@ run_rp prepare 1
 W="$(PR_DIR).s-typescript-engineering"; D="$(PR_DIR).s-doc-drift"
 printf 'junk\n' >> "$W/src/alpha.ts"
 git -C "$W" "${GIT_ID[@]}" commit -qam junk >/dev/null 2>&1
+CW="$(git -C "$W" rev-parse HEAD)"; CC="$(git -C "$(PR_DIR)" rev-parse HEAD)"; CD="$(git -C "$D" rev-parse HEAD)"
+[ "$CW" != "$B1_SHA" ] && [ "$CC" = "$B1_SHA" ] && [ "$CD" = "$B1_SHA" ] \
+  && printf 'ok   %s: a commit in one checkout moves only that checkout\n' "$CASE" \
+  || { printf 'FAIL %s: commit not isolated (skill: %s, clone: %s, doc-drift: %s)\n' "$CASE" "${CW:0:7}" "${CC:0:7}" "${CD:0:7}"; FAILED=1; }
 git -C "$W" reset -q --hard origin/main >/dev/null 2>&1
 [ "$(git -C "$W" rev-parse HEAD)" = "$(git -C "$(PR_DIR)" rev-parse origin/main)" ] \
   && [ "$(git -C "$(PR_DIR)" rev-parse HEAD)" = "$B1_SHA" ] && [ "$(git -C "$D" rev-parse HEAD)" = "$B1_SHA" ] \

@@ -222,8 +222,8 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)), with `origin/main` on the base
-   commit: the base ref of every skill brief and of the run's own diffs, which
-   no skill checkout can move, as in a `prepare` clone
+   commit: the base ref of every skill brief and of the run's own diffs, as in
+   a `prepare` clone
    ([skills.md](skills.md) → **Clone, credential helper, cleanup**):
 
    ```bash
