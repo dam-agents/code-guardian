@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Mention detection: @-mention pickup, ledger dedup, bot-thread replies,
 # human-thread replies ignored, Bot-type authors ignored, config off switch,
-# the author-association gate (mention_authors).
+# the author-association gate (mention_authors), the scan floor marker.
 . "$(dirname "$0")/helpers.sh"
 
-# scan window start — MUST mirror preflight.sh (7 days back, day-rounded)
+# scan window start without a marker — MUST mirror preflight.sh (7 days back,
+# day-rounded)
 msince() {
   local s=$(( $(date -u +%s) - 7*86400 ))
   printf '%sT00:00:00Z' "$(date -u -d "@$s" +%Y-%m-%d 2>/dev/null || date -u -r "$s" +%Y-%m-%d)"
@@ -28,8 +29,20 @@ rc_comment() { # <id> <author> <type> <body> <pr-number> <in_reply_to|null>
 # unstubbed, which the stub answers as unusable and the scan reads as the end
 ic_fx() { ic_page 1; }
 rc_fx() { rc_page 1; }
-ic_page() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$MS&per_page=100&sort=created&direction=desc&page=$1"; }
-rc_page() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=created&direction=desc&page=$1"; }
+ic_page() { ic_at "$MS" "$1"; }
+rc_page() { rc_at "$MS" "$1"; }
+ic_at() { jq -s . | fx "api repos/acme/widgets/issues/comments?since=$1&per_page=100&sort=created&direction=desc&page=${2:-1}"; }
+rc_at() { jq -s . | fx "api repos/acme/widgets/pulls/comments?since=$1&per_page=100&sort=created&direction=desc&page=${2:-1}"; }
+
+# the scan floor marker (docs/mentions.md)
+mark() { head -1 "$WORK/.mention-scan-since" 2>/dev/null; }
+t_epoch() { date -u -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s; }
+mark_between() { local e; e="$(t_epoch "$(mark)")" || return 1; [ "$e" -ge "$1" ] && [ "$e" -le "$2" ]; }
+assert_cmd() { # <description> <command…> — passes when the command succeeds
+  local d="$1"; shift
+  if "$@"; then printf 'ok   %s: %s\n' "$CASE" "$d"
+  else printf 'FAIL %s: %s (marker: %s)\n' "$CASE" "$d" "$(mark)"; show_stderr; FAILED=1; fi
+}
 
 # --- @-mention in an issue comment → mentions_due -----------------------------
 new_case mention_due
@@ -40,6 +53,7 @@ assert_jq '.nothing_to_do == false' 'mention alone wakes the run'
 assert_jq '.mentions_due | length == 1' 'exactly one mention due'
 assert_jq '.mentions_due[0] | .comment_id == 101 and .number == 7 and .thread == "conversation" and .author == "alice" and .in_reply_to == null' 'entry fields'
 assert_jq '.read_set == ["docs/review.md","docs/mentions.md","work/MEMORY.md","work/LESSONS.md"]' 'a mention-only run reads review.md for the reply style, not the review core'
+assert_cmd 'a due mention older than 7 days holds the next floor at the 7-day floor' [ "$(mark)" = "$MS" ]
 
 # --- ledger row → deduped ------------------------------------------------------
 new_case mention_deduped
@@ -76,12 +90,14 @@ assert_jq '.config.github_identity == {login:"acme-app[bot]", kind:"app"}' 'the 
 new_case bot_thread_review_unreadable
 base_config
 seed_identity 'acme-app[bot]'
+C1="$(iso_ago 1800)"
 { rc_comment 200 'acme-app[bot]' Bot "🟡 **Warning:** unchecked null" 9 null | jq '.pull_request_review_id = 700'
-  rc_comment 201 bob User "this is intentional" 9 200; } | rc_fx
+  rc_comment 201 bob User "this is intentional" 9 200 | jq --arg t "$C1" '.created_at = $t'; } | rc_fx
 fx_fail 'api repos/acme/widgets/pulls/9/reviews/700' 1
 run_preflight review
 assert_jq '.mentions_due == []' 'no reply is due on an unread review'
 assert_jq '[.logs[] | select(test("unreadable — reply 201 retried next run"))] | length == 1' 'the skip is logged'
+assert_cmd 'the reply left for the next run holds the floor at its created_at' [ "$(mark)" = "$C1" ]
 
 # --- reply in a human-rooted thread + a Bot-type author → nothing --------------
 new_case irrelevant_comments
@@ -98,9 +114,10 @@ base_config
 pr_json 4 "desc PR" '[]' "1111111111111111111111111111111111111111" \
   | jq '.body = "@test-bot is the retry loop here intentional?"' | open_prs_fx
 add_row 4 "1111111111111111111111111111111111111111" "$(iso_ago 3600)" APPROVE done
-run_preflight review
+B=$(date -u +%s); run_preflight review; A=$(date -u +%s)
 assert_jq '.mentions_due | length == 1' 'body mention due'
 assert_jq '.mentions_due[0] | .comment_id == "body-4" and .thread == "body" and .number == 4 and .author == "alice"' 'body entry fields'
+assert_cmd 'a PR description, read from the open-PR list, does not hold the floor' mark_between $((B - 900)) $((A - 900))
 
 # --- body mention deduped by its ledger row ------------------------------------
 new_case body_mention_deduped
@@ -118,6 +135,7 @@ base_config '- mention_replies: disabled'
 ic_comment 101 alice User "@test-bot ping" 7 | ic_fx
 run_preflight review
 assert_jq '.nothing_to_do == true' 'disabled key turns the scan off'
+assert_cmd 'no scan floor is written' [ ! -e "$WORK/.mention-scan-since" ]
 
 # --- page cap: the scan asks newest-first, so a full page keeps fresh mentions -
 # The fixture key encodes the query string: it resolves only when the request
@@ -182,6 +200,7 @@ fx_fail "api repos/acme/widgets/pulls/comments?since=$MS&per_page=100&sort=creat
 run_preflight review
 assert_jq '.mentions_due | length == 1' 'the surface that answered still yields its mention'
 assert_out_contains 'review-comment surface did not answer' 'the silent surface is logged, never read as quiet'
+assert_cmd 'no scan floor is written' [ ! -e "$WORK/.mention-scan-since" ]
 
 # --- mention_authors: an account outside the set is counted, never emitted ------
 # author_association is what GitHub states about the commenter; the default set
@@ -253,5 +272,52 @@ sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG
   ic_comment 304 dave User "@acme-appx is not the bot" 10; } | ic_fx
 run_preflight review
 assert_jq '[.mentions_due[].comment_id] == [301, 302]' 'the slug and the [bot] login are mentions, longer logins are not'
+
+# --- the scan floor: the marker is the `since`, a due mention holds it ---------
+new_case mention_floor_from_marker
+base_config
+M1="$(iso_ago 3600)"; C1="$(iso_ago 1800)"
+printf '%s\n' "$M1" > "$WORK/.mention-scan-since"
+ic_comment 101 alice User "@test-bot ping" 7 | jq --arg t "$C1" '.created_at = $t' | ic_at "$M1"
+GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight review
+assert_jq '[.mentions_due[].comment_id] == [101]' 'the scan reads since the marker'
+assert_file_contains "$SANDBOX/calls.log" "pulls/comments?since=$M1&" 'the review-comment surface asks since the marker too'
+assert_cmd 'a due mention holds the next floor at its created_at' [ "$(mark)" = "$C1" ]
+
+new_case mention_floor_quiet
+base_config
+printf '%s\n' "$(iso_ago 3600)" > "$WORK/.mention-scan-since"
+B=$(date -u +%s); run_preflight review; A=$(date -u +%s)
+assert_jq '.nothing_to_do == true' 'a quiet scan'
+assert_cmd 'the next floor is the scan start - 15 min' mark_between $((B - 900)) $((A - 900))
+
+# --- a marker past 7 days, in the future or unreadable is the 7-day floor ------
+for m in "$(iso_ago $((10 * 86400)))" "$(iso_ago -7200)" "not a time"; do
+  new_case "mention_floor_invalid_marker"
+  base_config
+  printf '%s\n' "$m" > "$WORK/.mention-scan-since"
+  ic_comment 101 alice User "@test-bot ping" 7 | ic_fx
+  run_preflight review
+  assert_jq '[.mentions_due[].comment_id] == [101]' "marker '$m' reads as the 7-day floor"
+done
+
+# --- an incomplete scan keeps the floor ----------------------------------------
+new_case mention_floor_surface_down
+base_config
+M1="$(iso_ago 3600)"
+printf '%s\n' "$M1" > "$WORK/.mention-scan-since"
+fx_fail "api repos/acme/widgets/pulls/comments?since=$M1&per_page=100&sort=created&direction=desc&page=1"
+run_preflight review
+assert_out_contains 'review-comment surface did not answer' 'the silent surface is logged'
+assert_cmd 'a surface that did not answer keeps the floor' [ "$(mark)" = "$M1" ]
+
+new_case mention_floor_page_down
+base_config
+M1="$(iso_ago 3600)"
+printf '%s\n' "$M1" > "$WORK/.mention-scan-since"
+{ i=1; while [ "$i" -le 100 ]; do ic_comment "$((900 + i))" bob User "chatter $i" 7; i=$((i + 1)); done; } | ic_at "$M1" 1
+fx_fail "api repos/acme/widgets/issues/comments?since=$M1&per_page=100&sort=created&direction=desc&page=2"
+run_preflight review
+assert_cmd 'a later page that did not answer keeps the floor' [ "$(mark)" = "$M1" ]
 
 finish

@@ -18,10 +18,15 @@ content**):
 Handle a PR's entries inside its hold, in worklist order, before its review
 ([runbook.md](runbook.md) → **Review run**, step 5).
 
-Preflight scans the comments of the last 7 days, newest first, at most
-**three pages of 100** per surface, and emits the authors `mention_authors`
-admits ([config.md](config.md)), logging the count it left out. A busier week
-logs the oldest `created_at` the scan reached.
+Preflight scans the comments updated since the floor in
+`work/.mention-scan-since`, newest first, at most **three pages of 100** per
+surface, and emits the authors `mention_authors` admits
+([config.md](config.md)), logging the count it left out; a fuller window logs
+the oldest `created_at` it reached. The floor is never older than 7 days
+(day-rounded, also the value for a missing or invalid marker). A scan in which
+both surfaces answered every page sets the next floor to the scan start − 15
+min, or the earlier `created_at` of a comment it emitted or left for the next
+run, so an entry without a ledger row is scanned again.
 
 ## Dedup ledger — `work/MENTIONS.md`
 

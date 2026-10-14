@@ -8,8 +8,8 @@
 #   - the REVIEWS.md `done -> awaiting_label` flip (keeps the re-review trigger
 #     gate's transition logs one-shot), shepherd-ledger bookkeeping for rows
 #     with no nudge due, work/PR-EVENTS.jsonl facts, the housekeeping batch's
-#     wait marker (work/.housekeeping-since), dead PR holds and stale clones
-#     removed;
+#     wait marker (work/.housekeeping-since), the mention scan floor
+#     (work/.mention-scan-since), dead PR holds and stale clones removed;
 #   - HEARTBEAT.log and SHEPHERD.log lines, structured events in work/logs/
 #     (scripts/log.sh, docs/logging.md);
 #   - the skill install cache, the project profile (work/PROFILE.{json,md} and
@@ -449,6 +449,7 @@ HB_GAP_MAX_S=$(( REVIEW_INTERVAL_QUIET * 90 ))      # 1.5x the quiet interval
 # state) — a value under it hands live reviews to a second job.
 LOCK_TTL_MIN=50
 MENTION_PAGES=3                       # comment pages the mention scan follows (docs/mentions.md)
+MENTION_SCAN_SINCE="$WORK/.mention-scan-since"   # the mention scan floor (docs/mentions.md)
 # HOLDER_QUIET_MIN and FANOUT_QUIET_MIN, the live-holder windows: lib/holds.sh
 # branch of $DEFINITION_REPO this instance tracks (default main)
 DEFINITION_BRANCH="$(cfg definition_branch)"; DEFINITION_BRANCH="${DEFINITION_BRANCH:-main}"
@@ -1295,10 +1296,17 @@ if [ "$MODE" = "review" ]; then
   # --------------------------------------------------- mention detection ----
   # Human comments addressed to the bot: an @-mention anywhere in the repo's
   # PR/issue comments, or a reply inside an inline review thread rooted by a
-  # bot comment. Repo-wide scan, 7-day window (2 GET calls, day-rounded so the
-  # window is cache/test-stable, newest-first so the page cap drops the oldest);
-  # work/MENTIONS.md rows are the dedup — the agent appends a row before acting
-  # (docs/mentions.md).
+  # bot comment. Repo-wide scan (2 GET calls, newest-first so the page cap drops
+  # the oldest) of the comments updated since the floor in
+  # work/.mention-scan-since; work/MENTIONS.md rows are the dedup — the agent
+  # appends a row before acting (docs/mentions.md).
+  # The floor is never older than 7 days, day-rounded — also its value when the
+  # marker is missing or invalid. After a scan in which both surfaces answered
+  # every page and the candidate set parsed, the next floor is the earliest of
+  # the scan start - 15 min and the created_at of each comment emitted or left
+  # for the next run. GitHub's `since` reads updated_at, never before
+  # created_at, so a mention without a ledger row is scanned again until it is
+  # handled or 7 days old.
   MENTION_REPLIES="$(cfg mention_replies)"; MENTION_REPLIES="${MENTION_REPLIES:-enabled}"
   if [ "$MENTION_REPLIES" = "enabled" ] && [ -z "$BOT_LOGIN" ]; then
     log "bot_login missing — mention handling disabled this run"
@@ -1309,12 +1317,25 @@ if [ "$MODE" = "review" ]; then
   MENTION_AUTHORS="$(cfg mention_authors)"
   [ "$MENTION_AUTHORS" = "anyone" ] || MENTION_AUTHORS="collaborators"
   if [ "$MENTION_REPLIES" = "enabled" ]; then
-    MSINCE="$(epoch2iso "$((NOW_EPOCH - 7*86400))" '%Y-%m-%d')T00:00:00Z"
+    MS_FLOOR7_E=$(( (NOW_EPOCH - 7*86400) / 86400 * 86400 ))
+    MSINCE="$(epoch2iso "$MS_FLOOR7_E")"
+    ms_mark="$(head -1 "$MENTION_SCAN_SINCE" 2>/dev/null || true)"
+    case "$ms_mark" in
+      ([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z)
+        ms_e="$(iso2epoch "$ms_mark")"
+        [ "$ms_e" -ge "$MS_FLOOR7_E" ] && [ "$ms_e" -le "$NOW_EPOCH" ] && MSINCE="$ms_mark";;
+    esac
+    MS_NEXT_E=$((NOW_EPOCH - 900)); MS_COMPLETE=1
+    mention_hold() { # <created_at> — the next floor stays at or before it
+      local e; e="$(iso2epoch "$1")"
+      [ "$e" -lt "$MS_NEXT_E" ] && MS_NEXT_E="$e"
+      return 0
+    }
     mention_seen() { grep -qE "^\| *$1 *\|" "$WORK/MENTIONS.md" 2>/dev/null; }
     # newest-first: on a busy repo the window holds more than one page, and the
     # cap must drop the oldest comments (already answered, or aged out) rather
     # than the newest ones — ascending order starves fresh mentions forever.
-    # One page holds 100 comments. A busy week overflows it, so follow the next
+    # One page holds 100 comments. A busy window overflows it, so follow the next
     # page while the last one came back full, up to MENTION_PAGES. The bound is
     # the cost guard: a quiet repo still pays 2 calls, a busy one at most
     # 2 x MENTION_PAGES, and the newest-first order keeps the cap dropping the
@@ -1325,32 +1346,34 @@ if [ "$MODE" = "review" ]; then
     # `--argjson` on the merged array dies with "Argument list too long" and
     # the scan silently degrades to zero mentions.
     # A first page that does not answer leaves the surface empty, which reads as
-    # a quiet week; it comes back as -1 and the caller logs it.
+    # a quiet window; it comes back as -1 and the caller logs it. Any page that
+    # does not answer returns 1, and the floor stays.
     mention_pages() { # <endpoint> <outfile> -> comment count, newest first; -1 = no answer
-      local ep="$1" out="$2" page=1 body n total=0
+      local ep="$1" out="$2" page=1 body n total=0 rc=0
       : > "$out"
       while [ "$page" -le "$MENTION_PAGES" ]; do
         body="$(gh api "repos/$REPO/$ep?since=$MSINCE&per_page=100&sort=created&direction=desc&page=$page" 2>/dev/null)"
         if ! printf '%s' "$body" | jq -e 'type=="array"' >/dev/null 2>&1; then
           [ "$page" -eq 1 ] && total=-1
-          break
+          rc=1; break
         fi
         n="$(printf '%s' "$body" | jq length)"
-        printf '%s' "$body" | jq -c '.[]' >> "$out" || break
+        printf '%s' "$body" | jq -c '.[]' >> "$out" || { rc=1; break; }
         total=$((total + n))
         [ "$n" -eq 100 ] || break
         page=$((page + 1))
       done
       printf '%s' "$total"
+      return "$rc"
     }
     IC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-ic.XXXXXX")"
     RC_TMP="$(mktemp "${TMPDIR:-/tmp}/cg-mentions-rc.XXXXXX")"
     # the two surfaces are independent: read them side by side
     mention_pages "issues/comments" "$IC_TMP" > "$PF_TMP/mentions-ic-count" & IC_PID=$!
-    RC_N="$(mention_pages "pulls/comments" "$RC_TMP")"
-    wait "$IC_PID"
+    RC_N="$(mention_pages "pulls/comments" "$RC_TMP")" || MS_COMPLETE=0
+    wait "$IC_PID" || MS_COMPLETE=0
     if [ -f "$PF_TMP/mentions-ic-count" ]; then IC_N="$(cat "$PF_TMP/mentions-ic-count")"
-    else IC_N="$(mention_pages "issues/comments" "$IC_TMP")"; fi
+    else IC_N="$(mention_pages "issues/comments" "$IC_TMP")" || MS_COMPLETE=0; fi
     if [ "${IC_N:-0}" -lt 0 ]; then
       log_warn "mention scan: the issue-comment surface did not answer — conversation mentions are not scanned this run"
       IC_N=0
@@ -1402,11 +1425,11 @@ if [ "$MODE" = "review" ]; then
              in_reply_to: null,
              admitted: (($ma == "anyone") or ((.author_association // "") | IN("OWNER", "MEMBER", "COLLABORATOR")))}' 2>/dev/null >> "$CAND_TMP"
     CAND="$(jq -sc 'sort_by(.created_at)' "$CAND_TMP" 2>/dev/null)"
-    # an empty candidate set is also what a quiet week produces, so the failure
+    # an empty candidate set is also what a quiet window produces, so the failure
     # that makes one must be said out loud
     if ! printf '%s' "$CAND" | jq -e 'type=="array"' >/dev/null 2>&1; then
       log_warn "mention scan: the candidate set did not parse — no mention is handled this run"
-      CAND='[]'
+      CAND='[]'; MS_COMPLETE=0
     fi
     # author_association reads a private organization member as CONTRIBUTOR or
     # NONE when the token cannot see the membership (the default visibility),
@@ -1445,7 +1468,12 @@ if [ "$MODE" = "review" ]; then
           printf '%s' "$SELF_MARKED" | jq -e --arg a "$root_author" 'index($a) != null' >/dev/null 2>&1 || continue
           own_review "$(printf '%s' "$c" | jq -r '.number')" \
             "$(printf '%s' "$root_json" | jq -r '.pull_request_review_id // empty' 2>/dev/null)"
-          case $? in (0) ;; (2) log_warn "mention scan: review of thread root $root unreadable — reply $cid retried next run"; continue;; (*) continue;; esac
+          case $? in
+            (0) ;;
+            (2) log_warn "mention scan: review of thread root $root unreadable — reply $cid retried next run"
+                mention_hold "$(printf '%s' "$c" | jq -r '.created_at')"; continue;;
+            (*) continue;;
+          esac
         fi
       fi
       # an author outside mention_authors is counted, never emitted
@@ -1454,6 +1482,8 @@ if [ "$MODE" = "review" ]; then
         left_out=$((left_out + 1)); continue
       fi
       MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned, .admitted)')" '. + [$e]')"
+      # a PR description comes from the open-PR list, outside the floor
+      case "$cid" in (body-*) ;; (*) mention_hold "$(printf '%s' "$c" | jq -r '.created_at')";; esac
       log "#$(printf '%s' "$c" | jq -r '.number'): mention $cid by $(printf '%s' "$c" | jq -r '.author') — handling due"
     done < <(printf '%s' "$CAND" | jq -c '.[]')
     if [ "$left_out" -gt 0 ]; then
@@ -1461,6 +1491,11 @@ if [ "$MODE" = "review" ]; then
     fi
     # after the loop: the inline root-author lookup reads the review-comment batch
     rm -f "$IC_TMP" "$RC_TMP" "$CAND_TMP"
+    if [ "$MS_COMPLETE" = 1 ]; then
+      [ "$MS_NEXT_E" -lt "$MS_FLOOR7_E" ] && MS_NEXT_E="$MS_FLOOR7_E"
+      { epoch2iso "$MS_NEXT_E" > "$MENTION_SCAN_SINCE.$$.tmp" && mv -f "$MENTION_SCAN_SINCE.$$.tmp" "$MENTION_SCAN_SINCE"; } 2>/dev/null \
+        || rm -f "$MENTION_SCAN_SINCE.$$.tmp" 2>/dev/null
+    fi
   fi
 
   # ---------------------------------------------------------- auto-merge ----
