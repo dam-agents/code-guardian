@@ -43,6 +43,9 @@ assert_cmd() { # <description> <command…> — passes when the command succeeds
   if "$@"; then printf 'ok   %s: %s\n' "$CASE" "$d"
   else printf 'FAIL %s: %s (marker: %s)\n' "$CASE" "$d" "$(mark)"; show_stderr; FAILED=1; fi
 }
+# the permission GET answers for every account; these have no access
+no_access() { local l; for l in "$@"; do
+  printf '{"permission":"none","role_name":"none"}' | fx "api repos/$TEST_REPO/collaborators/$l/permission"; done; }
 
 # --- @-mention in an issue comment → mentions_due -----------------------------
 new_case mention_due
@@ -212,12 +215,14 @@ base_config
   ic_comment 102 alice User "@test-bot ping" 7; } | ic_fx
 { rc_comment 200 test-bot User "🟡 **Warning:** unchecked null" 9 null
   ASSOC=CONTRIBUTOR rc_comment 201 drifter User "not intentional at all" 9 200; } | rc_fx
+no_access stranger drifter
 run_preflight review
 assert_jq '.mentions_due | length == 1' 'only the member mention is due'
 assert_jq '.mentions_due[0].comment_id == 102' 'the member mention is the one emitted'
 assert_jq '.mentions_due[0] | has("admitted") | not' 'the gate flag stays out of the entry'
 assert_jq '.config.mention_authors == "collaborators"' 'the default set is resolved into config'
 assert_out_contains '2 mention(s) by accounts outside mention_authors (collaborators) left out' 'the left-out count is logged'
+assert_jq '.logs | any(test("did not answer")) | not' 'an answered access check is no fault'
 
 # --- mention_authors: anyone → every human account is handled ------------------
 new_case mention_authors_anyone
@@ -236,6 +241,7 @@ ASSOC=FIRST_TIME_CONTRIBUTOR ic_comment 101 stranger User "@test-bot hi" 7 | ic_
 pr_json 4 "desc PR" '[]' "1111111111111111111111111111111111111111" \
   | jq '.author_association = "NONE" | .body = "@test-bot review please"' | open_prs_fx
 add_row 4 "1111111111111111111111111111111111111111" "$(iso_ago 3600)" APPROVE done
+no_access stranger alice
 run_preflight review
 assert_jq '.nothing_to_do == true' 'outsider mentions start no session'
 assert_out_contains '2 mention(s) by accounts outside mention_authors (collaborators) left out' 'an unknown value falls back to the default set'
@@ -250,6 +256,7 @@ base_config
 printf '{"permission":"write","role_name":"write"}' | fx "api repos/$TEST_REPO/collaborators/hidden/permission"
 printf '{"permission":"read","role_name":"read"}' | fx "api repos/$TEST_REPO/collaborators/reader/permission"
 printf '{"private":true}' | fx "api repos/$TEST_REPO"
+no_access stranger
 run_preflight review
 assert_jq '[.mentions_due[].comment_id] == [101, 102]' 'write, and read on a private repository, are admitted'
 assert_out_contains '1 mention(s) by accounts outside mention_authors (collaborators) left out' 'an account without access stays out'
@@ -319,5 +326,37 @@ printf '%s\n' "$M1" > "$WORK/.mention-scan-since"
 fx_fail "api repos/acme/widgets/issues/comments?since=$M1&per_page=100&sort=created&direction=desc&page=2"
 run_preflight review
 assert_cmd 'a later page that did not answer keeps the floor' [ "$(mark)" = "$M1" ]
+
+# --- a check that did not answer holds the floor; a 404 is an answer ----------
+new_case mention_floor_root_unanswered
+base_config
+C1="$(iso_ago 1800)"
+rc_comment 211 bob User "this is intentional" 9 210 | jq --arg t "$C1" '.created_at = $t' | rc_fx
+fx_fail 'api repos/acme/widgets/pulls/comments/210'
+run_preflight review
+assert_jq '.mentions_due == []' 'no reply is due on an unread root'
+assert_out_contains 'thread root 210 unreadable — reply 211 retried next run' 'the skip is logged'
+assert_cmd 'the reply holds the floor at its created_at' [ "$(mark)" = "$C1" ]
+
+new_case mention_floor_root_404
+base_config
+rc_comment 211 bob User "this is intentional" 9 210 | jq --arg t "$(iso_ago 1800)" '.created_at = $t' | rc_fx
+fx_fail 'api repos/acme/widgets/pulls/comments/210'
+fx_out 'api repos/acme/widgets/pulls/comments/210' '{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}'
+B=$(date -u +%s); run_preflight review; A=$(date -u +%s)
+assert_jq '.mentions_due == []' 'a reply under a deleted root is not due'
+assert_jq '.logs | any(test("unreadable")) | not' 'a 404 is an answer, not a fault'
+assert_cmd 'the reply holds no floor' mark_between $((B - 900)) $((A - 900))
+
+new_case mention_floor_access_unanswered
+base_config
+C1="$(iso_ago 1800)"
+ASSOC=NONE ic_comment 101 hidden User "@test-bot ping" 7 | jq --arg t "$C1" '.created_at = $t' | ic_fx
+fx_fail "api repos/$TEST_REPO/collaborators/hidden/permission"
+run_preflight review
+assert_jq '.mentions_due == []' 'the mention is left out this run'
+assert_out_contains '1 mention(s) by accounts outside mention_authors (collaborators) left out' 'and counted as left out'
+assert_out_contains 'access check of hidden did not answer' 'the fault is logged'
+assert_cmd 'the mention holds the floor at its created_at' [ "$(mark)" = "$C1" ]
 
 finish

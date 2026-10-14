@@ -25,8 +25,8 @@ surface, and emits the authors `mention_authors` admits
 the oldest `created_at` it reached. The floor is never older than 7 days
 (day-rounded, also the value for a missing or invalid marker). A scan in which
 both surfaces answered every page sets the next floor to the scan start − 15
-min, or the earlier `created_at` of a comment it emitted or left for the next
-run, so an entry without a ledger row is scanned again.
+min, or the earlier `created_at` of a comment it emitted or whose check did
+not answer, so an entry without a ledger row is scanned again.
 
 ## Dedup ledger — `work/MENTIONS.md`
 

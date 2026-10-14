@@ -1304,7 +1304,8 @@ if [ "$MODE" = "review" ]; then
   # marker is missing or invalid. After a scan in which both surfaces answered
   # every page and the candidate set parsed, the next floor is the earliest of
   # the scan start - 15 min and the created_at of each comment emitted or left
-  # for the next run. GitHub's `since` reads updated_at, never before
+  # for the next run because a check did not answer (thread root, its review,
+  # the author's access). GitHub's `since` reads updated_at, never before
   # created_at, so a mention without a ledger row is scanned again until it is
   # handled or 7 days old.
   MENTION_REPLIES="$(cfg mention_replies)"; MENTION_REPLIES="${MENTION_REPLIES:-enabled}"
@@ -1434,21 +1435,27 @@ if [ "$MODE" = "review" ]; then
     # author_association reads a private organization member as CONTRIBUTOR or
     # NONE when the token cannot see the membership (the default visibility),
     # so an author it leaves out gets one permission GET per run: triage or
-    # more admits; read admits on a private repository only
+    # more admits; read admits on a private repository only. A GET that did
+    # not answer (no permission, not a 404) returns 2: left out this run, and
+    # the mention holds the floor.
     ACCESS_CACHE="|"; REPO_PRIVATE=""
     mention_author_has_access() { # <login>
-      case "$ACCESS_CACHE" in *"|$1=y|"*) return 0;; *"|$1=n|"*) return 1;; esac
+      case "$ACCESS_CACHE" in *"|$1=y|"*) return 0;; *"|$1=n|"*) return 1;; *"|$1=u|"*) return 2;; esac
       local p r=n
       p="$(gh api "repos/$REPO/collaborators/$1/permission" 2>/dev/null \
-           | jq -r '.role_name // .permission // empty' 2>/dev/null)"
+           | jq -r 'select(type == "object") | .role_name // .permission
+                    // (select(((.status // "") | tostring) == "404" or .message == "Not Found") | "none")' 2>/dev/null)"
       case "$p" in
+        '') r=u;;
         admin|maintain|write|triage) r=y;;
         read)
-          [ -n "$REPO_PRIVATE" ] || REPO_PRIVATE="$(gh api "repos/$REPO" 2>/dev/null | jq -r '.private // false' 2>/dev/null)"
-          [ "$REPO_PRIVATE" = "true" ] && r=y;;
+          [ -n "$REPO_PRIVATE" ] || REPO_PRIVATE="$(gh api "repos/$REPO" 2>/dev/null \
+            | jq -r 'select(type == "object" and has("private")) | .private | tostring' 2>/dev/null)"
+          case "$REPO_PRIVATE" in (true) r=y;; ('') r=u;; esac;;
       esac
+      [ "$r" = u ] && log_warn "mention scan: the access check of $1 did not answer — their mentions are retried next run"
       ACCESS_CACHE="$ACCESS_CACHE$1=$r|"
-      [ "$r" = y ]
+      case "$r" in (y) return 0;; (u) return 2;; (*) return 1;; esac
     }
     left_out=0
     while IFS= read -r c; do
@@ -1462,6 +1469,12 @@ if [ "$MODE" = "review" ]; then
         root_json="$(jq -c --argjson r "$root" 'select(.id == $r)' "$RC_TMP" 2>/dev/null | head -1)"
         [ -z "$root_json" ] && root_json="$(gh api "repos/$REPO/pulls/comments/$root" 2>/dev/null)"
         root_author="$(printf '%s' "$root_json" | jq -r '.user.login // empty' 2>/dev/null)"
+        # no object, or an error other than a 404: the root did not answer
+        if [ -z "$root_author" ] && ! printf '%s' "$root_json" | jq -e 'type == "object" and ((has("message") | not)
+             or ((.status // "") | tostring) == "404" or .message == "Not Found")' >/dev/null 2>&1; then
+          log_warn "mention scan: thread root $root unreadable — reply $cid retried next run"
+          mention_hold "$(printf '%s' "$c" | jq -r '.created_at')"; continue
+        fi
         if [ -z "$SELF_TRUSTED" ] || [ "$root_author" != "$SELF_TRUSTED" ]; then
           # a bot root (bot_login or the token's login) is the agent's only when
           # its review carries the marker — one GitHub App can post for others
@@ -1477,9 +1490,13 @@ if [ "$MODE" = "review" ]; then
         fi
       fi
       # an author outside mention_authors is counted, never emitted
-      if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ] \
-         && ! mention_author_has_access "$(printf '%s' "$c" | jq -r '.author')"; then
-        left_out=$((left_out + 1)); continue
+      if [ "$(printf '%s' "$c" | jq -r '.admitted')" != "true" ]; then
+        mention_author_has_access "$(printf '%s' "$c" | jq -r '.author')"
+        case $? in
+          (0) ;;
+          (2) mention_hold "$(printf '%s' "$c" | jq -r '.created_at')"; left_out=$((left_out + 1)); continue;;
+          (*) left_out=$((left_out + 1)); continue;;
+        esac
       fi
       MENTIONS_DUE="$(printf '%s' "$MENTIONS_DUE" | jq --argjson e "$(printf '%s' "$c" | jq 'del(.mentioned, .admitted)')" '. + [$e]')"
       # a PR description comes from the open-PR list, outside the floor
