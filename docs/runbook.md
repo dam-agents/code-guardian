@@ -366,8 +366,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   time beside an on-demand review; a PR another run holds is left to it
   ([worklist.md](worklist.md) → **PR holds**).
 - A dispatched PR belongs to its own session: its prompt is the task
-  `dispatch.sh plan` printed — the PR number and its unit worklist, nothing
-  from the PR — and the dispatching run keeps none of its entries.
+  `dispatch.sh plan` printed — the PR number, its unit worklist and its run
+  id, nothing from the PR — and the dispatching run keeps none of its entries.
 - The benchmark touches no PR and writes nothing to GitHub beyond its own
   report. `manifest.json` is read only after the run's raw reviews are written;
   fixture creation and a scored run never share a session; ground truth lives

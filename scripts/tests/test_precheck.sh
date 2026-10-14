@@ -25,7 +25,8 @@ assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"pr
 new_case precheck_work_due
 base_config
 pr_json 7 "plain PR" '[]' "$SHA1" | open_prs_fx
-run_precheck review
+# a gate runs outside a session: no session id of the caller reaches log.sh
+CLAUDE_CODE_SESSION_ID="" LOG_RUN_ID="" run_precheck review
 assert_rc 0 'a first review due starts the session'
 assert_out_contains '^worklist: ' 'the gate names the worklist path'
 assert_out_contains 'reviews_due=1 (#7)' 'the summary says what is due, with the PR number'

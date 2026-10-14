@@ -310,8 +310,9 @@ fi
 # API call: lib/holds.sh's live_holders over the events since the lock. When no
 # run logged a `locked` step on the PR since the lock — the step can predate log
 # retention after a crash — a recent event naming `PR #<n> ` counts as life
-# instead, from a run that has not ended the PR. Prints the live run id (8
-# chars) + minutes since its last event, or nothing.
+# instead, from a run that has not ended the PR. Prints the live run id (a
+# session UUID by 8 chars, as lib/common.sh → run_short) + minutes since its
+# last event, or nothing.
 # docs/review-mechanics.md → **Live holder**.
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
   holder_cutoffs || return 1
