@@ -327,6 +327,19 @@ assert_out_contains 'Runs by day' 'the report renders the days'
 assert_out_contains 'APPROVE share, first reviews' 'the report renders the verdict shares'
 assert_out_contains 'Disk used (fullest volume)' 'the report renders the disk row'
 
+# --- a week the harness measured no tokens for renders dashes ------------------
+new_case trend_tokens_not_measured
+price_config
+mkdir -p "$WORK/audit"
+worklist 2 3 0 0 | jq '.stats.tokens = null | .stats.sessions = null | .stats.stalls.wasted_output_tokens = null' \
+  > "$WORK/audit/last-worklist.json"
+run_trend append "$WORK/audit"
+run_trend index "$WORK/audit"
+assert_out_contains '"out_tokens": null' 'unmeasured output tokens stay null'
+assert_out_contains '"cost_usd": null' 'no estimate without tokens'
+assert_out_contains '"runs": null' 'unmeasured runs stay null'
+assert_out_contains '"wasted_out_tokens": null' 'unmeasured wasted output stays null'
+
 # --- review-quality signals (docs/audit.md tasks 24, 28) ------------------------
 new_case trend_quality_signals
 price_config

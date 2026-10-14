@@ -84,7 +84,9 @@ is the transcript's wall time (`secs=`), else the span of the run's events;
 and the per-day table derive at render time and reprice with the table. A
 session that crashed has no `tokens` event and no record; a `tokens` event the
 audit cannot read leaves its session out and logs a `sessions_unparsed` warn
-that names the run.
+that names the run. A harness with no adapter for the `tokens` event records
+no session: `stats.sessions` is null and the run figures render `—`
+([logging.md](logging.md) → **Harness adapters**).
 
 The audit reads its baselines from this history instead of recounting them:
 `verdict_shift`, `findings_shift` and `late_shift` compare the week with the

@@ -10,8 +10,9 @@ the anonymous tracking issue of task 3 and the trend artifact's publish (task
 36); its local writes beyond `AUDIT.log` are memory (the lessons the tasks
 record per [preferences.md](preferences.md), the consolidation of task 34),
 the profile notes of task 35 and the trend append of task 36. Routine findings
-(pending prunes, stale locks) heal on the next heartbeat; everything else goes
-to the operator. A skipped task is an incomplete audit — a task that is
+(pending prunes, stale locks) heal through the review heartbeat's worklist
+([worklist.md](worklist.md) → **The schedule gate**); everything else goes to
+the operator. A skipped task is an incomplete audit — a task that is
 impossible this week (missing data, API error) is reported as `warn` with the
 reason, never dropped.
 
@@ -247,8 +248,10 @@ measurement.
       match `review_model` (under `default`, report only). The second
       low-call, low-cost model beside it is harness-internal (session titles),
       not a model change.
-    - `available: false` → one **info** line, `spend not measured on this
-      deployment`, and task 36's extras omit the key. Never a fail.
+    - `available: false`, or `sessionCount: 0` while `stats.wakeups.runs` > 0
+      (the telemetry does not cover this harness) → one **info** line,
+      `spend not measured on this deployment`, and task 36's extras omit the
+      key. Never a fail.
     - **Per review** — each spend figure divided by `stats.reviews.total`, 2
       decimals. A week with no review omits both per-review figures. A `≥`
       estimate keeps its `≥`. The trend's `$/review` is the same estimate
@@ -276,15 +279,18 @@ measurement.
     warn, read two reviews of the week and name the cause as task 24 does.
 29. **Wasted reviews** — `stats.stalls`: reviews thrown away because the run
     died before posting. Report `stalled` of `total` locked runs split by
-    `by_cause` (`pod_restart` / `hard_kill` / `terminated`),
+    `by_cause` (`pod_restart` / `hard_kill` / `terminated` / `unclassified`),
     `wasted_output_tokens`, `redone_prs` and `per_day`. `pod_restart` and
     `hard_kill` are the platform's; `terminated` is a session ended from
-    outside mid-pipeline. Rising `aborted_clean` while `stalled` falls is the
-    Stop hook working, so read the two together, never `stalled` alone. Any
-    non-zero `stalled` is a **warn** with the causes named; a day above 15 % is
-    a **fail**. `wasted_output_tokens` is a **floor** — a `hard_kill` writes
-    no `tokens` event: report it as "≥", and never read a low figure as a
-    cheap week when `by_cause.hard_kill` is non-zero.
+    outside mid-pipeline. `unclassified` is a `hard_kill` or a `terminated`
+    on a harness that measures no tokens ([logging.md](logging.md) →
+    **Harness adapters**); its `wasted_output_tokens` is null. Rising
+    `aborted_clean` while `stalled` falls is the Stop hook working, so read
+    the two together, never `stalled` alone. Any non-zero `stalled` is a
+    **warn** with the causes named; a day above 15 % is a **fail**.
+    `wasted_output_tokens` is a **floor** — a `hard_kill` writes no `tokens`
+    event: report it as "≥", and never read a low figure as a cheap week when
+    `by_cause.hard_kill` is non-zero.
 30. **Reaction feedback** — `stats.reactions` sums 👍/👎 on the bot's latest
     inline and issue comments ([github-access.md](github-access.md) → **Own content**). For each `down_urls` entry (≤ 10): read the
     thread; an explicit correction or dismissal → record it per
@@ -407,10 +413,10 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Wake-ups: <wakeups.runs> — <kind> <runs>, … per by_work kind with runs > 0 (+<unlabelled> unlabelled — omit when 0; `not measured this week` when wakeups is null)
 • Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
-• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0) — token counts only; the *Spend* line prices them
-• Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27)
+• Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0; `not measured on this harness` when tokens is null) — token counts only; the *Spend* line prices them
+• Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27); `not measured on this harness` when tokens is null and no actual was measured
 • Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
-• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
+• Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away (omit when null) · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 

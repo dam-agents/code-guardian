@@ -475,8 +475,9 @@ CI_TRIAGE_WINDOW_H=24   # age of the posted review past which CI is stale news
 # Housekeeping deferral (docs/worklist.md → **The schedule gate**): bookkeeping
 # alone never starts a session immediately — it rides along with the next run
 # that has work of its own, and forces a run of its own only past this wait or
-# this many pending items. The count caps both the batch and the per-row state
-# check each pending prune costs every tick.
+# this many pending items no run has taken yet. An item a run took and left
+# due waits for HOUSEKEEPING_DEFER_H alone (its key sits below the marker's
+# timestamp, emit()).
 HOUSEKEEPING_DEFER_H=6
 HOUSEKEEPING_MAX_ITEMS=10
 HOUSEKEEPING_SINCE="$WORK/.housekeeping-since"
@@ -845,7 +846,7 @@ hk_batch_since() { # <pending count>
 
 emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
-  local hk_only=false hk_n=0 hk_since hk_age=0 art_rel
+  local hk_only=false hk_n=0 hk_new=0 hk_keys hk_since hk_age=0 art_rel
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
   for a in "$1" "$2" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
@@ -856,25 +857,29 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   art_rel="$(printf '%s' "$5" | jq '[.[] | select(.action == "retry_release")] | length')"
   [ "$(printf '%s' "$5" | jq length)" -gt "$art_rel" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
-  hk_n="$art_rel"
-  for a in "$3" "$4" "$resets"; do
-    hk_n=$(( hk_n + $(printf '%s' "$a" | jq length) ))
-  done
+  # One key per item; below its timestamp the wait marker keeps the keys the
+  # last run that took the batch carried.
+  hk_keys="$(printf '%s\n' "$3" "$4" "$resets" "$5" | jq -rs '
+    (.[0][] | "selfheal:\(.number)"), (.[1][] | "prune:\(.number)"), (.[2][] | "reset:\(.number)"),
+    (.[3][] | select(.action == "retry_release") | "release:\(.number)")')"
+  hk_n="$(printf '%s' "$hk_keys" | grep -c . || true)"
   hk_since="$(hk_batch_since "$hk_n")"
   if [ "$hk_n" -gt 0 ] && [ -n "$hk_since" ]; then
     hk_age=$(( (NOW_EPOCH - $(iso2epoch "$hk_since")) / 3600 ))
+    hk_new="$(printf '%s\n' "$hk_keys" | grep -cvxF -f <(tail -n +2 "$HOUSEKEEPING_SINCE" 2>/dev/null; echo '-') || true)"
     if [ "$nothing" = "false" ]; then
       log "housekeeping: $hk_n bookkeeping item(s) ride along with this run"
-    elif [ "$hk_age" -ge "$HOUSEKEEPING_DEFER_H" ] || [ "$hk_n" -ge "$HOUSEKEEPING_MAX_ITEMS" ]; then
+    elif [ "$hk_age" -ge "$HOUSEKEEPING_DEFER_H" ] || [ "$hk_new" -ge "$HOUSEKEEPING_MAX_ITEMS" ]; then
       nothing=false; hk_only=true
       log "housekeeping batch: $hk_n item(s) pending since $hk_since — a bookkeeping-only run"
     else
-      log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h) — deferred to the next run with work"
+      log "housekeeping: $hk_n item(s) pending since $hk_since (${hk_age}h of ${HOUSEKEEPING_DEFER_H}h, $hk_new of ${HOUSEKEEPING_MAX_ITEMS} new) — deferred to the next run with work"
     fi
     # a run takes the batch: an item still due after it (a release that failed
-    # again) waits a full period, not one tick
+    # again, a session that never started) waits a full period, not one tick,
+    # and no longer counts toward the item limit
     if [ "$nothing" = "false" ]; then
-      printf '%s\n' "$NOW_ISO" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
+      printf '%s\n' "$NOW_ISO" "$hk_keys" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
     fi
   fi
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
@@ -2486,6 +2491,13 @@ if [ "$MODE" = "audit" ]; then
     | sums + {by_model: (group_by(.m // "unknown")
                          | map({key: (.[0].m // "unknown"), value: sums}) | from_entries)}' 2>/dev/null)"
   [ -n "$TOKENS_WEEK" ] || TOKENS_WEEK='{"runs":0}'
+  # Only a harness adapter writes the `tokens` event (docs/logging.md → Harness
+  # adapters). On a harness without one, a week with no such event measured
+  # nothing: tokens and sessions are null, never a zero the trend would chart.
+  TOKENS_MEASURED=true
+  if [ "${CLAUDECODE:-}" != "1" ] && [ "$(printf '%s' "$TOKENS_WEEK" | jq '.runs // 0' 2>/dev/null)" = "0" ]; then
+    TOKENS_MEASURED=false; TOKENS_WEEK=null
+  fi
 
   # One record per finished session (a run with a `tokens` event), the facts
   # the trend derives run length and run cost per day from (docs/trends.md →
@@ -2509,7 +2521,7 @@ if [ "$MODE" = "audit" ]; then
                       | select(test("^PR #[0-9]+:? +([0-9a-f]{7,40} +)?posted"))
                       | capture("^PR #(?<n>[0-9]+)").n ] | unique | length) } )
     | sort_by(.day)' 2>/dev/null)"
-  [ -n "$SESSIONS_WEEK" ] || SESSIONS_WEEK='null'
+  [ -n "$SESSIONS_WEEK" ] && [ "$TOKENS_MEASURED" = true ] || SESSIONS_WEEK='null'
   # a `tokens` event the capture above does not read leaves its session out of
   # the records; the run is named here so the gap in stats.sessions is traceable
   ses_unparsed="$(week_events | jq -rs --arg s "$SINCE_ISO" '
@@ -2542,7 +2554,9 @@ if [ "$MODE" = "audit" ]; then
                  | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
           end
       end' 2>/dev/null)"
-  if [ -n "$SM_OUT" ]; then check session_models "${SM_OUT%%$'\t'*}" "${SM_OUT#*$'\t'}"
+  if [ "$TOKENS_MEASURED" = false ]; then
+    check session_models ok "not measured: no harness adapter writes the tokens event on this harness (docs/logging.md → Harness adapters)"
+  elif [ -n "$SM_OUT" ]; then check session_models "${SM_OUT%%$'\t'*}" "${SM_OUT#*$'\t'}"
   else check session_models warn "session models could not be compared — stats.sessions unreadable"; fi
 
   # Wake-ups — the preflight and monitor passes that found work, from the
@@ -2614,6 +2628,9 @@ if [ "$MODE" = "audit" ]; then
   #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran
   #   terminated   — SessionEnd ran but the pipeline stopped mid-way (orderly
   #                  shutdown from outside; see docs/audit.md task 29)
+  #   unclassified — either of the two on a harness that measures no tokens
+  #                  (TOKENS_MEASURED): no event tells them apart, and the
+  #                  wasted output is null
   # `aborted_clean` counts runs that *did* terminate explicitly — the cheap
   # outcome the Stop hook drives, so a rise here against falling `stalled` is
   # the mitigation working, not a regression.
@@ -2621,7 +2638,8 @@ if [ "$MODE" = "audit" ]; then
   # a run whose last event is newer than the lock TTL may still be alive
   # (no SessionEnd yet is not a kill) — exclude it rather than miscount it
   STALL_CUTOFF="$(epoch2iso "$(( NOW_EPOCH - LOCK_TTL_MIN * 60 ))")"
-  STALLS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" '
+  STALLS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$STALL_CUTOFF" --argjson measured "$TOKENS_MEASURED" '
+    def wasted: if $measured then (map(select(.cause != "ok") | .out) | add // 0) else null end;
     [.[] | select(.ts >= $s)] as $w
     | ($w | map(select(.event=="pod_boot"))) as $boots
     | [ $w | group_by(.run)[]
@@ -2640,7 +2658,7 @@ if [ "$MODE" = "audit" ]; then
         | .cause = (if .terminal then "ok"
                     elif ([$boots[] | select(.run != $r and .ts >= $first_ts and .ts <= $last_ts)] | length > 0)
                       then "pod_restart"
-                    elif (.tokens == 0) then "hard_kill"
+                    elif (.tokens == 0) then (if $measured then "hard_kill" else "unclassified" end)
                     else "terminated" end) ]
     as $runs
     | { total: ($runs | length),
@@ -2648,12 +2666,12 @@ if [ "$MODE" = "audit" ]; then
         aborted_clean: ($runs | map(select(.terminal and .aborted)) | length),
         by_cause: ($runs | map(select(.cause != "ok") | .cause) | group_by(.)
                    | map({key: .[0], value: length}) | from_entries),
-        wasted_output_tokens: ($runs | map(select(.cause != "ok") | .out) | add // 0),
+        wasted_output_tokens: ($runs | wasted),
         redone_prs: ($runs | map(select(.cause != "ok") | .prs) | flatten | unique),
         per_day: ($runs | group_by(.day)
                   | map({ day: .[0].day, runs: length,
                           stalled: (map(select(.cause != "ok")) | length),
-                          wasted_output_tokens: (map(select(.cause != "ok") | .out) | add // 0) })) }' \
+                          wasted_output_tokens: wasted })) }' \
     2>/dev/null)"
   [ -n "$STALLS_WEEK" ] || STALLS_WEEK='{"total":0,"stalled":0}'
 

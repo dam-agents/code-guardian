@@ -156,7 +156,10 @@ function calling the binary directly.
 All harness-specific code lives in its own directory, replaceable without
 touching `scripts/log.sh` or any procedure. Adapter contract: capture the
 agent's failed tool calls into `tool_failure` events automatically. With no
-adapter active, duty 4 above extends to logging tool failures manually.
+adapter active, duty 4 above extends to logging tool failures manually. A
+harness with no adapter writes no `tokens` event: in a week without one, the
+audit reports tokens, sessions, session models and stall causes as not
+measured ([audit.md](audit.md) → tasks 27, 29).
 
 **Claude Code** (`scripts/harness/claude-code/`), detected by `CLAUDECODE=1`:
 
