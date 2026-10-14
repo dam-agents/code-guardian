@@ -201,7 +201,8 @@ EOF
   printf '{"number":0,"title":"Add discount helper and bulk load","body":"Cart totals and a batched item load.","author":"alice","head_ref":"feat/cart","base_ref":"main","head_sha_v1":"1111111111111111111111111111111111111111","head_sha_v2":"2222222222222222222222222222222222222222"}\n' > "$F/pr.json"
 }
 
-# the run's own step 1: scratch git repo, base on main, v1 then v2 on pr
+# the run's own step 1: scratch git repo, base on main and origin/main, v1
+# then v2 on pr
 build_working_repo() { # <fixture-dir> <pr-dir>
   local B="$1" PR_DIR="$2"
   rm -rf "$PR_DIR"
@@ -209,6 +210,7 @@ build_working_repo() { # <fixture-dir> <pr-dir>
   cp -a "$B/base/." "$PR_DIR/"
   $G -C "$PR_DIR" add -A >/dev/null && $G -C "$PR_DIR" commit -qm base
   $G -C "$PR_DIR" branch -m main && $G -C "$PR_DIR" checkout -qb pr
+  git -C "$PR_DIR" update-ref refs/remotes/origin/main main
   find "$PR_DIR" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
   cp -a "$B/head-v1/." "$PR_DIR/"
   $G -C "$PR_DIR" add -A >/dev/null && $G -C "$PR_DIR" commit -qm v1
@@ -235,6 +237,22 @@ assert_out_contains 'diff_paths.*repo-relative' 'diff paths accepted'
 # the routing list the run derives for extension skills
 OUT="$(git -C "$PR_DIR" diff --name-only main..pr)"
 assert_out_contains 'src/cart.ts' 'changed-file list routes the .ts files'
+# the skill brief's base-ref diff in a per-skill worktree: at v1 for the first
+# review, then fresh at v2 after the re-review's clear and prune
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'update-ref refs/remotes/origin/main main' 'the documented step 1 sets the same origin/main ref'
+git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr~1
+OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - "$FIX/ts-cart/diff-v1.patch" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains '^rc=0$' 'origin/main...HEAD in a first-review worktree is the v1 diff'
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'git -C "$PR_DIR" worktree prune' 'the documented re-review prunes the first review worktrees'
+# step 3 clears the skill outputs only after step 2 has archived them
+ARCHIVE_LN="$(grep -n -F 'cp -a "$PR_DIR.out"' "$REPO_ROOT/docs/benchmark.md" | head -1 | cut -d: -f1)"
+CLEAR_LN="$(grep -n -F 'rm -rf "$PR_DIR".out "$PR_DIR".s-*' "$REPO_ROOT/docs/benchmark.md" | head -1 | cut -d: -f1)"
+OUT="archive=${ARCHIVE_LN:-none} clear=${CLEAR_LN:-none} order=$([ -n "$ARCHIVE_LN" ] && [ -n "$CLEAR_LN" ] && [ "$ARCHIVE_LN" -lt "$CLEAR_LN" ] && echo ok || echo bad)"
+assert_out_contains 'order=ok' 'the documented re-review clears the skill outputs after the first review archives them'
+rm -rf "$PR_DIR.s-demo" && git -C "$PR_DIR" worktree prune
+git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr
+OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - <(git -C "$PR_DIR" diff main..pr) 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains '^rc=0$' 'a re-review worktree made after the prune diffs base to v2'
 
 new_case e2e_leaky_fixture_is_rejected
 FIX="$SANDBOX/benchmark/fixture"

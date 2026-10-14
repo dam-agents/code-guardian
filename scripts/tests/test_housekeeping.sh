@@ -64,9 +64,23 @@ for n in 11 12 13 14 15 16 17 18 19 20; do
   add_row "$n" "$SHA5" "$(iso_ago 90000)" APPROVE done
   merged_pr_fx "$n" "$SHA5"
 done
+printf '%s\n' "$(iso_ago 60)" > "$WORK/$MARKER"   # a marker that names no taken item
 run_preflight review
 assert_jq '.prunes_due | length == 10' 'every closed row is detected'
 assert_jq '.nothing_to_do == false and .housekeeping_only == true' 'the item count forces the batch'
+assert_file_contains "$WORK/$MARKER" '^prune:20$' 'the marker records the items the run took'
+# the run left all ten due (the session never started): they wait the full
+# period, so the next tick does not start a session again
+run_preflight review
+assert_jq '(.prunes_due | length) == 10 and .nothing_to_do == true' 'items a run took do not count toward the limit again'
+assert_jq '.logs | any(contains("0 of 10 new"))' 'the deferral names the new items'
+# ten new items reach the limit by themselves
+for n in 21 22 23 24 25 26 27 28 29 30; do
+  add_row "$n" "$SHA5" "$(iso_ago 90000)" APPROVE done
+  merged_pr_fx "$n" "$SHA5"
+done
+run_preflight review
+assert_jq '(.prunes_due | length) == 20 and .housekeeping_only == true' 'ten items no run took force the batch'
 
 # --- real work carries the bookkeeping along ---------------------------------
 new_case hk_rides_along
@@ -79,6 +93,7 @@ assert_jq '(.reviews_due | length) == 1 and (.prunes_due | length) == 1' 'both a
 assert_jq '.nothing_to_do == false' 'the review starts the run'
 assert_jq 'has("housekeeping_only") == false' 'a run with real work is not a housekeeping run'
 assert_jq '.logs | any(contains("ride along"))' 'the free ride is logged'
+assert_file_contains "$WORK/$MARKER" '^prune:5$' 'a run with work records the items it took'
 assert_jq '.read_set | index("docs/review.md") != null and index("docs/review-bookkeeping.md") != null' 'the review core and the bookkeeping file are both read'
 
 # --- nothing pending clears the wait -----------------------------------------
