@@ -243,6 +243,7 @@ assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'update-ref refs/remotes/ori
 git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr~1
 OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - "$FIX/ts-cart/diff-v1.patch" 2>&1; printf 'rc=%s' "$?")"
 assert_out_contains '^rc=0$' 'origin/main...HEAD in a first-review worktree is the v1 diff'
+assert_file_contains "$REPO_ROOT/docs/benchmark.md" 'git -C "$PR_DIR" worktree prune' 'the documented re-review prunes the first review worktrees'
 rm -rf "$PR_DIR.s-demo" && git -C "$PR_DIR" worktree prune
 git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-demo" pr
 OUT="$(git -C "$PR_DIR.s-demo" diff origin/main...HEAD | cmp - <(git -C "$PR_DIR" diff main..pr) 2>&1; printf 'rc=%s' "$?")"
