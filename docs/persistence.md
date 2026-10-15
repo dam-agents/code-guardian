@@ -210,8 +210,8 @@ a Kit Update or of a migration follows these rules:
   - The migration's feature offer (step 2) is one form with one switch per
     feature, all off.
   - Ask in plain text in a turn without the skill's renderer capabilities
-    (a Slack or Telegram turn), after the skill's attempt limit, and for a
-    secret.
+    (a Slack or Telegram turn) and after the skill's attempt limit. Never ask
+    for a secret in chat: credentials live in the platform's connections.
 
 ## Evolving the agent definition (outer repo)
 
