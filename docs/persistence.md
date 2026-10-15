@@ -190,6 +190,11 @@ Back up `work/` afterwards.
 Every operator question of onboarding ([ONBOARDING.md](../ONBOARDING.md)), of
 a Kit Update or of a migration follows these rules:
 
+- **Kit Update.** Take every change of the crossed versions. Show no list of
+  versions, changelog entries or commits, and ask nothing about which changes
+  to take or to keep for later updates. The only questions are the ones
+  **Definition version & upgrade** asks (a checkout that is not clean, the
+  feature offer, an operator-only step).
 - **Progress.** Each question starts with `Question <n> of <total>`. Before
   the first question, count the questions the run will ask from what it
   already knows (keys present, features crossed). A follow-up that an answer
@@ -198,8 +203,8 @@ a Kit Update or of a migration follows these rules:
 - **Chat forms.** Chat forms are on when the session lists the
   `platform-chat-forms` skill or the `mcp__platform-outbound__check_chat_form`
   tool. Then each question goes out as a chat form, built per that skill and
-  validated with `check_chat_form` before the send when the tool is listed. The progress line is the
-  form's title.
+  validated with `check_chat_form` before the send when the tool is listed.
+  The progress line is the form's title.
   - One form per question; the question's default is the preselected answer,
     marked `(Recommended)`.
   - The migration's feature offer (step 2) is one form with one switch per
