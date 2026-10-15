@@ -2070,9 +2070,9 @@ if [ "$MODE" = "audit" ]; then
 
   if [ -n "$WORK_REPO" ]; then
     if [ -e "$WORK/.git" ]; then
-      check work_repo warn "work/.git present — work/ must be a plain data dir (backup runs in a tmpfs clone); remove it per docs/persistence.md"
+      check work_repo warn "work/.git present — work/ must be a plain data dir (backup runs in a pod-local clone); remove it per docs/persistence.md"
     else
-      check work_repo ok "work/ plain data dir; durable backup via tmpfs clone (any work_backup push errors surface in the log triage below)"
+      check work_repo ok "work/ plain data dir; durable backup via pod-local clone (any work_backup push errors surface in the log triage below)"
     fi
   else check work_repo ok "local-only persistence (no work_repo)"; fi
 
@@ -2301,7 +2301,7 @@ if [ "$MODE" = "audit" ]; then
 
   # --- disk: every volume a run writes to ---------------------------------
   # work/ (the home volume), the review clones under $TMP_ROOT and the backup's
-  # tmpfs clone; one line per filesystem. A volume df cannot read is reported
+  # clone; one line per filesystem. A volume df cannot read is reported
   # as unmeasured, never as full or empty.
   hsize() { # <KiB> -> 1.5G / 512M / 64K
     if [ "$1" -ge 1048576 ]; then printf '%d.%dG' $(($1/1048576)) $(( ($1%1048576)*10/1048576 ))
@@ -2309,7 +2309,7 @@ if [ "$MODE" = "audit" ]; then
   }
   DISK_JSON='[]'; disk_status=ok; disk_detail=""; disk_seen=" "
   work_kb="$(du -sk "$WORK" 2>/dev/null | cut -f1)"; case "$work_kb" in (''|*[!0-9]*) work_kb="";; esac
-  backup_dir="$(dirname "${WORK_BACKUP_LOCAL:-/dev/shm/cg-work-backup}")"
+  backup_dir="$(dirname "$BACKUP_LOCAL")"
   for spec in "work:$WORK" "tmp:$TMP_ROOT" "backup:$backup_dir"; do
     role="${spec%%:*}"; dpath="${spec#*:}"
     [ -d "$dpath" ] || continue

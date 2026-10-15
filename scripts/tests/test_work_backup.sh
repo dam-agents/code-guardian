@@ -90,7 +90,7 @@ FRESH="$SANDBOX/fresh-b"; mkdir -p "$FRESH"
 printf -- '- work_repo: acme/widgets-state\n' > "$FRESH/CONFIG.md"
 RC=0; OUT="$(WORK_DIR="$FRESH" HOME="$FAKE_HOME" WORK_BACKUP_REMOTE="$REMOTE" \
   WORK_BACKUP_LOCAL="$STALE" bash "$REPO_ROOT/scripts/work-backup.sh" restore 2>&1)" || RC=$?
-assert_rc 0 "restore over a stale tmpfs clone exits 0"
+assert_rc 0 "restore over a stale scratch clone exits 0"
 assert_true "restored the configured remote, not the stale clone" grep -q 'Agent B' "$FRESH/MEMORY.md"
 
 new_case persist-refuses-protected-delete
@@ -112,5 +112,9 @@ rm -f "$WORK/reviews/pr-7.md" "$WORK/logs/events-2026-09-20.jsonl"
 backup persist
 assert_out_absent "refused" "a pruned PR file and an expired log are not protected"
 assert_true "the pruned PR file left the remote" eval '! remote_has reviews/pr-7.md'
+
+new_case scratch-on-disk
+DEFAULT_LOCAL="$(unset WORK_BACKUP_LOCAL; . "$REPO_ROOT/scripts/lib/common.sh"; printf '%s' "$BACKUP_LOCAL")"
+assert_true "the default clone sits on local disk, off the 64 MB /dev/shm" test "$DEFAULT_LOCAL" = /var/tmp/cg-work-backup
 
 finish

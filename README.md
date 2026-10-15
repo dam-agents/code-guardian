@@ -328,7 +328,7 @@ ledger) live alongside them. They sit on the `/workspace` PVC at runtime
 seeded depends on the `work_repo` key:
 
 - **Set** — `work/` is a plain data directory backed up to that repo after
-  every run, via a disposable tmpfs clone, giving durable, versioned,
+  every run, via a disposable pod-local clone, giving durable, versioned,
   cross-pod history. Naming an existing backup at onboarding continues that
   agent: state and logs return verified, and the accumulated reports are
   published again (`docs/persistence.md` → **After a restore**).

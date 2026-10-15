@@ -166,6 +166,11 @@ DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
 
+# The backup's scratch clone (docs/persistence.md → Backup & restore): pod-local
+# disk, off the shared home volume. It holds work/ and the work repo's history,
+# which outgrow a 64 MB /dev/shm. Overridable for testing.
+BACKUP_LOCAL="${WORK_BACKUP_LOCAL:-/var/tmp/cg-work-backup}"
+
 # epoch -> UTC time in <format> (default ISO-8601 with Z), GNU then BSD date;
 # empty when neither form works
 epoch2iso() { # <epoch> [date format]

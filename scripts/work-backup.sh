@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # work-backup.sh — durable backup / restore of the NFS-resident work/ state to
-# the `work_repo` of work/CONFIG.md, performed ENTIRELY inside a private tmpfs
-# clone so the shared work/ directory never has a .git mutated under concurrent
-# runs (the source of "Stale file handle" / .nfs* failures on the shared home).
+# the `work_repo` of work/CONFIG.md, performed ENTIRELY inside a private
+# pod-local clone so the shared work/ directory never has a .git mutated under
+# concurrent runs (the source of "Stale file handle" / .nfs* failures on the shared home).
 #
 #   work-backup.sh persist   # end of run: snapshot work/ -> commit -> push
 #   work-backup.sh restore   # fresh volume: remote state -> work/ (data only)
@@ -15,12 +15,8 @@ set -u
 
 MODE="${1:-persist}"
 WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
-# tmpfs scratch; overridable for testing. /dev/shm is the pod's only truly
-# local (non-virtiofs) filesystem.
-LOCAL="${WORK_BACKUP_LOCAL:-/dev/shm/cg-work-backup}"
 BRANCH="${WORK_BACKUP_BRANCH:-main}"
 RETRIES="${WORK_BACKUP_RETRIES:-3}"
-LOCK="$LOCAL.lock"                                # sibling of the clone, tmpfs too
 LOCK_TTL_MIN="${WORK_BACKUP_LOCK_TTL_MIN:-10}"    # a persist takes seconds
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,6 +30,8 @@ say() { echo "work-backup: $*"; }
 CONFIG="$WORK/CONFIG.md"
 . "$SCRIPT_DIR/lib/common.sh"
 WORK_REPO="$(cfg work_repo)"
+LOCAL="$BACKUP_LOCAL"                             # lib/common.sh
+LOCK="$LOCAL.lock"                                # sibling of the clone
 
 # restore's exit code is its outcome (header); persist always exits 0
 end() { [ "$MODE" = restore ] && exit "$1"; exit 0; }
@@ -58,9 +56,9 @@ PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl PR-EVENTS.jsonl au
 WORK_REF="$(refhost "$WORK_REPO")/$(refslug "$WORK_REPO")"
 REMOTE_URL="${WORK_BACKUP_REMOTE:-https://$WORK_REF}"
 
-# (Re)seed a usable clone in $LOCAL from the durable remote. tmpfs may be empty
+# (Re)seed a usable clone in $LOCAL from the durable remote. Scratch may be empty
 # (fresh pod), stale, or a half-written clone (interrupted run) — validate and
-# re-clone defensively so a wiped tmpfs never breaks us. Returns 1 only if we
+# re-clone defensively so a wiped scratch never breaks us. Returns 1 only if we
 # could neither clone nor init.
 seed_clone() {
   if ! ( cd "$LOCAL" 2>/dev/null && git rev-parse --git-dir >/dev/null 2>&1 ); then
@@ -97,9 +95,9 @@ sync_in() {
 
 # Serialize access to the shared clone $LOCAL (concurrent sessions share it, and
 # two writers over one clone would race: checkout -B and the worktree wipe land
-# under each other's git add). mkdir is atomic even on tmpfs/NFS; the lock dir's
-# mtime is the last-progress time, refreshed each attempt, so a crashed run
-# expires by TTL. HELD guards release so we only ever remove OUR lock (never a
+# under each other's git add). mkdir is atomic on a local filesystem and on NFS;
+# the lock dir's mtime is the last-progress time, refreshed each attempt, so a
+# crashed run expires by TTL. HELD guards release so we only ever remove OUR lock (never a
 # lock another session acquired after we skipped/released).
 HELD=0
 acquire_lock() {
@@ -124,7 +122,7 @@ acquire_lock() {
 }
 release_lock() { [ "$HELD" = 1 ] && rm -rf "$LOCK" 2>/dev/null; HELD=0; return 0; }
 # safety net: release on unexpected exit/signal (kill mid-run would otherwise
-# leave the lock until TTL; a pod restart wipes tmpfs anyway). Idempotent via HELD.
+# leave the lock until TTL; a pod restart wipes the scratch anyway). Idempotent via HELD.
 trap 'release_lock' EXIT
 trap 'exit' INT TERM
 
@@ -185,7 +183,7 @@ restore() {
     w=$((w + 1)); [ "$w" -ge 5 ] && { logev warn work_backup "restore proceeding without lock after wait"; break; }
     sleep 1
   done
-  # a fresh clone of the configured remote, never a clone left on tmpfs: that
+  # a fresh clone of the configured remote, never a clone left in the scratch: that
   # one may track another work_repo or a tip a failed fetch left behind, and the
   # verification below would pass against it. The probe tells an unreachable
   # remote (1) from one without the backup branch (2).

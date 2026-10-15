@@ -10,12 +10,14 @@ change to the definition itself.
 | --- | --- | --- |
 | `/home/agent` (outer) | git repo, remote `$DEFINITION_REPO` (`origin`) | Definition: `CLAUDE.md`, `AGENTS.md`, `ONBOARDING.md`, `README.md`, `docs/`, `scripts/`, `.agents/` (bundled skills), `kit.yaml`, `VERSION`, `CHANGELOG.md`, `.gitignore`, `.github/`, `LICENSE`. |
 | `/home/agent/work` | **plain data directory** (no `.git`) | Live runtime state (`CONFIG.md`, `MEMORY.md`, `REVIEWS.md`, `reviews/`, `logs/`, ledgers). Shared across concurrent runs; the source of truth. |
-| `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable tmpfs clone. |
+| `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable pod-local clone. |
 
 `work/` is **not** a git repo: on the shared NFS-backed volume, a `.git`
 rewritten under concurrent runs breaks with `Stale file handle` (ESTALE) and
-`.nfs*` silly-renames. All git plumbing happens in a private per-pod tmpfs
-clone under `/dev/shm`; `work/` itself is only ever read.
+`.nfs*` silly-renames. All git plumbing happens in a private pod-local
+clone, `/var/tmp/cg-work-backup` (local disk, not `/dev/shm`: the clone holds
+the work repo's history and outgrows a 64 MB tmpfs); `work/` itself is only
+ever read.
 
 The outer `.gitignore` is an allowlist (`/*`, then re-include the definition
 files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
@@ -23,7 +25,7 @@ files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
 the ONBOARDING.md templates (Step 3b) or restores it from the backup remote,
 and a definition update never collides with live state. **Never run
 `git clean` in `/home/agent`** and never `git add` outside the allowlist; the
-backup's `git add -A` is confined to the tmpfs clone.
+backup's `git add -A` is confined to that clone.
 
 ## Backup & restore (`scripts/work-backup.sh`)
 
@@ -36,7 +38,7 @@ every run where the agent did work, as the very last action — a no-op without
 LOG_JOB=<mode> bash "$HOME/scripts/work-backup.sh" persist
 ```
 
-The script snapshots `work/` into a **disposable tmpfs clone**, re-seeded from
+The script snapshots `work/` into a **disposable pod-local clone**, re-seeded from
 the remote on every call, then commits and pushes: the live state is `work/`,
 the history is the remote. A rejected non-fast-forward push re-seeds from the
 new tip and retries in-run; concurrent persists in one pod share the clone and

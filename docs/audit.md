@@ -55,7 +55,7 @@ reason, never dropped.
 4. Everything else the script checks is already in `checks[]` — connectivity,
    scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
    of every volume a run writes to (work/, the review clones, the backup's
-   tmpfs), skills, roster, definition currency, benchmark fixture and results
+   clone), skills, roster, definition currency, benchmark fixture and results
    integrity, the memory budget, artifact outcome logging, the profile's
    currency, the definition repo's open-issue backlog
    ([preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
