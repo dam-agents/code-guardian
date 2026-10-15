@@ -185,6 +185,29 @@ commit). It discards, so surface that it was needed. **Never `git clean`.**
 
 Back up `work/` afterwards.
 
+## Operator questions (onboarding and update)
+
+Every operator question of onboarding ([ONBOARDING.md](../ONBOARDING.md)), of
+a Kit Update or of a migration follows these rules:
+
+- **Progress.** Each question starts with `Question <n> of <total>`. Before
+  the first question, count the questions the run will ask from what it
+  already knows (keys present, features crossed). A follow-up that an answer
+  adds raises `<total>` from that question on; a question an answer makes
+  unnecessary lowers it.
+- **Chat forms.** Chat forms are on when the session lists the
+  `platform-chat-forms` skill or the `mcp__platform-outbound__check_chat_form`
+  tool. Then each question goes out as a chat form, built per that skill and
+  validated with `check_chat_form` before the send. The progress line is the
+  form's title.
+  - One form per question; the question's default is the preselected answer,
+    marked `(Recommended)`.
+  - The migration's feature offer (step 2) is one form with one switch per
+    feature, all off.
+  - Ask in plain text in a turn without the skill's renderer capabilities
+    (a Slack or Telegram turn), after the skill's attempt limit, and for a
+    secret.
+
 ## Evolving the agent definition (outer repo)
 
 **First read [self-modification.md](self-modification.md)** — it defines the

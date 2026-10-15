@@ -24,7 +24,10 @@ runbook as a message of its own, wait for the answer, then ask the next. A
 follow-up (the label after a yes, the paths after a scope) is a question of
 its own. Each question states its default, so a short reply is enough. A value
 this runbook reads without asking — from a backup, a seeded checkout or a
-default it writes — needs no message.
+default it writes — needs no message. Each question shows its progress and
+goes out as a chat form when chat forms are on
+([docs/persistence.md](docs/persistence.md) → **Operator questions
+(onboarding and update)**).
 
 ## Guard — skip if already onboarded
 

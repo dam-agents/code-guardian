@@ -418,7 +418,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
 | [survey.md](survey.md) | `survey_due` present, or the operator asks about a codebase survey — area selection, the caps, the pass, the artifact |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |
-| [persistence.md](persistence.md) | End-of-run persist; an update or version-check request; any request to change the definition |
+| [persistence.md](persistence.md) | End-of-run persist; an update, Kit Update or version-check request — the operator questions; any request to change the definition |
 | [logging.md](logging.md) | Writing or reading structured log events, debugging a past run, harness adapters, the audit's log triage, retention |
 | [self-modification.md](self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |
 | [preflight.sh](../scripts/preflight.sh), [monitor.sh](../scripts/monitor.sh) | Reference for what a pass computes — never re-compute its decisions |
