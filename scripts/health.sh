@@ -142,24 +142,37 @@ incidents_merge() { # <keep>
     | map(select(.last_seen >= $keep)) | sort_by(.first) | .[]'
 }
 
+# true when a harness adapter writes the per-run `tokens` event
+# (docs/logging.md → Harness adapters): this process runs in a Claude Code
+# session, or the Claude Code adapter's SessionEnd hook is installed — the
+# monitor's gate runs outside the session
+tokens_adapter() {
+  if [ "${CLAUDECODE:-}" = "1" ] || jq -e '[.hooks.SessionEnd[]?.hooks[]?.command | strings
+        | select(endswith("/log-session-tokens.sh"))] | length > 0' "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1
+  then echo true; else echo false; fi
+}
+
 # the service status: the conditions of this tick, the last hours' counts
 status_now() {
   { jq -cR 'fromjson? // empty' "$HOURS" 2>/dev/null || true; } | jq -sc --slurpfile c "$TMPD/cond" \
       --arg now "$NOW_ISO" --argjson nowe "$NOW_EPOCH" --arg hb "${HB_LAST:-}" \
       --arg wr "$(cfg work_repo)" --arg direct "$(cfg monitor_slack_direct)" \
-      --arg ready "$(bash "$SCRIPT_DIR/monitor-direct.sh" ready 2>/dev/null)" '
+      --arg ready "$(bash "$SCRIPT_DIR/monitor-direct.sh" ready 2>/dev/null)" --argjson adapter "$(tokens_adapter)" '
     def since($s): map(select(.h >= ($nowe - $s * 3600 | strftime("%Y-%m-%dT%H"))));
     def sum(f): map(f // 0) | add // 0;
     def has($k): any($c[]; .kind == $k);
     def open($k): any($c[]; .kind == $k and .open == true);
     (since(2)) as $h2 | (since(6)) as $h6 | (since(24)) as $h24
-    | {ts: $now, services: [
+    # without an adapter no session writes a `tokens` event: 24 h without one
+    # measured nothing, never a zero
+    | ($adapter or ($h24 | sum(.sessions)) > 0) as $measured
+    | {ts: $now, tokens_adapter: $adapter, services: [
         {key: "platform", name: "DAM schedules",
          state: (if has("heartbeat_gap") then "down" elif ($h6 | sum(.pod_boots)) + ($h6 | sum(.gate_err)) > 0 then "warn" else "ok" end),
          note: "Last review-gate tick: \(if $hb == "" then "none on record" else $hb end). Pod restarts 24 h: \($h24 | sum(.pod_boots)). Broken gates 24 h: \($h24 | sum(.gate_err))."},
         {key: "harness", name: "Harness",
          state: (if has("harness_drift") then "warn" else "ok" end),
-         note: ("Sessions 24 h: \($h24 | sum(.sessions)). Tool failures 24 h: \($h24 | sum(.tool_fail))."
+         note: ("Sessions 24 h: \(if $measured then $h24 | sum(.sessions) else "not measured (no tokens adapter on this harness)" end). Tool failures 24 h: \($h24 | sum(.tool_fail))."
                + (if has("harness_drift") then " Adapter not current: \([$c[] | select(.kind == "harness_drift") | .parts[]?] | join(", "))." else "" end))},
         {key: "model", name: "Model API",
          state: (if open("model_unavailable") then "down" elif ($h2 | sum(.model_fail)) > 0 then "warn" else "ok" end),
@@ -236,7 +249,9 @@ report() {
         def charts($pts; $unit):
           "<div class=\"grid\">"
           + figure($pts; "Gate ticks per \($unit)"; "Every schedule fire that reached its gate. A run of zeros means that no schedule fired."; [{name: "ticks", color: "var(--c1)", f: "gate_n"}])
-          + figure($pts; "Sessions and reviews per \($unit)"; "Sessions that ended, and reviews that reached done."; [{name: "sessions", color: "var(--c1)", f: "sessions"}, {name: "reviews", color: "var(--c3)", f: "reviews"}])
+          + (if $status.tokens_adapter == false and ($pts | all(.row == null or (.row.sessions // 0) == 0))
+             then figure($pts; "Reviews per \($unit)"; "Reviews that reached done. Sessions are not measured: no harness adapter writes the tokens event."; [{name: "reviews", color: "var(--c3)", f: "reviews"}])
+             else figure($pts; "Sessions and reviews per \($unit)"; "Sessions that ended, and reviews that reached done."; [{name: "sessions", color: "var(--c1)", f: "sessions"}, {name: "reviews", color: "var(--c3)", f: "reviews"}]) end)
           + figure($pts; "Model API failures per \($unit)"; "Turns that ended on a provider or gateway error after the harness retries."; [{name: "failures", color: "var(--bad)", f: "model_fail"}])
           + figure($pts; "GitHub failures per \($unit)"; "Gate passes that could not list the open PRs, and partial API warnings."; [{name: "failed passes", color: "var(--bad)", f: "gh_fail"}, {name: "warnings", color: "var(--c2)", f: "gh_warn"}])
           + figure($pts; "Classifier refusals per \($unit)"; "Auto-mode classifier refusals of a tool call."; [{name: "refusals", color: "var(--c2)", f: "classifier"}])

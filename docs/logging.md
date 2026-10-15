@@ -159,7 +159,9 @@ agent's failed tool calls into `tool_failure` events automatically. With no
 adapter active, duty 4 above extends to logging tool failures manually. A
 harness with no adapter writes no `tokens` event: in a week without one, the
 audit reports tokens, sessions, session models and stall causes as not
-measured ([audit.md](audit.md) → tasks 27, 29).
+measured ([audit.md](audit.md) → tasks 27, 29), and in 24 h without one the
+health dashboard reports sessions as not measured ([health.md](health.md) →
+**Service status**).
 
 **Claude Code** (`scripts/harness/claude-code/`), detected by `CLAUDECODE=1`:
 

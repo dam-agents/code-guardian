@@ -164,6 +164,42 @@ record
 status
 assert_jq '.services[] | select(.key == "slack") | .state == "warn" and (.note | contains("slack_notifications is not enabled"))' 'an opt-in that cannot send is a warning with its reason'
 
+# --- a harness with no tokens adapter measures no sessions ----------------------------------------
+# only an adapter writes the `tokens` event (docs/logging.md → Harness adapters):
+# there 24 h without one is unmeasured, never a zero
+h_case h_sessions_not_measured
+ev "$AGO" review info precheck "review gate: nothing to do"
+ev "$AGO" session info review_step "PR #4 abc1234 done"
+CLAUDECODE="" record
+status
+assert_jq '.tokens_adapter == false and (.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: not measured (no tokens adapter on this harness)."))' \
+  'the harness note says that it measured no sessions'
+CLAUDECODE="" henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
+has "$SANDBOX/page.html" 'Reviews per hour' 'the chart shows the reviews alone'
+has "$SANDBOX/page.html" 'Sessions are not measured' 'and says why'
+lacks "$SANDBOX/page.html" 'Sessions and reviews per' 'no zero line of sessions'
+# a tokens event counts on any harness
+ev 600 session info tokens "in=1 out=2"
+CLAUDECODE="" record
+status
+assert_jq '.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: 1.")' 'a session that wrote the event counts'
+# the adapter's SessionEnd hook, read from the gate outside a session: a measured zero
+h_case h_sessions_measured_zero
+mkdir -p "$FAKE_HOME/.claude"
+jq -nc '{hooks: {SessionEnd: [{hooks: [{type: "command", command: "/home/agent/scripts/harness/claude-code/log-session-tokens.sh"}]}]}}' \
+  > "$FAKE_HOME/.claude/settings.json"
+CLAUDECODE="" record
+status
+assert_jq '.tokens_adapter == true and (.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: 0."))' \
+  'with the adapter hook installed, 24 h without a tokens event count zero'
+CLAUDECODE="" henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
+has "$SANDBOX/page.html" 'Sessions and reviews per hour' 'the chart keeps the sessions'
+rm -f "$FAKE_HOME/.claude/settings.json"
+CLAUDECODE=1 record
+status
+assert_jq '.tokens_adapter == true and (.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: 0."))' \
+  'in a Claude Code session, 24 h without a tokens event count zero'
+
 # --- the dashboard -------------------------------------------------------------------------------
 h_case h_report '- bot_display_name: <script>x</script>'
 ev "$AGO" review info precheck "review gate: nothing to do"

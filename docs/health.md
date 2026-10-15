@@ -59,6 +59,14 @@ Otherwise `ok`; `na` for the backup without `work_repo` and for direct alerts
 without `monitor_slack_direct: enabled`. `status.json` → `sig` joins every
 state.
 
+**Sessions** — `status.json` → `tokens_adapter` is `true` when a harness
+adapter writes the `tokens` event ([logging.md](logging.md) → **Harness
+adapters**): `CLAUDECODE=1`, or the Claude Code adapter's `SessionEnd` hook in
+`~/.claude/settings.json`, which the monitor's gate reads from outside the
+session. With `false` and no `tokens` event in 24 h, the Harness note says
+`Sessions 24 h: not measured`, and a chart window with no session shows the
+reviews alone. A `tokens` event counts on any harness.
+
 ## The dashboard
 
 `bash "$HOME/scripts/health.sh" report` prints one self-contained page: the
@@ -74,7 +82,8 @@ tick at all.
   `no_gate_tick`, the schedules table);
 - `gate_err` → the gate broke (the `precheck` events of that hour);
 - `gh_fail` → GitHub; `model_fail` → the model; `classifier` → refusals;
-- gate ticks and no session → nothing was due.
+- gate ticks and no session → nothing was due; with sessions not measured,
+  gate ticks and no review.
 
 ## Publish (`health_dashboard: dam`)
 
