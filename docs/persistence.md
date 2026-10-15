@@ -198,7 +198,7 @@ a Kit Update or of a migration follows these rules:
 - **Chat forms.** Chat forms are on when the session lists the
   `platform-chat-forms` skill or the `mcp__platform-outbound__check_chat_form`
   tool. Then each question goes out as a chat form, built per that skill and
-  validated with `check_chat_form` before the send. The progress line is the
+  validated with `check_chat_form` before the send when the tool is listed. The progress line is the
   form's title.
   - One form per question; the question's default is the preselected answer,
     marked `(Recommended)`.
