@@ -428,12 +428,6 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      (`docs/worklist.md` → **Dispatch**). Mention that each such session pays
      its own session prefix. Default `enabled`; write the key only for
      `disabled`.
-   - **`review_model`** — the model every scheduled session runs on
-     (`docs/config.md`). Ask for a name from the agent's model settings;
-     default `opus`. Always write the key. Step 6 validates it: a
-     platform that refuses a chosen model for this harness → write
-     `review_model: default` and tell the operator; an unknown name → ask
-     again with the choices the platform lists.
    - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
      reply in its inline review threads, get handled every heartbeat:
      questions answered, review feedback recorded to memory, review requests
@@ -588,7 +582,6 @@ Final shape:
 - review_progress: enabled             # progress check on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
-- review_model: opus                   # model of every scheduled session; or another name from the model settings, or: default
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
@@ -701,9 +694,10 @@ one only under `slack_notifications: enabled`, the benchmark one only under
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
 schedule gate**); the audit is ungated. Every schedule here also carries
-**`model: <review_model>`**, none under `review_model: default`
-(`docs/config.md`), and the **`sessionTitle`** its step names
-(`docs/runbook.md` → **Session titles**).
+the **`sessionTitle`** its step names (`docs/runbook.md` → **Session
+titles**). A schedule this step creates carries no `model`; a re-created one
+carries the registered schedule's `model` unchanged — the session model is the
+platform's (`docs/config.md` → **Session model**).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
@@ -715,8 +709,8 @@ share one. For each schedule this step defines:
 | Registered state | Action |
 | --- | --- |
 | absent | create it |
-| same `name`, same cron, `task`, `precheck`, `model` and `sessionTitle` as this step derives | keep it, and `toggle_schedule` it **enabled** |
-| same `name`, different cron, `task`, `precheck`, `model` or `sessionTitle` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
+| same `name`, same cron, `task`, `precheck` and `sessionTitle` as this step derives | keep it, and `toggle_schedule` it **enabled** |
+| same `name`, different cron, `task`, `precheck` or `sessionTitle` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
 only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a
@@ -838,7 +832,7 @@ with the verification result (the `PASS` line plus any warnings):
    also the quiet-hour interval a night or weekend PR waits for), shepherd
    cadence when Slack is on, audit day, benchmark and survey days when
    enabled, the monitor every 15 minutes (with its direct DM and dashboard
-   when enabled), the model every scheduled session runs on (`review_model`),
+   when enabled), that the platform's model settings choose the session model,
    whether anonymous issues go to the definition repo (`definition_issues`),
    and state persistence (the `work_repo` backup or local-only).
 3. Day-to-day usage:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch (scripts/dispatch.sh): a review worklist with several PRs starts the
 # PRs after its first in sessions of their own — one unit worklist per PR, the
-# exact schedule_once name, task, session title and model, the run's own
+# exact schedule_once name, task and session title, the run's own
 # worklist without them and its title.
 # Contract: docs/worklist.md → Dispatch.
 . "$(dirname "$0")/helpers.sh"
@@ -50,8 +50,7 @@ assert_jq '[.dispatch[].number] == [8, 9]' 'the PRs after the first are dispatch
 assert_jq '[.dispatch[].name] == ["code-guardian-review-pr-8", "code-guardian-review-pr-9"]' 'each session is named after its PR'
 assert_jq '[.dispatch[].sessionTitle] == ["Review PR #8", "Review PR #9"]' 'each session title names its work and its PR'
 assert_file_jq "$WL" '.config.review_dispatch == "enabled"' 'the gate worklist carries review_dispatch, enabled by default'
-assert_file_jq "$WL" '.config.review_model == "default"' 'the gate worklist carries review_model, default when missing'
-assert_jq '.dispatch | all(has("model") | not)' 'under review_model: default no call names a model'
+assert_jq '.dispatch | all(has("model") | not)' 'no call names a model'
 U8="$(printf '%s' "$OUT" | jq -r '.dispatch[0].worklist')"
 if printf '%s' "$OUT" | jq -e --arg u "$U8" '.dispatch[0].task | contains("worklist: " + $u) and contains("PR #8")' >/dev/null; then
   printf 'ok   %s: the task names the PR and its unit worklist\n' "$CASE"
@@ -154,23 +153,15 @@ jq '.reviews_due = [{number:7, kind:"first"}] | .artifacts_due[0].action = "gene
 run_ds plan "$WL"
 assert_jq '[.dispatch[].number] == [9]' 'a generate is a unit of its own'
 
-# --- review_model pins every dispatched session ------------------------------
-new_case dispatch_model
+# --- the platform sets the session model --------------------------------------
+new_case dispatch_no_model
 base_config '- review_model: sonnet'
 { pr_json 7 "first PR" '[]' "$SHA1"; pr_json 8 "second PR" '[]' "$SHA1"; } | open_prs_fx
 run_precheck review
 assert_rc 0 'two first reviews start the session'
+assert_file_jq "$WORKLIST" '.config | has("review_model") | not' 'the worklist carries no review_model'
 run_ds plan "$WORKLIST"
-assert_jq '[.dispatch[] | {number, model}] == [{number: 8, model: "sonnet"}]' 'each call carries the configured review_model'
-
-new_case dispatch_model_default_any_case
-base_config '- review_model: Default'
-{ pr_json 7 "first PR" '[]' "$SHA1"; pr_json 8 "second PR" '[]' "$SHA1"; } | open_prs_fx
-run_precheck review
-assert_rc 0 'two first reviews start the session'
-assert_file_jq "$WORKLIST" '.config.review_model == "default"' 'the worklist reads default in any letter case'
-run_ds plan "$WORKLIST"
-assert_jq '.dispatch | length == 1 and all(has("model") | not)' 'under Default no call names a model'
+assert_jq '.dispatch | length == 1 and all(has("model") | not)' 'a leftover review_model key names no model'
 
 # --- nothing to start ---------------------------------------------------------
 new_case dispatch_nothing_to_start

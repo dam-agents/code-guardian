@@ -54,10 +54,11 @@ channels:
 # already present and creates nothing twice. `precheck` is the schedule gate
 # (docs/worklist.md → The schedule gate). The crons hold the platform's own
 # time; an instance's cadence is its own (`work/CONFIG.md`), and Step 6
-# registers it for that instance. The kit schema has no `model` or
-# `sessionTitle` field yet, so Step 6 re-registers each schedule with
-# `review_model` and its title; once the schema carries the fields, declare
-# them here and drop this note.
+# registers it for that instance. The kit schema has no `sessionTitle` field
+# yet, so Step 6 re-registers each schedule with its title; once the schema
+# carries the field, declare it here and drop this note. No schedule this kit
+# declares carries a `model`: the session model is the platform's
+# (docs/config.md → Session model).
 schedules:
   # Review heartbeat (Step 6a) — every 5 minutes, around the clock. An
   # instance that configures an active window gets its quiet-hour schedules

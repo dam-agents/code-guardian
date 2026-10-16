@@ -142,8 +142,8 @@ freshness, trigger still present, pre-post dedup, the mention ledger — for
      it and end the run).
    - Any other worklist file: `bash "$HOME/scripts/dispatch.sh" plan
      <worklist>`, one `mcp__platform-outbound__schedule_once` call per
-     `dispatch[]` entry with exactly its `name`, `task`, `sessionTitle` and
-     `model` (when present), then `bash "$HOME/scripts/dispatch.sh" rest
+     `dispatch[]` entry with exactly its `name`, `task` and `sessionTitle`,
+     then `bash "$HOME/scripts/dispatch.sh" rest
      <worklist> <each accepted number>`: its `worklist` is this run's from
      here on, its `title` the session's (**Session titles**). A PR whose call
      failed, or every PR when the tool is missing, stays in the run

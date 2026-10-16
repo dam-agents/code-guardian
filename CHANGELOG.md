@@ -16,6 +16,18 @@ they are released history and stay as written.
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`
 (idempotent; a notice and no change where pi is absent).
 
+## 9.9.0 — 2026-10-16
+
+**Upgrade:** Remove the `review_model` line from `work/CONFIG.md`, if
+present. The platform sets the session model now
+([docs/config.md](docs/config.md) → **Session model**): leave every
+registered schedule's `model` as it is, and tell the operator in one line
+that the model of each schedule, and of a dispatched review, is set in the
+DAM model settings. Then run
+`bash "$HOME/scripts/harness/claude-code/install.sh"` (idempotent; a no-op on
+another harness): it rewrites the `[code-guardian]` dispatch rule without
+`model`, effective from the next session.
+
 ## 9.8.0 — 2026-10-16
 
 **Upgrade:** Nothing to run. With `benchmark_judge` set, the host needs the

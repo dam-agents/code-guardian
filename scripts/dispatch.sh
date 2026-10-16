@@ -8,11 +8,11 @@
 #       Cuts one unit worklist per PR to dispatch — that PR's entries alone,
 #       its bookkeeping included, `dispatched: {number, by}`, its own read_set
 #       — next to <worklist>, and prints
-#       {"dispatch": [{number, worklist, name, task, sessionTitle, model?}]}:
+#       {"dispatch": [{number, worklist, name, task, sessionTitle}]}:
 #       every PR after the first in run order, each with the exact `name`,
-#       `task`, `sessionTitle` and `model` of its
-#       mcp__platform-outbound__schedule_once call — `model` is the config's
-#       `review_model`, absent under `default` (docs/config.md). The platform's own limits on
+#       `task` and `sessionTitle` of its mcp__platform-outbound__schedule_once
+#       call — no `model`: the platform sets the session model
+#       (docs/config.md → Session model). The platform's own limits on
 #       one-time tasks bound how many start; a refused PR stays with the run.
 #       Prints an empty list for one PR, a housekeeping-only run, or
 #       `review_dispatch: disabled` in the worklist's config.
@@ -109,7 +109,6 @@ case "$CMD" in
          or (.config.review_dispatch // "enabled") == "disabled" then empty
       else units[1:][] end' "$WL")" \
       || die "the worklist could not be read"
-    MODEL="$(jq -r '.config.review_model // "default"' "$WL")"
     OUT='[]'
     for n in $NUMS; do
       case "$n" in (''|*[!0-9]*) continue;; esac
@@ -128,9 +127,8 @@ worklist: $UNIT
 run: $URUN — start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=$URUN;\` (docs/logging.md → **The events log**).
 "'Read the worklist JSON at that path and never run preflight.sh this run; if the file is gone, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run" and back up work/ at the end (`scripts/work-backup.sh persist`).'
       TITLE="$(jq -r --argjson n "$n" "$UNIT_JQ$TITLE_JQ"'unit_title($n)' "$WL")"
-      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg m "$MODEL" --arg s "$TITLE" \
-        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t, sessionTitle:$s}
-              + (if ($m | ascii_downcase) == "default" or $m == "" then {} else {model:$m} end)]')"
+      OUT="$(printf '%s' "$OUT" | jq -c --argjson n "$n" --arg w "$UNIT" --arg t "$TASK" --arg s "$TITLE" \
+        '. + [{number:$n, worklist:$w, name:("code-guardian-review-pr-" + ($n | tostring)), task:$t, sessionTitle:$s}]')"
     done
     printf '%s' "$OUT" | jq '{dispatch: .}'
     ;;
