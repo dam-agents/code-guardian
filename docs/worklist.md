@@ -127,8 +127,8 @@ one PR — plus the PR of an on-demand review, whose hold `prepare` takes and
 `reviews_due` and `mentions_due` entries of a PR another live run holds, and
 logs why; the first run after the release serves them. A hold whose run is quiet by the **Live holder** windows
 ([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
-hook releases the holds a finished run still owns ([logging.md](logging.md) →
-**Harness adapters**).
+hook releases the holds a finished run still owns
+([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
 
 **Dispatch** — under `review_dispatch: enabled` (the default), the run that
 receives a worklist with several PRs keeps its first PR, in the order of

@@ -21,7 +21,11 @@ set -u
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SNAP="$SCRIPT_DIR/harness/claude-code/usage-snapshot.sh"
+. "$SCRIPT_DIR/lib/harness.sh"
+# the snapshot of the harness this session runs on; another harness has none
+# and its phases record tokens: null
+SNAP="$SCRIPT_DIR/harness/$(cg_harness)/usage-snapshot.sh"
+[ -f "$SNAP" ] || SNAP="$SCRIPT_DIR/harness/claude-code/usage-snapshot.sh"
 
 ACTION="${1:-}"; STATE="${2:-}"; LABEL="${3:-}"; NONCE="${4:-}"
 [ -n "$ACTION" ] && [ -n "$STATE" ] && [ -n "$LABEL" ] && [ -n "$NONCE" ] || {

@@ -108,7 +108,7 @@ repository, organization, project or people.
 - **No other path exists.** On the Claude Code harness a `PreToolUse` hook
   refuses every other issue write on `$DEFINITION_REPO`, and every `gh issue`
   write without `--repo`, with a reason that names the script
-  ([logging.md](logging.md) → **Harness adapters**).
+  ([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
 
 ## Session titles
 
@@ -420,6 +420,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |
 | [persistence.md](persistence.md) | End-of-run persist; an update or version-check request; any request to change the definition |
 | [logging.md](logging.md) | Writing or reading structured log events, debugging a past run, harness adapters, the audit's log triage, retention |
+| [harness-claude-code.md](harness-claude-code.md), [harness-pi.md](harness-pi.md), [harness-bob.md](harness-bob.md) | A step that needs a subagent or a skill run, a platform tool name, or the adapter's parts — the file of the harness this session runs on |
 | [self-modification.md](self-modification.md) | **Before editing any definition file** — the rules every self-change must obey |
 | [preflight.sh](../scripts/preflight.sh), [monitor.sh](../scripts/monitor.sh) | Reference for what a pass computes — never re-compute its decisions |
 | [precheck.sh](../scripts/precheck.sh) | Reference for the schedule gate — how a fire is skipped and how a started run receives its worklist |

@@ -200,7 +200,7 @@ mkdir -p "$FAKE_HOME/.claude/skills/.cache" "$FAKE_HOME/work"
 printf 'abcdef0123456789abcdef0123456789abcdef01' > "$FAKE_HOME/.claude/skills/.cache/doc-drift.sha"
 printf '# mem\n' > "$FAKE_HOME/work/MEMORY.md"
 printf '9.9.9\n' > "$FAKE_HOME/VERSION"
-OUT="$(HOME="$FAKE_HOME" env -u CLAUDE_EFFORT bash "$PROV" "$SANDBOX/bench")"
+OUT="$(HOME="$FAKE_HOME" env -u CLAUDE_EFFORT -u PI_REASONING_LEVEL bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.definition_version == "9.9.9"' 'checked-out VERSION read'
 assert_jq '.prev_version == "3.12.0"' 'prev version from the newest results file'
 assert_jq '.skill_sources["doc-drift"] == "abcdef012345"' 'skill cache SHAs shortened to 12 chars'
@@ -210,6 +210,96 @@ assert_jq '.definition_ref.branch == null' 'no git checkout degrades definition_
 assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never null'
 OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.effort == "medium"' 'harness effort recorded'
+
+new_case pi_usage_snapshot_sums_pi_transcripts
+# pi transcripts (docs/harness-pi.md): message entries carry message.usage with
+# pi's field names; an entry id is unique per file only, so a nested
+# subagent's entry with the same id still counts
+PSNAP="$REPO_ROOT/scripts/harness/pi/usage-snapshot.sh"
+S="$FAKE_HOME/.pi/agent/sessions/--home-agent--"; mkdir -p "$S"
+NONCE="pi-nonce-9"
+cat > "$S/2026-10-16T09-00-00-000Z_parent.jsonl" <<EOF
+{"type":"session","version":3,"id":"parent"}
+{"type":"message","id":"a1","timestamp":"2026-10-16T09:00:01Z","message":{"role":"user","content":"begin $NONCE"}}
+{"type":"message","id":"a2","timestamp":"2026-10-16T09:00:02Z","message":{"role":"assistant","model":"ibm/aws/claude-opus-5-5","usage":{"input":4,"output":100,"cacheRead":1000,"cacheWrite":50}}}
+{"type":"message","id":"a2","timestamp":"2026-10-16T09:00:02Z","message":{"role":"assistant","model":"ibm/aws/claude-opus-5-5","usage":{"input":4,"output":100,"cacheRead":1000,"cacheWrite":50}}}
+EOF
+cat > "$S/2026-10-16T09-00-05-000Z_child.jsonl" <<EOF
+{"type":"message","id":"a2","timestamp":"2026-10-16T09:00:06Z","message":{"role":"user","content":"Print usage-nonce:$NONCE first"}}
+{"type":"message","id":"a3","timestamp":"2026-10-16T09:00:07Z","message":{"role":"assistant","model":"ibm/aws/claude-opus-5-5","usage":{"input":2,"output":30,"cacheRead":500,"cacheWrite":5}}}
+EOF
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PSNAP" "$NONCE")"
+assert_jq '.input == 6 and .output == 130 and .msgs == 2' 'pi usage summed across the session and its subagent, duplicate entries deduped'
+assert_jq '.cache_read == 1500 and .cache_creation == 55 and .model == "ibm/aws/claude-opus-5-5"' 'pi cache fields and model carried'
+OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PSNAP" "no-such-nonce"; printf 'rc=%s' "$?")"
+[ "$OUT" = "rc=0" ] && printf 'ok   %s: no pi transcript match prints nothing, exits 0\n' "$CASE" \
+  || { printf 'FAIL %s: expected empty output rc=0, got: %s\n' "$CASE" "$OUT"; FAILED=1; }
+
+new_case phase_uses_the_pi_snapshot_on_pi
+S="$FAKE_HOME/.pi/agent/sessions/--home-agent--"; mkdir -p "$S"
+printf '{"type":"message","id":"b1","timestamp":"t1","message":{"role":"user","content":"pi-phase-nonce"}}\n' > "$S/x_parent.jsonl"
+PH="$REPO_ROOT/scripts/benchmark-phase.sh"
+env -u CLAUDECODE PI_CODING_AGENT=true HOME="$FAKE_HOME" TMPDIR="$SANDBOX" \
+  bash "$PH" begin "$SANDBOX/ph" probe pi-phase-nonce >/dev/null
+printf '{"type":"message","id":"b2","timestamp":"t2","message":{"role":"assistant","usage":{"input":1,"output":40,"cacheRead":0,"cacheWrite":0}}}\n' >> "$S/x_parent.jsonl"
+OUT="$(env -u CLAUDECODE PI_CODING_AGENT=true HOME="$FAKE_HOME" TMPDIR="$SANDBOX" \
+  bash "$PH" end "$SANDBOX/ph" probe pi-phase-nonce)"
+assert_jq '.tokens.output == 40 and .tokens.msgs == 1' 'a pi phase measures tokens from pi transcripts'
+
+new_case provenance_on_pi
+mkdir -p "$SANDBOX/bin" "$FAKE_HOME"
+printf '#!/bin/sh\necho 1.1.0\n' > "$SANDBOX/bin/pi"; chmod +x "$SANDBOX/bin/pi"
+OUT="$(env -u CLAUDECODE -u CLAUDE_EFFORT PI_CODING_AGENT=true PI_REASONING_LEVEL=high \
+       PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.harness_version == "pi 1.1.0" and .effort == "high"' 'pi version and thinking level recorded'
+
+new_case report_delta_needs_same_harness
+# the same model and effort on another harness is no baseline
+mkdir -p "$SANDBOX/bench/results"
+cat > "$SANDBOX/bench/results/20260901T060000Z.json" <<'EOF'
+{"ts":"2026-09-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"medium","definition_version":"9.0.0",
+ "harness_version":"2.1.284 (Claude Code)",
+ "fixtures":{"ts-api":{"first":{"f1":0.5,"precision":0.5,"recall":0.5,"severity_accuracy":1,"fp":[],"length":{"words_total":500},"seconds":100,"tokens":null,"judge":null},
+   "rereview":{"fixed_recall":1,"still_recall":1,"new_recall":1,"false_fixed":0,"churn":0,"late_finds":0,"seconds":100,"tokens":null}}}}
+EOF
+sed -e 's/2026-09-01T06/2026-10-01T06/' -e 's/2.1.284 (Claude Code)/pi 1.1.0/' -e 's/9.0.0/9.0.1/' \
+    -e 's/"seconds":100/"seconds":300/g' \
+  "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261001T060000Z.json"
+sed -e 's/2026-09-01T06/2026-10-02T06/' -e 's/9.0.0/9.0.2/' -e 's/"seconds":100/"seconds":300/g' \
+  "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261002T060000Z.json"
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+row="$(printf '%s' "$OUT" | grep '<td>9.0.1</td>')"
+if [ -n "$row" ] && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a pi run carries no delta against a Claude Code run\n' "$CASE"
+else printf 'FAIL %s: the pi run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+row="$(printf '%s' "$OUT" | grep '<td>9.0.2</td>')"
+if printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: the next Claude Code run compares against the Claude Code run, past the pi one\n' "$CASE"
+else printf 'FAIL %s: the Claude Code run row must carry a delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+
+new_case pi_subagents_run_every_prompt
+SUB="$REPO_ROOT/scripts/harness/pi/subagents.sh"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/p"
+cat > "$SANDBOX/bin/pi" <<'EOF'
+#!/bin/sh
+# stub: echo the flags, the session id it sees and the prompt; fail on "FAIL"
+printf 'args=%s sid=%s\n' "$*" "${PI_SESSION_ID:-none}"
+case "$*" in (*FAIL*) exit 3;; esac
+EOF
+chmod +x "$SANDBOX/bin/pi"
+printf 'review skill a\n' > "$SANDBOX/p/a.prompt"; printf 'FAIL here\n' > "$SANDBOX/p/b.prompt"
+OUT="$(PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" PI_SESSION_ID=parent PI_PROVIDER=platform \
+       PI_MODEL=ibm/m PI_REASONING_LEVEL=low bash "$SUB" "$SANDBOX/p" | jq -sc 'sort_by(.name)')"
+assert_jq '.[0].name == "a" and .[0].exit == 0 and .[1].name == "b" and .[1].exit == 3' 'one line per prompt with its exit'
+REPLY="$(cat "$SANDBOX/p/a.reply")"
+case "$REPLY" in
+  (*"--provider platform --model ibm/m --thinking low"*"review skill a"*"sid=none"*)
+    printf 'ok   %s: session model and thinking passed, own session id, prompt delivered\n' "$CASE" ;;
+  (*) printf 'FAIL %s: unexpected nested call: %s\n' "$CASE" "$REPLY"; FAILED=1 ;;
+esac
+OUT="$(PATH="$SANDBOX/bin:$PATH" bash "$SUB" "$SANDBOX/none" 2>/dev/null; printf 'rc=%s' "$?")"
+[ "$OUT" = "rc=2" ] && printf 'ok   %s: a missing prompt dir is a usage error\n' "$CASE" \
+  || { printf 'FAIL %s: expected rc=2, got %s\n' "$CASE" "$OUT"; FAILED=1; }
 
 new_case reviewer_brief_placeholders_documented
 # every placeholder of the reviewer brief has its documented value, so the

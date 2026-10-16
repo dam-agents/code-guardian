@@ -1018,9 +1018,12 @@ grep -q '"triage"' "$WORK/reviews/pr-1.md" && { printf 'FAIL %s: a review withou
 setup verify_posted
 run_rp verify 1
 assert_jq '.outcome == "not_locked"' 'a PR this run never locked has nothing to verify'
-OUT="$(env -u CLAUDE_CODE_SESSION_ID -u CG_RUN_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
+OUT="$(env -u CLAUDE_CODE_SESSION_ID -u PI_SESSION_ID -u CG_RUN_ID GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
        PATH="$T_DIR/bin:$PATH" bash "$RP" verify 1 2>/dev/null)"
 assert_jq '.outcome == "error" and (.error | contains("no run id"))' 'without a run id verify refuses, never not_locked'
+OUT="$(env -u CLAUDE_CODE_SESSION_ID -u CG_RUN_ID PI_SESSION_ID=pi-sess-1 GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" TMPDIR="$SANDBOX/tmp" LOG_RUN_ID="" \
+       PATH="$T_DIR/bin:$PATH" bash "$RP" verify 1 2>/dev/null)"
+assert_jq '.outcome == "not_locked"' 'the pi session id is a run id'
 # an earlier lock cycle of this run: its collect does not count for the next one
 run_rp prepare 1; run_rp step 1 "fanned out (n=2)"; run_rp collect 1; run_rp abort 1 "restart"
 run_rp prepare 1

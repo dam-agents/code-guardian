@@ -129,7 +129,7 @@ consecutive timestamps give per-step durations.
   `composed` (`step`) · `delta settled (…)` (`delta`) · `rapid posted`
   (`rapid`) · `posted <verdict>`, `done` (`post`) · `aborted <reason>`
   (`post`, `abort` and the phase guards). The adapter hook derives
-  `skill:<name> done` ([logging.md](logging.md) → **Harness adapters**).
+  `skill:<name> done` ([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
 - With `delta settled (…)` the `step` milestones (**Lock heartbeat**) bound
   one duration per phase: the diff review, the skills with their
   verification, the delta round, the compose, and the post. Per-skill

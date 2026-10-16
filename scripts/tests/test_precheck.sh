@@ -26,7 +26,7 @@ new_case precheck_work_due
 base_config
 pr_json 7 "plain PR" '[]' "$SHA1" | open_prs_fx
 # a gate runs outside a session: no session id of the caller reaches log.sh
-CLAUDE_CODE_SESSION_ID="" LOG_RUN_ID="" run_precheck review
+CLAUDE_CODE_SESSION_ID="" PI_SESSION_ID="" LOG_RUN_ID="" run_precheck review
 assert_rc 0 'a first review due starts the session'
 assert_out_contains '^worklist: ' 'the gate names the worklist path'
 assert_out_contains 'reviews_due=1 (#7)' 'the summary says what is due, with the PR number'
@@ -141,7 +141,7 @@ LOG_RUN=20261014T100000Z-999 logev info preflight "another run"
 sleep 30
 PF
 T0=$(date +%s)
-CLAUDE_CODE_SESSION_ID="" CG_PRECHECK_BUDGET_S=3 run_precheck review "$SANDBOX/scripts"
+CLAUDE_CODE_SESSION_ID="" PI_SESSION_ID="" CG_PRECHECK_BUDGET_S=3 run_precheck review "$SANDBOX/scripts"
 if [ $(( $(date +%s) - T0 )) -lt 15 ]; then printf 'ok   %s: the pass is stopped at its budget\n' "$CASE"
 else printf 'FAIL %s: the gate waited for the whole pass\n' "$CASE"; FAILED=1; fi
 assert_rc 2 'a pass over budget never skips the fire'

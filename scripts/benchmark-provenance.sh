@@ -17,9 +17,10 @@
 #   checked-out VERSION, newest first (release commits = commits touching
 #   VERSION; docs/self-modification.md §12 — one bump per change). Empty when
 #   the version did not change or history is unavailable.
-# - effort: the session's reasoning effort as the harness exposes it
-#   (CLAUDE_EFFORT on Claude Code), else "unknown" — never null, so the
-#   validator can require it and a missing value stays visible in the report.
+# - harness_version / effort: the harness's version line and the session's
+#   reasoning effort as the harness exposes it (lib/harness.sh), effort else
+#   "unknown" — never null, so the validator can require it and a missing
+#   value stays visible in the report.
 # - skill_sources: every entry of the preflight skill-install cache
 #   (short source SHA per installed repo-sourced skill).
 # - definition_ref: the checkout's branch + short sha — on a feature branch
@@ -29,6 +30,7 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
+. "$SCRIPT_DIR/lib/harness.sh"
 
 BDIR="${1:-}"
 [ -n "$BDIR" ] || { printf 'usage: benchmark-provenance.sh <work/benchmark dir>\n' >&2; exit 2; }
@@ -52,8 +54,8 @@ if [ -n "$PREV_VER" ] && [ -n "$CUR_VER" ] && [ "$PREV_VER" != "$CUR_VER" ]; the
       done | head -30 | jq -R . | jq -s .)"
 fi
 
-HARNESS="$(claude --version 2>/dev/null | head -1 || true)"
-EFFORT="${CLAUDE_EFFORT:-unknown}"
+HARNESS="$(cg_harness_version)"
+EFFORT="$(cg_harness_effort)"
 MEMORY_SHA="$(git hash-object "$HOME_DIR/work/MEMORY.md" 2>/dev/null || true)"
 
 SKILLS='{}'

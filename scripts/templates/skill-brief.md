@@ -14,7 +14,9 @@ rest of the tree.{{VERIFY_LIVE_BLOCK}}{{RISK_BLOCK}}
 
 Do exactly this:
 
-1. Invoke the `{{SKILL}}` skill via the Skill tool with the arguments above.
+1. Invoke the `{{SKILL}}` skill with the arguments above — through the Skill tool
+   where you have one, else read `$HOME/.claude/skills/{{SKILL}}/SKILL.md` and
+   follow it.
 2. Write its result to `{{OUT_FILE}}` in the review's finding form — one finding
    per bullet: `- 🔴 **Critical:**` / `- 🟡 **Warning:**` / `- 🟢 **Suggestion:**`
    followed by what is wrong, why it matters and where, ending in

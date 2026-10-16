@@ -29,8 +29,7 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 The availability classes are every `api_failure` class except
 `invalid_request` and `max_output_tokens`, which an agent request causes. The
 events come from the harness hooks `StopFailure` (`api_failure`) and
-`PermissionDenied` (`classifier_block`) ([logging.md](logging.md) → **Harness
-adapters**). A GitHub failure's class comes from the error text: `auth`
+`PermissionDenied` (`classifier_block`) ([harness-claude-code.md](harness-claude-code.md) → **Adapter**). A GitHub failure's class comes from the error text: `auth`
 (HTTP 401), `rate_limit`, `access` (HTTP 403/404), `server_error` (HTTP 5xx),
 `network`, `unknown`. The weekly audit counts the week's refusals and model
 outages ([audit.md](audit.md) task 38).
@@ -61,8 +60,8 @@ their own detection-time claims (below), not the ledger.
      budget). Missed review work recovers on the next heartbeat by itself.
    - `classifier_spike` / `review_post_blocked` — the top patterns and the
      reasons; a documented step of the agent is an `autoMode.allow` rule
-     missing from the definition ([logging.md](logging.md) → **Harness
-     adapters**), anything else is a refusal that stands.
+     missing from the definition
+     ([harness-claude-code.md](harness-claude-code.md) → **Adapter**), anything else is a refusal that stands.
    - `github_unavailable` / `github_recovered` — first and last failed pass,
      the classes (`auth`, `access` → the token, operator-only; `rate_limit` →
      quota; `server_error`, `network` → GitHub or the network). Missed review
@@ -137,7 +136,7 @@ as an operational lesson ([preferences.md](preferences.md)).
 The harness adapter logs one `review_cost` event per finished review: the API
 usage between its `locked` and `done` steps, subagents included, and the shape
 of that window — `peak_ctx`, `repeats`, `max_out`, `failures`
-([logging.md](logging.md) → **Harness adapters**). The monitor judges every
+([harness-claude-code.md](harness-claude-code.md) → **Adapter**). The monitor judges every
 event of the last 24 h newer than `work/.review-anomaly-seen` once, under a
 `mkdir` claim. Each rule's limit is **max(floor, factor × median)**. A review
 at or over any limit is an entry:

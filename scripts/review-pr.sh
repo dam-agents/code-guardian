@@ -171,7 +171,7 @@ fail() { logev error review_pr "PR #$N: $CMD — $1"; out "$(jq -nc --arg e "$1"
 logstep() { logev info review_step "PR #$N $1"; }
 
 # this run's id, as log.sh resolves it short of its start-time fallback
-ME="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-${CG_RUN_ID:-}}}"
+ME="${LOG_RUN_ID:-${CLAUDE_CODE_SESSION_ID:-${PI_SESSION_ID:-${CG_RUN_ID:-}}}}"
 [ -n "$ME" ] || fail "no run id, so this run's events, holds and lock state cannot be told apart from another run's. Start every shell command that runs a \$HOME/scripts/ script with \`export CG_RUN_ID=<id>;\` — <id> is the \`run:\` line of the prompt; a run without one sets one id for the whole session, \`<job>-<UTC yyyymmddThhmmssZ>\` (docs/logging.md → The events log)"
 
 # ------------------------------------------------------ REVIEWS.md rows ----

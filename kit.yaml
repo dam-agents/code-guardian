@@ -14,7 +14,7 @@ description: >-
 tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
-harnesses: [claude-code, bob]
+harnesses: [claude-code, pi, bob]
 docsUrl: https://github.com/dam-agents/code-guardian
 # `self` is this repository, at the commit the kit was resolved at, so an
 # agent always runs the definition this file shipped with.

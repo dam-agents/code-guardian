@@ -214,8 +214,10 @@ counts. It never loads fixture sources, diffs, skill outputs or review bodies.
 **Every subagent prompt inside a phase bracket — skill fan-out and reviewer
 alike — carries the usage nonce and the instruction to print
 `usage-nonce:<NONCE>` as its first output line.** The snapshot sums only the
-transcripts holding the nonce. On a harness without subagents, review inline and
-fall back to **Segmented run** when depth would degrade.
+transcripts holding the nonce. The subagent mechanism is the harness's
+([logging.md](logging.md) → **Harness adapters** names its file). On a harness
+with none, review inline and fall back to **Segmented run** when depth would
+degrade.
 
 Loop over the slugs sequentially — fixtures and phases never run concurrently
 (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
@@ -395,10 +397,11 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
 `model` is the **exact model id** of the session as the harness names it; when
 unavailable, write `unknown` and log it. `effort` is the reasoning effort the
-session ran at, read from the harness (`CLAUDE_EFFORT` on Claude Code), else
-`unknown`; reviewer and skill subagents run without an effort override.
-Deltas compare runs of the same model **and** effort; a run without `effort`
-matches only another run without it, and a run at effort `unknown` gets no
+session ran at, read from the harness (`scripts/lib/harness.sh`: `CLAUDE_EFFORT`
+on Claude Code, `PI_REASONING_LEVEL` on pi), else `unknown`; reviewer and
+skill subagents run without an effort override. Deltas compare runs of the
+same harness, model **and** effort; a run without `effort` matches only
+another run without it, and a run at effort `unknown` gets no
 delta — report it as `effort unknown`.
 
 ### `RESULTS.md`

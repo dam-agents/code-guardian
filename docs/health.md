@@ -60,8 +60,7 @@ without `monitor_slack_direct: enabled`. `status.json` → `sig` joins every
 state.
 
 **Sessions** — `status.json` → `tokens_adapter` is `true` when a harness
-adapter writes the `tokens` event ([logging.md](logging.md) → **Harness
-adapters**): `CLAUDECODE=1`, or the Claude Code adapter's `SessionEnd` hook in
+adapter writes the `tokens` event ([harness-claude-code.md](harness-claude-code.md) → **Adapter**): `CLAUDECODE=1`, or the Claude Code adapter's `SessionEnd` hook in
 `~/.claude/settings.json`, which the monitor's gate reads from outside the
 session. With `false` and no `tokens` event in 24 h, the Harness note says
 `Sessions 24 h: not measured`, and a chart window with no session shows the

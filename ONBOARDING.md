@@ -170,7 +170,7 @@ Register the harness hooks — failed tool calls and per-run token usage into th
 structured events log, plus the `Stop` hook that refuses a stop leaving a
 review mid-pipeline — the auto-mode classifier rules, the deny list of unused
 tools and the `review-skill` subagent type
-(`docs/logging.md` → **Harness adapters**):
+(`docs/harness-claude-code.md` → **Adapter**):
 
 ```bash
 bash "$HOME/scripts/harness/claude-code/install.sh"

@@ -3,8 +3,8 @@
 Read this file with [review.md](review.md) when the worklist's `read_set`
 names it — `reviews_due` non-empty. Every reviewed PR is additionally checked
 by the skills configured in the `## Review skills` table of
-`work/CONFIG.md`. Each row: **skill** (invoked via
-the Skill tool), **source** (`harness`, or the `[<host>/]<owner>/<repo>` it
+`work/CONFIG.md`. Each row: **skill** (invoked the way the harness invokes
+skills), **source** (`harness`, or the `[<host>/]<owner>/<repo>` it
 installs from — its host may differ from the target repo's), **trigger**,
 **section** (the exact `###` heading for its output). Table order = section
 order in the output.
@@ -70,10 +70,11 @@ file list and returns `skills{}`: per configured skill its status (`run`,
 and its prompt. Every skill's arguments are fixed at that point — a subagent
 never derives its own file list.
 
-**Then fan out: one subagent per skill with status `run`, all launched in a
-single message** so they run concurrently. The subagent type is `review-skill`
-when the harness offers it (Claude Code, [logging.md](logging.md) → **Harness
-adapters**), otherwise the harness's default subagent. Each prompt is that
+**Then fan out: one subagent per skill with status `run`, all started at
+once** so they run concurrently, by the subagent mechanism of the harness this
+session runs on — its file in [logging.md](logging.md) → **Harness adapters**
+(Claude Code: one message, type `review-skill`; pi: `subagents.sh`). Each
+prompt is that
 skill's `skills.<skill>.prompt` verbatim — one line naming the skill, the PR
 and its brief file, which the subagent reads itself. `prepare` renders the
 brief from
@@ -88,7 +89,8 @@ rubric quoted), and the run rules: no circling, the wall-clock budget
 
 **Log the fan-out** with `review-pr.sh step <n> "fanned out (n=<N>)"`
 immediately before launching. **Wait by taking the subagents' results**, which
-the harness returns when each finishes — no `sleep` poll over `$PR_DIR.out`.
+the harness or its adapter returns when each finishes — no `sleep` poll over
+`$PR_DIR.out`.
 **Collect** with `review-pr.sh collect <n>`: it reads every output file, emits
 one audit line per configured skill (below — echo them to the chat UI), warns
 about findings missing their `**Fix:**` line or `path:line` anchor, about an

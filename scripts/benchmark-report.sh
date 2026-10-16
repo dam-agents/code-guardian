@@ -28,7 +28,7 @@
 # "judge" column is the LLM-judged view: all judge dimensions averaged on
 # their own 1–5 scale, reported beside the index, never mixed into it. The
 # all-runs table also prints the delta against the previous run OF THE SAME
-# MODEL AND EFFORT for index, seconds, output tokens, and cost — the regression
+# HARNESS, MODEL AND EFFORT for index, seconds, output tokens, and cost — the regression
 # signal for quality, speed, and cost (a cross-model or cross-effort delta
 # conflates that change with everything else; the table itself is the
 # cross-configuration comparison). A run without `effort` (written before it
@@ -205,11 +205,15 @@ fi
 
 ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
-  # deltas compare against the previous run of the SAME model and effort — a
-  # cross-model or cross-effort delta would conflate that change with the
-  # regression being watched; an "unknown" effort matches nothing
-  | (if $r.effort == "unknown" then null
-     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort)] | last
+  # deltas compare against the previous run of the SAME harness, model and
+  # effort — a cross-harness, cross-model or cross-effort delta would conflate
+  # that change with the regression being watched; an "unknown" effort matches
+  # nothing. The harness is the first word of harness_version for pi
+  # (lib/harness.sh); every other run, the ones before pi included, is Claude Code.
+  | def harness_of: (.harness_version // "" | if startswith("pi ") then "pi" else "claude-code" end);
+    (if $r.effort == "unknown" then null
+     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort
+                                 and harness_of == ($r | harness_of))] | last
      end) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
@@ -368,7 +372,7 @@ li{margin:.1rem 0}
 read what that column measures, which direction is better, and what a bad value
 costs. A "—" is data that was not measured, never a zero. The bar under each
 index is that same 0–1 value; unbounded columns get no bar. Deltas (▲▼) compare
-against the previous run of the <b>same model and effort</b> — green means moved
+against the previous run of the <b>same harness, model and effort</b> — green means moved
 the good way for that column, so ▼ on sec/tokens/cost is green. Comparison
 across models or efforts is the table itself. The index is deterministic — computed from scorer output only,
 judge scores never enter it. Click a header to sort, type to filter, page long
