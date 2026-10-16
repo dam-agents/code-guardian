@@ -105,12 +105,14 @@ logs_json() { printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -sc '[.[] | select(len
 
 # Pod-restart marker: $HOME persists across restarts but the rest of the
 # filesystem is reset, so an ephemeral sentinel outside $HOME is absent iff the
-# pod restarted since the last run. Detect-and-log only; never gates behavior
-# (docs/logging.md → pod_boot). Best-effort: any failure is swallowed.
+# pod restarted since the last run. A fire on a cold pod is normal on DAM, so
+# the line is info; a restart inside a run is the audit's pod_restart cause.
+# Detect-and-log only; never gates behavior (docs/logging.md → pod_boot).
+# Best-effort: any failure is swallowed.
 BOOT_SENTINEL="${TMPDIR:-/tmp}/.code-guardian-pod-boot"
 if [ ! -e "$BOOT_SENTINEL" ]; then
   up="$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"
-  logev warn pod_boot "pod restarted since last run (no sentinel)${up:+ — uptime=${up}s}"
+  logev info pod_boot "pod restarted since last run (no sentinel)${up:+ — uptime=${up}s}"
   : > "$BOOT_SENTINEL" 2>/dev/null || true
 fi
 
@@ -2622,7 +2624,7 @@ if [ "$MODE" = "audit" ]; then
   # Wasted-review accounting: a run that locked a PR and never reached a
   # terminal `review_step` threw its work away — the next heartbeat redoes the
   # review at full cost. Classified by cause, deterministically, from the log:
-  #   pod_restart  — a `pod_boot` warn falls inside the run's own event window;
+  #   pod_restart  — a `pod_boot` line falls inside the run's own event window;
   #                  one its own gate pass logged before the session (the
   #                  session took the gate's run id, CG_RUN_ID) does not count
   #   hard_kill    — no `tokens` event, i.e. the SessionEnd hook never ran

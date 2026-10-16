@@ -213,6 +213,53 @@ ev 60 session info work_backup "pushed work/ (attempt 1)"
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "backup_failing")] == []' 'the next push clears it'
 
+# --- refused dispatches ------------------------------------------------------------
+mon_case mon_dispatch_refused
+ev 5000 review info dispatch "#7 dispatched to sessions of their own; this run keeps #6"
+ev 4000 review warn dispatch_refused "#8, #9: name the model with its provider — kept in this run" ra
+ev 1200 review warn dispatch_refused "#9: name the model with its provider — kept in this run" rb
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "dispatch_refused") | .count == 2 and .runs == 2 and .prs == 2' 'refusals no accepted dispatch cleared for an hour alert'
+ev 60 review info dispatch "#9 dispatched to sessions of their own; this run keeps #6"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "dispatch_refused")] == []' 'the next accepted dispatch clears it'
+mon_case mon_dispatch_refused_young
+ev 600 review warn dispatch_refused "#8: the hourly cap is reached — kept in this run"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "dispatch_refused")] == []' 'a refusal under an hour old waits'
+mon_case mon_dispatch_refused_lasting
+ev 90000 review warn dispatch_refused "#8: name the model with its provider — kept in this run" ra
+ev 1200 review warn dispatch_refused "#9: name the model with its provider — kept in this run" rb
+FIRST="$(jq -r 'select(.run == "ra") | .ts' "$WORK"/logs/events-*.jsonl)"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "dispatch_refused") | .id == "dispatch:'"$FIRST"'" and .count == 2' \
+  'a refusal that lasts past 24 h keeps the id of its first refusal'
+mon_case mon_dispatch_refused_stale
+ev 90000 review warn dispatch_refused "#8: name the model with its provider — kept in this run"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "dispatch_refused")] == []' 'no refusal in 24 h clears it'
+
+# --- GitHub refuses a call with HTTP 403 ------------------------------------------
+mon_case mon_github_write_denied
+ev 900 review warn progress_status "PR #7: progress write did not succeed (pending: queued) — HTTP 403"
+ev 800 review error post_failed "PR #7: review POST did not succeed after retry — gh: Resource not accessible by integration (HTTP 403)"
+ev 700 review warn gh_api "HTTP 403: You have exceeded a secondary rate limit"
+ev 600 review error preflight "could not list open PRs (API error HTTP 403)"
+ev 500 session error tool_failure "Bash [gh api user]: Exit code 1 gh: Resource not accessible by integration (HTTP 403)"
+ev 400 session error api_failure "authentication_failed: the proxy refused the model with HTTP 403"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "github_write_denied") | .count == 2 and .by_event == {"progress_status": 1, "post_failed": 1} and .id == "gh_write:'"$(date -u +%Y-%m-%d)"'"' \
+  'a 403 alerts once per UTC day; a rate limit, the gate list failure and hook events do not count'
+
+# --- the token's identity changed -------------------------------------------------
+mon_case mon_identity_changed
+jq -nc --arg t "$(iso_ago 3600)" '{login: "new-app[bot]", kind: "app", checked_at: $t, previous: {login: "old-app[bot]", kind: "app"}, changed_at: $t}' > "$WORK/GITHUB.json"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "github_identity_changed") | .login == "new-app[bot]" and .previous == "old-app[bot]" and .token_kind == "app"' 'a login change in the last 7 days alerts'
+jq '.changed_at = "2020-01-01T00:00:00Z"' "$WORK/GITHUB.json" > "$WORK/g.json" && mv "$WORK/g.json" "$WORK/GITHUB.json"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "github_identity_changed")] == []' 'an older change does not'
+
 # --- harness drift from install.sh --check -----------------------------------------
 mon_case mon_harness
 mkdir -p "$FAKE_HOME/.claude"; echo '{}' > "$FAKE_HOME/.claude/settings.json"

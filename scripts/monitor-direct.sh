@@ -30,7 +30,8 @@ NOW_EPOCH=$(date -u +%s)
 . "$SCRIPT_DIR/lib/mcp.sh"
 
 DIRECT_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
-  "heartbeat_gap","harness_drift","backup_failing","classifier_spike","review_post_blocked"]'
+  "heartbeat_gap","harness_drift","backup_failing","classifier_spike","review_post_blocked",
+  "dispatch_refused","github_write_denied","github_identity_changed"]'
 MAX_ALERTS=10        # alerts in one message; the rest stay for the session
 DAILY_CAP=12         # direct messages in 24 h; past it the session delivers
 MAX_CHARS=3500
@@ -83,6 +84,12 @@ render() { # <alerts.json>
         "**Work backup failing:** \(.failures | int) failed pushes since \(.first | ts). Do this: examine the access to the work repository."
       elif .kind == "classifier_spike" then
         "**Classifier refusals:** \(.count | int) in 24 h (threshold \(.threshold | int)) in \(.runs | int) runs. Tools: \(.by_tool | counts(tool)). The events log has the patterns (event classifier_block)."
+      elif .kind == "dispatch_refused" then
+        "**Review dispatch refused** since \(.first | ts): the platform refused \(.count | int) dispatches in \(.runs | int) runs (\(.prs | int) PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting."
+      elif .kind == "github_write_denied" then
+        "**GitHub refused a call** \(.count | int) times in 24 h with HTTP 403 (\(.by_event | counts(word))). Cause: the token has no permission for the call. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session and give the token the missing permission."
+      elif .kind == "github_identity_changed" then
+        "**GitHub token changed** at \(.changed_at | ts): the token now acts as a different \(.token_kind | word) account. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session."
       elif .kind == "review_post_blocked" then
         "**Review post refused:** the classifier refused the review post of PR #\(.pr | int) at \(.ts | ts). No later post of that PR exists. Do this: post the review again in a session, or add the missing auto-mode rule."
       else error("kind") end;
