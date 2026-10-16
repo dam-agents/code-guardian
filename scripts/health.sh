@@ -65,7 +65,8 @@ ROW_JQ='
   group_by(.ts[0:13]) | map({h: .[0].ts[0:13],
     gate: (map(select(.event == "precheck")) | group_by(.job) | map({key: .[0].job, value: length}) | from_entries),
     gate_err: n(.event == "precheck" and .level == "error"),
-    sessions: n(.event == "tokens"),
+    # a session that ends twice (a pi session reloaded and closed again) counts once
+    sessions: (map(select(.event == "tokens") | .run) | unique | length),
     reviews: n(.event == "review_step" and (.msg | test("^PR #[0-9]+:? +([0-9a-f]{7,40} +)?done$"))),
     model_fail: n(.event == "api_failure" and ((.msg | capture("^(?<c>[a-z_]+):") | .c) // "unknown" | IN("invalid_request", "max_output_tokens") | not)),
     gh_fail: n(.event == "preflight" and .level == "error" and (.msg | startswith("could not list open PRs"))),

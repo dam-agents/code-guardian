@@ -15,8 +15,9 @@
 // under its parent's run id and runs the guard and the failure log only: the
 // parent's events cover its usage, steps and stop. The scripts act on the
 // definition this file belongs to and its work/ (WORK_DIR); every script
-// no-ops without work/CONFIG.md, the guard excepted. A script failure never
-// breaks a session.
+// no-ops without work/CONFIG.md, the guard excepted. A script that cannot run
+// or times out never breaks a session: the adapter fails open, as a Claude
+// Code hook that fails does, and logs one `adapter_failure` warn naming it.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -27,44 +28,65 @@ declare const process: { env: Record<string, string | undefined> };
 
 const ROOT = join(dirname(realpathSync(fileURLToPath(import.meta.url))), "..", "..", "..");
 const HOOKS = join(ROOT, "scripts", "harness", "claude-code");
-const TIMEOUT_MS = 30_000;
+// a hook script that runs longer is killed; CG_PI_HOOK_TIMEOUT_MS overrides it (the tests)
+const TIMEOUT_MS = Number(process.env.CG_PI_HOOK_TIMEOUT_MS) || 30_000;
 // Claude Code's names for pi's built-in tools, as the hook scripts match them
 const TOOL_NAMES: Record<string, string> = {
 	bash: "Bash", read: "Read", edit: "Edit", write: "Write", grep: "Grep", find: "Glob", ls: "LS",
 };
 
-type Result = { code: number; stderr: string };
+// `failed` is set when the script did not run to an exit code: it timed out,
+// could not start, or was killed. The caller then treats the call as not
+// made — fail open — and the failure is logged.
+type Result = { code: number; stderr: string; failed?: string };
 
-function run(script: string, payload: unknown): Promise<Result> {
+function spawnBash(args: string[], payload: string | undefined, sid: string): Promise<Result> {
 	return new Promise((resolve) => {
 		let stderr = "";
 		let done = false;
-		const finish = (code: number) => {
+		const finish = (r: Result) => {
 			if (done) return;
 			done = true;
-			resolve({ code, stderr });
+			resolve(r);
 		};
 		try {
-			const child = spawn("bash", [join(HOOKS, script)], {
-				env: { ...process.env, WORK_DIR: join(ROOT, "work") },
+			const child = spawn("bash", args, {
+				env: { ...process.env, WORK_DIR: join(ROOT, "work"), LOG_RUN_ID: sid },
 				stdio: ["pipe", "ignore", "pipe"],
 			});
 			const timer = setTimeout(() => {
 				child.kill("SIGKILL");
-				finish(0);
+				finish({ code: -1, stderr, failed: `timed out after ${TIMEOUT_MS / 1000} s` });
 			}, TIMEOUT_MS);
 			child.stderr?.on("data", (d) => (stderr += String(d)));
-			child.on("error", () => finish(0));
-			child.on("close", (code) => {
+			child.on("error", (e) => {
 				clearTimeout(timer);
-				finish(code ?? 0);
+				finish({ code: -1, stderr, failed: `could not start: ${e.message}` });
+			});
+			child.on("close", (code, signal) => {
+				clearTimeout(timer);
+				finish(code === null ? { code: -1, stderr, failed: `killed by ${signal}` } : { code, stderr });
 			});
 			child.stdin?.on("error", () => {});
-			child.stdin?.end(JSON.stringify(payload));
-		} catch {
-			finish(0);
+			child.stdin?.end(payload ?? "");
+		} catch (e) {
+			finish({ code: -1, stderr, failed: `could not start: ${(e as Error).message}` });
 		}
 	});
+}
+
+async function run(script: string, payload: { session_id: string }): Promise<Result> {
+	const r = await spawnBash([join(HOOKS, script)], JSON.stringify(payload), payload.session_id);
+	if (r.failed) {
+		const msg = `${script} ${r.failed} — the call went through unchecked (fail open)`;
+		console.warn(`[code-guardian] ${msg}`);
+		await spawnBash(
+			["-c", '. "$1" && logev warn adapter_failure "$2"', "log", join(ROOT, "scripts", "log.sh"), msg],
+			undefined,
+			payload.session_id,
+		);
+	}
+	return r;
 }
 
 function text(content: unknown): string {
@@ -80,6 +102,9 @@ function errorClass(message: string): string {
 	const m = message.toLowerCase();
 	if (/\b429\b|rate.?limit|too many requests/.test(m)) return "rate_limit";
 	if (/\b529\b|overloaded/.test(m)) return "overloaded";
+	if (/max.?output.?tokens|output token limit/.test(m)) return "max_output_tokens";
+	// a cloud provider's credentials (Bedrock, Vertex) before a plain 401/403
+	if (/credential|security token|expiredtoken|signature.*(expired|invalid)/.test(m)) return "cloud_credential_error";
 	if (/\b401\b|\b403\b|unauthori[sz]ed|authentication|forbidden/.test(m)) return "authentication_failed";
 	if (/billing|quota|credit|budget/.test(m)) return "billing_error";
 	if (/model.*(not found|unknown|unsupported)|\b404\b/.test(m)) return "model_not_found";

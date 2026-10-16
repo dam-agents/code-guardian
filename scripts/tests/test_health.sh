@@ -198,6 +198,11 @@ ev 600 session info tokens "in=1 out=2"
 CLAUDECODE="" record
 status
 assert_jq '.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: 1.")' 'a session that wrote the event counts'
+# a pi session reloaded and closed again writes a second tokens event: one session
+ev 600 session info tokens "in=1 out=3"
+CLAUDECODE="" record
+status
+assert_jq '.services[] | select(.key == "harness") | .note | startswith("Sessions 24 h: 1.")' 'two tokens events of one run count one session'
 # the adapter's SessionEnd hook, read from the gate outside a session: a measured zero
 h_case h_sessions_measured_zero
 mkdir -p "$FAKE_HOME/.claude"

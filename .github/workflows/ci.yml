@@ -18,6 +18,12 @@ jobs:
           find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
           bash -n scripts/tests/bin/gh scripts/tests/bin/curl
 
+      # Node 24 strips TypeScript types, so test_pi_extension.sh loads the pi
+      # extension (scripts/harness/pi/extension.ts) instead of skipping it
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Preflight stub tests
         run: bash scripts/tests/run.sh
 
