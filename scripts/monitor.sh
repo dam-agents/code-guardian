@@ -271,7 +271,8 @@ else CLEARED="$CLEARED dispatch_refused"; fi
 # the token has no permission for — operator-only. The harness hooks' lines
 # are not the definition's calls: an agent command or a model gateway. One
 # alert per UTC day.
-GW="$(events_jsonl | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" '
+# grep first: a full parse of the log would cost every tick
+GW="$( { grep -hF 'HTTP 403' "$LOG_DIR"/events-*.jsonl 2>/dev/null || true; } | jq -c -R 'fromjson? // empty' 2>/dev/null | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" '
   [ .[] | select((.level == "warn" or .level == "error") and .ts >= $s and (.event | type) == "string")
     | select(.event | IN("tool_failure", "tool_use", "api_failure", "classifier_block") | not)
     | select((.msg | strings | test("HTTP 403")) // false)
