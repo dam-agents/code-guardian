@@ -40,10 +40,11 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
   `review-pr.sh collect` as usual. A subagent with a non-zero `exit` is
   `skill-errored`.
 - **Benchmark** ([benchmark.md](benchmark.md) → **Running the benchmark**):
-  each phase's skill prompts go into one directory and its reviewer brief
-  into another, run one after the other inside the phase bracket; the nonce
-  in every prompt puts each nested transcript into the phase's tokens. The
-  judge runs the same way, on the session model.
+  `subagents.sh` runs every prompt of its directory, so each call gets a new
+  one — `$PR_DIR.prompts-<phase>` for a phase's skill prompts, then
+  `$PR_DIR.reviewer-<phase>` for its reviewer brief, inside the phase
+  bracket; the nonce in every prompt puts each nested transcript into the
+  phase's tokens. The judge runs the same way, on the session model.
 
 ## Skills
 

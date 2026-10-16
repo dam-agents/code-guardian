@@ -404,7 +404,7 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
 # ---------------------------------------------------------------- cleanup ----
 # every temp path of this PR's review: `cleanup` deletes them, `verify` checks
 # that none is left
-tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX" "$PAYLOAD"); }
+tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$PR_DIR".prompts "$DIFF" "$CTX" "$PAYLOAD"); }
 cleanup() { tmp_paths; rm -rf "${TMP_PATHS[@]}"; }
 
 # release the lock per kind (docs/review.md → Error handling): a first review
