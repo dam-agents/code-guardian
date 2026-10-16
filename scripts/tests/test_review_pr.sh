@@ -1054,9 +1054,17 @@ run_rp verify 1
 assert_jq '.outcome == "ok" and (.checks[] | select(.check == "skill_timing") | .status == "ok")' 'a collect whose skills all errored still counts as run'
 setup verify_aborted
 run_rp prepare 1
+# the pi fan-out's prompt directory (docs/harness-pi.md → Subagents)
+mkdir -p "$(PR_DIR).prompts"; printf 'p\n' > "$(PR_DIR).prompts/doc-drift.prompt"
 run_rp abort 1 "test abort"
+[ ! -e "$(PR_DIR).prompts" ] && printf 'ok   %s: cleanup removes the pi prompt directory\n' "$CASE" \
+  || { printf 'FAIL %s: the pi prompt directory survived the cleanup\n' "$CASE"; FAILED=1; }
 run_rp verify 1
 assert_jq '.outcome == "ok" and ([.checks[].check] == ["terminal","row","cleanup"])' 'an abort verifies the terminal step, the released lock and the cleanup'
+mkdir -p "$(PR_DIR).prompts"
+run_rp verify 1
+assert_jq '.checks[] | select(.check == "cleanup") | .status == "fail" and (.detail | contains("review-pr-1.prompts"))' 'a pi prompt directory left behind fails the cleanup check'
+rm -rf "$(PR_DIR).prompts"
 add_row 1 "$B1_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" - awaiting_label
 run_rp verify 1
 assert_jq '.outcome == "issues" and (.checks[] | select(.check == "row") | .status == "fail" and (.detail | contains("not older than the lock")))' 'a row written after the lock is no released lock'

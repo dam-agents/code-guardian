@@ -117,6 +117,7 @@ fi
 # cfg, cfg_table, trim, row_field, iso2epoch, refhost/refslug, gh_get —
 # sourced before GH_HOST is re-exported in the config section
 . "$SCRIPT_DIR/lib/common.sh"
+. "$SCRIPT_DIR/lib/harness.sh"   # cg_harness — the audit's harness_adapter check
 # report surface keys (docs/config.md): `off` publishes nothing, anything else
 # publishes to the DAM Artifact Library — a legacy value is logged, not fatal
 report_surface() { # <key> <var>
@@ -2715,7 +2716,7 @@ if [ "$MODE" = "audit" ]; then
     else
       check harness_adapter warn "Claude Code adapter not current:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
-  elif [ "${PI_CODING_AGENT:-}" = "true" ] || [ "${PLATFORM_HARNESS:-}" = "pi" ]; then
+  elif [ "$(cg_harness)" = pi ]; then
     if [ -z "$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/pi/install.sh" --check 2>/dev/null)" ]; then
       check harness_adapter ok "pi extension linked (tool logging, tokens, review-completion enforcement)"
     else

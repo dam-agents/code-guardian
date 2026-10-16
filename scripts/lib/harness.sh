@@ -7,7 +7,9 @@
 #   cg_harness_effort    # prints the session's reasoning effort, else "unknown"
 #
 # The env is the harness process's own, so a pod that offers several harnesses
-# answers per session. Sourced by benchmark-phase.sh and benchmark-provenance.sh.
+# answers per session. Sourced by the scripts that differ per harness:
+# benchmark-phase.sh, benchmark-provenance.sh, health.sh, preflight.sh (audit)
+# and verify-onboarding.sh.
 
 cg_harness() {
   if [ "${CLAUDECODE:-}" = "1" ]; then printf 'claude-code'
