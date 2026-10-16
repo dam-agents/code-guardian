@@ -23,6 +23,9 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 | `harness_drift` | `install.sh --check` names a part that is not current (`hooks`, `automode-rules`, `tool-deny`, `skill-agent`) | the check prints nothing |
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
+| `dispatch_refused` | `dispatch_refused` events ([runbook.md](runbook.md) → **Review run** step 1) since the last accepted dispatch: the first 60 min old, the newest under 24 h old | the next accepted dispatch, or 24 h without a refusal |
+| `github_write_denied` | a script's warn or error line in 24 h that quotes a GitHub `HTTP 403` — a rate limit, the gate's list failure and the harness hooks' events aside | — (once per UTC day) |
+| `github_identity_changed` | `work/GITHUB.json` → `changed_at` in the last 7 days ([github-access.md](github-access.md) → **Identity**) | — (once per change) |
 | `stall_alert` | **Stalled-review rate alert** below | — (once per UTC day) |
 | `review_anomaly` | **Review anomaly alert** below | — (once per review) |
 
@@ -73,6 +76,13 @@ their own detection-time claims (below), not the ledger.
      cannot start (`list_schedules`; [worklist.md](worklist.md) → **The
      schedule gate**).
    - `backup_failing` — the sample error; [persistence.md](persistence.md).
+   - `dispatch_refused` — the platform's reason from the `dispatch_refused`
+     events; a platform setting is the operator's to correct, a cap clears
+     by itself.
+   - `github_write_denied` / `github_identity_changed` — the events and the
+     login; the operator runs `scripts/github-access.sh` in the direct
+     session and gives the token the missing permission
+     ([github-access.md](github-access.md)).
    - `stall_alert` / `review_anomaly` — per their sections below.
 3. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
    that person the same message — never the shared channel; roster-only

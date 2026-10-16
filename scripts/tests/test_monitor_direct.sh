@@ -69,6 +69,20 @@ check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 10 aler
 assert_jq '(.ids | length) == 10 and .skipped == []' 'every id is covered'
 assert_out_absent 'upstream|acme/widgets-state|rm -rf|fast classifier' 'no free text of an alert reaches the message'
 
+# --- the operator-action templates ------------------------------------------------
+direct_case dir_golden_operator
+alerts <<'JSON'
+[{"id":"dispatch:2026-10-15T14:52:00Z","kind":"dispatch_refused","first":"2026-10-15T14:52:00Z","last":"2026-10-15T16:00:00Z","count":12,"runs":9,"prs":14},
+ {"id":"gh_write:2026-10-13","kind":"github_write_denied","first":"2026-10-13T12:00:00Z","last":"2026-10-13T20:00:00Z","count":413,"by_event":{"progress_status":412,"post_failed":1}},
+ {"id":"identity:2026-10-14T14:08:21Z","kind":"github_identity_changed","changed_at":"2026-10-14T14:08:21Z","login":"new-app[bot]","token_kind":"app","previous":"old-app[bot]","previous_kind":"app"}]
+JSON
+direct render "$SANDBOX/alerts.json"
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 3 alerts
+• **Review dispatch refused** since 2026-10-15 14:52 UTC: the platform refused 12 dispatches in 9 runs (14 PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting.
+• **GitHub refused a call** 413 times in 24 h with HTTP 403 (progress_status 412, post_failed 1). Cause: the token has no permission for the call. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session and give the token the missing permission.
+• **GitHub token changed** at 2026-10-14 14:08 UTC: the token now acts as a different app account. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session.' 'the operator-action templates render their exact text'
+assert_out_absent 'new-app|old-app' 'no login reaches the message'
+
 # --- a value outside its type skips the alert, never reaches the text ---------------
 direct_case dir_injection
 alerts <<'EOF'

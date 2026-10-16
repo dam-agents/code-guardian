@@ -38,8 +38,9 @@ dashboard.html    # the last published page
 
 - **Incident** — `{id, kind, first, last_seen, open, end, detail}`, one per
   condition id of the monitor. An outage or a condition is open until it
-  clears; a classifier day, a refused post, a stall alert and an anomaly are
-  closed points. A recovery notice is no incident.
+  clears; a classifier day, a refused post, a stall alert, an anomaly, a
+  denied GitHub call and an identity change are closed points. A recovery
+  notice is no incident.
 - Rows hold counts, class words, UTC times, PR numbers and adapter parts only —
   never the text of an event.
 
@@ -47,10 +48,10 @@ dashboard.html    # the last published page
 
 | Service | `down` | `warn` |
 | --- | --- | --- |
-| DAM schedules | `heartbeat_gap` | a `pod_boot` or a broken gate in 6 h |
+| DAM schedules | `heartbeat_gap` | a broken gate in 6 h |
 | Harness | — | `harness_drift` |
 | Model API | an open `model_unavailable` | a model failure in 2 h |
-| GitHub API | an open `github_unavailable` | a failed gate pass or an API warning in 2 h |
+| GitHub API | an open `github_unavailable` | a failed gate pass or an API warning in 2 h, `github_write_denied` |
 | Auto-mode classifier | — | `classifier_spike`, `review_post_blocked` |
 | Work backup | `backup_failing` | a push error in 6 h |
 | Direct Slack alerts | — | the opt-in cannot send, or a failed send in 6 h |
