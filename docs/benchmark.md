@@ -230,7 +230,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
    ```bash
    B="<fixture_root>/<slug>"; PR_DIR="/tmp/benchmark-pr-<slug>"
-   rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-*
+   rm -rf "$PR_DIR" "$PR_DIR".out "$PR_DIR".s-* "$PR_DIR".prompts-* "$PR_DIR".reviewer-*
    git init -q "$PR_DIR" && cp -a "$B/base/." "$PR_DIR/"
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench add -A
    git -C "$PR_DIR" -c user.email=bench@local -c user.name=bench commit -qm base
@@ -270,8 +270,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    Archive the skill outputs beside it:
    `cp -a "$PR_DIR.out" "$HOME/work/benchmark/results/raw/<ts>-<slug>-first-skills"`.
 3. **Re-review** — bracket it `"<slug>-rereview"`. Clear the first review's
-   skill state (`rm -rf "$PR_DIR".out "$PR_DIR".s-*`, then
-   `git -C "$PR_DIR" worktree prune`), advance the tree to v2 (repeat the
+   skill state
+   (`rm -rf "$PR_DIR".out "$PR_DIR".s-* "$PR_DIR".prompts-* "$PR_DIR".reviewer-*`,
+   then `git -C "$PR_DIR" worktree prune`), advance the tree to v2 (repeat the
    swap-and-commit on `pr` with `head-v2/`), re-run the fan-out per
    docs/review-rereview.md → **Re-review output** (routing from
    `git -C "$PR_DIR" diff --name-only pr~1..pr`), then spawn a **separate**

@@ -137,14 +137,15 @@ else
 fi
 
 # Harness adapter (ONBOARDING Step 1b) — the adapter of the harness this runs on.
-if [ "${PI_CODING_AGENT:-}" = "true" ] || [ "${PLATFORM_HARNESS:-}" = "pi" ]; then
+. "$SCRIPT_DIR/lib/harness.sh"
+if [ "$(cg_harness)" = pi ]; then
   if [ -z "$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/pi/install.sh" --check 2>/dev/null)" ]; then
     ok hooks "pi extension linked"
   else
     fail hooks "pi adapter not current: pi-extension" \
       "bash \"\$HOME/scripts/harness/pi/install.sh\" (ONBOARDING Step 1b, idempotent)"
   fi
-elif [ "${CLAUDECODE:-}" != "1" ]; then
+elif [ "$(cg_harness)" != claude-code ]; then
   ok hooks "harness without an adapter — adapter hooks not applicable"
 else
   SETTINGS="$HOME_DIR/.claude/settings.json"
