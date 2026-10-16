@@ -15,7 +15,9 @@ they are released history and stay as written.
 
 **Upgrade:** Nothing to run. With `benchmark_judge` set, the host needs the
 `claude` CLI and access to that model. Judge scores of earlier runs show as
-"—" in the report: no pinned judge scored them.
+"—" in the report: no pinned judge scored them. Until the next benchmark run,
+preflight's `benchmark_results` check warns `judge_pinned` on the newest
+results file when an earlier judge scored it; that warn needs no action.
 
 ## 9.6.1 — 2026-10-15
 

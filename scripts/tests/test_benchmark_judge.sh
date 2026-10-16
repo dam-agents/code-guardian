@@ -76,6 +76,11 @@ $SIX
 \`\`\`")"
 run_first claude-opus-5
 assert_jq '.status == "ok" and .judge.clarity == 4' 'a fenced object is cut out'
+seed_cli "$(reply claude-opus-5 "Scores — here: \`\`\`json
+$(printf '%s' "$SIX" | jq -c '.notes = "fix too narrow — 🔴 one line"')
+\`\`\`")"
+run_first claude-opus-5
+assert_jq '.status == "ok" and .judge.notes == "fix too narrow — 🔴 one line"' 'a fenced object with non-ASCII text is cut out on code points'
 seed_cli "$(reply claude-opus-5 "$(printf '%s' "$SIX" | jq -c '.clarity = 7')")"
 run_first claude-opus-5
 assert_jq '.status == "failed" and .judge == null' 'a score outside 1-5 is refused'

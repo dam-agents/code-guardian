@@ -111,12 +111,14 @@ jq -e --arg m "$MODEL" "$MODEL_JQ"'.modelUsage | keys | all(model_has($m))' "$TM
   || out mismatch null "$USED" "$TOKENS" "judge pinned to $MODEL, but $USED answered"
 
 # the reply text is one JSON object; a model that still wraps it in a code
-# fence or a sentence gets the outermost {...} cut out of it
+# fence or a sentence gets the outermost {...} cut out of it. The cut works on
+# code points: jq 1.7 string index/rindex give byte offsets, so one non-ASCII
+# character would shift a string slice
 SCORES="$(jq -c --argjson dims "$DIMS" '
   (.result // "" | tostring) as $t
   | ($t | try fromjson catch
-      ($t | (index("{")) as $a | (rindex("}")) as $b
-          | if $a == null or $b == null then null else (.[$a:$b + 1] | try fromjson catch null) end)) as $o
+      ($t | explode | (index(123)) as $a | (rindex(125)) as $b
+          | if $a == null or $b == null then null else (.[$a:$b + 1] | implode | try fromjson catch null) end)) as $o
   | if ($o | type) != "object" then null
     elif all($dims[]; . as $k | $o[$k] | type == "number" and . == floor and . >= 1 and . <= 5)
     then ($o | with_entries(select(.key as $k | $dims | index($k)))) + {notes: ($o.notes // "" | tostring)}
