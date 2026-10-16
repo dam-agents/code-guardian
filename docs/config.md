@@ -34,6 +34,11 @@ below is for the manual fallback and the direct session.
 
 ## Keys
 
+**Session model** — no key. The platform sets the model of every session: on
+DAM the agent's model settings and each schedule's `model`, which the operator
+sets there. The agent never sets or changes a session's model; it sets only
+the model of a subagent it starts (`benchmark_judge`).
+
 ### Identity & repositories
 
 - **`github_repo`** — the target-repo reference, written at onboarding.
@@ -105,10 +110,6 @@ below is for the manual fallback and the direct session.
   `schedule_once` ([runbook.md](runbook.md) → **Review run** step 1,
   [worklist.md](worklist.md) → **Dispatch**). `disabled` keeps every PR in the
   run that found it, one after another.
-- **Session model** — no key. The platform sets the model of every
-  session: on DAM the agent's model settings and each schedule's `model`,
-  which the operator sets there. The agent never sets or changes a session's
-  model; it sets only the model of a subagent it starts (`benchmark_judge`).
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
