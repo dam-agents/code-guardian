@@ -63,7 +63,7 @@ state.
 adapter writes the `tokens` event ([logging.md](logging.md) → **Harness
 adapters**): `CLAUDECODE=1`, the Claude Code adapter's `SessionEnd` hook in
 `~/.claude/settings.json`, or the pi extension's link in
-`~/.pi/agent/extensions/`, which the monitor's gate reads from outside the
+`~/.pi/agent/extensions/` on an agent whose harness is pi, which the monitor's gate reads from outside the
 session. With `false` and no `tokens` event in 24 h, the Harness note says
 `Sessions 24 h: not measured`, and a chart window with no session shows the
 reviews alone. A `tokens` event counts on any harness.

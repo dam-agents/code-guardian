@@ -196,9 +196,12 @@ CLAUDECODE="" henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
 has "$SANDBOX/page.html" 'Sessions and reviews per hour' 'the chart keeps the sessions'
 mkdir -p "$FAKE_HOME/.pi/agent/extensions"; rm -f "$FAKE_HOME/.claude/settings.json"
 ln -s "$REPO_ROOT/scripts/harness/pi/extension.ts" "$FAKE_HOME/.pi/agent/extensions/code-guardian.ts"
-CLAUDECODE="" record
+CLAUDECODE="" PLATFORM_HARNESS=pi record
 status
-assert_jq '.tokens_adapter == true' 'the linked pi extension is a tokens adapter'
+assert_jq '.tokens_adapter == true' 'on a pi agent the linked extension is a tokens adapter'
+CLAUDECODE="" PLATFORM_HARNESS=bob record
+status
+assert_jq '.tokens_adapter == false' 'on a Bob agent the link alone is no tokens adapter'
 rm -f "$FAKE_HOME/.pi/agent/extensions/code-guardian.ts"
 rm -f "$FAKE_HOME/.claude/settings.json"
 CLAUDECODE=1 record
