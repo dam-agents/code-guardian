@@ -341,9 +341,9 @@ fill() { # <name> <value>
 # can create check runs. A refused write tries the other channel once.
 status_write() { # <sha> <state> <description> [target_url]
   if [ -n "${4:-}" ]; then
-    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" -f target_url="$4" >/dev/null 2>&1
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" -f target_url="$4" >/dev/null 2>>"$PW_ERR"
   else
-    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>&1
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>>"$PW_ERR"
   fi
 }
 # The check run's text: how a person asks for the next review round
@@ -379,16 +379,21 @@ check_write() { # <sha> <state> <description> [target_url] — updates this SHA'
     + (if $s == "pending" then {status:"in_progress"} else {status:"completed", conclusion:"success", completed_at:$t} end)
     + (if $u != "" then {details_url:$u} else {} end)')"
   if [ -n "$id" ]; then
-    printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>&1
+    printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>>"$PW_ERR"
   else
     local resp app
-    resp="$(printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - 2>/dev/null)" || return 1
+    resp="$(printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - 2>>"$PW_ERR")" || return 1
     app="$(printf '%s' "$resp" | jq -r '.app.slug // empty' 2>/dev/null)"
     [ -z "$me" ] && [ -n "$app" ] && identity_record "$app[bot]"
     return 0
   fi
 }
+# the HTTP status of the writes' last refusal, " — HTTP <code>" (the
+# monitor's github_write_denied alert reads a 403), else nothing
+PW_ERR="$TMP_ROOT/cg-progress-$$.err"
+pw_http() { grep -oE 'HTTP [0-9]{3}' "$PW_ERR" 2>/dev/null | tail -1 | sed 's/^/ — /'; rm -f "$PW_ERR"; }
 progress_write() { # <sha> <state> <description> [target_url]
+  : > "$PW_ERR" 2>/dev/null
   [ -n "$(token_login)" ] || identity_refresh || true
   if [ "$(token_kind)" = app ]; then check_write "$@" || status_write "$@"
   else status_write "$@" || check_write "$@"; fi
@@ -397,8 +402,8 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
   [ "$PROGRESS" = "enabled" ] || return 0
   local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
-  progress_write "$sha" "$1" "$desc" "${3:-}" \
-    || logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)"
+  if progress_write "$sha" "$1" "$desc" "${3:-}"; then rm -f "$PW_ERR"
+  else logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)$(pw_http)"; fi
 }
 
 # ---------------------------------------------------------------- cleanup ----
@@ -2098,8 +2103,8 @@ cmd_progress() { # <sha> <state> <description> [target_url]
   case "${1:-}" in (''|*[!0-9a-f]*) fail "progress: the sha is not hex";; esac
   case "${2:-}" in (pending|success) ;; (*) fail "progress: the state is not pending or success";; esac
   local desc; desc="$(printf '%s' "${3:-}" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"
-  if progress_write "$1" "$2" "$desc" "${4:-}"; then out '{"outcome":"written"}'; fi
-  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)"
+  if progress_write "$1" "$2" "$desc" "${4:-}"; then rm -f "$PW_ERR"; out '{"outcome":"written"}'; fi
+  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)$(pw_http)"
   out '{"outcome":"failed"}'
 }
 
