@@ -103,8 +103,10 @@ check of the commit ([ci-triage.md](ci-triage.md)).
   gates a merge.
 - `review-pr.sh` writes each row at the step that owns it; the manual fallback
   runs `review-pr.sh progress` at the same step.
-- **Best-effort.** A failed write is logged (`progress_status`, warn) and
-  changes nothing — never retried, never a reason to abort.
+- **Best-effort.** A failed write is logged (`progress_status`, warn, with
+  the `HTTP <code>` of the first channel's refusal, and `(rate limit)` when
+  GitHub names one) and changes nothing — never retried, never a reason to
+  abort.
 
 **`status_resets_due`** `{number, sha, reason}` — a locked review was abandoned
 with the status left `pending` (`reason: draft`). Write the terminal row above,

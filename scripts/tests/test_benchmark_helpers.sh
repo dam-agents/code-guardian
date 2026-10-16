@@ -14,7 +14,7 @@ export BENCH_CONFIG=/dev/null
 seed_results() {
   mkdir -p "$SANDBOX/bench/results"
   cat > "$SANDBOX/bench/results/20260701T060000Z.json" <<'EOF'
-{"ts":"2026-07-01T06:00:00Z","trigger":"scheduled","model":"model-a","definition_version":"3.11.0",
+{"ts":"2026-07-01T06:00:00Z","trigger":"scheduled","model":"model-a","definition_version":"3.11.0","judge":"judge-x","judge_model_used":"judge-x",
  "fixtures":{"ts-api":{"first":{"f1":0.72,"precision":0.8,"recall":0.65,"severity_accuracy":0.9,"fp":[{"f":1}],"length":{"words_total":820},"seconds":410,"tokens":{"output":21000},"judge":{"finding_accuracy":4}},
    "rereview":{"fixed_recall":0.8,"still_recall":1,"new_recall":0.7,"false_fixed":0,"churn":0,"late_finds":1,"seconds":300,"tokens":{"output":15000}}},
   "react-ui":{"first":{"f1":0.6,"precision":0.7,"recall":0.55,"severity_accuracy":0.85,"fp":[],"length":{"words_total":700},"seconds":380,"tokens":{"output":18000},"judge":{"finding_accuracy":3}},

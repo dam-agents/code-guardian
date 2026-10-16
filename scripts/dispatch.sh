@@ -22,6 +22,11 @@
 #       `title: <title>`, the session title of the work it keeps. A <n> with
 #       no unit worklist from `plan` is refused. With no <n> it prints
 #       <worklist> itself and its title.
+#   dispatch.sh refused <worklist> <reason> <n>…
+#       Logs one `dispatch_refused` warn naming PRs <n>… and the platform's
+#       <reason> (ASCII, at most 200 characters) — the event the monitor's
+#       `dispatch_refused` alert counts (docs/monitor.md). The PRs stay in the
+#       run; it prints nothing else.
 #
 # The task text is a fixed template carrying the PR number, the unit's path and
 # the session's run id — the unit file's name, `<gate run id>-pr<n>`
@@ -91,7 +96,7 @@ TITLE_JQ='
 '
 
 CMD="${1:-}"; WL="${2:-}"
-[ -n "$WL" ] || die "usage: dispatch.sh plan|rest <worklist> [<n>…]"
+[ -n "$WL" ] || die "usage: dispatch.sh plan|rest|refused <worklist> …"
 [ -r "$WL" ] || die "no readable worklist at $WL"
 jq -e 'type == "object" and .mode == "review"' "$WL" >/dev/null 2>&1 || die "$WL is not a review worklist"
 BASE="${WL%.json}"
@@ -151,5 +156,13 @@ run: $URUN — start every shell command that runs a \$HOME/scripts/ script with
     logev info dispatch "$STARTED dispatched to sessions of their own; this run keeps ${KEPT:-no PR}"
     printf 'worklist: %s\ntitle: %s\n' "$REST" "$(jq -r "$UNIT_JQ$TITLE_JQ"'run_title' "$REST")"
     ;;
-  *) die "usage: dispatch.sh plan|rest <worklist> [<n>…]";;
+  refused)
+    REASON="${3:-}"; shift 3 2>/dev/null || die "usage: dispatch.sh refused <worklist> <reason> <n>…"
+    [ "$#" -gt 0 ] || die "usage: dispatch.sh refused <worklist> <reason> <n>…"
+    for n in "$@"; do case "$n" in (''|*[!0-9]*) die "not a PR number: $n";; esac; done
+    REASON="$(printf '%s' "$REASON" | tr -c '\40-\176' ' ' | cut -c1-200)"
+    logev warn dispatch_refused "$(printf '#%s, ' "$@" | sed 's/, $//'): ${REASON:-no reason given} — kept in this run"
+    printf 'logged: %s PR(s) stay in this run\n' "$#"
+    ;;
+  *) die "usage: dispatch.sh plan|rest|refused <worklist> …";;
 esac

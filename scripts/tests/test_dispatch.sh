@@ -207,4 +207,17 @@ chmod 700 "$SANDBOX/tmp"
 assert_rc 2 'a rest worklist that cannot be written is an error'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'leaves #8 to their sessions' 'and the error names the PRs the run leaves alone'
 
+# --- a refused schedule_once is one fixed event ----------------------------------
+new_case dispatch_refused_logged
+mkdir -p "$SANDBOX/tmp"; WL="$SANDBOX/tmp/cg-worklist-review-r.json"
+synthetic_worklist "$WL"
+run_ds refused "$WL" "$(printf 'name the model with its provider\001')" 8 9
+assert_rc 0 'refused logs and succeeds'
+assert_file_jq "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'select(.event == "dispatch_refused") | .level == "warn" and .msg == "#8, #9: name the model with its provider  — kept in this run"' \
+  'one dispatch_refused warn names the PRs and the reason, control characters blanked'
+run_ds refused "$WL" "no number"
+assert_rc 2 'refused needs a PR number'
+run_ds refused "$WL" "reason" 8x
+assert_rc 2 'a non-number is refused'
+
 finish
