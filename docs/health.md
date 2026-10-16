@@ -28,7 +28,7 @@ dashboard.html    # the last published page
   | --- | --- |
   | `gate` | `precheck` events per job — the schedule fires that reached their gate |
   | `gate_err` | `precheck` errors — a gate that broke |
-  | `sessions` / `reviews` | `tokens` events / `review_step … done` |
+  | `sessions` / `reviews` | distinct runs with a `tokens` event (a session that ends twice in one hour counts once) / `review_step … done` |
   | `model_fail` | `api_failure` of the availability classes ([monitor.md](monitor.md) → **The alerts**) |
   | `gh_fail` / `gh_warn` | gate passes that could not list the open PRs / `gh_api` and preflight API-error warnings |
   | `classifier` / `tool_fail` | `classifier_block` / `tool_failure` |
