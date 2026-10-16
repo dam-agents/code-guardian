@@ -67,7 +67,7 @@ AM_ALLOW="$(jq -nc --arg d "$DEF" --arg r "$TARGET" --arg h "$HOME_DIR" '
      "[code-guardian] Starting a subagent of type review-skill with the Agent tool: a review run gives each configured review skill one subagent, with its brief file under /tmp/review-pr-<n>.ctx/.",
      "[code-guardian] Running bash \($h)/scripts/work-backup.sh persist or restore: it backs up the \($h)/work/ directory of the agent to the work repository that work/CONFIG.md names.",
      "[code-guardian] Deleting with rm -f or rm -rf the review files and scratch of the agent: paths under \($h)/work/reviews/, /tmp/review-pr-* and /tmp/cg-*.",
-     "[code-guardian] Starting a review of one pull request in a session of its own with mcp__platform-outbound__schedule_once, passing exactly the name, task, sessionTitle and model that scripts/dispatch.sh plan printed in the same session: a review run hands every PR after its first to a one-time session that runs at once, then titles its own session with mcp__platform-outbound__rename_session and the title scripts/dispatch.sh rest printed. Every other scheduled run titles its own session with rename_session too."]')"
+     "[code-guardian] Starting a review of one pull request in a session of its own with mcp__platform-outbound__schedule_once, passing exactly the name, task and sessionTitle that scripts/dispatch.sh plan printed in the same session: a review run hands every PR after its first to a one-time session that runs at once, then titles its own session with mcp__platform-outbound__rename_session and the title scripts/dispatch.sh rest printed. Every other scheduled run titles its own session with rename_session too."]')"
 
 if [ "$CHECK" = 1 ]; then
   missing=""

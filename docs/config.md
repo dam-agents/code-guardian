@@ -36,8 +36,9 @@ below is for the manual fallback and the direct session.
 
 **Session model** — no key. The platform sets the model of every session: on
 DAM the agent's model settings and each schedule's `model`, which the operator
-sets there. The agent never sets or changes a session's model; it sets only
-the model of a subagent it starts (`benchmark_judge`).
+sets there. The agent never chooses a session's model: it carries a registered
+schedule's `model` unchanged when ONBOARDING Step 6 re-creates that schedule,
+and it sets only the model of a subagent it starts (`benchmark_judge`).
 
 ### Identity & repositories
 
