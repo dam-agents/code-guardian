@@ -301,6 +301,61 @@ OUT="$(PATH="$SANDBOX/bin:$PATH" bash "$SUB" "$SANDBOX/none" 2>/dev/null; printf
 [ "$OUT" = "rc=2" ] && printf 'ok   %s: a missing prompt dir is a usage error\n' "$CASE" \
   || { printf 'FAIL %s: expected rc=2, got %s\n' "$CASE" "$OUT"; FAILED=1; }
 
+new_case review_window_reads_pi
+WIN="$REPO_ROOT/scripts/harness/claude-code/review-window.jq"
+cat > "$SANDBOX/pi.jsonl" <<'EOF'
+{"type":"message","id":"u0","timestamp":"2026-10-16T08:59:00.000Z","message":{"role":"assistant","usage":{"input":1,"output":1,"cacheRead":900000,"cacheWrite":0},"content":[]}}
+{"type":"message","id":"u1","timestamp":"2026-10-16T09:00:01.000Z","message":{"role":"assistant","usage":{"input":10,"output":5,"cacheRead":1000,"cacheWrite":90},"content":[{"type":"toolCall","name":"bash","arguments":{"command":"ls"}},{"type":"toolCall","name":"bash","arguments":{"command":"ls"}}]}}
+{"type":"message","id":"r1","timestamp":"2026-10-16T09:00:02.000Z","message":{"role":"toolResult","toolName":"bash","content":[{"type":"text","text":"abcdefghij"}]}}
+EOF
+OUT="$(jq -nR --arg since 2026-10-16T09:00:00Z -f "$WIN" "$SANDBOX/pi.jsonl")"
+assert_jq '.peak_ctx == 1100 and .repeats == 2 and .repeat_tool == "bash" and .max_out == 10' 'the review window reads pi entries from its start on'
+
+new_case pi_subagents_layout_and_skill_step
+SUB="$REPO_ROOT/scripts/harness/pi/subagents.sh"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/p" "$WORK/logs"
+cat > "$SANDBOX/bin/pi" <<'EOF'
+#!/bin/sh
+printf 'args=%s parent=%s\n' "$*" "${CG_PI_PARENT_SESSION:-none}"
+EOF
+chmod +x "$SANDBOX/bin/pi"
+cat > "$WORK/CONFIG.md" <<'EOF'
+- github_repo: acme/widgets
+
+## Review skills
+
+| skill | source | trigger | section |
+|-------|--------|---------|---------|
+| issue-fit | harness | always | Issue fit |
+EOF
+printf 'Review skill `issue-fit` for PR #42: read `/tmp/brief.md` and follow it exactly.\n' > "$SANDBOX/p/issue-fit.prompt"
+PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" WORK_DIR="$WORK" PI_SESSION_ID=parent-1 \
+  PI_SESSION_FILE="$SANDBOX/sessions/2026_parent-1.jsonl" bash "$SUB" "$SANDBOX/p" >/dev/null
+case "$(cat "$SANDBOX/p/issue-fit.reply")" in
+  (*"--session-dir $SANDBOX/sessions/2026_parent-1/subagents"*"parent=parent-1"*)
+    printf 'ok   %s: nested session under <session>/subagents, parent run named\n' "$CASE" ;;
+  (*) printf 'FAIL %s: unexpected nested call: %s\n' "$CASE" "$(cat "$SANDBOX/p/issue-fit.reply")"; FAILED=1 ;;
+esac
+if cat "$WORK"/logs/events-*.jsonl 2>/dev/null | jq -e 'select(.event == "review_step" and .run == "parent-1" and .msg == "PR #42 skill:issue-fit done")' >/dev/null; then
+  printf 'ok   %s: an ended skill subagent logs skill:<name> done under the parent run\n' "$CASE"
+else printf 'FAIL %s: no skill step: %s\n' "$CASE" "$(cat "$WORK"/logs/events-*.jsonl 2>/dev/null)"; FAILED=1; fi
+
+new_case pi_install_links_the_extension
+PI_INST="$REPO_ROOT/scripts/harness/pi/install.sh"
+mkdir -p "$FAKE_HOME/.pi/agent"
+OUT="$(HOME="$FAKE_HOME" bash "$PI_INST" --check)"
+[ "$OUT" = "pi-extension" ] && printf 'ok   %s: a missing link is named\n' "$CASE" \
+  || { printf 'FAIL %s: expected pi-extension, got %s\n' "$CASE" "$OUT"; FAILED=1; }
+HOME="$FAKE_HOME" bash "$PI_INST" >/dev/null
+if [ "$(readlink "$FAKE_HOME/.pi/agent/extensions/code-guardian.ts")" = "$REPO_ROOT/scripts/harness/pi/extension.ts" ] \
+   && [ -z "$(HOME="$FAKE_HOME" bash "$PI_INST" --check)" ]; then
+  printf 'ok   %s: install links the extension and the check goes quiet\n' "$CASE"
+else printf 'FAIL %s: link not current\n' "$CASE"; FAILED=1; fi
+rm -rf "$FAKE_HOME/.pi"
+OUT="$(PATH="/usr/bin:/bin" HOME="$FAKE_HOME" bash "$PI_INST" --check; printf 'rc=%s' "$?")"
+[ "$OUT" = "rc=0" ] && printf 'ok   %s: without pi the check is silent\n' "$CASE" \
+  || { printf 'FAIL %s: expected silence, got %s\n' "$CASE" "$OUT"; FAILED=1; }
+
 new_case reviewer_brief_placeholders_documented
 # every placeholder of the reviewer brief has its documented value, so the
 # rendered prompt never ships a literal {{...}}

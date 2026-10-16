@@ -222,6 +222,15 @@ WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=1 bash "$HOOKS/install.sh" >/dev/n
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "harness_drift")] == []' 'a re-install clears it'
 
+# --- pi installed, its extension not linked --------------------------------------
+mon_case mon_harness_pi
+mkdir -p "$FAKE_HOME/.pi/agent"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "harness_drift") | .parts == ["pi-extension"]' 'an unlinked pi extension is drift'
+HOME="$FAKE_HOME" bash "$REPO_ROOT/scripts/harness/pi/install.sh" >/dev/null 2>&1
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "harness_drift")] == []' 'linking it clears the drift'
+
 # --- the gate's monitor mode ---------------------------------------------------------
 mon_case mon_gate_idle
 run_precheck monitor

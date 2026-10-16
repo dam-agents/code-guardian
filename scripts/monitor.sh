@@ -205,9 +205,15 @@ fi
 # install.sh --check names the parts of the Claude Code adapter that are not
 # current — a missing hook, [code-guardian] rules an older definition wrote.
 # The check reads only local files; a re-install clears the condition.
+# The pi adapter's part (`pi-extension`) joins them wherever pi is installed.
 INSTALL="$SCRIPT_DIR/harness/claude-code/install.sh"
-if [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ]; then
-  DRIFT="$(CLAUDECODE=1 bash "$INSTALL" --check 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')"
+PI_INSTALL="$SCRIPT_DIR/harness/pi/install.sh"
+if { [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ]; } || [ -d "$HOME_DIR/.pi/agent" ]; then
+  DRIFT="$( { [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ] \
+                && CLAUDECODE=1 bash "$INSTALL" --check 2>/dev/null
+              [ -d "$HOME_DIR/.pi/agent" ] && [ -f "$PI_INSTALL" ] \
+                && HOME="$HOME_DIR" bash "$PI_INSTALL" --check 2>/dev/null; } \
+            | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')"
   DRIFT="${DRIFT% }"
   if [ -n "$DRIFT" ]; then
     cand "$(jq -nc --arg p "$DRIFT" '{id: "harness:\($p | gsub(" "; "+"))", kind: "harness_drift", parts: ($p | split(" "))}')"

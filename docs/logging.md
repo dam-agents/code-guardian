@@ -171,7 +171,7 @@ this session runs on:
 | Harness | File | Adapter |
 |---------|------|---------|
 | Claude Code | [harness-claude-code.md](harness-claude-code.md) | `scripts/harness/claude-code/` — hooks |
-| pi | [harness-pi.md](harness-pi.md) | `scripts/harness/pi/` — subagents, usage snapshot; no hooks |
+| pi | [harness-pi.md](harness-pi.md) | `scripts/harness/pi/` — an extension that runs the Claude Code hook scripts, subagents, usage snapshot |
 | Bob | [harness-bob.md](harness-bob.md) | none |
 
 `scripts/lib/harness.sh` names the harness of the running shell (`cg_harness`)

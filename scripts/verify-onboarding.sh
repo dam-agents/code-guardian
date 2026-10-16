@@ -136,9 +136,16 @@ else
     'date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"'
 fi
 
-# Harness adapter (ONBOARDING Step 1b) — only checkable on the Claude Code harness.
-if [ "${CLAUDECODE:-}" != "1" ]; then
-  ok hooks "not the Claude Code harness — adapter hooks not applicable"
+# Harness adapter (ONBOARDING Step 1b) — the adapter of the harness this runs on.
+if [ "${PI_CODING_AGENT:-}" = "true" ] || [ "${PLATFORM_HARNESS:-}" = "pi" ]; then
+  if [ -z "$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/pi/install.sh" --check 2>/dev/null)" ]; then
+    ok hooks "pi extension linked"
+  else
+    fail hooks "pi adapter not current: pi-extension" \
+      "bash \"\$HOME/scripts/harness/pi/install.sh\" (ONBOARDING Step 1b, idempotent)"
+  fi
+elif [ "${CLAUDECODE:-}" != "1" ]; then
+  ok hooks "harness without an adapter — adapter hooks not applicable"
 else
   SETTINGS="$HOME_DIR/.claude/settings.json"
   MISSING_HOOKS=""

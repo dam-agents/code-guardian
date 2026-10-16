@@ -372,6 +372,17 @@ run_preflight audit
 assert_jq '[.checks[] | select(.id == "definition_issues")] | length == 1' 'backlog check present'
 assert_jq '.checks[] | select(.id == "definition_issues") | .status == "warn" and (.detail | contains("1 open issue") and contains("#31"))' 'counts issues only (PRs filtered), lists them'
 
+# --- harness_adapter on pi: the extension link -------------------------------
+new_case audit_pi_adapter
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$FAKE_HOME/.pi/agent"
+CLAUDECODE="" PI_CODING_AGENT=true run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "warn" and (.detail | contains("pi-extension"))' 'on pi an unlinked extension warns'
+HOME="$FAKE_HOME" bash "$REPO_ROOT/scripts/harness/pi/install.sh" >/dev/null 2>&1
+CLAUDECODE="" PI_CODING_AGENT=true run_preflight audit
+assert_jq '.checks[] | select(.id == "harness_adapter") | .status == "ok" and (.detail | startswith("pi extension linked"))' 'on pi the linked extension is ok'
+
 # --- harness_adapter: every hook must be registered ---------------------------
 # settings.json listing only some adapter hooks is a warn naming the missing
 # ones (an upgraded instance that never re-ran install.sh).

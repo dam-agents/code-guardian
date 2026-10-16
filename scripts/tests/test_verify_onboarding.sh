@@ -87,6 +87,18 @@ assert_out '^PASS' 'prints PASS'
 
 # the harness adapter: a part is named with the term install.sh --check prints,
 # once, and a fresh install passes
+new_case harness_adapter_pi
+seed_home; seed_memory; seed_lessons
+verify_config
+mkdir -p "$FAKE_HOME/.pi/agent"
+OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 PI_CODING_AGENT=true \
+       bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"
+assert_out 'FAIL hooks .*pi-extension' 'on pi an unlinked extension fails the hooks line'
+HOME="$FAKE_HOME" bash "$REPO_ROOT/scripts/harness/pi/install.sh" >/dev/null 2>&1
+OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" CLAUDECODE=0 PI_CODING_AGENT=true \
+       bash "$REPO_ROOT/scripts/verify-onboarding.sh" 2>&1)"
+assert_out 'ok   hooks — pi extension linked' 'on pi the linked extension passes'
+
 new_case harness_adapter_parts
 seed_home; seed_memory; seed_lessons
 verify_config

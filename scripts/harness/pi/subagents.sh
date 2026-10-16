@@ -9,11 +9,18 @@
 # `pi -p` on this session's provider, model and thinking level (PI_PROVIDER,
 # PI_MODEL, PI_REASONING_LEVEL — a nested pi otherwise falls back to the saved
 # default model), in $HOME, with the built-in tools only (no MCP tools: a
-# subagent posts nothing), no context files and a persisted session, so the
-# usage snapshot finds its transcript by the nonce its prompt carries. Writes
-# <name>.reply (the final text), <name>.log (stderr) and prints one JSON line
-# per subagent: {"name":…,"exit":N,"reply":"<path>"}. Exit 0 once every
-# subagent ended, whatever each one's exit; 2 on a usage error.
+# subagent posts nothing) and no context files. Its session file lands in
+# `<this session's file without .jsonl>/subagents/`, the layout the Claude
+# Code hook scripts read subagent usage from, so the run's `tokens` and
+# `review_cost` events and the benchmark's snapshot count it. CG_PI_PARENT_SESSION
+# tells the nested session's extension (extension.ts) whose run it belongs to.
+# Each subagent that ends is logged as the Claude Code adapter logs a returned
+# Task: `skill:<name> done` when its prompt names a configured skill and a PR
+# (log-review-step.sh).
+#
+# Writes <name>.reply (the final text) and <name>.log (stderr), and prints one
+# JSON line per subagent: {"name":…,"exit":N,"reply":"<path>"}. Exit 0 once
+# every subagent ended, whatever each one's exit; 2 on a usage error.
 # CG_SUBAGENT_TIMEOUT (seconds, default 3600) bounds each subagent.
 set -u
 export LC_ALL=C
@@ -22,8 +29,13 @@ DIR="${1:-}"
 [ -n "$DIR" ] && [ -d "$DIR" ] || { printf 'usage: subagents.sh <dir with *.prompt files>\n' >&2; exit 2; }
 ls "$DIR"/*.prompt >/dev/null 2>&1 || { printf 'no *.prompt file in %s\n' "$DIR" >&2; exit 2; }
 command -v pi >/dev/null 2>&1 || { printf 'pi not on PATH — not the pi harness\n' >&2; exit 2; }
+HOOKS="$(cd "$(dirname "$0")/../claude-code" && pwd)"
+# the hooks act on this definition's work/, as extension.ts runs them
+export WORK_DIR="${WORK_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)/work}"
 
+PARENT="${CG_PI_PARENT_SESSION:-${PI_SESSION_ID:-}}"
 ARGS=(-p --no-context-files --tools read,bash,edit,write)
+[ -n "${PI_SESSION_FILE:-}" ] && ARGS+=(--session-dir "${PI_SESSION_FILE%.jsonl}/subagents")
 [ -n "${PI_PROVIDER:-}" ] && [ -n "${PI_MODEL:-}" ] && ARGS+=(--provider "$PI_PROVIDER")
 [ -n "${PI_MODEL:-}" ] && ARGS+=(--model "$PI_MODEL")
 [ -n "${PI_REASONING_LEVEL:-}" ] && ARGS+=(--thinking "$PI_REASONING_LEVEL")
@@ -34,10 +46,20 @@ TO=(); command -v timeout >/dev/null 2>&1 && TO=(timeout "$LIMIT")
 names=(); pids=()
 for f in "$DIR"/*.prompt; do
   n="${f##*/}"; n="${n%.prompt}"
-  # the nested session gets its own id, never this session's
-  ( cd "${HOME:-/home/agent}" && env -u PI_SESSION_ID -u PI_SESSION_FILE \
-      ${TO[@]+"${TO[@]}"} pi "${ARGS[@]}" "$(cat "$f")" \
-      > "$DIR/$n.reply" 2> "$DIR/$n.log" < /dev/null ) &
+  (
+    # the nested session gets its own id, never this session's
+    ( cd "${HOME:-/home/agent}" && env -u PI_SESSION_ID -u PI_SESSION_FILE \
+        CG_PI_PARENT_SESSION="$PARENT" \
+        ${TO[@]+"${TO[@]}"} pi "${ARGS[@]}" "$(cat "$f")" \
+        > "$DIR/$n.reply" 2> "$DIR/$n.log" < /dev/null )
+    rc=$?
+    if [ "$rc" = 0 ] && [ -n "$PARENT" ] && command -v jq >/dev/null 2>&1; then
+      jq -nc --arg s "$PARENT" --rawfile p "$f" \
+        '{hook_event_name: "PostToolUse", session_id: $s, tool_name: "Task", tool_input: {prompt: $p}}' \
+        | bash "$HOOKS/log-review-step.sh" >/dev/null 2>&1
+    fi
+    exit "$rc"
+  ) &
   names+=("$n"); pids+=("$!")
 done
 

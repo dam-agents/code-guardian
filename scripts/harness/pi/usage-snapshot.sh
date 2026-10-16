@@ -29,5 +29,5 @@ printf '%s\n' "$FILES" > "$CACHE" 2>/dev/null || true
 # pi session paths carry no spaces (--<cwd with / as ->--/<ts>_<id>.jsonl)
 # shellcheck disable=SC2086
 set -- $FILES
-jq -nR -f "$(cd "$(dirname "$0")" && pwd)/usage-sum.jq" "$@" 2>/dev/null
+jq -nR -f "$(cd "$(dirname "$0")/../claude-code" && pwd)/usage-sum.jq" "$@" 2>/dev/null
 exit 0

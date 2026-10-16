@@ -93,4 +93,19 @@ run_hook "$TP"
 if [ ! -s "$EVENTS" ]; then printf 'ok   %s: no CONFIG.md, no event\n' "$CASE"
 else printf 'FAIL %s: event written without CONFIG.md\n' "$CASE"; FAILED=1; fi
 
+# --- a pi transcript (docs/harness-pi.md), its nested subagents beside it -------
+setup tokens_pi_transcript
+pi_line() { # <id> <ts> <input> <output> <cacheRead> <cacheWrite>
+  jq -nc --arg id "$1" --arg ts "$2" --argjson i "$3" --argjson o "$4" --argjson cr "$5" --argjson cw "$6" \
+    '{type:"message", id:$id, timestamp:$ts, message:{role:"assistant", model:"ibm/aws/claude-opus-5-5",
+      usage:{input:$i, output:$o, cacheRead:$cr, cacheWrite:$cw, totalTokens:0}}}'
+}
+{ pi_line a1 2026-10-16T09:00:00.000Z 4 100 1000 50; pi_line a1 2026-10-16T09:00:00.000Z 4 100 1000 50
+  pi_line a2 2026-10-16T09:00:30.000Z 2 20 500 5; } > "$TP"
+mkdir -p "${TP%.jsonl}/subagents"
+pi_line a1 2026-10-16T09:00:10.000Z 1 10 100 1 > "${TP%.jsonl}/subagents/nested.jsonl"
+run_hook "$TP"
+expect_msg '^input=7 output=130 cache_read=1600 cache_creation=56 msgs=3 model=ibm/aws/claude-opus-5-5 subagents=1 secs=30 sub_tokens=in:1,out:10,cr:100,cw:1$' \
+  'pi usage summed, a nested entry with the same id counted, subagent share split'
+
 finish

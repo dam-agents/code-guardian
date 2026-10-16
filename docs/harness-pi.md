@@ -28,8 +28,11 @@ pi has none of its own. `scripts/harness/pi/subagents.sh <dir>` runs every
 session's provider, model and thinking level, the built-in tools only (no
 platform tools), no context files — waits for all of them, writes
 `<name>.reply` and prints one `{"name","exit","reply"}` line per subagent.
-Run it in the foreground with a shell timeout above its
-`CG_SUBAGENT_TIMEOUT` (default 3600 s).
+Each nested session file lands in `<session file>/subagents/`, the Claude Code
+layout, so the run's `tokens` and `review_cost` events count it; each subagent
+that ends logs `skill:<name> done` when its prompt names a configured skill.
+Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
+(default 3600 s).
 
 - **Skill fan-out** ([skills.md](skills.md) → **Invocation & audit log**):
   log `fanned out (n=<N>)`, write each `skills.<skill>.prompt` to
@@ -50,15 +53,28 @@ links to `~/.agents/skills/`, a directory pi reads.
 
 ## Adapter
 
-- `subagents.sh` — the subagent fan-out above.
-- `usage-snapshot.sh` + `usage-sum.jq` — the benchmark's per-phase token
-  snapshot over every transcript holding the nonce, in the shape of the Claude
-  Code one.
+`scripts/harness/pi/`:
 
-No hooks: no `tool_failure` capture, `tokens` event, `review_cost`,
-`skill:<name> done`, `api_failure`, `classifier_block`, completion
-enforcement, definition-issue guard or hold release at stop. The agent logs
-tool failures itself ([logging.md](logging.md) → **Who writes what**, duty 4);
-holds of a stopped run expire by the **Live holder** windows
-([review-mechanics.md](review-mechanics.md)); the audit, the trends and the
-health dashboard report sessions and tokens as not measured.
+- `extension.ts` — pi has no hooks; this extension turns pi's events into the
+  Claude Code hook payloads and runs the Claude Code adapter's scripts
+  ([harness-claude-code.md](harness-claude-code.md) → **Adapter**), so every
+  rule has one implementation: `tool_call` (bash) → the definition-issue
+  guard, which blocks the call; a failed `tool_result` → `tool_failure`; a bash
+  `tool_result` → the `review_step` milestones and `review_cost`;
+  `agent_before_settle` → completion enforcement, which continues the run, and
+  the hold release, or `api_failure` when the run ended on an API error;
+  `session_shutdown` (DAM closes an idle session) → the `tokens` event. A
+  nested subagent session logs under its parent's run id and runs only the
+  guard and the failure log. The scripts act on the definition the extension
+  belongs to and its `work/`.
+- `install.sh` — links `extension.ts` into `~/.pi/agent/extensions/`, which
+  pi loads into every session; `--check` prints `pi-extension` when the link
+  is not current. Run at onboarding Step 1b; the monitor checks it on every
+  tick (`harness_drift`) and the audit's `harness_adapter` check on pi.
+- `subagents.sh` — the subagent fan-out above.
+- `usage-snapshot.sh` — the benchmark's per-phase token snapshot over every
+  transcript holding the nonce; it sums with the Claude Code adapter's
+  `usage-sum.jq`, which reads both transcript formats (`review-window.jq`
+  too).
+
+pi has no auto-mode classifier, so it logs no `classifier_block`.

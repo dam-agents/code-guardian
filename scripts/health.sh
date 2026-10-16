@@ -144,11 +144,12 @@ incidents_merge() { # <keep>
 
 # true when a harness adapter writes the per-run `tokens` event
 # (docs/logging.md → Harness adapters): this process runs in a Claude Code
-# session, or the Claude Code adapter's SessionEnd hook is installed — the
-# monitor's gate runs outside the session
+# session, the Claude Code adapter's SessionEnd hook is installed, or the pi
+# extension is linked — the monitor's gate runs outside the session
 tokens_adapter() {
   if [ "${CLAUDECODE:-}" = "1" ] || jq -e '[.hooks.SessionEnd[]?.hooks[]?.command | strings
-        | select(endswith("/log-session-tokens.sh"))] | length > 0' "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1
+        | select(endswith("/log-session-tokens.sh"))] | length > 0' "$HOME_DIR/.claude/settings.json" >/dev/null 2>&1 \
+     || [ -L "$HOME_DIR/.pi/agent/extensions/code-guardian.ts" ]
   then echo true; else echo false; fi
 }
 

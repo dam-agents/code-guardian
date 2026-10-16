@@ -2715,8 +2715,14 @@ if [ "$MODE" = "audit" ]; then
     else
       check harness_adapter warn "Claude Code adapter not current:$hooks_missing — run scripts/harness/claude-code/install.sh"
     fi
+  elif [ "${PI_CODING_AGENT:-}" = "true" ] || [ "${PLATFORM_HARNESS:-}" = "pi" ]; then
+    if [ -z "$(HOME="$HOME_DIR" bash "$SCRIPT_DIR/harness/pi/install.sh" --check 2>/dev/null)" ]; then
+      check harness_adapter ok "pi extension linked (tool logging, tokens, review-completion enforcement)"
+    else
+      check harness_adapter warn "pi adapter not current: pi-extension — run scripts/harness/pi/install.sh"
+    fi
   else
-    check harness_adapter ok "non-Claude-Code harness — manual tool-failure logging applies (docs/logging.md)"
+    check harness_adapter ok "harness without an adapter — manual tool-failure logging applies (docs/logging.md)"
   fi
 
   # retention: weekly cleanup keeping >= 14 days (files are 14-21 days old when

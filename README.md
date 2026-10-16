@@ -378,8 +378,8 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`scripts/harness/`](scripts/harness/) — the structured events log
   (`work/logs/events-*.jsonl`, 14-day retention) and the per-harness adapters
   — on Claude Code the hooks that auto-capture failed tool calls and keep
-  unused tools out of every request, on pi the subagent fan-out and the
-  benchmark's token snapshot.
+  unused tools out of every request, on pi an extension that runs the same
+  hooks, plus the subagent fan-out and the benchmark's token snapshot.
 - The other [`scripts/`](scripts/) — profile, dispatch, backup, survey,
   benchmark, trends, health, definition-issue — each state their contract in
   their header and their `docs/` home.

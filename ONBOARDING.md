@@ -170,14 +170,16 @@ Register the harness hooks — failed tool calls and per-run token usage into th
 structured events log, plus the `Stop` hook that refuses a stop leaving a
 review mid-pipeline — the auto-mode classifier rules, the deny list of unused
 tools and the `review-skill` subagent type
-(`docs/harness-claude-code.md` → **Adapter**):
+(`docs/harness-claude-code.md` → **Adapter**), and link the pi extension that
+runs the same hooks in pi sessions (`docs/harness-pi.md` → **Adapter**):
 
 ```bash
 bash "$HOME/scripts/harness/claude-code/install.sh"
+bash "$HOME/scripts/harness/pi/install.sh"
 ```
 
-Idempotent; on another harness it prints a notice and exits 0, and the agent
-then logs tool failures manually.
+Idempotent; each prints a notice and exits 0 where its harness is absent,
+and the agent then logs tool failures manually.
 
 ## Step 2 — Confirm `work/` is invisible to the outer repo
 

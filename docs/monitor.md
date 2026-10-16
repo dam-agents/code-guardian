@@ -20,7 +20,7 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 | `github_recovered` | that pass came, and the outage's `github_unavailable` went out while it was still open | — (once per outage) |
 | `classifier_spike` | `classifier_alert_threshold` (missing = `20`; `0`/`off` disables both classifier alerts) `classifier_block` events in 24 h | — (once per UTC day) |
 | `review_post_blocked` | the classifier refused a `review-pr.sh post` in the last 24 h, and no later `posted` step of that PR exists | — (once per run and PR) |
-| `harness_drift` | `install.sh --check` names a part that is not current (`hooks`, `automode-rules`, `tool-deny`, `skill-agent`) | the check prints nothing |
+| `harness_drift` | an adapter's `install.sh --check` names a part that is not current (Claude Code: `hooks`, `automode-rules`, `tool-deny`, `skill-agent`; pi: `pi-extension`) | the checks print nothing |
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
 | `stall_alert` | **Stalled-review rate alert** below | — (once per UTC day) |
@@ -67,7 +67,8 @@ their own detection-time claims (below), not the ledger.
      quota; `server_error`, `network` → GitHub or the network). Missed review
      work recovers on the next heartbeat by itself.
    - `harness_drift` — `bash "$HOME/scripts/harness/claude-code/install.sh"`
-     is the fix; it takes effect from the next session.
+     (`pi-extension`: `scripts/harness/pi/install.sh`) is the fix; it takes
+     effect from the next session.
    - `heartbeat_gap` — the review schedule is disabled, deleted or its gate
      cannot start (`list_schedules`; [worklist.md](worklist.md) → **The
      schedule gate**).

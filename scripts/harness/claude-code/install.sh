@@ -15,7 +15,7 @@ set -u
 CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 if [ "${CLAUDECODE:-}" != "1" ]; then
   [ "$CHECK" = 1 ] && exit 0
-  echo "not the Claude Code harness (CLAUDECODE != 1) — no hooks installed; manual tool-failure logging applies (docs/logging.md)"
+  echo "not the Claude Code harness (CLAUDECODE != 1) — no Claude Code hooks installed; the adapter of this harness applies (docs/logging.md → Harness adapters)"
   exit 0
 fi
 command -v jq >/dev/null 2>&1 || { [ "$CHECK" = 1 ] || echo "jq missing — cannot install hooks"; exit 0; }

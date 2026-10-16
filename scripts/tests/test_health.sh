@@ -194,6 +194,12 @@ assert_jq '.tokens_adapter == true and (.services[] | select(.key == "harness") 
   'with the adapter hook installed, 24 h without a tokens event count zero'
 CLAUDECODE="" henv bash "$HEALTH" report > "$SANDBOX/page.html" 2>>"$STDERR_LOG"
 has "$SANDBOX/page.html" 'Sessions and reviews per hour' 'the chart keeps the sessions'
+mkdir -p "$FAKE_HOME/.pi/agent/extensions"; rm -f "$FAKE_HOME/.claude/settings.json"
+ln -s "$REPO_ROOT/scripts/harness/pi/extension.ts" "$FAKE_HOME/.pi/agent/extensions/code-guardian.ts"
+CLAUDECODE="" record
+status
+assert_jq '.tokens_adapter == true' 'the linked pi extension is a tokens adapter'
+rm -f "$FAKE_HOME/.pi/agent/extensions/code-guardian.ts"
 rm -f "$FAKE_HOME/.claude/settings.json"
 CLAUDECODE=1 record
 status

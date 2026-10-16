@@ -14,5 +14,9 @@ The contract all harnesses share is [logging.md](logging.md) →
   report sessions and tokens as not measured.
 - **Subagents:** Bob's own (DAM sets a subagent model for Bob); the skill
   fan-out uses its default subagent.
-- **Adapter:** none — what pi's hooks lack ([harness-pi.md](harness-pi.md) →
-  **Adapter**) falls back the same way here.
+- **Adapter:** none. The agent logs tool failures itself
+  ([logging.md](logging.md) → **Who writes what**, duty 4); a stopped run's
+  holds expire by the **Live holder** windows
+  ([review-mechanics.md](review-mechanics.md)); there is no completion
+  enforcement, definition-issue guard, `review_cost`, `api_failure` or
+  `classifier_block`.

@@ -22,6 +22,9 @@ is [logging.md](logging.md) → **Harness adapters**.
 
 ## Adapter
 
+The pi adapter runs the hook scripts below from pi events
+([harness-pi.md](harness-pi.md) → **Adapter**).
+
 
 - `log-tool-event.sh` — hook target for `PostToolUseFailure` (all tools) and
   `PostToolUse` (external calls, debug).
