@@ -39,11 +39,16 @@
 #                   whole — a dropped field renders "—" forever, since the
 #                   history is append-only)
 #   judge_key       the run-level judge field is `judge` (not benchmark_judge)
+#   judge_pinned    judge scores only from the pinned judge: any non-null
+#                   fixture `judge` needs a model-id `judge` and a
+#                   `judge_model_used` that model matches (MODEL_JQ) — a
+#                   judge that falls back to the tested model scores itself
 set -u
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
+. "$SCRIPT_DIR/lib/common.sh"   # MODEL_JQ
 
 RC=0
 ok()   { printf 'ok   %s: %s\n' "$1" "$2"; }
@@ -206,6 +211,18 @@ validate_results() { # <file>
   bad="$(jq -r 'if has("benchmark_judge") and (has("judge") | not) then "benchmark_judge" else "" end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail judge_key "run-level judge field is '$bad'; fix: the key is 'judge' (report and history read that name)" \
                 || ok judge_key "judge field named correctly"
+
+  bad="$(jq -r "$MODEL_JQ"'
+    [.fixtures // {} | if type == "object" then .[] else empty end
+     | (.first.judge?, .rereview.judge?) | select(type == "object")] as $scored
+    | (.judge // "" | tostring) as $j | (.judge_model_used // "" | tostring) as $u
+    | if ($scored | length) == 0 then ""
+      elif $j == "" or $j == "off" then "judge scores present, but judge is \"\($j)\""
+      elif $u == "" then "judge scores present, but judge_model_used is missing"
+      elif ($u | split(",") | all(model_has($j))) then ""
+      else "judge is \($j), but \($u) scored" end' "$f" 2>/dev/null)"
+  [ -n "$bad" ] && fail judge_pinned "$bad; fix: take judge scores and judge_model_used from benchmark-judge.sh only — set every fixture judge to null when it did not answer ok" \
+                || ok judge_pinned "judge scores, if any, come from the pinned judge"
 }
 
 MODE="${1:-}"; shift 2>/dev/null || true

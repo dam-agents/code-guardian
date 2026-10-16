@@ -11,10 +11,18 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 9.8.0 — 2026-10-16
+## 9.9.0 — 2026-10-16
 
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`
 (idempotent; a notice and no change where pi is absent).
+
+## 9.8.0 — 2026-10-16
+
+**Upgrade:** Nothing to run. With `benchmark_judge` set, the host needs the
+`claude` CLI and access to that model. Judge scores of earlier runs show as
+"—" in the report: no pinned judge scored them. Until the next benchmark run,
+preflight's `benchmark_results` check warns `judge_pinned` on the newest
+results file when an earlier judge scored it; that warn needs no action.
 
 ## 9.7.0 — 2026-10-16
 

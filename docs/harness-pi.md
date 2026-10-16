@@ -44,8 +44,8 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
   own empty one — `$PR_DIR.prompts-<phase>` for a phase's skill prompts, then
   `$PR_DIR.reviewer-<phase>` for its reviewer brief, inside the phase
   bracket, emptied by the benchmark's `rm -rf` steps; the nonce in every
-  prompt puts each nested transcript into the phase's tokens. The judge runs
-  the same way, on the session model.
+  prompt puts each nested transcript into the phase's tokens. The judge is
+  no subagent: `benchmark-judge.sh` calls it on every harness alike.
 
 ## Skills
 
