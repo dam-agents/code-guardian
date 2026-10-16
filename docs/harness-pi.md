@@ -44,8 +44,13 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
   own empty one — `$PR_DIR.prompts-<phase>` for a phase's skill prompts, then
   `$PR_DIR.reviewer-<phase>` for its reviewer brief, inside the phase
   bracket, emptied by the benchmark's `rm -rf` steps; the nonce in every
-  prompt puts each nested transcript into the phase's tokens. The judge runs
-  the same way, on the session model.
+  prompt puts each nested transcript into the phase's tokens.
+- **Judge** ([benchmark.md](benchmark.md) → **Phase 2** step 6): no subagent.
+  `scripts/benchmark-judge.sh` runs it as one `claude -p` call per raw
+  review, outside the phase brackets. It leaves no transcript, so its tokens
+  are not in the phase's tokens. A pi pod needs the `claude` CLI and
+  access to the `benchmark_judge` model; without them the judge stays null
+  and the run keeps its deterministic scores.
 
 ## Skills
 

@@ -17,7 +17,7 @@ is [logging.md](logging.md) → **Harness adapters**.
 - **Subagents** are the harness's own (the Agent tool). The skill fan-out
   ([skills.md](skills.md) → **Invocation & audit log**) launches every skill's
   subagent in one message with subagent type `review-skill`; the benchmark's
-  reviewer and judge subagents use the default type.
+  reviewer subagents use the default type.
 - **Skills** are invoked with the Skill tool.
 
 ## Adapter
