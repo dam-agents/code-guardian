@@ -479,7 +479,7 @@ Before you declare the run done:
 - **Every `reviews_due` PR reached a terminal state** — the run never ended
   mid-pipeline, for example after a skill report.
 - **Every PR hold this run took is released** (`review-pr.sh release <n>`).
-- **Every `dispatch[]` entry started** with its exact `name`, `task`,
-  `sessionTitle` and `model`, or kept in this run's worklist (`dispatch.sh
-  rest`); the session renamed to the `title` that `rest` printed (runbook.md →
+- **Every `dispatch[]` entry started** with its exact `name`, `task` and
+  `sessionTitle`, or kept in this run's worklist (`dispatch.sh rest`); the
+  session renamed to the `title` that `rest` printed (runbook.md →
   **Session titles**).

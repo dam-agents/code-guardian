@@ -2543,7 +2543,7 @@ if [ "$MODE" = "audit" ]; then
   if [ "$TOKENS_MEASURED" = false ]; then
     check session_models ok "not measured: no harness adapter writes the tokens event on this harness (docs/logging.md → Harness adapters)"
   elif [ -n "$SM_OUT" ]; then check session_models "${SM_OUT%%$'\t'*}" "${SM_OUT#*$'\t'}"
-  else check session_models warn "session models could not be compared — stats.sessions unreadable"; fi
+  else check session_models warn "session models could not be read — stats.sessions unreadable"; fi
 
   # Wake-ups — the preflight and monitor passes that found work, from the
   # `heartbeat` events emit(), local_out() and monitor.sh write:
