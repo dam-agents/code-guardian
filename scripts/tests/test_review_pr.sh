@@ -1175,6 +1175,24 @@ seed_identity test-bot
 run_rp progress 1 "$B1_SHA" success "review abandoned - resumes when the PR is ready"
 assert_jq '.outcome == "written"' 'the status reset row is written'
 assert_call "statuses/$B1_SHA -f state=success" 'a user token writes a commit status'
+
+# --- a failed write logs the first channel's HTTP code (monitor: github_write_denied) ---
+progress_status_msg() { jq -r 'select(.event == "progress_status") | .msg' "$WORK"/logs/events-*.jsonl 2>/dev/null | tail -1; }
+for c in '502|gh: Server Error (HTTP 502)|) — HTTP 502' \
+         '403|gh: Resource not accessible by personal access token (HTTP 403)|) — HTTP 403' \
+         'rate|gh: You have exceeded a secondary rate limit (HTTP 403)|) — HTTP 403 (rate limit)'; do
+  setup "progress_code_${c%%|*}" '- review_progress: enabled'
+  seed_identity test-bot
+  S="api -X POST repos/acme/widgets/statuses/$B1_SHA -f state=success -f context=cg:review -f description=done"
+  fx_fail "$S" 1; e="${c#*|}"; fx_err "$S" "${e%%|*}"
+  fx_fail 'api -X POST repos/acme/widgets/check-runs --input -' 1
+  fx_err 'api -X POST repos/acme/widgets/check-runs --input -' 'gh: You must authenticate via a GitHub App. (HTTP 403)'
+  run_rp progress 1 "$B1_SHA" success "done"
+  case "$(progress_status_msg)" in
+    (*"${c##*|}") printf 'ok   %s: the warn ends with %s, not the fallback channel'"'"'s code\n' "$CASE" "${c##*|}";;
+    (*) printf 'FAIL %s: progress_status %s\n' "$CASE" "$(progress_status_msg)"; FAILED=1;;
+  esac
+done
 setup progress_patch_open_run '- review_progress: enabled' '- rereview_delta_label: cg-delta'
 seed_identity 'acme-app[bot]'
 printf '{"check_runs":[{"id":55,"status":"in_progress","app":{"slug":"acme-app"},"output":{"summary":"- `10:00Z` queued"}}]}' \

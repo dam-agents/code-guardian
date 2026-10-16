@@ -247,6 +247,57 @@ if [ -n "$(cfg work_repo)" ]; then
   else CLEARED="$CLEARED backup_failing"; fi
 fi
 
+# -------------------------------------------------- dispatch refused ----
+# dispatch.sh refused logs one `dispatch_refused` warn per run whose
+# schedule_once calls the platform refused; `dispatch.sh rest` logs an info
+# `dispatch` line once the platform accepted one. The refusals since the last
+# accepted dispatch alert once the first is 60 min old — a platform cap clears
+# in that time, a setting does not — while the newest is under 24 h old. The
+# first refusal names the alert, so a refusal that lasts for days stays one id.
+DP="$(events_jsonl dispatch_refused | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" \
+    --slurpfile ok <(events_jsonl dispatch | jq -c 'select(.event == "dispatch" and .level == "info") | .ts' 2>/dev/null) '
+  ($ok | max // "") as $last_ok
+  | [ .[] | select(.event == "dispatch_refused" and .ts > $last_ok) ] | sort_by(.ts)
+  | if length == 0 or .[-1].ts < $s then null
+    else {first: .[0].ts, last: .[-1].ts, count: length, runs: (map(.run) | unique | length),
+          prs: ([.[] | .msg | [scan("#([0-9]+)")[0] | tonumber]] | add | unique | length)} end' 2>/dev/null)"
+if [ -n "$DP" ] && [ "$DP" != null ] \
+   && [ $(( NOW_EPOCH - $(iso2epoch "$(printf '%s' "$DP" | jq -r .first)") )) -ge 3600 ]; then
+  cand "$(printf '%s' "$DP" | jq -c '{id: "dispatch:\(.first)", kind: "dispatch_refused"} + .')"
+else CLEARED="$CLEARED dispatch_refused"; fi
+
+# ------------------------------------------------ GitHub write denied ----
+# A script's warn or error line that quotes a GitHub HTTP 403, other than a
+# rate limit and the gate's own list failure (github_unavailable), is a call
+# the token has no permission for — operator-only. The harness hooks' lines
+# are not the definition's calls: an agent command or a model gateway. One
+# alert per UTC day.
+# grep first: a full parse of the log would cost every tick
+GW="$( { grep -hF 'HTTP 403' "$LOG_DIR"/events-*.jsonl 2>/dev/null || true; } | jq -c -R 'fromjson? // empty' 2>/dev/null | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" '
+  [ .[] | select((.level == "warn" or .level == "error") and .ts >= $s and (.event | type) == "string")
+    | select(.event | IN("tool_failure", "tool_use", "api_failure", "classifier_block") | not)
+    | select((.msg | strings | test("HTTP 403")) // false)
+    | select(.msg | test("rate limit"; "i") | not)
+    | select(.msg | startswith("could not list open PRs") | not) ]
+  | if length == 0 then null
+    else {first: (map(.ts) | min), last: (map(.ts) | max), count: length,
+          by_event: (group_by(.event) | map({key: .[0].event, value: length}) | from_entries)} end' 2>/dev/null)"
+if [ -n "$GW" ] && [ "$GW" != null ]; then
+  cand "$(printf '%s' "$GW" | jq -c --arg day "${NOW_ISO:0:10}" '{id: "gh_write:\($day)", kind: "github_write_denied"} + .')"
+fi
+
+# -------------------------------------------- GitHub identity changed ----
+# work/GITHUB.json records {previous, changed_at} when the token's login
+# changes (docs/github-access.md → Identity): the operator re-checks the
+# access once per change, inside the 7 days the audit check warns too.
+GI="$(jq -c --argjson nowe "$NOW_EPOCH" "$EP"'
+  select((.changed_at | type) == "string" and ($nowe - (.changed_at | ep)) < 7 * 86400)
+  | {changed_at, login, token_kind: .kind, previous: (.previous.login // ""), previous_kind: (.previous.kind // "")}' \
+  "$WORK/GITHUB.json" 2>/dev/null)"
+if [ -n "$GI" ]; then
+  cand "$(printf '%s' "$GI" | jq -c '{id: "identity:\(.changed_at)", kind: "github_identity_changed"} + .')"
+fi
+
 # ---------------------------------------------- claim against the ledger ----
 # One candidate per id, the first found: a run that retried a refused post is
 # one review_post_blocked alert. A row whose alert this tick still finds stays,

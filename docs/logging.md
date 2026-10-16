@@ -42,7 +42,7 @@ file per UTC day), one JSON object per line:
   `artifact`, `stall_rate`, `stall_alert_sent`, `review_cost`,
   `review_anomaly`, `review_anomaly_sent`, `classifier_block`, `api_failure`,
   `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,
-  `log_cleanup`, `profile`, `dispatch`, `state_lock`, …).
+  `log_cleanup`, `profile`, `dispatch`, `dispatch_refused`, `state_lock`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 
@@ -99,9 +99,9 @@ function calling the binary directly.
    (`preflight`, info), and the errors it would otherwise swallow —
    unresolvable repo or API-list failures (`preflight`, error), silent GitHub
    API failures at decision sites (`gh_api`, warn), skill install failures
-   (`skill_install`, error), and once per pod restart a `pod_boot` warn (an
+   (`skill_install`, error), and once per pod start a `pod_boot` info (an
    ephemeral `/tmp` sentinel is absent iff the pod restarted since the last
-   run). Detect-only, never gating behavior. A run with no matching
+   run; a fire on a cold pod is normal). Detect-only, never gating behavior. A run with no matching
    `heartbeat`/session activity after a `pod_boot` is a restart that
    interrupted work. `scripts/precheck.sh` adds one `precheck` line per gate
    pass, and `scripts/monitor.sh` (`LOG_JOB=monitor`) its own `heartbeat`

@@ -126,7 +126,8 @@ incidents_merge() { # <keep>
       --arg now "$NOW_ISO" --arg keep "${1}:00:00Z" '
     def pick: {count, runs, errors, failures, silent_minutes, limit_minutes, threshold, pr, prs, parts, minutes}
       | with_entries(select(.value != null));
-    def point: IN("classifier_spike", "review_post_blocked", "stall_alert", "review_anomaly");
+    def point: IN("classifier_spike", "review_post_blocked", "stall_alert", "review_anomaly",
+                    "github_write_denied", "github_identity_changed");
     [ .[] | objects | select((.id | type) == "string") ] as $old
     | [ $c[] | select((.id | type) == "string" and (.kind | type) == "string" and (.kind | endswith("_recovered") | not)) ] as $cur
     | ($cur | map(.id)) as $ids
@@ -168,7 +169,7 @@ status_now() {
     | ($adapter or ($h24 | sum(.sessions)) > 0) as $measured
     | {ts: $now, tokens_adapter: $adapter, services: [
         {key: "platform", name: "DAM schedules",
-         state: (if has("heartbeat_gap") then "down" elif ($h6 | sum(.pod_boots)) + ($h6 | sum(.gate_err)) > 0 then "warn" else "ok" end),
+         state: (if has("heartbeat_gap") then "down" elif ($h6 | sum(.gate_err)) > 0 then "warn" else "ok" end),
          note: "Last review-gate tick: \(if $hb == "" then "none on record" else $hb end). Pod restarts 24 h: \($h24 | sum(.pod_boots)). Broken gates 24 h: \($h24 | sum(.gate_err))."},
         {key: "harness", name: "Harness",
          state: (if has("harness_drift") then "warn" else "ok" end),
@@ -178,7 +179,7 @@ status_now() {
          state: (if open("model_unavailable") then "down" elif ($h2 | sum(.model_fail)) > 0 then "warn" else "ok" end),
          note: "Failures 24 h: \($h24 | sum(.model_fail))."},
         {key: "github", name: "GitHub API",
-         state: (if open("github_unavailable") then "down" elif ($h2 | sum(.gh_fail)) + ($h2 | sum(.gh_warn)) > 0 then "warn" else "ok" end),
+         state: (if open("github_unavailable") then "down" elif ($h2 | sum(.gh_fail)) + ($h2 | sum(.gh_warn)) > 0 or has("github_write_denied") then "warn" else "ok" end),
          note: "Failed gate passes 24 h: \($h24 | sum(.gh_fail)). API warnings 24 h: \($h24 | sum(.gh_warn))."},
         {key: "classifier", name: "Auto-mode classifier",
          state: (if has("classifier_spike") or has("review_post_blocked") then "warn" else "ok" end),

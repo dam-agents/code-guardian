@@ -147,7 +147,9 @@ freshness, trigger still present, pre-post dedup, the mention ledger — for
      <worklist> <each accepted number>`: its `worklist` is this run's from
      here on, its `title` the session's (**Session titles**). A PR whose call
      failed, or every PR when the tool is missing, stays in the run
-     ([worklist.md](worklist.md) → **Dispatch**).
+     ([worklist.md](worklist.md) → **Dispatch**); log the failed calls once
+     with `bash "$HOME/scripts/dispatch.sh" refused <worklist> "<the
+     platform's error>" <n>…`.
    - A run with no worklist file (preflight printed its JSON) dispatches
      nothing.
 2. **Read exactly the worklist's `read_set`** — `$HOME`-relative paths,

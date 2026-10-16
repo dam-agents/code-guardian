@@ -341,9 +341,9 @@ fill() { # <name> <value>
 # can create check runs. A refused write tries the other channel once.
 status_write() { # <sha> <state> <description> [target_url]
   if [ -n "${4:-}" ]; then
-    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" -f target_url="$4" >/dev/null 2>&1
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" -f target_url="$4" >/dev/null 2>>"$PW_ERR"
   else
-    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>&1
+    gh api -X POST "repos/$REPO/statuses/$1" -f state="$2" -f context="$REVIEW_MARKER" -f description="$3" >/dev/null 2>>"$PW_ERR"
   fi
 }
 # The check run's text: how a person asks for the next review round
@@ -379,26 +379,43 @@ check_write() { # <sha> <state> <description> [target_url] — updates this SHA'
     + (if $s == "pending" then {status:"in_progress"} else {status:"completed", conclusion:"success", completed_at:$t} end)
     + (if $u != "" then {details_url:$u} else {} end)')"
   if [ -n "$id" ]; then
-    printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>&1
+    printf '%s' "$body" | jq -c 'del(.head_sha)' | gh api -X PATCH "repos/$REPO/check-runs/$id" --input - >/dev/null 2>>"$PW_ERR"
   else
     local resp app
-    resp="$(printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - 2>/dev/null)" || return 1
+    resp="$(printf '%s' "$body" | jq -c --arg t "$now" '. + {started_at:$t}' | gh api -X POST "repos/$REPO/check-runs" --input - 2>>"$PW_ERR")" || return 1
     app="$(printf '%s' "$resp" | jq -r '.app.slug // empty' 2>/dev/null)"
     [ -z "$me" ] && [ -n "$app" ] && identity_record "$app[bot]"
     return 0
   fi
 }
+# PW_HTTP: the first channel's refusal, " — HTTP <code>" plus " (rate
+# limit)" when GitHub names one, else nothing. The monitor's
+# github_write_denied alert reads a 403 that is no rate limit. The fallback
+# channel serves the other token kind, so its refusal is not the token's.
+PW_ERR="$TMP_ROOT/cg-progress-$$.err"; PW_HTTP=""
+pw_code() {
+  local l; l="$(grep -m1 -E 'HTTP [0-9]{3}' "$PW_ERR" 2>/dev/null)"
+  [ -n "$l" ] || return 0
+  printf ' — %s' "$(printf '%s' "$l" | grep -oE 'HTTP [0-9]{3}' | head -1)"
+  printf '%s' "$l" | grep -qi 'rate limit' && printf ' (rate limit)'
+  return 0
+}
 progress_write() { # <sha> <state> <description> [target_url]
+  local k
+  : > "$PW_ERR" 2>/dev/null; PW_HTTP=""
   [ -n "$(token_login)" ] || identity_refresh || true
-  if [ "$(token_kind)" = app ]; then check_write "$@" || status_write "$@"
-  else status_write "$@" || check_write "$@"; fi
+  k="$(token_kind)"
+  if [ "$k" = app ]; then check_write "$@"; else status_write "$@"; fi && { rm -f "$PW_ERR"; return 0; }
+  PW_HTTP="$(pw_code)"
+  if [ "$k" = app ]; then status_write "$@"; else check_write "$@"; fi
+  local rc=$?; rm -f "$PW_ERR"; return "$rc"
 }
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
   [ "$PROGRESS" = "enabled" ] || return 0
   local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
   progress_write "$sha" "$1" "$desc" "${3:-}" \
-    || logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)"
+    || logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)$PW_HTTP"
 }
 
 # ---------------------------------------------------------------- cleanup ----
@@ -2099,7 +2116,7 @@ cmd_progress() { # <sha> <state> <description> [target_url]
   case "${2:-}" in (pending|success) ;; (*) fail "progress: the state is not pending or success";; esac
   local desc; desc="$(printf '%s' "${3:-}" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"
   if progress_write "$1" "$2" "$desc" "${4:-}"; then out '{"outcome":"written"}'; fi
-  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)"
+  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)$PW_HTTP"
   out '{"outcome":"failed"}'
 }
 

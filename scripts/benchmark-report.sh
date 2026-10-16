@@ -26,7 +26,8 @@
 # flags its own fixes or un-fixes findings). A component whose data is
 # missing drops out and the remaining weights renormalize. The separate
 # "judge" column is the LLM-judged view: all judge dimensions averaged on
-# their own 1–5 scale, reported beside the index, never mixed into it. The
+# their own 1–5 scale, reported beside the index, never mixed into it, and
+# only for a run whose `judge_model_used` the pinned `judge` matches. The
 # all-runs table also prints the delta against the previous run OF THE SAME
 # MODEL AND EFFORT for index, seconds, output tokens, and cost — the regression
 # signal for quality, speed, and cost (a cross-model or cross-effort delta
@@ -131,6 +132,11 @@ JQ_COMMON="$PRICES_JQ"'
   # finding_accuracy alone: a run whose true positives matched the manifest by
   # position rather than by mechanism reads high on f1 and low here
   def fixture_find_acc: (.first.judge.finding_accuracy // null);
+  # judge scores count only from a run whose judge was the pinned model
+  # (benchmark-judge.sh): a run judged by its own tested model, or one that
+  # never recorded who judged, renders its judge cells as "—"
+  def run_judged: (.judge // "" | tostring) as $j | (.judge_model_used // "" | tostring) as $u
+    | $j != "" and $j != "off" and $u != "" and ($u | split(",") | all(model_has($j)));
   # delta vs the previous same-model, same-effort run. The arrow duplicates the sign so the
   # direction never rests on color alone; $g flips which direction is "good"
   # (1 = higher is better, -1 = lower is better, as for seconds/tokens/cost).
@@ -176,8 +182,8 @@ TIPS='{
 "circles": "Count of going-in-circles events in the whole run (churn plus false-fixed). 0 is the target. Each event sends the author into a loop, or approves a defect that is still there.",
 "FPs": "Count of false alarms: blocking findings that match no known defect. Lower is better, 0 is best. Each one costs the author time and trust. It is a count, so it grows with the number of fixtures.",
 "fp": "Count of false alarms in this fixture: blocking findings that match no known defect. Lower is better, 0 is best. Each one costs the author time and trust.",
-"judge": "Average score of the language-model judge, on its own scale of 1 to 5 — higher is better, below 3 is weak. It rates what a script cannot measure: clear text, correct classes, usable fix lines. It never enters the index, because a judge can drift between runs.",
-"find-acc": "One question to the judge: do the correct findings name the real defect? 1 to 5, higher is better. A high f1 beside a low find-acc is a warning — the review hit the correct lines but gave the wrong cause.",
+"judge": "Average score of the language-model judge, on its own scale of 1 to 5 — higher is better, below 3 is weak. It rates what a script cannot measure: clear text, correct classes, usable fix lines. It never enters the index, because a judge can drift between runs. A dash means no pinned judge scored the run — a run that its own tested model judged shows a dash too.",
+"find-acc": "One question to the judge: do the correct findings name the real defect? 1 to 5, higher is better. A high f1 beside a low find-acc is a warning — the review hit the correct lines but gave the wrong cause. A dash means no pinned judge scored the run.",
 "words": "Length of the first review in words. Not a score, but a long review hides its important findings. More words at an unchanged f1 means more text, not more value.",
 "churn": "Count of new blocking findings that sit on a fix the last review asked for — the review attacks its own instruction. 0 is the target; above 0 the author is in a loop.",
 "false-fixed": "Count of defects the re-review reports as fixed while they are still in the code. 0 is the target. This is the most dangerous error, because it approves a defect.",
@@ -229,8 +235,8 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
     + ($fx | total(if .rereview == null then null
                    else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | ncell)
     + ($fx | total(.first.fp | if . == null then null else length end) | ncell)
-    + ($fx | avg(fixture_judge) | ncell)
-    + ($fx | avg(fixture_find_acc) | ncell)
+    + (if $r | run_judged then $fx | avg(fixture_judge) else null end | ncell)
+    + (if $r | run_judged then $fx | avg(fixture_find_acc) else null end | ncell)
     + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs; -1))</td>"
     + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
     + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td></tr>"')"
@@ -248,11 +254,12 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
     + ([$all[] | select((.fixtures // {}) | has($s))
         | (.fixtures[$s]) as $f
         | ($f | fixture_index) as $fi
+        | run_judged as $jd
         | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
           + "<td>\(.effort // "—" | @html)</td>"
           + "<td class=\"n idx\"><b>\($fi | fmt)</b>\($fi | bar)</td>"
-          + ($f | fixture_judge | ncell)
-          + ($f | fixture_find_acc | ncell)
+          + (if $jd then $f | fixture_judge else null end | ncell)
+          + (if $jd then $f | fixture_find_acc else null end | ncell)
           + ($f.first.f1 | ncell)
           + ($f.first.precision | ncell)
           + ($f.first.recall | ncell)
