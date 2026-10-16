@@ -494,8 +494,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
     then ask in turn, one question each, for **`benchmark_judge`** (a pinned
-    model id for the LLM-judged quality scores; default `off` = deterministic
-    scoring only) and **`benchmark_report`** (`dam` default / `off`), offer
+    model id for the LLM-judged quality scores, run through the `claude` CLI
+    whatever model the reviews use; default `off` = deterministic scoring
+    only) and **`benchmark_report`** (`dam` default / `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
     **Model prices**), and register the schedule in Step 6d. The first
     scheduled run creates the fixture set, and the first scores land on the

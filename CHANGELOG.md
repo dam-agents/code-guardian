@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.7.0 — 2026-10-16
+
+**Upgrade:** Nothing to run. With `benchmark_judge` set, the host needs the
+`claude` CLI and access to that model. Judge scores of earlier runs show as
+"—" in the report: no pinned judge scored them.
+
 ## 9.6.1 — 2026-10-15
 
 **Upgrade:** Nothing — docs are re-read per run.

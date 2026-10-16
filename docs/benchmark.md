@@ -297,28 +297,31 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    bash "$HOME/scripts/benchmark-score.sh" rereview "<raw rereview>" "$B/manifest.json"
    ```
 
-6. **Judge** (when `judge` is a model id): one subagent per raw review, pinned
-   to that model where the harness supports a per-agent override, else the
-   session model — record what actually judged as `judge_model_used`. Input:
-   the raw review, the fixture's manifest (defect `class` included) and the
-   scorer's tp/fp/fn. Output: integers 1–5 plus a one-line `notes` —
-   `finding_accuracy` (do TP descriptions state the real defect?),
-   `category_accuracy` (is each TP described as its manifest `class`?),
-   `fix_quality` (does each Fix line resolve its class?), `fp_defensibility`
-   (are FPs defensible readings or fabrications?), `clarity` (would the author
-   know what to change and why without reading the diff again?), `language`
-   (STE). A re-review judge also receives `prior-review.md` and scores
-   `loop_risk` (5 = no circling: fixes acknowledged, never re-flagged or asked
-   to be reverted; reads `churn`/`false_fixed` as evidence). **Judge scores
-   stay beside the deterministic metrics, never inside them**: the quality
-   index comes from scorer output only. High f1 beside a low `find-acc` (the
-   report's `finding_accuracy` column) marks true positives matched by
-   position, not by mechanism.
+6. **Judge** (when `judge` is a model id): one call per raw review, never a
+   subagent — the judge model, harness and rubric stay the same whatever model
+   and harness ran the reviews:
+
+   ```bash
+   bash "$HOME/scripts/benchmark-judge.sh" first    "<judge>" "<raw first>"    "$B/manifest.json" "<first scorer json>"
+   bash "$HOME/scripts/benchmark-judge.sh" rereview "<judge>" "<raw rereview>" "$B/manifest.json" "<rereview scorer json>" "$B/prior-review.md"
+   ```
+
+   Write the scorer output to a file first. Copy the printed `judge` into the
+   phase's `judge` field verbatim, and its `judge_model_used` into the run
+   level. Any status other than `ok` keeps that phase's `judge` null: report
+   the `reason` once in the chat summary and never score in its place. The
+   rubric lives in
+   [`scripts/templates/judge-brief.md`](../scripts/templates/judge-brief.md).
+   **Judge scores stay beside the deterministic metrics, never inside them**:
+   the quality index comes from scorer output only. High f1 beside a low
+   `find-acc` (the report's `finding_accuracy` column) marks true positives
+   matched by position, not by mechanism.
 7. Assemble `results/<ts>.json` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
    from one deterministic call — merge its object in verbatim and add what only
-   the session knows (`model`, `trigger`, `judge`, `judge_model_used`):
+   the session knows (`model`, `trigger`, `judge`, and `judge_model_used` from
+   step 6):
 
    ```bash
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
@@ -392,6 +395,11 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
  },
  "raw_dir": "results/raw/"}
 ```
+
+`judge_model_used` is the `judge_model_used` that `benchmark-judge.sh` printed
+— the model that answered, from the judge CLI's own usage record — or null
+when no call answered `ok`. The report shows judge scores only for a run
+whose `judge_model_used` the pinned `judge` matches.
 
 `model` is the **exact model id** of the session as the harness names it; when
 unavailable, write `unknown` and log it. `effort` is the reasoning effort the

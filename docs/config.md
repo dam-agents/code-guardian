@@ -241,8 +241,11 @@ below is for the manual fallback and the direct session.
   pipeline and scores each output against its known defects; results
   accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)).
 - **`benchmark_judge`** — pinned model id for the benchmark's LLM-judged
-  quality scores; `off`/missing = deterministic scoring only. A changed judge
-  starts a new comparability window.
+  quality scores; `off`/missing = deterministic scoring only. The judge runs as
+  its own `claude -p` call on this model, whatever model the reviews ran on
+  ([benchmark.md](benchmark.md) → step 6), so the host needs the `claude` CLI
+  and access to this model; without them the run keeps deterministic scores
+  only. A changed judge starts a new comparability window.
 - **`benchmark_report`** — publish surface for the accumulated report
   artifact, updated in place so its URL stays stable: `dam` (default) | `off`,
   as `audit_trend`.
