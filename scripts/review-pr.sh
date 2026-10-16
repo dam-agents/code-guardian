@@ -388,22 +388,34 @@ check_write() { # <sha> <state> <description> [target_url] — updates this SHA'
     return 0
   fi
 }
-# the HTTP status of the writes' last refusal, " — HTTP <code>" (the
-# monitor's github_write_denied alert reads a 403), else nothing
-PW_ERR="$TMP_ROOT/cg-progress-$$.err"
-pw_http() { grep -oE 'HTTP [0-9]{3}' "$PW_ERR" 2>/dev/null | tail -1 | sed 's/^/ — /'; rm -f "$PW_ERR"; }
+# PW_HTTP: the first channel's refusal, " — HTTP <code>" plus " (rate
+# limit)" when GitHub names one, else nothing. The monitor's
+# github_write_denied alert reads a 403 that is no rate limit. The fallback
+# channel serves the other token kind, so its refusal is not the token's.
+PW_ERR="$TMP_ROOT/cg-progress-$$.err"; PW_HTTP=""
+pw_code() {
+  local l; l="$(grep -m1 -E 'HTTP [0-9]{3}' "$PW_ERR" 2>/dev/null)"
+  [ -n "$l" ] || return 0
+  printf ' — %s' "$(printf '%s' "$l" | grep -oE 'HTTP [0-9]{3}' | head -1)"
+  printf '%s' "$l" | grep -qi 'rate limit' && printf ' (rate limit)'
+  return 0
+}
 progress_write() { # <sha> <state> <description> [target_url]
-  : > "$PW_ERR" 2>/dev/null
+  local k
+  : > "$PW_ERR" 2>/dev/null; PW_HTTP=""
   [ -n "$(token_login)" ] || identity_refresh || true
-  if [ "$(token_kind)" = app ]; then check_write "$@" || status_write "$@"
-  else status_write "$@" || check_write "$@"; fi
+  k="$(token_kind)"
+  if [ "$k" = app ]; then check_write "$@"; else status_write "$@"; fi && { rm -f "$PW_ERR"; return 0; }
+  PW_HTTP="$(pw_code)"
+  if [ "$k" = app ]; then status_write "$@"; else check_write "$@"; fi
+  local rc=$?; rm -f "$PW_ERR"; return "$rc"
 }
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
   [ "$PROGRESS" = "enabled" ] || return 0
   local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
-  if progress_write "$sha" "$1" "$desc" "${3:-}"; then rm -f "$PW_ERR"
-  else logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)$(pw_http)"; fi
+  progress_write "$sha" "$1" "$desc" "${3:-}" \
+    || logev warn progress_status "PR #$N: progress write did not succeed ($1: $desc)$PW_HTTP"
 }
 
 # ---------------------------------------------------------------- cleanup ----
@@ -2103,8 +2115,8 @@ cmd_progress() { # <sha> <state> <description> [target_url]
   case "${1:-}" in (''|*[!0-9a-f]*) fail "progress: the sha is not hex";; esac
   case "${2:-}" in (pending|success) ;; (*) fail "progress: the state is not pending or success";; esac
   local desc; desc="$(printf '%s' "${3:-}" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"
-  if progress_write "$1" "$2" "$desc" "${4:-}"; then rm -f "$PW_ERR"; out '{"outcome":"written"}'; fi
-  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)$(pw_http)"
+  if progress_write "$1" "$2" "$desc" "${4:-}"; then out '{"outcome":"written"}'; fi
+  logev warn progress_status "PR #$N: progress write did not succeed ($2: $desc)$PW_HTTP"
   out '{"outcome":"failed"}'
 }
 

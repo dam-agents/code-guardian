@@ -227,6 +227,17 @@ mon_case mon_dispatch_refused_young
 ev 600 review warn dispatch_refused "#8: the hourly cap is reached — kept in this run"
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "dispatch_refused")] == []' 'a refusal under an hour old waits'
+mon_case mon_dispatch_refused_lasting
+ev 90000 review warn dispatch_refused "#8: name the model with its provider — kept in this run" ra
+ev 1200 review warn dispatch_refused "#9: name the model with its provider — kept in this run" rb
+FIRST="$(jq -r 'select(.run == "ra") | .ts' "$WORK"/logs/events-*.jsonl)"
+run_monitor
+assert_jq '.alerts_due[] | select(.kind == "dispatch_refused") | .id == "dispatch:'"$FIRST"'" and .count == 2' \
+  'a refusal that lasts past 24 h keeps the id of its first refusal'
+mon_case mon_dispatch_refused_stale
+ev 90000 review warn dispatch_refused "#8: name the model with its provider — kept in this run"
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "dispatch_refused")] == []' 'no refusal in 24 h clears it'
 
 # --- GitHub refuses a call with HTTP 403 ------------------------------------------
 mon_case mon_github_write_denied

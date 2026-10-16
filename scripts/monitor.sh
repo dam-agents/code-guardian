@@ -250,14 +250,15 @@ fi
 # -------------------------------------------------- dispatch refused ----
 # dispatch.sh refused logs one `dispatch_refused` warn per run whose
 # schedule_once calls the platform refused; `dispatch.sh rest` logs an info
-# `dispatch` line once the platform accepted one. Refusals of the last 24 h
-# that no later accepted dispatch cleared alert once the first is 60 min old —
-# a platform cap clears in that time, a setting does not.
+# `dispatch` line once the platform accepted one. The refusals since the last
+# accepted dispatch alert once the first is 60 min old — a platform cap clears
+# in that time, a setting does not — while the newest is under 24 h old. The
+# first refusal names the alert, so a refusal that lasts for days stays one id.
 DP="$(events_jsonl dispatch_refused | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" \
     --slurpfile ok <(events_jsonl dispatch | jq -c 'select(.event == "dispatch" and .level == "info") | .ts' 2>/dev/null) '
   ($ok | max // "") as $last_ok
-  | [ .[] | select(.event == "dispatch_refused" and .ts >= $s and .ts > $last_ok) ] | sort_by(.ts)
-  | if length == 0 then null
+  | [ .[] | select(.event == "dispatch_refused" and .ts > $last_ok) ] | sort_by(.ts)
+  | if length == 0 or .[-1].ts < $s then null
     else {first: .[0].ts, last: .[-1].ts, count: length, runs: (map(.run) | unique | length),
           prs: ([.[] | .msg | [scan("#([0-9]+)")[0] | tonumber]] | add | unique | length)} end' 2>/dev/null)"
 if [ -n "$DP" ] && [ "$DP" != null ] \

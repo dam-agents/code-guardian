@@ -159,6 +159,21 @@ ev 600 session error api_failure "server_error: 503"
 record
 status
 assert_jq '[.services[] | "\(.key)=\(.state)"] == ["platform=ok","harness=ok","model=warn","github=ok","classifier=ok","backup=na","slack=na"]' 'a recent failure under the threshold is a warning; no work_repo is not used'
+h_case h_status_operator
+ev 60 review info precheck "review gate: nothing to do"
+ev 600 review info pod_boot "pod restarted since last run (no sentinel)"
+cat > "$SANDBOX/cond.json" <<EOF
+[{"id":"gh_write:$(date -u +%Y-%m-%d)","kind":"github_write_denied","first":"$(iso_ago 900)","last":"$(iso_ago 300)","count":2,"by_event":{"progress_status":2}},
+ {"id":"identity:$(iso_ago 3600)","kind":"github_identity_changed","changed_at":"$(iso_ago 3600)","login":"new-app[bot]","token_kind":"app"}]
+EOF
+record
+status
+assert_jq '[.services[] | "\(.key)=\(.state)"] == ["platform=ok","harness=ok","model=ok","github=warn","classifier=ok","backup=na","slack=na"]' \
+  'a denied GitHub call warns the GitHub tile; a pod start does not warn the platform tile'
+incidents
+assert_jq 'length == 2 and all(.[]; .open == false and .end != null)' 'a denied call and an identity change are closed points'
+OUT="$(cat "$WORK/health/incidents.jsonl")"
+assert_out_absent 'new-app' 'the login is not kept'
 h_case h_status_direct '- monitor_slack_direct: enabled'
 record
 status
