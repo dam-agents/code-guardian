@@ -683,7 +683,7 @@ unread="$(jq -rs --argjson k "$(printf '%s' "$OUT" | jq -c '.stats.wakeups.by_wo
 # one argv entry is capped at MAX_ARG_STRLEN (128 KiB): with the sessions passed
 # by --argjson, jq died and the audit printed no JSON at all
 new_case audit_sessions_past_argv_limit
-base_config '- review_model: claude-opus-5'
+base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 mkdir -p "$WORK/logs"
 jq -nc --arg t "$(iso_ago 3600)" 'range(1500) | {ts:$t, run:("s" + tostring), job:"review", level:"info", event:"tokens",
@@ -1180,58 +1180,20 @@ assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"se
 assert_jq '.stats.sessions[] | select(.job == "review") | .min == 7 and .reviews == 1 and .output == 2000 and .model == "claude-opus-5"' 'the transcript wall time wins; posted PRs and tokens are kept'
 assert_jq '.stats.sessions[] | select(.job == "shepherd") | .min == 3' 'without secs the run spans its own events'
 
-# --- session models against review_model (docs/audit.md task 5) ---------------
+# --- session models, report only (docs/audit.md task 5) -----------------------
 sm_runs() { # review on opus, shepherd on sonnet, a direct session on haiku
   mkdir -p "$WORK/logs"
   sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0 secs=60" 3000
   sev m2 shepherd tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-sonnet-5-5 subagents=0 secs=60" 2000
   sev m3 session tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-haiku-4-5 subagents=0 secs=60" 1000
 }
-new_case audit_session_models_off
-base_config '- review_model: opus'
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-sm_runs
-run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model opus: shepherd claude-sonnet-5-5 ×1$"))' \
-  'a scheduled run on another model warns; a direct session is left out'
-
-new_case audit_session_models_match
-base_config '- review_model: Opus'
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-mkdir -p "$WORK/logs"
-sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 3000
-sev m2 audit tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 2000
-run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and .detail == "2 scheduled run(s), all on Opus"' \
-  'runs whose model id contains the configured name match, case aside'
-
-new_case audit_session_models_provider_path
+new_case audit_session_models_report
 base_config '- review_model: claude/aws/claude-opus-5-5'
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-mkdir -p "$WORK/logs"
-sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 3000
-sev m2 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5 subagents=0" 2000
-run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model claude/aws/claude-opus-5-5: review claude-opus-5 ×1$"))' \
-  'a provider path in review_model matches the bare model id; an earlier version stays off-model'
-
-new_case audit_session_models_suffixes
-base_config '- review_model: claude-opus-5[1m]'
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-mkdir -p "$WORK/logs"
-sev m1 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-20260401 subagents=0" 3000
-sev m2 review tokens "input=1 output=1 cache_read=1 cache_creation=1 msgs=1 model=claude-opus-5-5 subagents=0" 2000
-run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^1 run\\(s\\) off review_model claude-opus-5\\[1m\\]: review claude-opus-5-5 ×1$"))' \
-  'a [1m] suffix in review_model drops out and a date-suffixed id matches; a dash-digit later version stays off-model'
-
-new_case audit_session_models_default
-base_config '- review_model: Default'
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 sm_runs
 run_preflight audit
-assert_jq '.checks[] | select(.id == "session_models") | .status == "warn" and (.detail | test("^review_model is default")) and (.detail | test("review claude-opus-5-5 ×1, shepherd claude-sonnet-5-5 ×1"))' \
-  'without a pinned model, in any letter case, the week names what each job ran on'
+assert_jq '.checks[] | select(.id == "session_models") | .status == "ok" and .detail == "2 scheduled run(s) on: review claude-opus-5-5 ×1, shepherd claude-sonnet-5-5 ×1"' \
+  'the week names what each job ran on, never a warn; a direct session and a leftover review_model key are left out'
 
 new_case audit_session_models_none
 base_config

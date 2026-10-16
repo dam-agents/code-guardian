@@ -497,7 +497,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg rmod "$(cfg review_model)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg artl "$ARTIFACT_LABEL" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg artl "$ARTIFACT_LABEL" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
@@ -518,7 +518,6 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    rereview_delta_label:(if $dlbl=="" then null else $dlbl end),
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
-   review_model:(if $rmod=="" or ($rmod|ascii_downcase)=="default" then "default" else $rmod end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    artifact_skill:(if $art=="" then "none" else $art end), artifact_label:(if $artl=="" then null else $artl end),
@@ -2531,28 +2530,15 @@ if [ "$MODE" = "audit" ]; then
   [ -n "$ses_unparsed" ] && logev warn sessions_unparsed "$(printf '%s' "$ses_unparsed" | wc -w | tr -d ' ') session(s) with a tokens event the audit could not read, left out of stats.sessions: $ses_unparsed"
 
   # Session models (docs/audit.md task 5): the model each job's sessions ran on
-  # this week, from the same records, against `review_model`. A run matches
-  # on its recorded model id per MODEL_JQ (lib/common.sh): `opus` and
-  # `claude/aws/claude-opus-5-5` match `claude-opus-5-5`, `claude-opus-5` does
-  # not. Direct sessions (job `session`) and unrecorded models
-  # are left out. Under `default` no schedule pins a model, so any recorded
-  # run is a warn: the platform's default decided what it ran on.
+  # this week, from the same records — report only, the platform sets the
+  # session model (docs/config.md → Session model). Direct sessions (job
+  # `session`) and unrecorded models are left out.
   # stdin, not argv: a busy week's sessions pass MAX_ARG_STRLEN (128 KiB)
-  SM_OUT="$(printf '%s' "$SESSIONS_WEEK" | jq -r --arg rm "$(cfg review_model)" "$MODEL_JQ"'
-    . as $ses
-    | ($rm | if . == "" or (ascii_downcase == "default") then "default" else . end) as $rm
-    | [ ($ses // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
-    | ($runs | group_by([.job, .model])
-       | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", ")) as $all
+  SM_OUT="$(printf '%s' "$SESSIONS_WEEK" | jq -r '
+    [ (. // [])[] | select(.job != "session" and .model != "unknown") ] as $runs
     | if ($runs | length) == 0 then "ok\tno scheduled run recorded a model this week"
-      elif $rm == "default" then
-        "warn\treview_model is default — no schedule pins a model; this week ran on: \($all) (docs/config.md → review_model)"
-      else
-        [ $runs[] | select(.model | model_has($rm) | not) ] as $off
-        | if ($off | length) == 0 then "ok\t\($runs | length) scheduled run(s), all on \($rm)"
-          else "warn\t\($off | length) run(s) off review_model \($rm): \($off | group_by([.job, .model])
-                 | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
-          end
+      else "ok\t\($runs | length) scheduled run(s) on: \($runs | group_by([.job, .model])
+             | map("\(.[0].job) \(.[0].model) ×\(length)") | join(", "))"
       end' 2>/dev/null)"
   if [ "$TOKENS_MEASURED" = false ]; then
     check session_models ok "not measured: no harness adapter writes the tokens event on this harness (docs/logging.md → Harness adapters)"

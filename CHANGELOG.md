@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.7.0 — 2026-10-16
+
+**Upgrade:** Remove the `review_model` line from `work/CONFIG.md`, if
+present. The platform sets the session model now
+([docs/config.md](docs/config.md) → **Session model**): leave every
+registered schedule's `model` as it is, and tell the operator in one line
+that the model of each schedule, and of a dispatched review, is set in the
+DAM model settings.
+
 ## 9.6.1 — 2026-10-15
 
 **Upgrade:** Nothing — docs are re-read per run.

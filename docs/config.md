@@ -105,18 +105,10 @@ below is for the manual fallback and the direct session.
   `schedule_once` ([runbook.md](runbook.md) → **Review run** step 1,
   [worklist.md](worklist.md) → **Dispatch**). `disabled` keeps every PR in the
   run that found it, one after another.
-- **`review_model`** — a model name from the agent's model settings (Claude
-  Code: `fable` | `opus` | `sonnet` | `haiku`) | `default`. **Missing =
-  `default`.** The model of every session this agent's schedules start: each
-  ONBOARDING Step 6 schedule and each dispatched review carries it as its
-  `model`. `default` pins none, and the platform decides — on DAM the
-  harness Default where the harness has one, else the agent's current model;
-  it is the only value on a harness that cannot switch a session's model, and
-  it is read in any letter case. A name the harness refuses fails each run
-  after its gate ran. The audit compares the registered schedules and the
-  week's runs against the key and reports a failing last result
-  ([audit.md](audit.md) task 5); a run's model id matches it by the
-  price-table rule ([benchmark.md](benchmark.md) → **Model prices**).
+- **Session model** — no key. The platform sets the model of every
+  session: on DAM the agent's model settings and each schedule's `model`,
+  which the operator sets there. The agent never sets or changes a session's
+  model; it sets only the model of a subagent it starts (`benchmark_judge`).
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served
@@ -332,8 +324,8 @@ the operator for the slug, never guess.
   schedule (ONBOARDING Step 4 items 8–9, Step 6b); on disablement, disable
   that schedule. `benchmark` and `survey` do the same with their schedules
   (Steps 6d, 6e).
-- An edited cadence key or `review_model` takes effect once the schedules are
-  reconciled per ONBOARDING Step 6.
+- An edited cadence key takes effect once the schedules are reconciled per
+  ONBOARDING Step 6.
 - **Missing `work/CONFIG.md`** = not onboarded, or state lost: apply per-key
   defaults (Slack disabled, skills disabled, artifact and shepherd off), log it
   once, and continue with what still works.

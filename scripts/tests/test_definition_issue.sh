@@ -168,7 +168,7 @@ no_calls 'a refused title makes no call'
 
 new_case definition_terms_pass
 instance '- definition_issues: enabled'
-body "${CLEAN[@]}" 'Reproduction: set `review_model` to `default`, then run `bash "$HOME/scripts/preflight.sh" audit`.' \
+body "${CLEAN[@]}" 'Reproduction: set `review_dispatch` to `disabled`, then run `bash "$HOME/scripts/preflight.sh" audit`.' \
   '```' 'bash scripts/harness/claude-code/install.sh --check' '```' 'VERSION 8.17.0; see docs/runbook.md → Audit run.' \
   'Seen with definition v8.17.0.'
 run_issue check '[audit] Audit run reports the model as a mismatch'

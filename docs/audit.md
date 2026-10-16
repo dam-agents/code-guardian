@@ -94,12 +94,10 @@ reason, never dropped.
      `spec.precheck` = `bash "$HOME/scripts/precheck.sh" <its mode>`. A missing
      or wrong one → **warn** (worklist.md → **The schedule gate**). A
      `precheck` on the audit → **warn** too.
-   - **Models:** every Step 6 schedule carries `spec.model` = `review_model`,
-     none under `default` ([config.md](config.md)). A missing or different
-     one → **warn** naming the schedule and both values; the fix is Step 6's
-     re-registration. A dispatched one-time review due this week (`spec.at`)
-     on another model → **warn** too. What the week's runs actually ran on
-     is the script's `session_models` check — triage it with the others.
+   - **Models:** report each schedule's `spec.model`, `platform default`
+     when it has none — the session model is the platform's
+     ([config.md](config.md) → **Session model**), never a warn. What the
+     week's runs actually ran on is the script's `session_models` check.
    - **Titles:** every Step 6 schedule carries the `spec.sessionTitle` its step
      names ([runbook.md](runbook.md) → **Session titles**). A missing or
      different one → **warn** naming the schedule and both values; the fix is
@@ -244,8 +242,7 @@ measurement.
       cannot name. Under 1 % of the week's `calls` it is the harness-internal
       model of the next bullet → one **info** line.
     - **Production model** — the `byModel` entry with the most `calls` is what
-      the week's runs actually ran on; report it, and **warn** when it does not
-      match `review_model` (under `default`, report only). The second
+      the week's runs actually ran on; report it. The second
       low-call, low-cost model beside it is harness-internal (session titles),
       not a model change.
     - `available: false`, or `sessionCount: 0` while `stats.wakeups.runs` > 0

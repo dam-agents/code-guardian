@@ -224,18 +224,11 @@ run_verify
 assert_rc 1 'a misspelled shepherd_scope fails'
 assert_out 'FAIL config-shepherd_scope' 'names the key'
 
-new_case review_model_suffix
+new_case review_model_leftover
 seed_home; seed_memory; seed_lessons
-verify_config '- review_model: claude/aws/claude-opus-5-5[1m]'
+verify_config '- review_model: claude/aws/claude-opus-5-5'
 run_verify
-assert_out 'ok +config-review_model' 'a provider path and a [1m] suffix pass'
-
-new_case review_model_invalid
-seed_home; seed_memory; seed_lessons
-verify_config '- review_model: opus[1m'
-run_verify
-assert_rc 1 'an unclosed suffix fails'
-assert_out 'FAIL config-review_model' 'names the key'
+assert_out "warn config-keys .*'review_model'" 'a leftover review_model is a key the runtime never reads'
 
 new_case auto_merge_keys_valid
 seed_home; seed_memory; seed_lessons
