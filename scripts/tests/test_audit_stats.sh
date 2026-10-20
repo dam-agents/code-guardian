@@ -1400,4 +1400,25 @@ assert_out_absent '^\| 101 \|' 'an old comment row is trimmed'
 assert_out_contains '^| body-1 |' 'an old description row stays'
 assert_out_contains '^| 102 |' 'a fresh row stays'
 
+# --- roster check: every owner key outside the roster warns ---------------------
+roster_case() { # <case> [extra CONFIG lines…]
+  new_case "$1"; shift
+  base_config '- slack_notifications: enabled' "$@"
+  pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+  {
+    printf '| login | slack_id | name | expertise (seed) | observed areas |\n'
+    printf '| --- | --- | --- | --- | --- |\n'
+    printf '| alice | U0123ABCD | Alice K. | frontend | |\n'
+  } > "$WORK/DEVELOPERS.md"
+  run_preflight audit
+}
+roster_case audit_roster_ok '- escalation_owner: alice' '- monitor_owner: alice'
+assert_jq '.checks[] | select(.id == "roster") | .status == "ok"' 'both owners in the roster pass'
+roster_case audit_roster_monitor_owner '- escalation_owner: alice' '- monitor_owner: carol'
+assert_jq '.checks[] | select(.id == "roster") | .status == "warn" and .detail == "monitor_owner '"'carol'"' not found in the roster"' \
+  'a monitor_owner outside the roster warns'
+roster_case audit_roster_both '- escalation_owner: dave' '- monitor_owner: carol'
+assert_jq '.checks[] | select(.id == "roster") | .status == "warn" and (.detail | contains("escalation_owner '"'dave'"'") and contains("monitor_owner '"'carol'"'"))' \
+  'the warn names both owners, not only the first'
+
 finish

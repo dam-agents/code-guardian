@@ -112,9 +112,8 @@ The monitor's pass sends the due alerts itself, with no model in the loop
 cannot stop them.
 
 - **Gate** — `monitor_slack_direct: enabled`, `slack_notifications: enabled`
-  and a monitor owner — `monitor_owner`, or `escalation_owner` when unset —
-  with a roster `slack_id`. Otherwise the session delivers, per
-  **Monitor run**.
+  and a monitor owner (**Monitor run** step 3) with a roster `slack_id`.
+  Otherwise the session delivers, per **Monitor run**.
 - **Message** — one Slack DM to the monitor owner
   (`send_channel_message`, `chatId` = the roster id), never the shared
   channel: a header, one bullet per alert from a fixed template, at most 10

@@ -2371,9 +2371,14 @@ if [ "$MODE" = "audit" ]; then
 
   if [ "$SLACK" = "enabled" ]; then
     if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"
-    elif [ -n "$ESCALATION_OWNER" ] && ! grep -q "$ESCALATION_OWNER" "$DEVELOPERS"; then check roster warn "escalation_owner '$ESCALATION_OWNER' not found in the roster"
-    elif [ -n "$MONITOR_OWNER" ] && ! grep -q "$MONITOR_OWNER" "$DEVELOPERS"; then check roster warn "monitor_owner '$MONITOR_OWNER' not found in the roster"
-    else check roster ok "roster present, escalation owner listed"; fi
+    else
+      # every owner key outside the roster, in one warn
+      missing_owners=""
+      if [ -n "$ESCALATION_OWNER" ] && ! grep -q "$ESCALATION_OWNER" "$DEVELOPERS"; then missing_owners="escalation_owner '$ESCALATION_OWNER'"; fi
+      if [ -n "$MONITOR_OWNER" ] && ! grep -q "$MONITOR_OWNER" "$DEVELOPERS"; then missing_owners="${missing_owners:+$missing_owners, }monitor_owner '$MONITOR_OWNER'"; fi
+      if [ -n "$missing_owners" ]; then check roster warn "$missing_owners not found in the roster"
+      else check roster ok "roster present, owners listed"; fi
+    fi
   fi
 
   # open-issue backlog on the definition repo: tracking issues the agent files
