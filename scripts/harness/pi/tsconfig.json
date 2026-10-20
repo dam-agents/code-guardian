@@ -10,5 +10,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "files": ["extension.ts"]
+  "include": ["*.ts"]
 }
