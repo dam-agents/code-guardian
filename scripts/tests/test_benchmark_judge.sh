@@ -74,14 +74,15 @@ assert_jq '.status == "unavailable" and .judge == null' 'a signed-out CLI with n
 assert_jq '.reason | test("not signed in") and test("claude auth login") and test("fall back")' 'the reason names the operator action'
 
 # fake pi: records argv, prints a json-mode event stream for $PI_MODEL_ANSWER
-seed_pi() { # <model that answers> <result text> [stopReason]
-  jq -cn --arg m "$1" --arg t "$2" --arg sr "${3:-stop}" '
+seed_pi() { # <model that answers> <result text> [stopReason] [responseModel]
+  jq -cn --arg m "$1" --arg t "$2" --arg sr "${3:-stop}" --arg rm "${4:-}" '
     {type: "session", id: "x"},
     {type: "message_end", message: {role: "user", content: [{type: "text", text: "in"}]}},
-    {type: "message_end", message: {role: "assistant", provider: "router", model: $m, stopReason: $sr,
+    {type: "message_end", message: ({role: "assistant", provider: "router", model: $m, stopReason: $sr,
       errorMessage: (if $sr == "error" then "401 no key" else null end),
       content: [{type: "thinking", thinking: "hm"}, {type: "text", text: $t}],
-      usage: {input: 800, output: 90, cacheRead: 5, cacheWrite: 0, totalTokens: 895}}},
+      usage: {input: 800, output: 90, cacheRead: 5, cacheWrite: 0, totalTokens: 895}}
+      + (if $rm == "" then {} else {responseModel: $rm} end))},
     {type: "agent_end"}' > "$SANDBOX/cli/events.jsonl"
   cat > "$SANDBOX/cli/pi" <<STUB
 #!/usr/bin/env bash
@@ -107,6 +108,7 @@ assert_out_contains '^router$' 'pi uses the host provider'
 assert_out_contains '^--no-tools$' 'pi runs with no tools'
 assert_out_contains '^--no-extensions$' 'pi loads no extension'
 assert_out_contains '^--no-session$' 'pi saves no session'
+assert_out_contains '^--no-mcp$' 'pi connects no MCP server'
 OUT="$(cat "$SANDBOX/cli/pi-session")"
 assert_out_contains '^none$' 'the judge is not a part of the calling session'
 OUT="$(cat "$SANDBOX/cli/pi-input")"
@@ -123,6 +125,9 @@ seed_cli '{}'
 seed_pi aws/claude-opus-5-5 "$SIX"
 CG_JUDGE_CLI="$SANDBOX/cli/no-claude" run_first claude-opus-5
 assert_jq '.status == "mismatch" and .judge == null and .judge_harness == "pi"' 'pi on a different model is a mismatch'
+seed_pi aws/claude-opus-5 "$SIX" stop aws/claude-opus-5-5
+CG_JUDGE_CLI="$SANDBOX/cli/no-claude" run_first claude-opus-5
+assert_jq '.status == "mismatch" and .judge_model_used == "aws/claude-opus-5-5"' 'a provider that answers with another model is a mismatch'
 seed_pi aws/claude-opus-5 "" error
 CG_JUDGE_CLI="$SANDBOX/cli/no-claude" run_first claude-opus-5
 assert_jq '.status == "failed" and (.reason | test("401 no key"))' 'a pi error is failed with its message'

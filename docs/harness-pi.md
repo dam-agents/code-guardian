@@ -51,9 +51,10 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
   are not in the phase's tokens. The pi session's credentials do not reach
   the `claude` CLI: where it is not signed in, the script falls back to
   `pi --mode json` on the same `benchmark_judge` model, through
-  `PI_PROVIDER`, with no tools, extensions or saved session
+  `PI_PROVIDER`, with no tools, extensions, MCP servers or saved session
   (`judge_harness: pi`). The provider must serve that model; a reply from
-  another model is `mismatch` and keeps the judge null.
+  another model (`responseModel`, else `model`) is `mismatch` and keeps the
+  judge null.
 
 ## Skills
 

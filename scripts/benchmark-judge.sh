@@ -37,7 +37,7 @@
 #
 # The script trusts no claim of the model. `judge_model_used` comes from the
 # CLI's own usage record (claude: `modelUsage`; pi: the assistant message's
-# `model`); a reply from any model the pinned id does not match
+# `responseModel`, else its `model`); a reply from any model the pinned id does not match
 # (MODEL_JQ in lib/common.sh) is `mismatch` and keeps `judge` null — a judge
 # score from the wrong model is worse than no score. Each dimension must be an
 # integer 1–5, or the reply is `failed`.
@@ -135,12 +135,13 @@ run_claude() {
       < "$TMP/input.md" > "$TMP/reply.json" 2> "$TMP/stderr" )
 }
 # pi's event stream, turned into the claude reply shape the checks below read:
-# the last assistant message's text, usage and model. Outside this session:
+# the last assistant message's text, usage and model — the provider's
+# `responseModel` where it names one, else the requested `model`. Outside this session:
 # no session id of its own, so the definition's extension (also off) and the
 # platform never count it as a run.
 run_pi() {
   local args=(--mode json --no-session --no-tools --no-extensions --no-skills
-              --no-prompt-templates --no-context-files --model "$MODEL"
+              --no-prompt-templates --no-context-files --no-mcp --model "$MODEL"
               --system-prompt "$(cat "$TMP/brief.md")")
   [ -n "${PI_PROVIDER:-}" ] && args+=(--provider "$PI_PROVIDER")
   ( cd "$TMP" && env -u PI_SESSION_ID -u PI_SESSION_FILE ${TO[@]+"${TO[@]}"} "$PI" "${args[@]}" \
@@ -156,7 +157,8 @@ run_pi() {
                 else [.content[]? | select(.type == "text") | .text] | join("") end),
        usage: (.usage | if type == "object" then {input_tokens: .input, output_tokens: .output,
                cache_read_input_tokens: .cacheRead, cache_creation_input_tokens: .cacheWrite} else null end),
-       modelUsage: (if (.model | type) == "string" and .model != "" then {(.model): {}} else {} end)}' \
+       modelUsage: ((.responseModel // .model) as $m
+                    | if ($m | type) == "string" and $m != "" then {($m): {}} else {} end)}' \
     > "$TMP/reply.json" 2>/dev/null
   return "$rc"
 }
