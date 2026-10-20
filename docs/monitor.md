@@ -25,7 +25,7 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
 | `dispatch_refused` | `dispatch_refused` events ([runbook.md](runbook.md) → **Review run** step 1) since the last accepted dispatch: the first 60 min old, the newest under 24 h old | the next accepted dispatch, or 24 h without a refusal |
-| `github_write_denied` | a script's warn or error line in 24 h that quotes a GitHub `HTTP 403` — a rate limit, the gate's list failure and the harness hooks' events aside | — (once per UTC day) |
+| `github_write_denied` | a script's warn or error line in 24 h that quotes a GitHub `HTTP 403` — a rate limit, the gate's list failure, a failed dismissal and the harness hooks' events aside | — (once per UTC day) |
 | `approval_not_revoked` | a `dismiss` warn of `review-pr.sh` in 24 h: a review below `APPROVE` could not dismiss a standing approval of the agent, or could not list the PR's reviews ([review-rereview.md](review-rereview.md) → **Revoking a stale approval**) | a later dismissal of that approval; else once per approval (per run for a failed list) |
 | `github_identity_changed` | `work/GITHUB.json` → `changed_at` in the last 7 days ([github-access.md](github-access.md) → **Identity**) | — (once per change) |
 | `stall_alert` | **Stalled-review rate alert** below | — (once per UTC day) |
