@@ -249,3 +249,21 @@ jobs:
           print('checked %d kit.yaml pairs against the definition' % (10 + len(kit.get('schedules') or [])))
           sys.exit(1 if bad else 0)
           PY
+
+  # tsc --noEmit over every TypeScript file (scripts/harness/pi/extension.ts,
+  # which pi loads into every session), against the pinned pi API. The job
+  # installs its packages into the checkout only; nothing is committed.
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: TypeScript (tsc --noEmit)
+        run: |
+          npm install --prefix scripts/harness/pi --no-save --no-package-lock --ignore-scripts --no-audit --no-fund \
+            typescript@5.9.3 @earendil-works/pi-coding-agent@1.1.0 @types/node@24.19.2
+          scripts/harness/pi/node_modules/.bin/tsc -p scripts/harness/pi

@@ -17,6 +17,11 @@ they are released history and stay as written.
 **Monitor**): the roster login the monitor's alert DMs go to when it is not
 the `escalation_owner`. Unset keeps `escalation_owner`; no other step.
 
+## 9.10.1 — 2026-10-20
+
+**Upgrade:** Nothing — docs are re-read per run, and pi loads the linked
+extension anew in each session.
+
 ## 9.10.0 — 2026-10-16
 
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`

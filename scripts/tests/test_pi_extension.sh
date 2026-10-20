@@ -92,6 +92,14 @@ clear_calls
 drive "error:ExpiredTokenException: The security token included in the request is expired (403)"
 OUT="$(payload log-api-failure)"
 assert_jq '.error == "cloud_credential_error"' 'a cloud credential error keeps its class before a plain 403'
+clear_calls
+drive "error:403 OAuth authentication is currently not allowed for this organization"
+OUT="$(payload log-api-failure)"
+assert_jq '.error == "oauth_org_not_allowed"' 'an OAuth organization refusal keeps its class before a plain 403'
+clear_calls
+drive "error:403 Your account is on hold"
+OUT="$(payload log-api-failure)"
+assert_jq '.error == "account_on_hold"' 'an account on hold keeps its class before a plain 403'
 drive shutdown
 OUT="$(payload log-session-tokens)"
 assert_jq '.session_id == "sess-1" and .transcript_path == "/tmp/sess-1.jsonl"' 'session end writes the tokens event'

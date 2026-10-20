@@ -311,4 +311,24 @@ jq -nc '{hook_event_name:"StopFailure", session_id:"s-3", error:"server_error"}'
 if ! grep -q '"run":"s-3"' "$EVENTS"; then printf 'ok   %s: no CONFIG.md, no event\n' "$CASE"
 else printf 'FAIL %s: a hook logged without CONFIG.md\n' "$CASE"; FAILED=1; fi
 
+# --- api_failure classes: one list for the docs and every adapter -----------------
+# docs/monitor.md → The api_failure classes is the list; the pi extension's
+# errorClass() returns every class of it and no other, and the monitor's
+# routing names only classes of it
+new_case api_failure_classes
+DOC_CLASSES="$(tr '\n' ' ' < "$REPO_ROOT/docs/monitor.md" \
+  | sed -n 's/.*\*\*The `api_failure` classes\*\* are the `error` values of Claude Code.s `StopFailure` hook: \([^.]*\)\..*/\1/p' \
+  | grep -oE '`[a-z_]+`' | tr -d '`' | sort -u | tr '\n' ' ')"
+PI_CLASSES="$(sed -n '/^function errorClass/,/^}/p' "$REPO_ROOT/scripts/harness/pi/extension.ts" \
+  | grep -oE 'return "[a-z_]+"' | sed 's/return "//; s/"$//' | sort -u | tr '\n' ' ')"
+HINT_CLASSES="$(sed -n '/def model_hint:/,/ end;/p' "$REPO_ROOT/scripts/monitor-direct.sh" \
+  | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)"
+if [ -n "$DOC_CLASSES" ] && [ "$DOC_CLASSES" = "$PI_CLASSES" ]; then
+  printf 'ok   %s: the pi errorClass() returns exactly the classes of docs/monitor.md\n' "$CASE"
+else printf 'FAIL %s: docs/monitor.md classes [%s] differ from the pi errorClass() [%s]\n' "$CASE" "$DOC_CLASSES" "$PI_CLASSES"; FAILED=1; fi
+stray=""
+for c in $HINT_CLASSES; do case " $DOC_CLASSES" in (*" $c "*) ;; (*) stray="$stray $c";; esac; done
+if [ -n "$HINT_CLASSES" ] && [ -z "$stray" ]; then printf 'ok   %s: the monitor routing names only listed classes\n' "$CASE"
+else printf 'FAIL %s: monitor-direct.sh routes unlisted classes:%s\n' "$CASE" "${stray:- (no classes found)}"; FAILED=1; fi
+
 finish

@@ -57,7 +57,7 @@ EOF
 direct render "$SANDBOX/alerts.json"
 check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 10 alerts
 • **Model API unavailable** since 2026-10-12 08:00 UTC: 3 failures in 2 runs (server_error 2, overloaded 1). The last failure was at 2026-10-12 08:40 UTC. Cause: the model provider or the gateway. The agent does the missed review work after the API recovers.
-• **Model API was unavailable** from 2026-10-11 08:00 UTC to 2026-10-11 08:20 UTC: 2 failures in 2 runs (authentication_failed 2). Cause: the credentials. The operator must fix them.
+• **Model API was unavailable** from 2026-10-11 08:00 UTC to 2026-10-11 08:20 UTC: 2 failures in 2 runs (authentication_failed 2). Cause: the credentials or the account. The operator must fix them.
 • **Model API available again.** The outage started at 2026-10-10 08:00 UTC. The last failure was at 2026-10-10 08:30 UTC.
 • **GitHub API unavailable** since 2026-10-12 08:05 UTC: 2 gate passes in a row could not list the open PRs (auth 2). Cause: the GitHub token is not valid. The operator must replace it.
 • **GitHub API available again** at 2026-10-11 07:40 UTC, after 40 min.

@@ -77,7 +77,10 @@ links to `~/.agents/skills/`, a directory pi reads.
   fails open, as a failed Claude Code hook does — the call goes through
   unchecked — and logs one `adapter_failure` warn that names it.
   `scripts/tests/test_pi_extension.sh` loads the extension in Node 24 and
-  checks every mapping.
+  checks every mapping. An API error message maps onto the classes of
+  [monitor.md](monitor.md) → **The `api_failure` classes**. CI's
+  `typescript` job runs `tsc` with `tsconfig.json` against the pinned pi API;
+  the pod installs no packages.
 - `install.sh` — links `extension.ts` into `~/.pi/agent/extensions/`, which
   pi loads into every session; `--check` prints `pi-extension` when the link
   is not current. Run at onboarding Step 1b; the monitor checks it on every

@@ -29,8 +29,14 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 | `stall_alert` | **Stalled-review rate alert** below | — (once per UTC day) |
 | `review_anomaly` | **Review anomaly alert** below | — (once per review) |
 
-The availability classes are every `api_failure` class except
-`invalid_request` and `max_output_tokens`, which an agent request causes. The
+**The `api_failure` classes** are the `error` values of Claude Code's
+`StopFailure` hook: `rate_limit`, `overloaded`, `authentication_failed`,
+`oauth_org_not_allowed`, `account_on_hold`, `billing_error`,
+`invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`,
+`cloud_credential_error`, `unknown`. The pi adapter maps a provider error
+onto this list ([harness-pi.md](harness-pi.md) → **Adapter**). The
+availability classes are every class except `invalid_request` and
+`max_output_tokens`, which an agent request causes. The
 events come from the harness hooks `StopFailure` (`api_failure`) and
 `PermissionDenied` (`classifier_block`) ([harness-claude-code.md](harness-claude-code.md) → **Adapter**). A GitHub failure's class comes from the error text: `auth`
 (HTTP 401), `rate_limit`, `access` (HTTP 403/404), `server_error` (HTTP 5xx),
@@ -58,8 +64,9 @@ their own detection-time claims (below), not the ledger.
    one operator action, if any:
    - `model_unavailable` / `model_recovered` — first and last failure, runs
      lost, the classes (`server_error`, `overloaded` → the provider or the
-     gateway; `authentication_failed`, `cloud_credential_error` →
-     credentials, operator-only; `rate_limit`, `billing_error` → quota or
+     gateway; `authentication_failed`, `cloud_credential_error`,
+     `oauth_org_not_allowed`, `account_on_hold` → credentials or the
+     account, operator-only; `rate_limit`, `billing_error` → quota or
      budget). Missed review work recovers on the next heartbeat by itself.
    - `classifier_spike` / `review_post_blocked` — the top patterns and the
      reasons; a documented step of the agent is an `autoMode.allow` rule
