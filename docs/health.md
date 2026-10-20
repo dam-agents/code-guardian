@@ -51,7 +51,7 @@ dashboard.html    # the last published page
 | DAM schedules | `heartbeat_gap` | a broken gate in 6 h |
 | Harness | — | `harness_drift` |
 | Model API | an open `model_unavailable` | a model failure in 2 h |
-| GitHub API | an open `github_unavailable` | a failed gate pass or an API warning in 2 h, `github_write_denied` |
+| GitHub API | an open `github_unavailable` | a failed gate pass or an API warning in 2 h, `github_write_denied`, `approval_not_revoked` |
 | Auto-mode classifier | — | `classifier_spike`, `review_post_blocked` |
 | Work backup | `backup_failing` | a push error in 6 h |
 | Direct Slack alerts | — | the opt-in cannot send, or a failed send in 6 h |

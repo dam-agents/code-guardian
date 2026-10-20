@@ -32,7 +32,7 @@ NOW_EPOCH=$(date -u +%s)
 
 DIRECT_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
   "heartbeat_gap","harness_drift","backup_failing","classifier_spike","review_post_blocked",
-  "dispatch_refused","github_write_denied","github_identity_changed","judge_unavailable"]'
+  "dispatch_refused","github_write_denied","github_identity_changed","judge_unavailable","approval_not_revoked"]'
 MAX_ALERTS=10        # alerts in one message; the rest stay for the session
 DAILY_CAP=12         # direct messages in 24 h; past it the session delivers
 MAX_CHARS=3500
@@ -93,6 +93,8 @@ render() { # <alerts.json>
         "**GitHub token changed** at \(.changed_at | ts): the token now acts as a different \(.token_kind | word) account. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session."
       elif .kind == "judge_unavailable" then
         "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI and no pi CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in, and the host has no pi CLI" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
+      elif .kind == "approval_not_revoked" then
+        "**Approval not revoked:** the review of PR #\(.pr | int) at \(.ts | ts) has the verdict \(.verdict | word), but \(if .approval then "the dismissal of the earlier approval did not succeed" else "the list of the reviews did not succeed" end)\(if .http > 0 then " (HTTP \(.http | int))" else "" end). The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews."
       elif .kind == "review_post_blocked" then
         "**Review post refused:** the classifier refused the review post of PR #\(.pr | int) at \(.ts | ts). No later post of that PR exists. Do this: post the review again in a session, or add the missing auto-mode rule."
       else error("kind") end;

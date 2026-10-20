@@ -1580,18 +1580,23 @@ cmd_rapid() {
 # dismissed id, or `null`. Every standing APPROVED review of the agent — the
 # login of a user bot_login (lib/common.sh → self_trusted_login), its review
 # marker or its rapid marker, never a human's or another agent's on a shared
-# GitHub App login — except the one just posted; a failed dismissal is logged,
-# not fatal.
+# GitHub App login — except the one just posted; a failed dismissal or review
+# list is logged, not fatal, and the monitor alerts on it (approval_not_revoked).
 dismiss_approvals() {
-  local ids aid last=null what="review"; [ "$4" = "rapid" ] && what="rapid review"
-  ids="$(gh_get_all "repos/$REPO/pulls/$N/reviews?per_page=100" | jq -r --arg b "$(self_trusted_login)" \
+  local revs ids aid last=null err what="review"; [ "$4" = "rapid" ] && what="rapid review"
+  revs="$(gh_get_all "repos/$REPO/pulls/$N/reviews?per_page=100")" \
+    || { logev warn dismiss "PR #$N: listing the reviews for a stale approval did not succeed (APPROVE → $3)"; printf null; return 0; }
+  ids="$(printf '%s' "$revs" | jq -r --arg b "$(self_trusted_login)" \
       --arg m "<!-- $REVIEW_MARKER headRefOid=" --arg mr "<!-- $REVIEW_MARKER:rapid headRefOid=" --argjson me "$1" \
       '.[] | select(.id != $me and .state == "APPROVED" and ((($b != "") and ((.user.login // "") == $b)) or ((.body // "") | contains($m)) or ((.body // "") | contains($mr)))) | .id' 2>/dev/null)"
   for aid in $ids; do
-    if gh api "repos/$REPO/pulls/$N/reviews/$aid/dismissals" -X PUT -f event=DISMISS \
-         -f message="Superseded by $BOT_NAME $what at $2 — verdict is now $3." >/dev/null 2>&1; then
+    if err="$(gh api "repos/$REPO/pulls/$N/reviews/$aid/dismissals" -X PUT -f event=DISMISS \
+         -f message="Superseded by $BOT_NAME $what at $2 — verdict is now $3." 2>&1 >/dev/null)"; then
       last="$aid"; logev info review_pr "PR #$N: dismissed stale approval $aid (APPROVE → $3)"
-    else logev warn dismiss "PR #$N: dismissing stale approval $aid did not succeed"; fi
+    else
+      err="$(printf '%s' "$err" | grep -oE 'HTTP [0-9]{3}' | head -1)"
+      logev warn dismiss "PR #$N: dismissing stale approval $aid did not succeed (APPROVE → $3)${err:+ — $err}"
+    fi
   done
   printf '%s' "$last"
 }

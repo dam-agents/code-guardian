@@ -186,4 +186,6 @@ gh api "repos/$REPO/pulls/<n>/reviews/<id>/dismissals" -X PUT -f event="DISMISS"
 
 It logs `PR #<n>: dismissed stale approval <id> (APPROVE → <new-verdict>)` per
 dismissal (`dismissed_approval`, the last id, in its outcome). A new `APPROVE`
-leaves the approvals in place. A failed dismissal is logged, not fatal.
+leaves the approvals in place. A failed dismissal or review list is logged
+(`dismiss` warn), not fatal; the monitor alerts the operator
+([monitor.md](monitor.md) → **The alerts**).

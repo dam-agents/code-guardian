@@ -287,16 +287,38 @@ if [ -n "$DP" ] && [ "$DP" != null ] \
   cand "$(printf '%s' "$DP" | jq -c '{id: "dispatch:\(.first)", kind: "dispatch_refused"} + .')"
 else CLEARED="$CLEARED dispatch_refused"; fi
 
+# ---------------------------------------------- approval not revoked ----
+# review-pr.sh logs a `dismiss` warn when a review below APPROVE could not
+# revoke a standing approval of the agent — a failed dismissal, or a failed
+# list of the PR's reviews. The approval then stays on a PR its own review
+# no longer approves. One alert per approval (per run for a failed list); a
+# later dismissal of the same approval clears it.
+DS_SINCE="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
+while IFS= read -r o; do [ -n "$o" ] && cand "$o"; done < <(events_jsonl dismiss | jq -c --arg s "$DS_SINCE" \
+    --slurpfile ok <(events_jsonl review_pr | jq -c 'select(.event == "review_pr")
+      | {ts, a: ((.msg | capture("^PR #[0-9]+: dismissed stale approval (?<a>[0-9]+) ") | .a) // null)}
+      | select(.a != null)' 2>/dev/null) '
+  select(.event == "dismiss" and .level == "warn" and .ts >= $s)
+  | (.msg | capture("^PR #(?<pr>[0-9]+): (dismissing stale approval (?<a>[0-9]+)|listing the reviews)") ) as $m
+  | select($m != null)
+  | . as $e | select($m.a == null or (any($ok[]; .a == $m.a and .ts > $e.ts) | not))
+  | {id: "dismiss:\($m.pr):\($m.a // "list:\(.run)")", kind: "approval_not_revoked",
+     pr: ($m.pr | tonumber), ts,
+     verdict: ((.msg | capture("APPROVE → (?<v>[A-Z_]+)") | .v | ascii_downcase) // "unknown"),
+     http: ((.msg | capture("HTTP (?<c>[0-9]{3})") | .c | tonumber) // 0)}
+    + (if $m.a then {approval: ($m.a | tonumber)} else {} end)' 2>/dev/null)
+
 # ------------------------------------------------ GitHub write denied ----
 # A script's warn or error line that quotes a GitHub HTTP 403, other than a
-# rate limit and the gate's own list failure (github_unavailable), is a call
-# the token has no permission for — operator-only. The harness hooks' lines
+# rate limit, the gate's own list failure (github_unavailable) and a failed
+# dismissal (approval_not_revoked), is a call the token has no permission
+# for — operator-only. The harness hooks' lines
 # are not the definition's calls: an agent command or a model gateway. One
 # alert per UTC day.
 # grep first: a full parse of the log would cost every tick
 GW="$( { grep -hF 'HTTP 403' "$LOG_DIR"/events-*.jsonl 2>/dev/null || true; } | jq -c -R 'fromjson? // empty' 2>/dev/null | jq -sc --arg s "$(epoch2iso $(( NOW_EPOCH - 86400 )))" '
   [ .[] | select((.level == "warn" or .level == "error") and .ts >= $s and (.event | type) == "string")
-    | select(.event | IN("tool_failure", "tool_use", "api_failure", "classifier_block") | not)
+    | select(.event | IN("tool_failure", "tool_use", "api_failure", "classifier_block", "dismiss") | not)
     | select((.msg | strings | test("HTTP 403")) // false)
     | select(.msg | test("rate limit"; "i") | not)
     | select(.msg | startswith("could not list open PRs") | not) ]

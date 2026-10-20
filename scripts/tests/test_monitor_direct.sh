@@ -74,13 +74,17 @@ direct_case dir_golden_operator
 alerts <<'JSON'
 [{"id":"dispatch:2026-10-15T14:52:00Z","kind":"dispatch_refused","first":"2026-10-15T14:52:00Z","last":"2026-10-15T16:00:00Z","count":12,"runs":9,"prs":14},
  {"id":"gh_write:2026-10-13","kind":"github_write_denied","first":"2026-10-13T12:00:00Z","last":"2026-10-13T20:00:00Z","count":413,"by_event":{"progress_status":412,"post_failed":1}},
- {"id":"identity:2026-10-14T14:08:21Z","kind":"github_identity_changed","changed_at":"2026-10-14T14:08:21Z","login":"new-app[bot]","token_kind":"app","previous":"old-app[bot]","previous_kind":"app"}]
+ {"id":"identity:2026-10-14T14:08:21Z","kind":"github_identity_changed","changed_at":"2026-10-14T14:08:21Z","login":"new-app[bot]","token_kind":"app","previous":"old-app[bot]","previous_kind":"app"},
+ {"id":"dismiss:7:55","kind":"approval_not_revoked","pr":7,"ts":"2026-10-15T09:30:00Z","verdict":"comment","http":403,"approval":55},
+ {"id":"dismiss:9:list:r1","kind":"approval_not_revoked","pr":9,"ts":"2026-10-15T10:00:00Z","verdict":"request_changes","http":0}]
 JSON
 direct render "$SANDBOX/alerts.json"
-check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 3 alerts
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 5 alerts
 • **Review dispatch refused** since 2026-10-15 14:52 UTC: the platform refused 12 dispatches in 9 runs (14 PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting.
 • **GitHub refused a call** 413 times in 24 h with HTTP 403 (progress_status 412, post_failed 1). Cause: the token has no permission for the call. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session and give the token the missing permission.
-• **GitHub token changed** at 2026-10-14 14:08 UTC: the token now acts as a different app account. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session.' 'the operator-action templates render their exact text'
+• **GitHub token changed** at 2026-10-14 14:08 UTC: the token now acts as a different app account. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session.
+• **Approval not revoked:** the review of PR #7 at 2026-10-15 09:30 UTC has the verdict comment, but the dismissal of the earlier approval did not succeed (HTTP 403). The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews.
+• **Approval not revoked:** the review of PR #9 at 2026-10-15 10:00 UTC has the verdict request_changes, but the list of the reviews did not succeed. The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews.' 'the operator-action templates render their exact text'
 assert_out_absent 'new-app|old-app' 'no login reaches the message'
 
 direct_case dir_golden_judge

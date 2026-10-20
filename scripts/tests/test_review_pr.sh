@@ -1476,6 +1476,25 @@ run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/f
 assert_jq '.outcome == "posted" and .dismissed_approval == 5' 'stale approval dismissed'
 assert_call 'reviews/5/dismissals -X PUT' 'dismissal call issued'
 
+# --- a refused dismissal is a dismiss warn (monitor: approval_not_revoked) -------
+setup post_dismiss_fail
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — APPROVE\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" APPROVE awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '[{"id":5,"state":"APPROVED","user":{"login":"test-bot"},"body":"ok"}]' | fx 'api repos/acme/widgets/pulls/1/reviews?per_page=100'
+D="api repos/acme/widgets/pulls/1/reviews/5/dismissals -X PUT -f event=DISMISS -f message=Superseded by Code Guardian review at ${B1_SHA:0:7} — verdict is now COMMENT."
+# review-pr.sh runs under LC_ALL=C: the stub slugs the dash byte by byte
+LC_ALL=C fx_fail "$D" 1; LC_ALL=C fx_err "$D" 'gh: Resource not accessible by integration (HTTP 403)'
+printf '### Summary\nx\n' > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted" and .dismissed_approval == null' 'the review posts; nothing was dismissed'
+m="$(jq -r 'select(.event == "dismiss" and .level == "warn") | .msg' "$WORK"/logs/events-*.jsonl 2>/dev/null | tail -1)"
+[ "$m" = 'PR #1: dismissing stale approval 5 did not succeed (APPROVE → COMMENT) — HTTP 403' ] \
+  && printf 'ok   %s: the dismiss warn names the PR, the verdict and the code\n' "$CASE" \
+  || { printf 'FAIL %s: dismiss warn %s\n' "$CASE" "$m"; FAILED=1; }
+
 # --- a GitHub App bot_login that another agent shares: only the marked approval goes
 setup post_dismiss_shared_app
 sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
