@@ -91,8 +91,8 @@ alerts <<'JSON'
 JSON
 direct render "$SANDBOX/alerts.json"
 check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 2 alerts
-• **Benchmark judge unavailable:** the claude CLI on the host is not signed in. The benchmark runs score without the judge until you fix it. Do this: run `claude auth login` on the host once, or set ANTHROPIC_API_KEY.
-• **Benchmark judge unavailable:** the host has no claude CLI. The benchmark runs score without the judge until you fix it. Do this: install the claude CLI on the host.' 'the judge template renders its exact text'
+• **Benchmark judge unavailable:** the claude CLI on the host is not signed in, and the host has no pi CLI. The benchmark runs score without the judge until you fix it. Do this: run `claude auth login` on the host once, or set ANTHROPIC_API_KEY.
+• **Benchmark judge unavailable:** the host has no claude CLI and no pi CLI. The benchmark runs score without the judge until you fix it. Do this: install the claude CLI on the host.' 'the judge template renders its exact text'
 assert_jq '.skipped == ["judge:y"]' 'an unknown cause is skipped'
 assert_out_absent '/opt/bin' 'the free-text reason never reaches the message'
 

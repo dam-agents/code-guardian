@@ -494,7 +494,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     whatever model the reviews use; default `off` = deterministic scoring
     only; for a model id, run `bash "$HOME/scripts/benchmark-judge.sh" check
     <id>` and give the operator the reason it prints, if any — signing the
-    CLI in is the operator's) and **`benchmark_report`** (`dam` default /
+    claude CLI in is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
     `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
     **Model prices**), and register the schedule in Step 6d. The first

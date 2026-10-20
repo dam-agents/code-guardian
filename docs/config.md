@@ -239,9 +239,10 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   quality scores; `off`/missing = deterministic scoring only. The judge runs as
   its own `claude -p` call on this model, whatever model the reviews ran on
   ([benchmark.md](benchmark.md) → step 6), so the host needs the `claude` CLI,
-  signed in (`claude auth login` once, or `ANTHROPIC_API_KEY`) with access to
-  this model; without them the run keeps deterministic scores only, and the
-  monitor alerts `judge_unavailable`. A changed judge starts a new
+  signed in (`claude auth login` once, or `ANTHROPIC_API_KEY`), or a `pi` CLI
+  as the fallback on the same model, and access to this model; without them
+  the run keeps deterministic scores only, and the monitor alerts
+  `judge_unavailable`. A changed judge starts a new
   comparability window.
 - **`benchmark_report`** — publish surface for the accumulated report
   artifact, updated in place so its URL stays stable: `dam` (default) | `off`,

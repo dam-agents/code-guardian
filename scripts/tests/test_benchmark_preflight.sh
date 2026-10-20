@@ -53,7 +53,7 @@ seed_judge_cli() { # <true|false>
   mkdir -p "$SANDBOX/cli"
   printf '#!/usr/bin/env bash\nprintf %s\n' "'{\"loggedIn\": $1}'" > "$SANDBOX/cli/claude"
   chmod +x "$SANDBOX/cli/claude"
-  export CG_JUDGE_CLI="$SANDBOX/cli/claude"
+  export CG_JUDGE_CLI="$SANDBOX/cli/claude" CG_JUDGE_PI="$SANDBOX/cli/no-pi"
   unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
 }
 
@@ -81,6 +81,9 @@ ANTHROPIC_AUTH_TOKEN=gateway-token run_preflight benchmark
 assert_jq '.benchmark_due.judge_unavailable == null' 'a gateway token in the environment counts as signed in'
 CG_JUDGE_CLI="$SANDBOX/cli/none" run_preflight benchmark
 assert_jq '.benchmark_due.judge_unavailable | test("no .* CLI")' 'a missing CLI is named'
+cp "$SANDBOX/cli/claude" "$SANDBOX/cli/pi"
+CG_JUDGE_PI="$SANDBOX/cli/pi" run_preflight benchmark
+assert_jq '.benchmark_due.judge_unavailable == null' 'a pi CLI to fall back to makes the judge ready'
 
 new_case benchmark_defaults
 base_config '- benchmark: enabled'
