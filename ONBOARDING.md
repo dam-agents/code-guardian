@@ -483,7 +483,11 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    > Should my monitor send its health alerts — a model or GitHub outage, a silent review schedule, a failing backup — to <owner> as a Slack DM on its own, without a model session? They then arrive even when the model API is down or a classifier refuses the send. The message is built from fixed templates only (`docs/monitor.md` → **Direct delivery**).
 
    **Yes** → `monitor_slack_direct: enabled`; **no, or no reply** → omit the
-   key.
+   key. Then ask: *Should those monitor DMs go to <owner>, or to a different
+   roster member — the agent's admin, when that is not <owner>?*
+   **<owner>, or no reply** → omit `monitor_owner` (missing =
+   `escalation_owner`); **another member** → `monitor_owner: <login>`, a
+   roster login with a `slack_id`.
 10. **`benchmark`** — the optional monthly self-benchmark, off by default. Ask:
 
     > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
@@ -602,6 +606,7 @@ Final shape:
 - benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
+- monitor_owner: dana                  # monitor alert DMs go here; omit = escalation_owner
 - monitor_slack_direct: enabled        # the monitor DMs its alerts itself, no model; omit = disabled
 - health_dashboard: dam                # health dashboard surface: dam | off (default)
 - stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables

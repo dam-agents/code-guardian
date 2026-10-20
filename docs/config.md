@@ -197,9 +197,9 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   changes a matching file always records triage `needs-human`
   ([review-mechanics.md](review-mechanics.md) → **Summary body format**) and
   never auto-merges.
-- **`escalation_owner`** — roster login widened to at nudge level 4, and the DM
-  target of the monitor's alerts. Slack-only key, legitimately absent when
-  Slack is disabled.
+- **`escalation_owner`** — roster login widened to at nudge level 4, and the
+  fallback DM target of the monitor's alerts (`monitor_owner`, **Monitor**).
+  Slack-only key, legitimately absent when Slack is disabled.
 - **`audit_report`** — `enabled` (default) | `disabled`. Gates the weekly audit
   run. The report goes to Slack only under `slack_notifications: enabled`,
   otherwise to the chat UI.
@@ -274,9 +274,14 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   h that alert once per UTC day; a refused review post alerts on its own.
   **Missing = `20`**; `0`/`off` disables both; an unparseable value falls
   back to `20` (monitor.md → **The alerts**).
+- **`monitor_owner`** — roster login the monitor's alert DMs go to, both the
+  pass's direct delivery and the session's report. **Missing =
+  `escalation_owner`**; a set login without a roster `slack_id` sends no DM
+  and is reported ([monitor.md](monitor.md) → **Monitor run**). Slack-only
+  key.
 - **`monitor_slack_direct`** — `enabled` | `disabled`. **Missing =
   `disabled`.** The monitor's pass sends the due alerts itself as one
-  templated DM to `escalation_owner`, with no model in the loop
+  templated DM to the monitor owner, with no model in the loop
   ([monitor.md](monitor.md) → **Direct delivery**). Needs
   `slack_notifications: enabled` and the owner's roster `slack_id`; without
   them the session delivers.

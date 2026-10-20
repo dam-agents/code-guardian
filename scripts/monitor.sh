@@ -524,7 +524,7 @@ if [ "$(printf '%s' "$DUE" | jq length)" -gt 0 ] && [ "$(cfg monitor_slack_direc
       log "direct delivery: outcome unknown — alert(s) held for the next pass";;
     (sent)
       with_state_lock "$STATE" ack_apply "$SENT_IDS"
-      logev info monitor_direct "sent $(printf '%s' "$SENT_IDS" | jq length) alert(s) to the escalation owner: $(printf '%s' "$DUE" \
+      logev info monitor_direct "sent $(printf '%s' "$SENT_IDS" | jq length) alert(s) to the monitor owner: $(printf '%s' "$DUE" \
         | jq -r --argjson s "$SENT_IDS" '[.[] | select(.id as $i | $s | index($i)) | .kind] | unique | join(", ")')"
       DUE="$(printf '%s' "$DUE" | jq -c --argjson s "$SENT_IDS" '[.[] | select(.id as $i | $s | index($i) | not)]')"
       log "direct delivery: sent $(printf '%s' "$SENT_IDS" | jq length) alert(s)";;
@@ -560,7 +560,7 @@ logev info heartbeat "mode=monitor nothing_to_do=$NOTHING monitor=$N_DUE stall=$
 SLACK="$(cfg slack_notifications)"
 jq -n --argjson nothing "$NOTHING" --argjson due "$DUE" --argjson sup "$SUPPRESSED" \
   --argjson stall "${STALL_ALERT:-null}" --argjson anomaly "${ANOMALY_ALERT:-null}" \
-  --arg slack "${SLACK:-disabled}" --arg eo "$(cfg escalation_owner)" --arg name "$(cfg bot_display_name)" \
+  --arg slack "${SLACK:-disabled}" --arg eo "$(cfg escalation_owner)" --arg mo "$(cfg monitor_owner)" --arg name "$(cfg bot_display_name)" \
   --argjson mt "$MODEL_THRESHOLD" --argjson ct "$CLASSIFIER_THRESHOLD" --argjson st "$STALL_ALERT_THRESHOLD" \
   --argjson gt "$GITHUB_THRESHOLD" --argjson direct "$DIRECT" \
   --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
@@ -572,6 +572,7 @@ jq -n --argjson nothing "$NOTHING" --argjson due "$DUE" --argjson sup "$SUPPRESS
   + (if $direct == null then {} else {direct: $direct} end)
   + {config: {slack_notifications: $slack,
        escalation_owner: (if $eo == "" then null else $eo end),
+       monitor_owner: (if $mo == "" then null else $mo end),
        bot_display_name: (if $name == "" then null else $name end),
        model_alert_threshold: $mt, github_alert_threshold: $gt, classifier_alert_threshold: $ct,
        stall_alert_threshold: $st,

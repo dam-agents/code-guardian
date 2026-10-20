@@ -220,7 +220,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch mention_replies mention_authors project_profile artifact_skill artifact_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch mention_replies mention_authors project_profile artifact_skill artifact_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -380,6 +380,19 @@ EOF
           else
             fail escalation-owner "'$EO' is not a roster login with a valid slack_id" \
               "add the member (or their 'U…' Slack id) to work/DEVELOPERS.md, or pick another owner (ONBOARDING Step 4 item 9)"
+          fi
+        fi
+        MO="$(cfg monitor_owner)"
+        if [ -z "$MO" ]; then
+          ok monitor-owner "unset — the monitor's alerts DM the escalation owner"
+        else
+          MO_SLACK="$(printf '%s\n' "$ROSTER" | while IFS="$(printf '\t')" read -r l sid; do
+              [ "$l" = "$MO" ] && { printf '%s' "$sid"; break; }; done)"
+          if printf '%s' "${MO_SLACK:-}" | grep -Eq "$SLACK_ID_RE"; then
+            ok monitor-owner "'$MO' is a roster member with a slack_id"
+          else
+            fail monitor-owner "'$MO' is not a roster login with a valid slack_id" \
+              "add the member (or their 'U…' Slack id) to work/DEVELOPERS.md, or clear the key (ONBOARDING Step 4 item 9)"
           fi
         fi
       fi

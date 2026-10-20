@@ -84,9 +84,11 @@ their own detection-time claims (below), not the ledger.
      session and gives the token the missing permission
      ([github-access.md](github-access.md)).
    - `stall_alert` / `review_anomaly` — per their sections below.
-3. Under `slack_notifications: enabled` **and** an `escalation_owner`, also DM
-   that person the same message — never the shared channel; roster-only
-   mentions still apply.
+3. Under `slack_notifications: enabled` **and** a monitor owner, also DM that
+   person the same message — never the shared channel; roster-only mentions
+   still apply. The monitor owner is `monitor_owner`, or `escalation_owner`
+   when `monitor_owner` is unset; a set `monitor_owner` with no roster
+   `slack_id` sends no DM — say so in the report.
 4. **After the send**, `bash "$HOME/scripts/monitor.sh" ack <every id of
    alerts_due>`, and log `stall_alert_sent <count>` / `review_anomaly_sent
    <n>` for those. A failed send is logged and not acknowledged: the next tick
@@ -103,9 +105,10 @@ The monitor's pass sends the due alerts itself, with no model in the loop
 cannot stop them.
 
 - **Gate** — `monitor_slack_direct: enabled`, `slack_notifications: enabled`
-  and an `escalation_owner` with a roster `slack_id`. Otherwise the session
-  delivers, per **Monitor run**.
-- **Message** — one Slack DM to the escalation owner
+  and a monitor owner — `monitor_owner`, or `escalation_owner` when unset —
+  with a roster `slack_id`. Otherwise the session delivers, per
+  **Monitor run**.
+- **Message** — one Slack DM to the monitor owner
   (`send_channel_message`, `chatId` = the roster id), never the shared
   channel: a header, one bullet per alert from a fixed template, at most 10
   alerts, and the dashboard share URL when one is kept

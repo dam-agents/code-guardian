@@ -263,8 +263,9 @@ what it can and asking for the rest. Per-key semantics are in
 | `github_alert_threshold` | not set (= `2`) | Gate passes in a row that could not list the open PRs before the monitor alerts; `0`/`off` disables. |
 | `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that alert once per UTC day; `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
-| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the DM target of the monitor's alerts. |
-| `monitor_slack_direct` | asked with the escalation owner (default `disabled`) | The monitor sends its alerts itself as a templated DM to the escalation owner, so they arrive during a model outage (`docs/monitor.md` → **Direct delivery**). |
+| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the fallback DM target of the monitor's alerts. |
+| `monitor_owner` | asked with the escalation owner (default: not set) | Roster member the monitor's alert DMs go to; not set = `escalation_owner`. |
+| `monitor_slack_direct` | asked with the escalation owner (default `disabled`) | The monitor sends its alerts itself as a templated DM to the monitor owner, so they arrive during a model outage (`docs/monitor.md` → **Direct delivery**). |
 | `health_dashboard` | asked (default `off`) | `dam` publishes the health dashboard — service status, 90 days of hourly history, incidents — updated in place (`docs/health.md`). |
 
 ### Runtime requirements

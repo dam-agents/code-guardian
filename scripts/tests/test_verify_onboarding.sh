@@ -194,6 +194,32 @@ verify_config '- slack_notifications: enabled' '- escalation_owner: alice'
 } > "$WORK/DEVELOPERS.md"
 run_verify
 assert_rc 0 'roster + resolvable owner passes'
+assert_out 'ok   monitor-owner' 'an unset monitor owner reads as the escalation owner'
+
+new_case monitor_owner_not_in_roster
+seed_home; seed_memory; seed_lessons
+verify_config '- slack_notifications: enabled' '- escalation_owner: alice' '- monitor_owner: carol'
+{
+  printf '| login | slack_id | name | expertise (seed) | observed areas |\n'
+  printf '| --- | --- | --- | --- | --- |\n'
+  printf '| alice | U0123ABCD | Alice K. | frontend | |\n'
+} > "$WORK/DEVELOPERS.md"
+run_verify
+assert_rc 1 'a monitor owner outside the roster fails'
+assert_out 'FAIL monitor-owner' 'flags the unresolvable monitor owner'
+
+new_case monitor_owner_in_roster
+seed_home; seed_memory; seed_lessons
+verify_config '- slack_notifications: enabled' '- escalation_owner: alice' '- monitor_owner: bob'
+{
+  printf '| login | slack_id | name | expertise (seed) | observed areas |\n'
+  printf '| --- | --- | --- | --- | --- |\n'
+  printf '| alice | U0123ABCD | Alice K. | frontend | |\n'
+  printf '| bob | U0456EFGH | Bob L. | backend | |\n'
+} > "$WORK/DEVELOPERS.md"
+run_verify
+assert_rc 0 'a roster monitor owner passes'
+assert_out 'ok   monitor-owner' 'the monitor owner resolves'
 
 new_case bullet_roster
 seed_home; seed_memory; seed_lessons

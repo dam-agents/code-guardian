@@ -135,7 +135,8 @@ assert_jq '(.ids | length) == 10 and .skipped == ["g10","g11"]' 'one message car
 # --- the gates: no opt-in, no Slack, no roster id → no call ---------------------------
 for c in "monitor_slack_direct is not enabled|- monitor_slack_direct: disabled" \
          "slack_notifications is not enabled|- slack_notifications: disabled" \
-         "escalation_owner has no roster slack_id|- escalation_owner: carol"; do
+         "escalation_owner has no roster slack_id|- escalation_owner: carol" \
+         "monitor_owner has no roster slack_id|- monitor_owner: carol"; do
   why="${c%%|*}"; line="${c#*|}"
   new_case "dir_gate_${why%% *}"
   base_config "$line" '- slack_notifications: enabled' '- monitor_slack_direct: enabled' '- escalation_owner: alice'
@@ -169,6 +170,13 @@ check_eq "$(jq -rs '[.[] | select(.params.name == "send_channel_message")][0].pa
 check_eq "$(jq -rs '[.[] | .method] | join(",")' "$SANDBOX/mcp.log")" 'initialize,notifications/initialized,tools/call' 'the MCP handshake precedes the call'
 check_eq "$(sent_text)" '**Guardian monitor** — 1 alert
 • **GitHub API available again** at 2026-10-11 07:40 UTC, after 40 min.' 'the sent text is the rendered text'
+
+direct_case dir_send_monitor_owner '- monitor_owner: bob'
+echo '[{"id":"g","kind":"github_recovered","over_at":"2026-10-11T07:40:00Z","minutes":40}]' | alerts
+direct send "$SANDBOX/alerts.json"
+assert_jq '.status == "sent"' 'a set monitor_owner sends'
+check_eq "$(jq -rs '[.[] | select(.params.name == "send_channel_message")][0].params.arguments.chatId' "$SANDBOX/mcp.log")" \
+  'U0456EFGH' 'the DM goes to the monitor owner, not the escalation owner'
 
 direct_case dir_refused
 echo '{"isError":true,"content":[{"type":"text","text":"channel not found"}]}' > "$SANDBOX/mcp/send_channel_message.json"
@@ -228,7 +236,15 @@ assert_jq '(.alerts | to_entries | map(select(.value.kind == "model_unavailable"
 monitor
 check_eq "$(calls)" 1 'the next tick sends nothing again'
 assert_jq '.suppressed == 1' 'it counts the alert as reported'
-assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"monitor_direct".*sent 1 alert(s) to the escalation owner: model_unavailable' 'the send is logged'
+assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"monitor_direct".*sent 1 alert(s) to the monitor owner: model_unavailable' 'the send is logged'
+
+direct_case dir_tick_monitor_owner '- monitor_owner: bob'
+fail_ev 600; fail_ev 300
+monitor
+assert_jq '.direct.status == "sent"' 'the pass sends to the monitor owner'
+assert_jq '.config.monitor_owner == "bob"' 'the worklist carries the key'
+check_eq "$(jq -rs '[.[] | select(.params.name == "send_channel_message")][0].params.arguments.chatId' "$SANDBOX/mcp.log")" \
+  'U0456EFGH' 'and the DM goes to that owner'
 
 direct_case dir_tick_gate
 fail_ev 600; fail_ev 300

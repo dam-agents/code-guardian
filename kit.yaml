@@ -42,7 +42,7 @@ connections:
       the reviewer roster and turns the sweep on. The weekly audit runs
       without it and posts its report to Slack only when notifications are
       enabled. The monitor can also send its health alerts as a direct
-      message to the escalation owner.
+      message to the monitor owner (the escalation owner by default).
 channels:
   - type: slack
     note: >-

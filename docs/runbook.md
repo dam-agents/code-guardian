@@ -246,7 +246,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 
 1. Title the session (**Session titles**), then read [monitor.md](monitor.md)
    and report every alert of the worklist in one message — chat UI, plus the
-   escalation DM under Slack. Alerts the pass sent directly are not in it.
+   monitor-owner DM under Slack. Alerts the pass sent directly are not in it.
 2. Acknowledge them with `scripts/monitor.sh ack` **after** the send; never
    repair, re-run or reconfigure in response.
 3. Back up `work/` as the very last action.

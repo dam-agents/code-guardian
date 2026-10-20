@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # monitor-direct.sh — the monitor's direct delivery: the due alerts as one
-# Slack DM to the escalation owner, sent by the monitor's pass itself, with no
-# model in the loop (docs/monitor.md → **Direct delivery**). The one script
-# that sends on its own.
+# Slack DM to the monitor owner (`monitor_owner`, else `escalation_owner`),
+# sent by the monitor's pass itself, with no model in the loop
+# (docs/monitor.md → **Direct delivery**). The one script that sends on its
+# own.
 #
 #   monitor-direct.sh render <alerts.json>   -> {text, ids, skipped, url} — pure
 #   monitor-direct.sh send <alerts.json>     -> {status, ids, reason, attempted}
@@ -116,14 +117,20 @@ text_ok() { # <text> <validated url or empty>
   return 0
 }
 
-# why the opt-in cannot send, or nothing; the escalation owner's id on fd 3
+# why the opt-in cannot send, or nothing; the target's slack id on fd 3.
+# The target: monitor_owner, else escalation_owner (docs/config.md); a set
+# monitor_owner that does not resolve names itself, never falls back silently.
+roster_sid() { # <login> -> that login's roster slack_id, or empty
+  roster_tsv "$WORK/DEVELOPERS.md" | while IFS="$(printf '\t')" read -r l s; do [ "$l" = "$1" ] && printf '%s\n' "$s"; done | head -1
+}
 gate_reason() {
-  local eo sid
+  local mo sid why
   [ "$(cfg monitor_slack_direct)" = enabled ] || { printf 'monitor_slack_direct is not enabled'; return; }
   [ "$(cfg slack_notifications)" = enabled ] || { printf 'slack_notifications is not enabled'; return; }
-  eo="$(cfg escalation_owner)"
-  sid="$(roster_tsv "$WORK/DEVELOPERS.md" | while IFS="$(printf '\t')" read -r l s; do [ "$l" = "$eo" ] && printf '%s\n' "$s"; done | head -1)"
-  if [ -z "$eo" ] || ! printf '%s' "$sid" | grep -Eq "$SLACK_ID_RE"; then printf 'escalation_owner has no roster slack_id'; return; fi
+  mo="$(cfg monitor_owner)"
+  if [ -n "$mo" ]; then why=monitor_owner; else mo="$(cfg escalation_owner)"; why=escalation_owner; fi
+  sid="$(roster_sid "$mo")"
+  if [ -z "$mo" ] || ! printf '%s' "$sid" | grep -Eq "$SLACK_ID_RE"; then printf '%s has no roster slack_id' "$why"; return; fi
   printf '%s' "$sid" >&3
 }
 

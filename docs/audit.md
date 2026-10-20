@@ -146,9 +146,10 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     many received a human review within 48 h? Report the ratio.
 16. **Escalation surface** — list PRs currently `held` at L4 and PRs waiting
     > 7 days despite nudges. These need a human decision, not another nudge.
-17. **Roster integrity** — `escalation_owner` resolves to a roster row with a
-    valid `slack_id` (`^U[A-Z0-9]{6,}$`); count roster members without one
-    (they can never be mentioned).
+17. **Roster integrity** — `escalation_owner`, and `monitor_owner` when set,
+    each resolve to a roster row with a valid `slack_id`
+    (`^U[A-Z0-9]{6,}$`); count roster members without one (they can never be
+    mentioned).
 
 ### E. Artifact pipeline (when `artifact_skill` is configured)
 

@@ -189,6 +189,7 @@ v="$(cfg review_marker)"; [ "$v" = "code-guardian:review" ] || term "$v" review_
 v="$(cfg rereview_label)"; [ "$v" = "code-guardian-review" ] || term "$v" label
 for k in urgent_label auto_merge_label agent_fix_label; do term "$(cfg "$k")" label; done
 term "$(cfg escalation_owner)" escalation_owner
+term "$(cfg monitor_owner)" monitor_owner
 cfg human_review_paths | tr -d '`' | tr ',' '\n' | tr -d '*' | while IFS= read -r p; do
   term "$p" human_review_paths
 done

@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.11.0 — 2026-10-20
+
+**Upgrade:** offer `monitor_owner` ([docs/config.md](docs/config.md) →
+**Monitor**): the roster login the monitor's alert DMs go to when it is not
+the `escalation_owner`. Unset keeps `escalation_owner`; no other step.
+
 ## 9.10.0 — 2026-10-16
 
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`

@@ -415,6 +415,7 @@ ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
 ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/artifact.md)
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
+MONITOR_OWNER="$(cfg monitor_owner)"
 # the monitor's alert keys, echoed in the worklist config — the alerts
 # themselves are scripts/monitor.sh's (docs/monitor.md). A count key that is
 # missing or not a number reads as its documented default, off|none as 0.
@@ -502,7 +503,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg artl "$ARTIFACT_LABEL" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
-  --arg eo "$ESCALATION_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
+  --arg eo "$ESCALATION_OWNER" --arg mo "$MONITOR_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
   --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
@@ -526,7 +527,8 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    artifact_skill:(if $art=="" then "none" else $art end), artifact_label:(if $artl=="" then null else $artl end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
-   escalation_owner:(if $eo=="" then null else $eo end), stall_alert_threshold:$stall, review_anomaly_factor:$raf,
+   escalation_owner:(if $eo=="" then null else $eo end), monitor_owner:(if $mo=="" then null else $mo end),
+   stall_alert_threshold:$stall, review_anomaly_factor:$raf,
    model_alert_threshold:$mat, github_alert_threshold:$gat, classifier_alert_threshold:$cat,
    monitor_slack_direct:(if $msd=="enabled" then "enabled" else "disabled" end),
    health_dashboard:(if $hd=="dam" then "dam" else "off" end),
@@ -2370,6 +2372,7 @@ if [ "$MODE" = "audit" ]; then
   if [ "$SLACK" = "enabled" ]; then
     if [ ! -f "$DEVELOPERS" ]; then check roster fail "slack enabled but work/DEVELOPERS.md missing"
     elif [ -n "$ESCALATION_OWNER" ] && ! grep -q "$ESCALATION_OWNER" "$DEVELOPERS"; then check roster warn "escalation_owner '$ESCALATION_OWNER' not found in the roster"
+    elif [ -n "$MONITOR_OWNER" ] && ! grep -q "$MONITOR_OWNER" "$DEVELOPERS"; then check roster warn "monitor_owner '$MONITOR_OWNER' not found in the roster"
     else check roster ok "roster present, escalation owner listed"; fi
   fi
 
