@@ -869,7 +869,7 @@ printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"i
 jq -nc '[{path:"src/alpha.ts",line:6,side:"RIGHT",body:"🔴 **Critical:** unbounded query\n**Fix:** add a limit"},{path:"src/alpha.ts",line:1,side:"RIGHT",body:"🟡 **Warning:** stale header\n**Fix:** drop it"}]' > "$SANDBOX/comments.json"
 printf '{"id":77,"html_url":"https://example.test/r/77","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
 printf '{"checks":[{"for":"unbounded query","run":"grep -rn query src/","clean":"no hits"}],"deferred":[{"file":"src/beta.ts","line":1,"note":"pre–existing"}]}' > "$SANDBOX/meta.json"
-run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json" --meta "$SANDBOX/meta.json"
+CLAUDECODE=1 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json" --meta "$SANDBOX/meta.json" --model claude-test-1
 assert_jq '.outcome == "posted" and .review_id == 77 and .verdict == "REQUEST_CHANGES"' 'review posted'
 assert_jq '.moved_to_summary | length == 1 and .[0].line == 1 and .[0].reason == "line not in a diff hunk"' 'the comment outside the hunks moved to the summary'
 assert_jq '.label_removed == true and .counts == {critical:1, warning:1, suggestion:0}' 'label removed, counts reported'
@@ -883,6 +883,7 @@ assert_file_contains "$WORK/REVIEW-LEDGER.jsonl" '"findings":\[{"status":"new","
 assert_file_contains "$WORK/reviews/pr-1.md" '### Findings not anchorable inline' 'moved comment carried in the posted body'
 assert_file_contains "$WORK/reviews/pr-1.md" '"file":"src/alpha.ts","line":1,"inline":false' 'findings-json patched for the moved anchor'
 assert_file_contains "$WORK/reviews/pr-1.md" "<!-- cg:review headRefOid=$B1_SHA -->" 'marker line in the posted body'
+assert_file_contains "$WORK/reviews/pr-1.md" '· automated code guardian · `claude-test-1` on Claude Code_$' 'the footer names the model and the harness'
 assert_file_contains "$WORK/reviews/pr-1.md" '<!-- review-meta: {"diff_digest":"[0-9a-f]' 'review-meta carries the digest post computes'
 assert_file_contains "$WORK/reviews/pr-1.md" '"checks":\[{"for":"unbounded query"' 'review-meta carries the checks the agent composed'
 assert_file_contains "$WORK/reviews/pr-1.md" '"deferred":\[{"file":"src/beta.ts"' 'review-meta carries the dropped suggestions'
