@@ -4,8 +4,8 @@ Read on every **monitor run** (the `code-guardian-monitor-15m` schedule,
 ONBOARDING Step 6f). The review heartbeat decides review work only; every
 health alert is the monitor's. `scripts/precheck.sh monitor` runs
 `scripts/monitor.sh` once per fire: local files only — the events log, the
-review usage baseline, the review ledger, the harness settings — no GitHub
-call, no write beyond its own bookkeeping and the technical history
+review usage baseline, the review ledger, the harness settings, the judge
+CLI's sign-in state (`claude auth status`, no model call) — no GitHub call, no write beyond its own bookkeeping and the technical history
 ([health.md](health.md)). Its only outward calls are the opt-in **Direct
 delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 **Publish**). An idle fire starts no session.
