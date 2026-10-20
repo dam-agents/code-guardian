@@ -107,7 +107,7 @@ changes", then end the run the same way.
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
-| `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` | [benchmark.md](benchmark.md) |
+| `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` (`judge_unavailable`: why the judge cannot run, or null) | [benchmark.md](benchmark.md) |
 | `survey_due` | survey mode: the area to read this run, with its history slice | [survey.md](survey.md) |
 | `alerts_due`, `stall_alert`, `review_anomaly`, `direct`, `suppressed` | monitor mode: the alerts to report (each with its `id`), the stall and anomaly alerts, the direct send's result, the count of alerts already sent | [monitor.md](monitor.md) |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |

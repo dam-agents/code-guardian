@@ -146,7 +146,8 @@ catches a labelled defect.
 
 ## Running the benchmark (`action: run`, or operator ask)
 
-The entry carries `fixtures`, `fixture_root`, `judge`, `report` and `last_run`.
+The entry carries `fixtures`, `fixture_root`, `judge`, `judge_unavailable`
+(null, or why this host cannot run the judge), `report` and `last_run`.
 
 **Gate first — never score an unvalidated set:**
 
@@ -300,8 +301,10 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    bash "$HOME/scripts/benchmark-score.sh" rereview "<raw rereview>" "$B/manifest.json"
    ```
 
-6. **Judge** (when `judge` is a model id): one call per raw review, never a
-   subagent — the judge model, harness and rubric stay the same whatever model
+6. **Judge** (when `judge` is a model id and `judge_unavailable` is null —
+   preflight's `benchmark-judge.sh check`; when it carries a reason, make no
+   judge call, keep every phase's `judge` null and report that reason once):
+   one call per raw review, never a subagent — the judge model, harness and rubric stay the same whatever model
    and harness ran the reviews:
 
    ```bash
@@ -312,7 +315,8 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    Write the scorer output to a file first. Copy the printed `judge` into the
    phase's `judge` field verbatim, and its `judge_model_used` into the run
    level. Any status other than `ok` keeps that phase's `judge` null: report
-   the `reason` once in the chat summary and never score in its place. The
+   the `reason` once in the chat summary and never score in its place. After
+   an `unavailable` reply, make no further judge call in this run. The
    rubric lives in
    [`scripts/templates/judge-brief.md`](../scripts/templates/judge-brief.md).
    **Judge scores stay beside the deterministic metrics, never inside them**:

@@ -48,9 +48,12 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
 - **Judge** ([benchmark.md](benchmark.md) → **Phase 2** step 6): no subagent.
   `scripts/benchmark-judge.sh` runs it as one `claude -p` call per raw
   review, outside the phase brackets. It leaves no transcript, so its tokens
-  are not in the phase's tokens. A pi pod needs the `claude` CLI and
-  access to the `benchmark_judge` model; without them the judge stays null
-  and the run keeps its deterministic scores.
+  are not in the phase's tokens. A pi pod needs the `claude` CLI, signed in
+  — the pi session's own credentials do not reach it: the operator runs
+  `claude auth login` once in a pod shell, or gives the pod
+  `ANTHROPIC_API_KEY` — and access to the `benchmark_judge` model. Without
+  them the judge stays null, the run keeps its deterministic scores and the
+  monitor alerts `judge_unavailable`.
 
 ## Skills
 

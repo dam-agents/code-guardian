@@ -31,7 +31,7 @@ NOW_EPOCH=$(date -u +%s)
 
 DIRECT_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
   "heartbeat_gap","harness_drift","backup_failing","classifier_spike","review_post_blocked",
-  "dispatch_refused","github_write_denied","github_identity_changed"]'
+  "dispatch_refused","github_write_denied","github_identity_changed","judge_unavailable"]'
 MAX_ALERTS=10        # alerts in one message; the rest stay for the session
 DAILY_CAP=12         # direct messages in 24 h; past it the session delivers
 MAX_CHARS=3500
@@ -90,6 +90,8 @@ render() { # <alerts.json>
         "**GitHub refused a call** \(.count | int) times in 24 h with HTTP 403 (\(.by_event | counts(word))). Cause: the token has no permission for the call. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session and give the token the missing permission."
       elif .kind == "github_identity_changed" then
         "**GitHub token changed** at \(.changed_at | ts): the token now acts as a different \(.token_kind | word) account. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session."
+      elif .kind == "judge_unavailable" then
+        "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
       elif .kind == "review_post_blocked" then
         "**Review post refused:** the classifier refused the review post of PR #\(.pr | int) at \(.ts | ts). No later post of that PR exists. Do this: post the review again in a session, or add the missing auto-mode rule."
       else error("kind") end;

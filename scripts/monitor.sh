@@ -220,6 +220,21 @@ if { [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ]; } || [ -d "$
   else CLEARED="$CLEARED harness_drift"; fi
 fi
 
+# --------------------------------------------------- benchmark judge ----
+# a configured judge this host cannot run (benchmark-judge.sh check — local,
+# no model call): every benchmark run until the fix scores without the judge.
+# `cause` is one word for the fixed templates; signing the CLI in clears it.
+JUDGE_MODEL="$(cfg benchmark_judge)"
+if [ "$(cfg benchmark)" = enabled ] && [ -n "$JUDGE_MODEL" ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
+  if JUDGE_WHY="$(bash "$SCRIPT_DIR/benchmark-judge.sh" check "$JUDGE_MODEL" 2>/dev/null)"; then
+    CLEARED="$CLEARED judge_unavailable"
+  else
+    case "$JUDGE_WHY" in ("no '"*) JUDGE_CAUSE=no_cli;; (*) JUDGE_CAUSE=not_signed_in;; esac
+    cand "$(jq -nc --arg m "$JUDGE_MODEL" --arg c "$JUDGE_CAUSE" --arg r "$JUDGE_WHY" \
+      '{id: "judge:\($m)", kind: "judge_unavailable", model: $m, cause: $c, reason: $r}')"
+  fi
+else CLEARED="$CLEARED judge_unavailable"; fi
+
 # --------------------------------------------------- review heartbeat ----
 # The review gate logs every tick (precheck or heartbeat event, job review).
 # Silence past 1.5x the quiet interval (at least an hour) means the schedule

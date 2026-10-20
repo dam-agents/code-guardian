@@ -4,6 +4,14 @@
 #
 #   benchmark-judge.sh <first|rereview> <judge-model> <raw-review> <manifest.json> \
 #                      <scorer.json> [<prior-review.md>]
+#   benchmark-judge.sh check <judge-model>
+#
+# `check` makes no model call: it prints nothing and exits 0 when this host
+# can run the judge, else one line with the reason and exits 1. Preflight's
+# benchmark pass and the monitor run it (docs/benchmark.md, docs/monitor.md →
+# `judge_unavailable`). The CLI counts as signed in when `claude auth status`
+# says so, or when the environment carries its credentials — `auth status`
+# reports a gateway token (ANTHROPIC_AUTH_TOKEN) as signed out.
 #
 # Prints one JSON object and exits 0 whatever the judge did:
 #
@@ -39,7 +47,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRIEF="$SCRIPT_DIR/templates/judge-brief.md"
 
 KIND="${1:-}"; MODEL="${2:-}"; REVIEW="${3:-}"; MANIFEST="${4:-}"; SCORER="${5:-}"; PRIOR="${6:-}"
-usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n' >&2; exit 2; }
+usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n       benchmark-judge.sh check <judge-model>\n' >&2; exit 2; }
+CLI="${CG_JUDGE_CLI:-claude}"
+NOT_SIGNED_IN="the '$CLI' CLI on this host is not signed in: run \`claude auth login\` on the host once, or set ANTHROPIC_API_KEY"
+
+if [ "$KIND" = check ]; then
+  [ -n "$MODEL" ] || usage
+  case "$MODEL" in (off|none|null) exit 0;; esac
+  command -v "$CLI" >/dev/null 2>&1 || { printf "no '%s' CLI on this host\n" "$CLI"; exit 1; }
+  [ -n "${ANTHROPIC_API_KEY:-}${ANTHROPIC_AUTH_TOKEN:-}${CLAUDE_CODE_OAUTH_TOKEN:-}${CLAUDE_CODE_USE_BEDROCK:-}${CLAUDE_CODE_USE_VERTEX:-}${CLAUDE_CODE_USE_FOUNDRY:-}" ] && exit 0
+  TO=(); command -v timeout >/dev/null 2>&1 && TO=(timeout 20)
+  ${TO[@]+"${TO[@]}"} "$CLI" auth status 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1 && exit 0
+  printf '%s\n' "$NOT_SIGNED_IN"; exit 1
+fi
+
 case "$KIND" in (first|rereview) ;; (*) usage;; esac
 [ -n "$MODEL" ] && [ -r "$REVIEW" ] && [ -r "$MANIFEST" ] && [ -r "$SCORER" ] || usage
 [ "$KIND" = first ] || [ -r "$PRIOR" ] || usage
@@ -52,7 +73,6 @@ out() { # <status> <judge json> <model or empty> <tokens json> <reason or empty>
 }
 
 case "$MODEL" in (off|none|null) out off null "" null "benchmark_judge is off";; esac
-CLI="${CG_JUDGE_CLI:-claude}"
 command -v "$CLI" >/dev/null 2>&1 || out unavailable null "" null "no '$CLI' CLI on this host"
 [ -r "$BRIEF" ] || out failed null "" null "judge brief missing: $BRIEF"
 
@@ -101,6 +121,9 @@ TOKENS="$(jq -c '.usage | if type == "object" then
   else null end' "$TMP/reply.json" 2>/dev/null)"
 TOKENS="${TOKENS:-null}"
 
+if jq -e '.is_error == true and (.result // "" | tostring | test("^Not logged in"))' "$TMP/reply.json" >/dev/null 2>&1; then
+  out unavailable null "" "$TOKENS" "$NOT_SIGNED_IN"
+fi
 if jq -e '.is_error == true' "$TMP/reply.json" >/dev/null 2>&1; then
   out failed null "" "$TOKENS" "judge CLI error: $(jq -r '.result // "" | tostring | .[0:200]' "$TMP/reply.json")"
 fi

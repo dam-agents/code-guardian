@@ -65,6 +65,33 @@ assert_jq '.status == "ok" and .judge.loop_risk == 5' 'loop_risk kept'
 OUT="$(cat "$SANDBOX/cli/stdin")"
 assert_out_contains '^## PRIOR REVIEW' 'prior review reaches the judge'
 
+new_case judge_not_signed_in_is_unavailable
+seed_cli '{"type":"result","is_error":true,"result":"Not logged in · Please run /login","usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{}}'
+run_first claude-opus-5
+assert_jq '.status == "unavailable" and .judge == null' 'a signed-out CLI is unavailable, not failed'
+assert_jq '.reason | test("not signed in") and test("claude auth login")' 'the reason names the operator action'
+
+new_case judge_check_reports_readiness
+seed_cli '{}'
+cat > "$SANDBOX/cli/claude" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2" = "auth status" ] && printf '{"loggedIn": %s}\n' "${FAKE_LOGGED_IN:-false}"
+STUB
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+RC=0; OUT="$(bash "$JUDGE" check claude-opus-5)" || RC=$?
+assert_rc 1 'signed out: exit 1'
+assert_out_contains 'not signed in' 'signed out: one reason line'
+RC=0; OUT="$(FAKE_LOGGED_IN=true bash "$JUDGE" check claude-opus-5)" || RC=$?
+assert_rc 0 'signed in: exit 0'
+assert_out_absent '.' 'signed in: no output'
+RC=0; OUT="$(ANTHROPIC_API_KEY=k bash "$JUDGE" check claude-opus-5)" || RC=$?
+assert_rc 0 'an API key in the environment is enough'
+RC=0; OUT="$(bash "$JUDGE" check off)" || RC=$?
+assert_rc 0 'judge off: nothing to check'
+RC=0; OUT="$(CG_JUDGE_CLI="$SANDBOX/none" bash "$JUDGE" check claude-opus-5)" || RC=$?
+assert_rc 1 'no CLI: exit 1'
+assert_out_contains "no '.*' CLI" 'no CLI: named'
+
 new_case judge_wrong_model_is_a_mismatch
 seed_cli "$(reply claude-opus-5-5 "$SIX")"
 run_first claude-opus-5

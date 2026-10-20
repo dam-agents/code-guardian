@@ -11,6 +11,15 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.11.0 — 2026-10-20
+
+**Upgrade:** Nothing to run. With `benchmark: enabled` and `benchmark_judge`
+set, run `bash "$HOME/scripts/benchmark-judge.sh" check "<benchmark_judge>"`
+once: when it prints a reason, tell the operator in one line — the `claude`
+CLI on the host must be signed in (`claude auth login` once, or
+`ANTHROPIC_API_KEY`) before the judge can score. From now on the monitor
+alerts `judge_unavailable` while that is so.
+
 ## 9.10.0 — 2026-10-16
 
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`
