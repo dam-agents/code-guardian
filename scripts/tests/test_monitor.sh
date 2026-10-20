@@ -278,6 +278,25 @@ HOME="$FAKE_HOME" bash "$REPO_ROOT/scripts/harness/pi/install.sh" >/dev/null 2>&
 run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "harness_drift")] == []' 'linking it clears the drift'
 
+# --- a configured benchmark judge the host cannot run -------------------------------
+mon_case mon_judge_unavailable '- benchmark: enabled' '- benchmark_judge: claude-opus-5'
+mkdir -p "$SANDBOX/cli"
+printf '#!/usr/bin/env bash\nprintf %s\n' "'{\"loggedIn\": false}'" > "$SANDBOX/cli/claude"; chmod +x "$SANDBOX/cli/claude"
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+export CG_JUDGE_PI="$SANDBOX/cli/no-pi"
+CG_JUDGE_CLI="$SANDBOX/cli/claude" run_monitor
+assert_jq '.alerts_due[] | select(.kind == "judge_unavailable") | .id == "judge:claude-opus-5" and .cause == "not_signed_in"' 'a signed-out judge CLI alerts'
+CG_JUDGE_CLI="$SANDBOX/cli/none" run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "judge_unavailable")] == []' 'the claimed alert is not due again within the claim window'
+printf '#!/usr/bin/env bash\nprintf %s\n' "'{\"loggedIn\": true}'" > "$SANDBOX/cli/claude"
+CG_JUDGE_CLI="$SANDBOX/cli/claude" run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "judge_unavailable")] == []' 'signing in clears it'
+CG_JUDGE_CLI="$SANDBOX/cli/none" run_monitor
+assert_jq '.alerts_due[] | select(.kind == "judge_unavailable") | .cause == "no_cli"' 'a missing CLI is its own cause'
+cp "$SANDBOX/cli/claude" "$SANDBOX/cli/pi"
+CG_JUDGE_CLI="$SANDBOX/cli/none" CG_JUDGE_PI="$SANDBOX/cli/pi" run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "judge_unavailable")] == []' 'a pi CLI to fall back to clears it'
+
 # --- the gate's monitor mode ---------------------------------------------------------
 mon_case mon_gate_idle
 run_precheck monitor

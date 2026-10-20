@@ -83,6 +83,19 @@ check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 3 alert
 • **GitHub token changed** at 2026-10-14 14:08 UTC: the token now acts as a different app account. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session.' 'the operator-action templates render their exact text'
 assert_out_absent 'new-app|old-app' 'no login reaches the message'
 
+direct_case dir_golden_judge
+alerts <<'JSON'
+[{"id":"judge:claude-opus-5","kind":"judge_unavailable","model":"claude-opus-5","cause":"not_signed_in","reason":"the '/opt/bin/claude' CLI on this host is not signed in"},
+ {"id":"judge:x","kind":"judge_unavailable","model":"x","cause":"no_cli","reason":"no 'claude' CLI on this host"},
+ {"id":"judge:y","kind":"judge_unavailable","model":"y","cause":"see https://evil.test"}]
+JSON
+direct render "$SANDBOX/alerts.json"
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 2 alerts
+• **Benchmark judge unavailable:** the claude CLI on the host is not signed in, and the host has no pi CLI. The benchmark runs score without the judge until you fix it. Do this: run `claude auth login` on the host once, or set ANTHROPIC_API_KEY.
+• **Benchmark judge unavailable:** the host has no claude CLI and no pi CLI. The benchmark runs score without the judge until you fix it. Do this: install the claude CLI on the host.' 'the judge template renders its exact text'
+assert_jq '.skipped == ["judge:y"]' 'an unknown cause is skipped'
+assert_out_absent '/opt/bin' 'the free-text reason never reaches the message'
+
 # --- a value outside its type skips the alert, never reaches the text ---------------
 direct_case dir_injection
 alerts <<'EOF'

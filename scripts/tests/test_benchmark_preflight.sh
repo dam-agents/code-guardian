@@ -48,15 +48,42 @@ run_preflight benchmark
 assert_jq '.benchmark_due.action == "create_fixture"' 'an incomplete set asks for a top-up'
 assert_jq '.benchmark_due.existing | length == 3' 'manifest-less directories are not counted'
 
+# fake claude for the judge check: `auth status` says what $FAKE_AUTH says
+seed_judge_cli() { # <true|false>
+  mkdir -p "$SANDBOX/cli"
+  printf '#!/usr/bin/env bash\nprintf %s\n' "'{\"loggedIn\": $1}'" > "$SANDBOX/cli/claude"
+  chmod +x "$SANDBOX/cli/claude"
+  export CG_JUDGE_CLI="$SANDBOX/cli/claude" CG_JUDGE_PI="$SANDBOX/cli/no-pi"
+  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+}
+
 new_case benchmark_run_due
 base_config '- benchmark: enabled' '- benchmark_judge: pinned-judge-model' '- benchmark_report: off'
 seed_full_set
+seed_judge_cli true
 run_preflight benchmark
+assert_jq '.benchmark_due.judge_unavailable == null' 'a signed-in judge CLI is ready'
 assert_jq '.benchmark_due.action == "run"' 'a full set makes a run due'
 assert_jq '.benchmark_due.fixtures | length == 5' 'all five fixtures are carried'
 assert_jq '.benchmark_due.judge == "pinned-judge-model"' 'judge key is carried'
 assert_jq '.benchmark_due.report == "off"' 'the report surface is carried'
 assert_jq '.benchmark_due.last_run == null' 'no prior run recorded'
+
+new_case benchmark_judge_not_signed_in
+base_config '- benchmark: enabled' '- benchmark_judge: pinned-judge-model'
+seed_full_set
+seed_judge_cli false
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run" and .benchmark_due.judge == "pinned-judge-model"' 'the run stays due, the judge key stays'
+assert_jq '.benchmark_due.judge_unavailable | test("not signed in")' 'the run knows before it starts that the judge cannot answer'
+assert_jq '.logs | any(contains("benchmark judge unavailable"))' 'the reason is logged'
+ANTHROPIC_AUTH_TOKEN=gateway-token run_preflight benchmark
+assert_jq '.benchmark_due.judge_unavailable == null' 'a gateway token in the environment counts as signed in'
+CG_JUDGE_CLI="$SANDBOX/cli/none" run_preflight benchmark
+assert_jq '.benchmark_due.judge_unavailable | test("no .* CLI")' 'a missing CLI is named'
+cp "$SANDBOX/cli/claude" "$SANDBOX/cli/pi"
+CG_JUDGE_PI="$SANDBOX/cli/pi" run_preflight benchmark
+assert_jq '.benchmark_due.judge_unavailable == null' 'a pi CLI to fall back to makes the judge ready'
 
 new_case benchmark_defaults
 base_config '- benchmark: enabled'

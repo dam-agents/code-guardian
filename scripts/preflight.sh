@@ -303,9 +303,14 @@ if [ "$MODE" = "benchmark" ]; then
     fi
   fi
   log "benchmark run due on $BENCH_COUNT fixture(s) (last scheduled run: ${LAST_TS:-never})"
+  # a judge this host cannot run is known before the run: the run makes no
+  # judge call and reports the reason once (docs/benchmark.md, phase 2 step 6)
+  BENCH_JUDGE_WHY="$(bash "$SCRIPT_DIR/benchmark-judge.sh" check "$BENCH_JUDGE" 2>/dev/null)" \
+    || { BENCH_JUDGE_WHY="${BENCH_JUDGE_WHY:-the judge check failed}"; log "benchmark judge unavailable — $BENCH_JUDGE_WHY"; }
   local_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
-    --arg j "$BENCH_JUDGE" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
-    '{action:"run", fixtures:$f, fixture_root:$r, judge:$j, report:$rep,
+    --arg j "$BENCH_JUDGE" --arg ju "$BENCH_JUDGE_WHY" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
+    '{action:"run", fixtures:$f, fixture_root:$r, judge:$j,
+      judge_unavailable:(if $ju == "" then null else $ju end), report:$rep,
       last_run:(if $l == "" then null else $l end)}')"
 fi
 

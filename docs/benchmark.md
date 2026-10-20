@@ -146,7 +146,8 @@ catches a labelled defect.
 
 ## Running the benchmark (`action: run`, or operator ask)
 
-The entry carries `fixtures`, `fixture_root`, `judge`, `report` and `last_run`.
+The entry carries `fixtures`, `fixture_root`, `judge`, `judge_unavailable`
+(null, or why this host cannot run the judge), `report` and `last_run`.
 
 **Gate first — never score an unvalidated set:**
 
@@ -300,9 +301,13 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    bash "$HOME/scripts/benchmark-score.sh" rereview "<raw rereview>" "$B/manifest.json"
    ```
 
-6. **Judge** (when `judge` is a model id): one call per raw review, never a
-   subagent — the judge model, harness and rubric stay the same whatever model
-   and harness ran the reviews:
+6. **Judge** (when `judge` is a model id and `judge_unavailable` is null —
+   preflight's `benchmark-judge.sh check`; when it carries a reason, make no
+   judge call, keep every phase's `judge` null and report that reason once):
+   one call per raw review, never a subagent — the judge model and rubric stay
+   the same whatever model and harness ran the reviews. The call is
+   `claude -p`; where that CLI is missing or not signed in, it is `pi` on the
+   same pinned model, through the host's pi provider:
 
    ```bash
    bash "$HOME/scripts/benchmark-judge.sh" first    "<judge>" "<raw first>"    "$B/manifest.json" "<first scorer json>"
@@ -310,9 +315,10 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    ```
 
    Write the scorer output to a file first. Copy the printed `judge` into the
-   phase's `judge` field verbatim, and its `judge_model_used` into the run
-   level. Any status other than `ok` keeps that phase's `judge` null: report
-   the `reason` once in the chat summary and never score in its place. The
+   phase's `judge` field verbatim, and its `judge_model_used` and
+   `judge_harness` into the run level. Any status other than `ok` keeps that phase's `judge` null: report
+   the `reason` once in the chat summary and never score in its place. After
+   an `unavailable` reply, make no further judge call in this run. The
    rubric lives in
    [`scripts/templates/judge-brief.md`](../scripts/templates/judge-brief.md).
    **Judge scores stay beside the deterministic metrics, never inside them**:
@@ -383,6 +389,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 ```json
 {"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
  "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
+ "judge_harness": "<claude|pi or null>",
  "definition_version": "...", "prev_version": "...", "changes_since_prev": [],
  "harness_version": "...", "effort": "<low|medium|high|xhigh|max|unknown>",
  "memory_sha": "...", "skill_sources": {},
@@ -401,7 +408,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
 `judge_model_used` is the `judge_model_used` that `benchmark-judge.sh` printed
 — the model that answered, from the judge CLI's own usage record — or null
-when no call answered `ok`. The report shows judge scores only for a run
+when no call answered `ok`; `judge_harness` is the CLI that answered. The report shows judge scores only for a run
 whose `judge_model_used` the pinned `judge` matches.
 
 `model` is the **exact model id** of the session as the harness names it; when
