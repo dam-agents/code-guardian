@@ -11,6 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 9.10.1 — 2026-10-20
+
+**Upgrade:** Nothing — docs are re-read per run, and pi loads the linked
+extension anew in each session.
+
 ## 9.10.0 — 2026-10-16
 
 **Upgrade:** Link the pi extension: `bash "$HOME/scripts/harness/pi/install.sh"`

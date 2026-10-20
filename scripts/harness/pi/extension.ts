@@ -75,7 +75,7 @@ function spawnBash(args: string[], payload: string | undefined, sid: string): Pr
 	});
 }
 
-async function run(script: string, payload: { session_id: string }): Promise<Result> {
+async function run(script: string, payload: { session_id: string; [field: string]: unknown }): Promise<Result> {
 	const r = await spawnBash([join(HOOKS, script)], JSON.stringify(payload), payload.session_id);
 	if (r.failed) {
 		const msg = `${script} ${r.failed} — the call went through unchecked (fail open)`;
@@ -96,8 +96,8 @@ function text(content: unknown): string {
 		.join("");
 }
 
-// the error class log-api-failure.sh records, from the provider's message
-// (Claude Code's StopFailure classes, docs/monitor.md)
+// the error class log-api-failure.sh records, from the provider's message —
+// one of docs/monitor.md → The `api_failure` classes (test_monitor.sh compares)
 function errorClass(message: string): string {
 	const m = message.toLowerCase();
 	if (/\b429\b|rate.?limit|too many requests/.test(m)) return "rate_limit";
@@ -105,6 +105,8 @@ function errorClass(message: string): string {
 	if (/max.?output.?tokens|output token limit/.test(m)) return "max_output_tokens";
 	// a cloud provider's credentials (Bedrock, Vertex) before a plain 401/403
 	if (/credential|security token|expiredtoken|signature.*(expired|invalid)/.test(m)) return "cloud_credential_error";
+	if (/oauth.*not allowed|organi[sz]ation.*not allowed/.test(m)) return "oauth_org_not_allowed";
+	if (/account.*(on hold|suspended|disabled)/.test(m)) return "account_on_hold";
 	if (/\b401\b|\b403\b|unauthori[sz]ed|authentication|forbidden/.test(m)) return "authentication_failed";
 	if (/billing|quota|credit|budget/.test(m)) return "billing_error";
 	if (/model.*(not found|unknown|unsupported)|\b404\b/.test(m)) return "model_not_found";

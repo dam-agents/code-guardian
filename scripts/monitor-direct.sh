@@ -55,7 +55,7 @@ render() { # <alerts.json>
     def counts(f): if type == "object" and length > 0 then to_entries | sort_by(-.value) | .[0:5]
                      | map("\(.key | f) \(.value | int)") | join(", ") else error("counts") end;
     def top: if type == "object" then to_entries | max_by(.value) | .key | word else error("top") end;
-    def model_hint: if IN("authentication_failed", "cloud_credential_error") then "the credentials. The operator must fix them"
+    def model_hint: if IN("authentication_failed", "cloud_credential_error", "oauth_org_not_allowed", "account_on_hold") then "the credentials or the account. The operator must fix them"
                     elif IN("rate_limit", "billing_error") then "the quota or the budget"
                     else "the model provider or the gateway" end;
     def gh_hint: if . == "auth" then "the GitHub token is not valid. The operator must replace it"

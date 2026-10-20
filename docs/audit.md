@@ -386,8 +386,9 @@ measurement.
     pattern whose rule already shipped but whose `harness_adapter` check names
     `automode-rules` is an install that was not re-run. Per outage: start,
     length, runs lost, the classes; two or more outages a week, or an
-    `authentication_failed` / `cloud_credential_error` class, is **Action
-    needed** (operator-only).
+    `authentication_failed` / `cloud_credential_error` /
+    `oauth_org_not_allowed` / `account_on_hold` class, is **Action needed**
+    (operator-only).
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):

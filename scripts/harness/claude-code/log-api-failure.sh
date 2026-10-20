@@ -6,8 +6,8 @@
 #
 #   level=error, event=api_failure, msg="<error>: <error_details>"
 #
-# <error> is the harness's class (server_error, overloaded, rate_limit,
-# authentication_failed, billing_error, model_not_found, …). The monitor turns
+# <error> is the harness's class, one of docs/monitor.md → The `api_failure`
+# classes (the pi adapter maps onto the same list). The monitor turns
 # a cluster of them into the model-unavailable alert (docs/monitor.md).
 #
 # No-op unless a deployed instance's work/CONFIG.md exists. Always exits 0.

@@ -190,7 +190,8 @@ image, the harness, an external service — instead of fixing it at its source:
 
 ## 9. Validate before opening the PR
 
-- `bash -n` every changed script; run the deterministic stub tests (offline,
+- `bash -n` every changed script (CI's `typescript` job type-checks
+  `scripts/harness/pi/extension.ts`); run the deterministic stub tests (offline,
   gh/curl faked) **for the change only**: `bash scripts/tests/run.sh <file…>`
   with every test file that names a changed file, script or doc
   (`grep -l <file-name> scripts/tests/test_*.sh`; a change to `helpers.sh`
