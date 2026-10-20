@@ -790,7 +790,7 @@ health alerts of `docs/monitor.md`. Create
 `precheck: bash "$HOME/scripts/precheck.sh" monitor`,
 `sessionTitle: Report agent alerts`, `task`:
 
-> Agent monitor. The precheck already ran scripts/monitor.sh and found alerts due: read the worklist JSON at the path its output names, and never run monitor.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of the worklist in one message (chat UI, plus the escalation DM when slack_notifications is enabled), acknowledge them with `scripts/monitor.sh ack <ids>` only after the send, never repair or re-run anything in response, and back up work/ (`scripts/work-backup.sh persist`).
+> Agent monitor. The precheck already ran scripts/monitor.sh and found alerts due: read the worklist JSON at the path its output names, and never run monitor.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of the worklist in one message (chat UI, plus the monitor-owner DM when slack_notifications is enabled), acknowledge them with `scripts/monitor.sh ack <ids>` only after the send, never repair or re-run anything in response, and back up work/ (`scripts/work-backup.sh persist`).
 
 ## Step 7 — Record the version, write the sentinel, verify, report
 
