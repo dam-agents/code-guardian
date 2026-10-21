@@ -322,7 +322,9 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 - **One file, no network**: inline `<style>` only; no `<script>` of your own
   (the vetted one is added for you), no `on…=` event attributes, no
   `<iframe>`, `<object>`, `<embed>`, `<form>`, `<link>`, `<foreignObject>`,
-  remote fonts or images, no `url(http…)`.
+  SVG animation, remote fonts or images. CSS names no address, uses no
+  backslash escape, no `@import` and no `image-set()`; `url(#id)` is the only
+  `url()`.
 - **Links** go only to the PR's own repository on its host —
   `https://<host>/<owner>/<repo>/blob/<head-sha>/<path>#L<a>-L<b>`,
   `…/commit/<sha>`, `…/pull/<n>/files`, `…/issues/<n>` — or to `#anchors` in

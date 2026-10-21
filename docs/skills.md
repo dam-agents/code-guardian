@@ -188,9 +188,12 @@ sections.
   not needed).
 - **Collect.** `review-pr.sh collect` redacts a built page
   (`scripts/lib/redact.sh`) and then checks it: one file under
-  `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form or `<link>`,
-  no remote or `data:` load, and every `href`/`src` either an `#anchor` or a
-  URL under `https://<repo-host>/<owner>/<repo>/`. A page that fails is
+  `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form, `<link>`
+  or SVG animation, no remote or `data:` load, no address, escape or import
+  in its CSS, no `xml:base`, and every URL attribute (`href`, `src`,
+  `srcset`, `background`, `ping` and the rest) either an `#anchor` or a URL
+  under `https://<repo-host>/<owner>/<repo>/`. The check reads the page with
+  every run of whitespace folded, so a tag split across lines is one unit. A page that fails is
   `refused`, with the reason as a form warning; it does not publish. A page
   that passes gets the skill's vetted `assets/guide.js` inserted before
   `</body>` (`skills.<skill>.interactive`): the level bar, per-section zoom, a

@@ -380,14 +380,22 @@ markup_refusal() { # <file> <max bytes> <html|svg>
   printf '%s' "$flat" | grep -qiE '(^|[ /"'"$sq"'])on[a-z]+ ?=' && { printf 'an event handler attribute'; return; }
   printf '%s' "$flat" | grep -qiE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
   printf '%s' "$flat" | grep -qiE '(url\( ?["'"$sq"']?|@import ?["'"$sq"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
+  printf '%s' "$flat" | grep -qiE 'url\( ?["'"$sq"']?[^)"'"$sq"']*\\' && { printf 'an escape inside a CSS url()'; return; }
+  # the CSS a page carries — <style> blocks and style attributes — names no
+  # address at all, escapes nothing and loads no image set: a CSS escape or
+  # an image-set() can load a remote file past every pattern above
+  printf '%s' "$flat" | grep -oiE '<style[^>]*>[^<]*|(^|[ /"'"$sq"'])style ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"')' \
+    | grep -qiE 'https?:|//|data:|\\|image-set|@import|expression\(' && { printf 'an address, an escape or an import in CSS'; return; }
+  printf '%s' "$flat" | grep -qiE '(^|[ /"'"$sq"'])xml:base ?=' && { printf 'an xml:base attribute'; return; }
   while IFS= read -r v; do
     [ -n "$v" ] || continue
     v="$(printf '%s' "$v" | sed -E 's/^[^=]*= ?//; s/^["'"$sq"']//; s/["'"$sq"']$//')"
     case "$v" in
+      (*' '*|*,*) printf 'a link value with a space or a comma: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
       ('#'*|"https://$REPO_HOST/$REPO/"*) ;;
       (*) printf 'a link outside the PR repository: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
     esac
-  done <<< "$(printf '%s' "$flat" | grep -oiE '(^|[ /"'"$sq"'])(href|src|xlink:href|action|formaction|poster|srcset) ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"'|[^ >]+)')"
+  done <<< "$(printf '%s' "$flat" | grep -oiE '(^|[ /"'"$sq"'])(href|src|xlink:href|action|formaction|poster|srcset|background|ping|cite|longdesc|lowsrc|dynsrc|manifest|icon|codebase|archive|classid|usemap|imagesrcset) ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"'|[^ >]+)')"
 }
 guide_refusal() { markup_refusal "$1" "$GUIDE_MAX_BYTES" html; }   # <html file>
 
@@ -1386,8 +1394,26 @@ guide_script() { # <skill> <html file>
     (*'</body>'*) pre="${page%</body>*}"; post="</body>${page##*</body>}";;
     (*) pre="$page"; post="";;
   esac
-  { printf '%s<script>\n' "$pre"; cat "$js"; printf '</script>\n%s\n' "$post"; } > "$2.js" && mv "$2.js" "$2" \
+  { printf '%s<script data-cg-guide>\n' "$pre"; cat "$js"; printf '</script>\n%s\n' "$post"; } > "$2.js" && mv "$2.js" "$2" \
     && echo true || { rm -f "$2.js"; echo false; }
+}
+
+# The page without the script guide_script inserted — the marked block, or the
+# unmarked one of an earlier version — so the whole page can be checked again.
+strip_guide_script() { # <html file>
+  local page pre post
+  page="$(cat "$1")" || return 1
+  while :; do
+    case "$page" in
+      (*'<script data-cg-guide>'*'</script>'*)
+        pre="${page%%<script data-cg-guide>*}"; post="${page#*<script data-cg-guide>}"; post="${post#*</script>}";;
+      (*'<script>'$'\n''/* review-guide interactions'*'</script>'*)
+        pre="${page%%<script>$'\n'/\* review-guide interactions*}"; post="${page#*<script>$'\n'/\* review-guide interactions}"; post="${post#*</script>}";;
+      (*) break;;
+    esac
+    page="$pre$post"
+  done
+  printf '%s\n' "$page" > "$1.s" && mv "$1.s" "$1"
 }
 
 # One guide skill's output (docs/skills.md → Guide skills): its line says
@@ -2392,10 +2418,11 @@ cmd_verify() {
 findings_block() { # <findings file> <head sha>
   jq -r --arg base "https://$REPO_HOST/$REPO/blob/$2/" '
     def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;");
-    def link: if (.file // "") == "" then "" else
+    def num: (.line | type) == "number" and .line >= 1;
+    def link: if (.file // "") == "" or (.file | type) != "string" then "" else
       "<a href=\"" + $base + (.file | split("/") | map(@uri) | join("/"))
-      + (if .line then "#L\(.line)" else "" end) + "\">"
-      + ((.file + (if .line then ":\(.line)" else "" end)) | esc) + "</a>" end;
+      + (if num then "#L\(.line | floor)" else "" end) + "\">"
+      + ((.file + (if num then ":\(.line | floor)" else "" end)) | esc) + "</a>" end;
     [ .[] | select((.status // "new") != "fixed") ] as $open
     | [ $open[] | select(.severity == "critical" or .severity == "warning") ]
       | sort_by(if .severity == "critical" then 0 else 1 end) as $b
@@ -2439,7 +2466,7 @@ render_findings() { # <html> <findings file> <head sha>
 # the next round's update and for the prune.
 cmd_guide() {
   need_ctx
-  local id="" url="" skipped="" findings="" kept=false s sha7 f red tmp page store
+  local id="" url="" skipped="" findings="" kept=false s sha7 f red tmp page store why js
   while [ $# -gt 0 ]; do
     case "$1" in
       (--id) id="${2:-}"; shift 2;; (--url) url="${2:-}"; shift 2;;
@@ -2457,10 +2484,17 @@ cmd_guide() {
     else page="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"; fi
     [ -s "$page" ] || fail "no page to render into: $([ "$kept" = true ] && printf 'no stored copy of the published guide' || printf 'the guide was not built')"
     if [ "$kept" = true ]; then cp "$store" "$CTX/guide.kept.html" || fail "the stored copy was not readable"; page="$CTX/guide.kept.html"; fi
+    # the findings text is model output too: the whole page is checked again
+    # after the render, with the vetted script out, and the script goes back in
+    strip_guide_script "$page" || fail "the page was not readable"
     render_findings "$page" "$findings" "$(ctx_get '.head_sha')" || fail "the findings block was not rendered into the page"
+    why="$(guide_refusal "$page")"
+    [ -z "$why" ] || { logev warn guide "PR #$N: $s page refused after the findings render — $why"; fail "the page with its findings does not pass the check: $why"; }
+    js="$(guide_script "$s" "$page")"
     printf '%s\n' "$page" > "$CTX/guide.page"
-    out "$(jq -nc --arg h "$page" --argjson b "$(jq '[.[] | select((.status // "new") != "fixed") | select(.severity == "critical" or .severity == "warning")] | length' "$findings")" \
-      '{outcome:"rendered", html:$h, blocking:$b}')"
+    out "$(jq -nc --arg h "$page" --argjson i "$([ "$js" = true ] && echo true || echo false)" \
+      --argjson b "$(jq '[.[] | select((.status // "new") != "fixed") | select(.severity == "critical" or .severity == "warning")] | length' "$findings")" \
+      '{outcome:"rendered", html:$h, blocking:$b, interactive:$i}')"
   fi
   if [ -n "$skipped" ]; then
     case "$skipped" in (dam-unavailable|skill-errored) ;; (*) fail "--skipped takes dam-unavailable or skill-errored";; esac

@@ -126,9 +126,12 @@ this PR's paths, id and line:
 2. **Findings** — `review-pr.sh guide <n> --findings <findings file>`, the
    file `post` takes: the script renders the review's open blocking findings
    into the page as **Verified by the review** — escaped, each linked to its
-   line at the head SHA, suggestions only counted — at the template's
-   `<!-- cg:findings -->` mark, in place of an earlier block. The model never
-   writes this block, so the page shows exactly what the review verified.
+   line at the head SHA (a `#L` fragment only for a numeric line),
+   suggestions only counted — at the template's `<!-- cg:findings -->` mark,
+   in place of an earlier block. The model never writes this block, so the
+   page shows exactly what the review verified. The findings text is model
+   output too, so the command then takes the vetted script out, checks the
+   whole page again, and puts the script back; a page that fails is refused.
 3. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction

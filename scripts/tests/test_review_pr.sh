@@ -2039,7 +2039,7 @@ assert_jq '.skills["review-guide"].guide == "built" and .skills["review-guide"].
 assert_file_lacks "$(GUIDE_HTML)" 'ghp_abcdefghij' 'the token is masked in the page'
 assert_jq '.form_warnings == []' 'an accepted page warns nothing'
 assert_jq '.skills["review-guide"].interactive == true' 'an accepted page gets the vetted script'
-[ "$(grep -c '<script>' "$(GUIDE_HTML)")" = 1 ] && grep -q 'review-guide interactions' "$(GUIDE_HTML)" \
+[ "$(grep -c '<script data-cg-guide>' "$(GUIDE_HTML)")" = 1 ] && grep -q 'review-guide interactions' "$(GUIDE_HTML)" \
   && [ "$(tail -2 "$(GUIDE_HTML)" | tr -d '\n')" = '</script></body></html>' ] \
   && printf 'ok   %s: one script, the vetted file, right before </body>\n' "$CASE" \
   || { printf 'FAIL %s: script insertion wrong: %s\n' "$CASE" "$(tail -3 "$(GUIDE_HTML)" | tr '\n' '|')"; FAILED=1; }
@@ -2071,6 +2071,16 @@ assert_file_lacks "$(GUIDE_HTML)" '<script>alert' 'no script from a finding reac
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
 [ "$(grep -c 'cg:findings:start' "$(GUIDE_HTML)")" = 1 ] && printf 'ok   %s: a second render replaces the block\n' "$CASE" \
   || { printf 'FAIL %s: findings block duplicated\n' "$CASE"; FAILED=1; }
+[ "$(grep -c '<script data-cg-guide>' "$(GUIDE_HTML)")" = 1 ] && printf 'ok   %s: a render keeps one vetted script\n' "$CASE" \
+  || { printf 'FAIL %s: script count after render: %s\n' "$CASE" "$(grep -c '<script' "$(GUIDE_HTML)")"; FAILED=1; }
+assert_jq '.interactive == true' 'the script goes back in after the check'
+# a line value is model output: only a number becomes a #L fragment
+printf '%s' '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":"6\"><img src=x onerror=alert(1)>","summary":"s","fix":"f"}]' > "$(PR_DIR).ctx/findings.bad.json"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.bad.json"
+assert_jq '.outcome == "rendered"' 'a non-numeric line still renders'
+assert_file_lacks "$(GUIDE_HTML)" 'onerror' 'a non-numeric line never reaches the page'
+assert_file_contains "$(GUIDE_HTML)" "blob/$B1_SHA/src/alpha.ts\">src/alpha.ts</a>" 'a non-numeric line gives a link with no fragment'
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
 assert_jq '.outcome == "error"' 'no stored copy, nothing to keep'
 run_rp guide 1 --id art_9 --url https://dam.example.test/s/abc
@@ -2099,7 +2109,14 @@ for bad in '<script>alert(1)</script>' '<img src="https://evil.example.test/x.pn
            '<style>@import "https://evil.example.test/a.css";</style>' \
            "$(printf '<p\nonclick="x()">x</p>')" "$(printf '<a\nhref=\n"https://evil.example.test/">x</a>')" \
            '<a title="x>" href="https://evil.example.test/">x</a>' \
-           '<svg><a href="#d"><set attributeName="href" to="https://evil.example.test/"/></a></svg>'; do
+           '<svg><a href="#d"><set attributeName="href" to="https://evil.example.test/"/></a></svg>' \
+           '<table background="https://evil.example.test/b.png"><tr><td>x</td></tr></table>' \
+           '<a href="#x" ping="https://evil.example.test/p">x</a>' \
+           '<style>.x{background:url(\68 ttps://evil.example.test/a.png)}</style>' \
+           '<style>.x{background-image:image-set("https://evil.example.test/a.png" 1x)}</style>' \
+           '<p style="background:url(https://evil.example.test/a.png)">x</p>' \
+           '<svg xml:base="https://evil.example.test/"><a href="#x">x</a></svg>' \
+           '<img srcset="#a 1x, https://evil.example.test/b.png 2x">'; do
   guide_page "$bad"
   run_rp collect 1
   assert_jq '.skills["review-guide"].guide == "refused" and (.form_warnings | any(contains("review-guide: guide not published")))' "refused: $bad"
@@ -2168,6 +2185,10 @@ KH="$(printf '%s' "$OUT" | jq -r .html)"
 assert_file_contains "$KH" 'No blocking finding' 'no blocking finding says so'
 assert_file_lacks "$KH" 'stale block' 'the earlier block is replaced'
 assert_file_contains "$WORK/reviews/pr-artifacts/pr-1.guide.html" 'stale block' 'the stored copy changes only when the publish is recorded'
+# the whole page is checked again after the render: a page that fails is refused
+printf '<!doctype html><html><body><main><img src="https://evil.example.test/x.png"><p class="overview">x</p></main></body></html>\n' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
+assert_jq '.outcome == "error" and (.error | contains("does not pass the check"))' 'a page that fails the check after the render is refused'
 run_rp abort 1 "reset"
 
 # --- project diagrams: reused marked, missing areas named, new maps stored -----
