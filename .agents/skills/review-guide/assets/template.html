@@ -36,6 +36,11 @@ details.sec[open]>summary::before{content:"▾"}
 details.sec>summary b{flex:none;min-width:11.5em}
 details.sec>summary span{flex:1;color:var(--fg)}
 details.sec>summary em{flex:none;font-style:normal;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 8px}
+/* the flag on a closed line: what in this section a person must not miss */
+details.sec>summary em.alert{font-weight:600;color:#fff;border:0;background:var(--warn)}
+details.sec>summary em.alert.hi{background:var(--accent)}
+details.sec:has(>summary em.alert){border-left:4px solid var(--warn)}
+details.sec:has(>summary em.alert.hi){border-left-color:var(--accent)}
 details.sec>.body{padding:0 14px 14px}
 details.more{border:0;border-top:1px dashed var(--line);border-radius:0;padding:8px 0 0;margin:10px 0 0;background:none}
 details.more>summary{cursor:pointer;color:var(--link);font-size:13px}
@@ -153,7 +158,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <section class="risks" id="risks">
   <h2>Risks — what to watch <small class="muted">· {{K}}</small></h2>
   <div class="rk">
-    <div class="hi" data-ref="{{node}}" data-tip="{{the evidence in one line}}"><span class="dot hi"></span><b>{{what can go wrong, ≤ 12 words}}</b><span class="tg">{{irreversible | contract | untested | sensitive path | concurrency | security | data | rollout | open point}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{the fact behind it, ≤ 15 words}}</div>
+    <div class="hi" data-ref="{{node}}" data-zoom="{{id of the section it concerns, e.g. impact}}" data-tip="{{the evidence in one line}}"><span class="dot hi"></span><b>{{what can go wrong, ≤ 12 words}}</b><span class="tg">{{irreversible | contract | untested | sensitive path | concurrency | security | data | rollout | open point}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{the fact behind it, ≤ 15 words}}</div>
     <div class="md"><span class="dot md"></span><b>{{risk}}</b><span class="tg">{{kind}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{fact}}</div>
   </div>
 </section>
@@ -198,7 +203,12 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
   </details>
 </section>
 
-<!-- THE SIX SECTIONS — collapsed: each summary line is the section's main
+<!-- FLAG ON A CLOSED LINE: when a section holds something a person must not
+     miss — an open decision, a hi/md risk, a breaking change, an unsolved
+     problem, untested changed logic — put ONE flag in its summary, before the
+     badge: <em class="alert hi">⚠ {{≤ 6 words}}</em> (hi) or
+     <em class="alert">⚠ {{≤ 6 words}}</em> (md). No flag when nothing is.
+     THE SECTIONS — collapsed: each summary line is the section's main
      point, so the closed page reads as an overview. Open = the main visual and
      ≤ 60 words; each "Zoom in" goes one level deeper with more pictures:
      component cards or file tiles, then the code as a mini diff. Order is fixed. -->
@@ -260,7 +270,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 </details>
 
 <details class="sec" id="decisions">
-  <summary><b>Decisions and alternatives</b><span>{{the first question to judge}}</span><em>{{K}} to judge</em></summary>
+  <summary><b>Decisions and alternatives</b><span>{{the first open question}}</span><em class="alert hi" data-tip="{{why it matters}}">⚠ {{K}} open, decided by the agent</em><em>{{K}} to judge</em></summary>
   <div class="body">
     <!-- one card per decision, `open` first, then `inferred`, then `author`;
          the origin badge: open (the agent decided alone — judge it), author
@@ -320,7 +330,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 </details>
 
 <details class="sec" id="impact">
-  <summary><b>Technical impact</b><span>{{who is affected, in ≤ 15 words}}</span><em>{{additive | breaking | behind a flag}}</em></summary>
+  <summary><b>Technical impact</b><span>{{who is affected, in ≤ 15 words}}</span><em class="alert">⚠ {{e.g. breaking for every client}}</em><em>{{additive | breaking | behind a flag}}</em></summary>
   <div class="body">
     <figure>
       <svg viewBox="0 0 680 230" role="img" aria-label="{{blast radius in one sentence}}">

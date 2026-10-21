@@ -31,7 +31,9 @@
     ".x-flash{animation:xf 1.2s ease-out}@keyframes xf{0%{box-shadow:0 0 0 4px var(--link)}100%{box-shadow:0 0 0 0 transparent}}" +
     ".x-tip{position:fixed;z-index:9;max-width:280px;padding:6px 8px;border-radius:6px;background:var(--fg);color:var(--bg);font-size:12px;line-height:1.35;pointer-events:none;opacity:0;transition:opacity .12s}" +
     ".x-tip.on{opacity:1}.x-off{opacity:.15}" +
-    ".legend [data-kind]{cursor:pointer;user-select:none}.legend [data-kind].x-mute{text-decoration:line-through;opacity:.6}";
+    ".legend [data-kind]{cursor:pointer;user-select:none}.legend [data-kind].x-mute{text-decoration:line-through;opacity:.6}" +
+    ".zc{display:inline-flex;gap:2px;margin-left:auto;flex:none}.zc button{font:inherit;font-size:13px;line-height:1;width:24px;height:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;padding:0}" +
+    ".zc button:hover{border-color:var(--link)}h2 .zc{float:right;margin-top:-2px}";
   doc.head.appendChild(css);
 
   /* zoom levels by meaning: 0 overview (all closed) · 1 sections (the seven
@@ -69,6 +71,45 @@
     if (dets.every(function (d) { return d.open === wants(d, levels[k]); })) { cur = k; break; }
   }
   all(".zoombar button")[cur].setAttribute("aria-pressed", "true");
+
+  /* per-section zoom: − / + beside each section's title moves only that
+     section through its own levels (closed · open · details · code). The map
+     section is a plain <section>: its levels are its zooms only. */
+  function scoped(root, isSec) {
+    var inner = all("details", root).filter(function (d) { return d !== root; });
+    if (!inner.length) return null;
+    function want(d, n) { return n >= 3 || (n === 2 && !isCode(d)); }
+    function state(n) { return (isSec ? (n >= 1 ? "1" : "0") : "") + inner.map(function (d) { return want(d, n) ? "1" : "0"; }).join(""); }
+    var lv = [0];
+    (isSec ? [1, 2, 3] : [2, 3]).forEach(function (n) { if (state(n) !== state(lv[lv.length - 1])) lv.push(n); });
+    function actual() { return (isSec ? (root.open ? "1" : "0") : "") + inner.map(function (d) { return d.open ? "1" : "0"; }).join(""); }
+    function where() { /* the level the section shows now, read from the page */
+      var a = actual();
+      for (var i = lv.length - 1; i >= 0; i--) if (state(lv[i]) === a) return i;
+      return isSec && !root.open ? 0 : 1;
+    }
+    function step(dir) {
+      var at = Math.max(0, Math.min(lv.length - 1, where() + dir)), n = lv[at];
+      if (isSec) root.open = n >= 1;
+      inner.forEach(function (d) { d.open = want(d, n); });
+    }
+    return { step: step, max: lv.length - 1 };
+  }
+  function addControl(host, sc) {
+    if (!sc || sc.max < 1) return;
+    var box = doc.createElement("span"); box.className = "zc";
+    [["−", -1, "Zoom out this section"], ["+", 1, "Zoom in this section"]].forEach(function (b) {
+      var btn = doc.createElement("button"); btn.type = "button"; btn.textContent = b[0];
+      btn.setAttribute("aria-label", b[2]); btn.title = b[2];
+      btn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); sc.step(b[1]); });
+      box.appendChild(btn);
+    });
+    host.appendChild(box);
+  }
+  all("details.sec").forEach(function (d) { var sm = d.querySelector("summary"); if (sm) addControl(sm, scoped(d, true)); });
+  all("section").forEach(function (sec) {
+    var h = sec.querySelector("h2"); if (h && sec.querySelector("details.zoom")) addControl(h, scoped(sec, false));
+  });
   doc.addEventListener("keydown", function (e) {
     if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
     if (e.key === "+" || e.key === "=") setLevel(cur + 1);

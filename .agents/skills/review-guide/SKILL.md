@@ -189,6 +189,17 @@ retries), `security` (auth, secrets, input that reaches a query or a shell),
 Keep a section, a zoom or a card only when it has content; delete it rather
 than fill it.
 
+**A flag on the closed line.** What matters must show while a section is
+closed. When a section holds an open decision (origin `open`), a `hi` or `md`
+risk, a breaking change, a problem the PR leaves unsolved, or changed logic
+with no test, its summary carries **one** flag before the badge:
+`<em class="alert hi">⚠ <≤ 6 words></em>` for `hi`, `<em class="alert">…</em>`
+for `md` — "⚠ 2 open, decided by the agent", "⚠ breaking for every client",
+"⚠ relay logic has no test". The line then also gets a colored left edge. No
+flag when nothing in the section is that important; never more than one per
+line. A risk card's `data-zoom` names the section it concerns, so a click on
+it opens that section.
+
 ### Interactions — attributes, never script
 
 The page may be fully interactive, but **you write no script**: code-guardian
@@ -197,7 +208,8 @@ checks (standalone use: paste that file in a `<script>` there yourself). It
 adds a sticky **level bar** — Overview (all closed) · Sections (the section
 lines open) · Details (every zoom without code open) · Code (all open), the
 `+`/`−` keys too; a level that opens nothing more than the one before it is
-not shown — and reads these attributes. Keep every mini diff in its own
+not shown — plus a **− / +** pair on each section's title that zooms that
+section alone through its own levels, and reads these attributes. Keep every mini diff in its own
 innermost zoom, so Details and Code differ:
 
 - `data-zoom="<id>"` — a click or Enter opens `<details id="<id>">` and its
