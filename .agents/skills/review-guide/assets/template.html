@@ -129,6 +129,19 @@ figcaption{color:var(--muted);font-size:12px;margin-top:4px}
 .blast .r1{margin-top:10px;background:var(--bg)}.blast .core{margin:10px auto 0;max-width:420px;border:1.6px dashed var(--accent);background:var(--accent-bg)}
 .chip{display:inline-block;margin:3px;padding:3px 9px;border:1px solid var(--before);border-radius:999px;font-size:12px;background:var(--card);overflow-wrap:anywhere}
 .chip.chg{border-color:var(--accent);font-weight:600}
+.term{border-bottom:1px dotted var(--muted);cursor:help}
+/* verification tables: a status column, one row per ask, situation or claim */
+.req .st,.prf .st{width:28px;text-align:center;font-weight:700;font-size:15px}
+.req tr.ok .st,.prf tr.ok .st{color:var(--ok)}.req tr.part .st,.prf tr.part .st{color:var(--warn)}
+.req tr.miss .st,.prf tr.miss .st{color:var(--accent)}.req tr.extra .st{color:var(--k-docs)}
+.req tr.miss td,.prf tr.miss td{background:var(--accent-bg)}
+.scn td:first-child{font-weight:600}.scn tr.chg td:last-child{background:var(--accent-bg);font-weight:600}
+.scn tr.chg td:nth-child(2){color:var(--muted);text-decoration:line-through;text-decoration-color:var(--before)}
+.fitl{list-style:none;margin:6px 0 0;padding:0}.fitl li{padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.fitl .st{display:inline-block;min-width:84px;text-align:center;font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;color:#fff;background:var(--ok)}
+.fitl .updates .st{background:var(--k-docs)}.fitl .contradicts .st{background:var(--accent)}
+.asm{font-size:13px;margin:4px 0 8px}.asm .st{font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;border:1px solid currentColor}
+.asm .st.ok{color:var(--ok)}.asm .st.miss{color:var(--accent)}
 svg{width:100%;height:auto;display:block}
 svg text{fill:var(--fg);font:12px system-ui,sans-serif}
 svg text.sub{fill:var(--muted);font-size:10px}
@@ -267,10 +280,41 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
           <li class="box chg" data-tag="NEW" data-via="{{new call}}">{{symbol}}<small>{{role}}</small></li>
         </ol></div>
     </figure>
-    <p>{{the problem before, and what a user, request or job does differently now — ≤ 60 words}}</p>
+    <!-- explain a term the reader may not know at its first use, for example:
+         the <span class="term" data-tip="The proxy that passes chat frames between a client and the agent.">ACP relay</span> -->
+    <p>{{the problem before, and what a user, request or job does differently now — ≤ 60 words, each unfamiliar term wrapped as a .term with its meaning}}</p>
     <details class="zoom"><summary><b>Zoom in: the user flow</b><em>steps</em></summary>
       <div class="body"><div class="cards"><div><b>1</b> {{step}}</div><div><b>2</b> {{step}}</div><div class="chg"><b>3</b> {{the changed step}}</div></div></div>
     </details>
+  </div>
+</details>
+
+<!-- ASKED VS DELIVERED — the linked issue's asks and the PR's stated goal,
+     each against the diff. Status: ok ✓ delivered · part ◐ partly · miss ✗
+     missing · extra ➕ done but not asked. -->
+<details class="sec" id="asked">
+  <summary><b>Asked vs delivered</b><span>{{does the PR do what was asked, ≤ 15 words}}</span><em class="alert hi">⚠ {{e.g. 1 ask missing}}</em><em>{{K}}/{{N}} delivered</em></summary>
+  <div class="body">
+    <table class="req">
+      <tr><th></th><th>Asked</th><th>Delivered — the evidence</th></tr>
+      <tr class="ok"><td class="st" data-tip="Delivered">✓</td><td>{{the ask, in the issue's words, ≤ 12 words}} <a href="{{issue link}}">#{{n}}</a></td><td>{{how}} · <a href="{{LINK}}">{{path:line}}</a></td></tr>
+      <tr class="part"><td class="st">◐</td><td>{{ask}}</td><td>{{what is missing}}</td></tr>
+      <tr class="miss"><td class="st">✗</td><td>{{ask}}</td><td>{{not in this PR}}</td></tr>
+      <tr class="extra"><td class="st">➕</td><td class="muted">not asked</td><td>{{what the PR adds beyond the ask}}</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- BEHAVIOR: BEFORE → AFTER — the few situations a user or a caller meets,
+     what happened before and what happens now. A changed row: class "chg". -->
+<details class="sec" id="behavior">
+  <summary><b>Behavior: before → after</b><span>{{the main change a user sees, ≤ 15 words}}</span><em>{{K}} changed</em></summary>
+  <div class="body">
+    <table class="scn">
+      <tr><th>When…</th><th>Before</th><th>After</th></tr>
+      <tr class="chg"><td data-tip="{{who meets this, and how often}}">{{situation}}</td><td>{{old result}}</td><td>{{new result}}</td></tr>
+      <tr><td>{{situation}}</td><td>{{result}}</td><td>same</td></tr>
+    </table>
   </div>
 </details>
 
@@ -315,6 +359,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
         <div class="pick"><b>PR's choice</b>{{choice}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
         <div><b>Alternative</b>{{alternative}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
       </div>
+      <p class="asm"><b>Assumes:</b> {{what must be true for this choice to be right}} <span class="st {{ok|miss}}" data-tip="{{where it is checked, or: nothing checks it}}">{{verified | not verified}}</span></p>
       <details class="zoom"><summary><b>Why, and the evidence</b><em>source · code</em></summary>
         <div class="body"><p>{{the PR's reason with its source, or: The PR does not say why.}}</p>
           <pre class="diff"><span class="add">{{the line that carries the choice}}</span></pre><a href="{{LINK}}">{{path:line}} on GitHub</a></div>
@@ -331,6 +376,21 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
   </div>
 </details>
 
+<!-- FITS THE PROJECT'S DECISIONS — the recorded decisions and docs that
+     cover the changed paths (the profile's Decisions and Docs rows), each with
+     what this PR does to it: aligned · updates (the PR changes the doc too) ·
+     contradicts (the code goes against it, the doc stays). -->
+<details class="sec" id="fit">
+  <summary><b>Fits the project's decisions</b><span>{{in line with the records, or where not}}</span><em class="alert hi">⚠ {{e.g. contradicts ADR-12}}</em><em>{{K}} records</em></summary>
+  <div class="body">
+    <ul class="fitl">
+      <li class="aligned"><span class="st">aligned</span> <a href="{{LINK to the doc}}">{{ADR or doc title}}</a> — {{the rule it states, ≤ 15 words}}</li>
+      <li class="updates"><span class="st">updates</span> <a href="{{LINK}}">{{doc}}</a> — {{what the PR changes in it}}</li>
+      <li class="contradicts"><span class="st">contradicts</span> <a href="{{LINK}}">{{doc}}</a> — {{the rule}} · <a href="{{LINK}}">{{path:line}}</a> {{goes against it}}</li>
+    </ul>
+  </div>
+</details>
+
 <details class="sec" id="problems">
   <summary><b>Problems encountered</b><span>{{the hardest one, in ≤ 15 words}}</span><em>{{K}} solved</em></summary>
   <div class="body">
@@ -341,6 +401,20 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
       <div class="body"><p>{{the dead end or edge case, and the comment that raised it}}</p>
         <pre class="diff"><span class="del">{{before the fix}}</span><span class="add">{{the fix}}</span></pre><a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/commit/{{SHA}}">{{sha7}} on GitHub</a></div>
     </details>
+  </div>
+</details>
+
+<!-- HOW IT IS PROVEN — each behavior or ask the PR claims, and what proves
+     it: a test (link), a manual check the PR body reports, or nothing. -->
+<details class="sec" id="proof">
+  <summary><b>How it is proven</b><span>{{what the tests cover and what they do not}}</span><em class="alert">⚠ {{e.g. 1 behavior untested}}</em><em>{{K}}/{{N}} tested</em></summary>
+  <div class="body">
+    <table class="prf">
+      <tr><th></th><th>Claim</th><th>Proof</th></tr>
+      <tr class="ok"><td class="st">✓</td><td>{{behavior}}</td><td><a href="{{LINK to the test}}">{{test name}}</a></td></tr>
+      <tr class="part"><td class="st">~</td><td>{{behavior}}</td><td>{{manual check the PR reports}}</td></tr>
+      <tr class="miss"><td class="st">✗</td><td>{{behavior}}</td><td>no test, no reported check</td></tr>
+    </table>
   </div>
 </details>
 
@@ -386,6 +460,20 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 
 <!-- LIMITS AND OPEN POINTS — what the PR does not do, from the PR body, its
      author-decisions, the linked issue and the comments only -->
+<!-- ROLLOUT AND ROLLBACK — how the change reaches users and how to undo it:
+     the steps in order (a migration, a config key, a flag, a deploy), each
+     tagged reversible or not, then the way back. -->
+<details class="sec" id="rollout">
+  <summary><b>Rollout and rollback</b><span>{{how it ships and how to undo it, ≤ 15 words}}</span><em class="alert hi">⚠ {{e.g. migration cannot be undone}}</em><em>{{reversible | partly | one-way}}</em></summary>
+  <div class="body">
+    <ol class="flow h">
+      <li class="box" data-tip="{{what this step does}}">{{step}}<small>reversible</small></li>
+      <li class="box chg" data-tag="ONE-WAY" data-tip="{{why it cannot be undone}}">{{step}}<small>{{what stays after it}}</small></li>
+    </ol>
+    <p><b>Way back:</b> {{how to undo the change, or: the PR does not say how}}</p>
+  </div>
+</details>
+
 <details class="sec" id="limits">
   <summary><b>Limits and open points</b><span>{{the main thing it does not do, ≤ 15 words}}</span><em>{{K}} open</em></summary>
   <div class="body">

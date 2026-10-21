@@ -394,9 +394,11 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`review-guide`](.agents/skills/review-guide/SKILL.md), a guide skill
   installed the same way — for a PR whose review needs a person, a visual page
   linked from the review: why a person, the grounded risks, the review's
-  verified findings, the project map with the change marked, then seven
-  one-line sections that open to a diagram each (why the PR exists, the
-  dependency chain, decisions, problems met, churn, impact, limits); the
+  verified findings, the project map with the change marked, then one-line
+  sections that open to a picture each (why the PR exists, asked vs
+  delivered, behavior before → after, the dependency chain, decisions, fit
+  with the project's records, problems met, how it is proven, churn, impact,
+  rollout and rollback, limits); the
   maps it draws stay in `work/diagrams/` as project knowledge
   ([docs/artifact.md](docs/artifact.md) → **Review guide**);
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md), the

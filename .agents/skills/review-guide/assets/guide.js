@@ -76,6 +76,7 @@
     "main svg .node rect{fill:var(--card);stroke:var(--before)}main svg .node.hl rect{fill:var(--accent-bg);stroke:var(--accent)}" +
     "main svg .grp{stroke:var(--line)}main svg .grpl{fill:var(--muted)}main svg text{fill:var(--fg)}" +
     ".zoombar .theme{margin-left:auto;width:30px;padding:2px 0}" +
+    ".term{border-bottom:1px dotted var(--muted);cursor:help}[data-tip]:not(button):not(a):not(details):not(summary):not([data-zoom]){cursor:help}" +
     "main code{font-size:.88em}summary code,.why code,.rk b code{font:inherit;background:none;padding:0}";
   doc.head.appendChild(themeCss);
   var root = doc.documentElement, THEME_KEY = "cg-review-guide-theme";
@@ -205,6 +206,69 @@
     el.addEventListener("blur", function () { mark(k, false); });
   });
 
+  /* explanations for the fixed parts of the page, in plain words: set only
+     where the page gave no tooltip of its own. A title becomes a tooltip
+     too, so one style shows every explanation. */
+  var KINDS = {
+    "irreversible": "After this runs, it cannot be undone, for example a migration, a delete or a send.",
+    "contract": "Other code or people use this interface or format, so a change can break them.",
+    "untested": "No test checks this changed logic.",
+    "sensitive path": "The change touches an area that the repository marks as sensitive.",
+    "concurrency": "The order or timing of events can change the result.",
+    "security": "Access rights, secrets or input from outside are involved.",
+    "data": "The change writes stored data or changes its format.",
+    "rollout": "No flag or fallback limits the effect if the change is wrong.",
+    "open point": "The PR itself says that this point is not settled."
+  };
+  var LEVEL_TIPS = { Overview: "Close all sections. You see the whole PR on one screen.",
+    Sections: "Open the sections. Each one shows its main picture.",
+    Details: "Open the zooms that hold no code: cards, tiles and steps.",
+    Code: "Open everything, the code changes too." };
+  function tipOn(sel, text) {
+    all(sel).forEach(function (el) {
+      var t = typeof text === "function" ? text(el) : text;
+      if (t && !el.hasAttribute("data-tip")) el.setAttribute("data-tip", t);
+    });
+  }
+  all("main [title]").forEach(function (el) {
+    if (el.tagName === "BUTTON" || el.hasAttribute("data-tip")) return;
+    el.setAttribute("data-tip", el.getAttribute("title")); el.removeAttribute("title");
+  });
+  tipOn(".zoombar button:not(.theme)", function (b) { return LEVEL_TIPS[b.textContent]; });
+  tipOn(".org.open", "The agent made this choice alone. A person must judge it.");
+  tipOn(".org.author", "The author made or confirmed this choice. Check that it is still correct.");
+  tipOn(".org.inferred", "No text names this choice. The guide found it in the code.");
+  tipOn(".rk .tg", function (el) { return KINDS[el.textContent.trim().toLowerCase()]; });
+  tipOn(".dot.hi", "High: hard to undo, a security matter, or other code depends on it.");
+  tipOn(".dot.md", "Medium: changed logic with no test, timing, or a sensitive area.");
+  tipOn(".dot.lo", "Low: worth a look, but the effect stays small.");
+  tipOn("[data-tag=NEW]", "This part is new in this PR.");
+  tipOn("[data-tag=CHANGED]", "This PR changes this part.");
+  tipOn(".box.chg, .chip.chg, .tiles .chg, .cards .chg", "This PR changes this part. A dashed border marks every change.");
+  tipOn("summary em.alert", "Something in this section needs your attention. Open the section to see it.");
+  tipOn(".found li b", function (b) { return /Critical/.test(b.textContent)
+    ? "Critical: the review found a defect that must be fixed before the merge."
+    : "Warning: the review found a defect that should be fixed before the merge."; });
+  tipOn(".legend [data-kind]", "Click to hide or show this kind of change.");
+  tipOn("main svg .node", function (g) {
+    var p = (g.getAttribute("data-paths") || "").split(",").join(", ");
+    return (/\bhl\b/.test(g.getAttribute("class") || "") ? "This PR changes files here. Click to zoom in. " : "No change here in this PR. ")
+      + (p ? "Files: " + p : "");
+  });
+  tipOn(".zc button", function (b) { return b.getAttribute("aria-label"); });
+  var ROW = { ok: "Done, and the evidence is linked.", part: "Done in part. The row says what is missing.",
+    miss: "Not done. Check whether this is on purpose.", extra: "Done, but nobody asked for it. Check that it belongs in this PR." };
+  tipOn(".req .st, .prf .st", function (td) { var r = td.parentNode.className.split(" ")[0];
+    return td.closest(".prf") ? ({ ok: "A test proves this.", part: "Only a manual check, reported in the PR, proves this.",
+      miss: "Nothing proves this. A person must check it." })[r] : ROW[r]; });
+  tipOn(".fitl .aligned .st", "The change follows this recorded decision.");
+  tipOn(".fitl .updates .st", "The PR changes this record too, so the record and the code agree.");
+  tipOn(".fitl .contradicts .st", "The code goes against this record, and the record stays as it is. A person must decide which is right.");
+  tipOn(".asm .st.ok", "Something in the code or a test checks this assumption.");
+  tipOn(".asm .st.miss", "Nothing checks this assumption. If it is false, the choice is wrong.");
+  tipOn("[data-tag=ONE-WAY]", "After this step, you cannot go back by a revert alone.");
+  tipOn(".scn tr.chg", "The result changes in this situation.");
+
   /* data-tip: one floating tooltip; a tap toggles it on touch screens */
   var tip = doc.createElement("div"); tip.className = "x-tip"; tip.setAttribute("role", "tooltip"); doc.body.appendChild(tip);
   function place(e) { var x = e.clientX + 12, y = e.clientY + 14, w = tip.offsetWidth, h = tip.offsetHeight;
@@ -216,6 +280,10 @@
     el.addEventListener("mouseleave", function () { tip.classList.remove("on"); });
     el.addEventListener("touchstart", function (e) { tip.textContent = el.getAttribute("data-tip"); tip.classList.toggle("on");
       var t = e.touches[0]; place({ clientX: t.clientX, clientY: t.clientY }); }, { passive: true });
+    el.addEventListener("focus", function () { var r = el.getBoundingClientRect(); tip.textContent = el.getAttribute("data-tip");
+      tip.classList.add("on"); place({ clientX: r.left, clientY: r.bottom }); });
+    el.addEventListener("blur", function () { tip.classList.remove("on"); });
+    if (el.tagName === "BUTTON") el.removeAttribute("title");
   });
 
   /* legend: a click on a kind dims the tiles and boxes of that kind */

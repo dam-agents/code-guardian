@@ -1235,7 +1235,7 @@ cmd_prepare() {
         fill DIFF "$DIFF"; fill CONTEXT "$CTX/context.json"; fill PACK "$CTX/pack.json"
         fill HTML_FILE "$html"; fill FORCED_BLOCK "$gforced"; fill PRIOR_BLOCK "${gprior//<skill>/$s}"
         fill DIAGRAMS_BLOCK "${gdiag//<skill>/$s}"
-        if [ -n "$profile" ]; then fill PROFILE_LINE "- the repository map slice: \`$profile\` — where to look, never evidence."
+        if [ -n "$profile" ]; then fill PROFILE_LINE "- the repository map slice: \`$profile\` — where to look, never evidence; its Decisions and Docs rows locate the records for **Fits the project's decisions**."
         else fill PROFILE_LINE "- no repository map — find your way in the tree."; fi
         [ -n "$rk" ] && fill RISK_BLOCK $'\n- the risk prescan — changed paths in sensitive areas and added lines that ask\n  for a second look:\n'"$(printf '%s\n' "$rk" | sed 's/^/  /')"
       fi

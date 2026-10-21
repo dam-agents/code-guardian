@@ -16,7 +16,8 @@ diagram needs a code range:
 - the changed files with their dependents and tests: `{{PACK}}` — a changed code file
   with no test, and its dependents, feed **Risks** and **Technical impact**
 - the issue the PR body links, when it names one: its title, body and open
-  points, read once — they feed **Limits and open points**
+  points, read once — they feed **Asked vs delivered** and **Limits and open
+  points**
 - the commits: `git -C "{{WORKDIR}}" log --format='%h %s%n%b' origin/{{BASE_REF}}..HEAD` — the story
   of what came up while the PR was built
 {{PROFILE_LINE}}{{RISK_BLOCK}}{{FORCED_BLOCK}}{{PRIOR_BLOCK}}{{DIAGRAMS_BLOCK}}
