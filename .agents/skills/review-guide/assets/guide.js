@@ -34,24 +34,40 @@
     ".legend [data-kind]{cursor:pointer;user-select:none}.legend [data-kind].x-mute{text-decoration:line-through;opacity:.6}";
   doc.head.appendChild(css);
 
-  /* zoom levels: 0 overview · 1 sections · 2 zoom · 3 code */
-  var levels = ["Overview", "Sections", "Zoom", "Code"], cur = 0;
-  function setLevel(n) {
-    cur = Math.max(0, Math.min(3, n));
-    all("details").forEach(function (d) { d.open = depth(d) < cur; });
-    all(".zoombar button").forEach(function (b, i) { b.setAttribute("aria-pressed", String(i === cur)); });
+  /* zoom levels by meaning: 0 overview (all closed) · 1 sections (the seven
+     section lines) · 2 details (every zoom without code) · 3 code (all).
+     A level that would open nothing more than the one before it is hidden. */
+  var names = ["Overview", "Sections", "Details", "Code"], cur = 0;
+  var dets = all("details");
+  function isCode(d) { return all("pre.diff", d).some(function (p) { return p.closest("details") === d; }); }
+  function wants(d, n) {
+    if (n === 0) return false;
+    if (n === 1) return d.classList.contains("sec");
+    if (n === 2) return !isCode(d);
+    return true;
   }
-  var bar = doc.createElement("nav"); bar.className = "zoombar"; bar.setAttribute("aria-label", "Zoom level");
-  bar.innerHTML = "<span>Zoom</span>";
-  levels.forEach(function (name, i) {
-    var b = doc.createElement("button"); b.type = "button"; b.textContent = name;
+  function sig(n) { return dets.map(function (d) { return wants(d, n) ? "1" : "0"; }).join(""); }
+  var levels = [0];
+  for (var n = 1; n < 4; n++) if (sig(n) !== sig(levels[levels.length - 1])) levels.push(n);
+  function setLevel(i) {
+    cur = Math.max(0, Math.min(levels.length - 1, i));
+    dets.forEach(function (d) { d.open = wants(d, levels[cur]); });
+    all(".zoombar button").forEach(function (b, j) { b.setAttribute("aria-pressed", String(j === cur)); });
+  }
+  var bar = doc.createElement("nav"); bar.className = "zoombar"; bar.setAttribute("aria-label", "Detail level");
+  bar.innerHTML = "<span>Level</span>";
+  levels.forEach(function (lv, i) {
+    var b = doc.createElement("button"); b.type = "button"; b.textContent = names[lv];
     b.setAttribute("aria-pressed", "false");
     b.addEventListener("click", function () { setLevel(i); });
     bar.appendChild(b);
   });
   var anchor = doc.querySelector(".why") || doc.querySelector("main > *");
   if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
-  cur = all("details").some(function (d) { return d.open && depth(d) === 0; }) ? 1 : 0;
+  cur = 0;
+  for (var k = levels.length - 1; k > 0; k--) {
+    if (dets.every(function (d) { return d.open === wants(d, levels[k]); })) { cur = k; break; }
+  }
   all(".zoombar button")[cur].setAttribute("aria-pressed", "true");
   doc.addEventListener("keydown", function (e) {
     if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
@@ -99,9 +115,9 @@
   /* legend: a click on a kind dims the tiles and boxes of that kind */
   all(".legend [data-kind]").forEach(function (item) {
     item.setAttribute("role", "button"); item.setAttribute("tabindex", "0");
-    var toggle = function () { var k = item.getAttribute("data-kind"), off = !item.classList.contains("x-mute");
+    var toggle = function () { var k = (item.getAttribute("data-kind") || "").replace(/["\\]/g, ""), off = !item.classList.contains("x-mute");
       item.classList.toggle("x-mute", off);
-      all('.tm [data-kind="' + k + '"], .tiles [data-kind="' + k + '"]').forEach(function (x) { x.classList.toggle("x-off", off); }); };
+      try { all('.tm [data-kind="' + k + '"], .tiles [data-kind="' + k + '"]').forEach(function (x) { x.classList.toggle("x-off", off); }); } catch (e) {} };
     item.addEventListener("click", toggle);
     item.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
   });

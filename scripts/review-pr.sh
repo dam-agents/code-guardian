@@ -359,28 +359,35 @@ guide_marker() {
 # repository (docs/artifact.md → Review guide). Both are model output built from
 # untrusted PR content.
 markup_refusal() { # <file> <max bytes> <html|svg>
-  local f="$1" size bad v
+  local f="$1" size flat bad v sq="'"
   [ -s "$f" ] || { printf 'no file'; return; }
   size="$(wc -c < "$f" | tr -d ' ')"
   [ "$size" -le "$2" ] || { printf 'the file is %s bytes, above %s' "$size" "$2"; return; }
+  # a browser reads one tag across lines: fold every run of whitespace to one
+  # space, so each tag is one unit wherever its attributes sit. The attribute
+  # checks read the whole text, so code shown in the page can refuse it — the
+  # safe side; the page then does not publish
+  flat="$(tr -s '\t\r\n\f\v ' '      ' < "$f")"
   case "$3" in
-    (html) grep -qiE '<(!doctype html|html)' "$f" || { printf 'not an HTML page'; return; };;
-    (svg)  grep -qE '<svg[^>]*data-cg-diagram="' "$f" || { printf 'not a project diagram'; return; };;
+    (html) printf '%s' "$flat" | grep -qiE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;
+    (svg)  printf '%s' "$flat" | grep -qE '<svg[^>]*data-cg-diagram="' || { printf 'not a project diagram'; return; };;
   esac
-  bad="$(grep -oiE '<(script|iframe|frame|object|embed|applet|form|link|base|portal|foreignobject)([[:space:]>/]|$)' "$f" | head -1)"
+  bad="$(printf '%s' "$flat" | grep -oiE '< ?(script|iframe|frame|object|embed|applet|form|link|base|portal|foreignobject|animate|animatemotion|animatetransform|set)([ >/]|$)' | head -1)"
   [ -n "$bad" ] && { printf 'a %s element' "$(printf '%s' "$bad" | tr -d '<>/ ' | tr 'A-Z' 'a-z')"; return; }
-  grep -qiE '<meta[^>]*http-equiv' "$f" && { printf 'a meta http-equiv element'; return; }
-  grep -qiE '<[^>]*[[:space:]/]on[a-z]+[[:space:]]*=' "$f" && { printf 'an event handler attribute'; return; }
-  grep -qiE 'javascript:|vbscript:' "$f" && { printf 'a script URL'; return; }
-  grep -qiE '(url\([[:space:]]*["'"'"']?|@import[[:space:]]*["'"'"']?)(https?:|//|data:)' "$f" && { printf 'a remote or data load in CSS'; return; }
+  printf '%s' "$flat" | grep -qiE '<meta[^>]*http-equiv' && { printf 'a meta http-equiv element'; return; }
+  # anywhere, not only inside a matched tag: a `>` in a quoted value would end
+  # the match early and hide the attributes after it
+  printf '%s' "$flat" | grep -qiE '(^|[ /"'"$sq"'])on[a-z]+ ?=' && { printf 'an event handler attribute'; return; }
+  printf '%s' "$flat" | grep -qiE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
+  printf '%s' "$flat" | grep -qiE '(url\( ?["'"$sq"']?|@import ?["'"$sq"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
   while IFS= read -r v; do
     [ -n "$v" ] || continue
-    v="$(printf '%s' "$v" | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//')"
+    v="$(printf '%s' "$v" | sed -E 's/^[^=]*= ?//; s/^["'"$sq"']//; s/["'"$sq"']$//')"
     case "$v" in
       ('#'*|"https://$REPO_HOST/$REPO/"*) ;;
       (*) printf 'a link outside the PR repository: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
     esac
-  done <<< "$(grep -oiE '(href|src|xlink:href|action|formaction|poster|srcset)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$f")"
+  done <<< "$(printf '%s' "$flat" | grep -oiE '(^|[ /"'"$sq"'])(href|src|xlink:href|action|formaction|poster|srcset) ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"'|[^ >]+)')"
 }
 guide_refusal() { markup_refusal "$1" "$GUIDE_MAX_BYTES" html; }   # <html file>
 
@@ -1384,8 +1391,9 @@ guide_script() { # <skill> <html file>
 }
 
 # One guide skill's output (docs/skills.md → Guide skills): its line says
-# `built`, `kept` or `not-needed`; a built page is redacted, then checked, and a
-# page that may not publish is `refused` with the reason as a form warning.
+# `built`, `kept`, `not-needed` or `budget` (stopped at its budget); a built
+# page is redacted, then checked, and a page that may not publish is `refused`;
+# `refused` and `budget` give the reason as a form warning.
 # Writes into cmd_collect's `lines`, `warns`, `results` and `timing`.
 collect_guide() { # <skill> <out file>
   local s="$1" f="$2" first g html red=0 why="" mt js=false
@@ -1393,7 +1401,9 @@ collect_guide() { # <skill> <out file>
   . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null || redact_file() { return 1; }
   first="$(grep -m1 -vE '^[[:space:]]*$' "$f" | sed 's/^[[:space:]]*//')"
   case "$first" in
-    ("📊"*) g=built;; ("🔁"*) g=kept;; ("➖"*) g=not-needed;;
+    ("📊"*) g=built;; ("🔁"*) g=kept;;
+    ("➖ Not built"*) g=budget; why="the skill stopped at the $GUIDE_BUDGET_MIN min budget";;
+    ("➖"*) g=not-needed;;
     (*) g=refused; why="the output line is not a guide line";;
   esac
   [ "$g" = kept ] && [ -z "$(guide_marker)" ] && { g=refused; why="no guide was published for this PR to keep"; }
@@ -1406,7 +1416,7 @@ collect_guide() { # <skill> <out file>
     else g=refused; why="the line says built, but the page file is missing"; fi
   fi
   case "$red" in (''|*[!0-9]*) red=0;; esac
-  [ "$g" = refused ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: guide not published — $why" '. + [$w]')"
+  case "$g" in (refused|budget) warns="$(printf '%s' "$warns" | jq --arg w "$s: guide not published — $why" '. + [$w]')";; esac
   # project diagrams the skill drew: checked, redacted and stored as project
   # knowledge whatever the page's fate (docs/profile.md → Project diagrams)
   local df did dwhy nd=0 dstored='[]' drefused='[]'

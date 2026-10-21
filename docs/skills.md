@@ -130,7 +130,7 @@ exist in the chat UI:
 
 - `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
-- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|refused>[, diagrams=<N>])` —
+- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|budget|refused>[, diagrams=<N>])` —
   a guide skill (**Guide skills**); `diagrams` counts the project maps it
   stored.
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
@@ -182,8 +182,10 @@ sections.
   context before it opens a file, and most PRs end there: no page.
 - **Output.** `$PR_DIR.out/<skill>.txt` holds one line: `📊 Guide — <what the
   person must judge> (about <N> min)` with the page beside it, `🔁 Still holds —
-  <reason>` when the guide published at an earlier SHA still fits, or
-  `➖ Not needed — <reason>`.
+  <reason>` when the guide published at an earlier SHA still fits,
+  `➖ Not needed — <reason>`, or `➖ Not built — budget reached.` when the
+  skill stopped at its budget (state `budget`, a form warning — never read as
+  not needed).
 - **Collect.** `review-pr.sh collect` redacts a built page
   (`scripts/lib/redact.sh`) and then checks it: one file under
   `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form or `<link>`,
@@ -191,7 +193,7 @@ sections.
   URL under `https://<repo-host>/<owner>/<repo>/`. A page that fails is
   `refused`, with the reason as a form warning; it does not publish. A page
   that passes gets the skill's vetted `assets/guide.js` inserted before
-  `</body>` (`skills.<skill>.interactive`): the zoom bar, map-node zoom, linked
+  `</body>` (`skills.<skill>.interactive`): the level bar, map-node zoom, linked
   highlight, tooltips and the churn filter, all driven by `data-*`
   attributes, so the model writes no script. A project
   map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks

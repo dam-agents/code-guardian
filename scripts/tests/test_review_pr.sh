@@ -2079,7 +2079,10 @@ mkdir -p "$(PR_DIR).out"
 printf '📊 Guide — x (about 5 min)\n' > "$(PR_DIR).out/review-guide.txt"
 for bad in '<script>alert(1)</script>' '<img src="https://evil.example.test/x.png">' \
            '<a href="https://evil.example.test/">x</a>' '<p onclick="x()">x</p>' \
-           '<style>@import "https://evil.example.test/a.css";</style>'; do
+           '<style>@import "https://evil.example.test/a.css";</style>' \
+           "$(printf '<p\nonclick="x()">x</p>')" "$(printf '<a\nhref=\n"https://evil.example.test/">x</a>')" \
+           '<a title="x>" href="https://evil.example.test/">x</a>' \
+           '<svg><a href="#d"><set attributeName="href" to="https://evil.example.test/"/></a></svg>'; do
   guide_page "$bad"
   run_rp collect 1
   assert_jq '.skills["review-guide"].guide == "refused" and (.form_warnings | any(contains("review-guide: guide not published")))' "refused: $bad"
@@ -2087,6 +2090,17 @@ done
 run_rp compose-brief 1
 assert_out_absent '### Human Review Guide' 'a refused page gets no section'
 assert_out_contains 'no page to link (audit line only): review-guide (refused)' 'the refused guide is named'
+run_rp abort 1 "reset"
+
+# a skill stopped at its budget: not read as "not needed"
+guide_setup guide_budget
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out"
+printf '➖ Not built — budget reached.\n' > "$(PR_DIR).out/review-guide.txt"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+assert_jq '.skills["review-guide"].guide == "budget" and (.form_warnings | any(contains("stopped at the")))' 'a budget stop is its own state, with a warning'
+assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=budget)") != null' 'the audit line tells a budget stop from a gate refusal'
 run_rp abort 1 "reset"
 
 # no person needed: no page, no section
@@ -2160,6 +2174,27 @@ assert_file_lacks "$WORK/diagrams/alpha.svg" 'node hl' 'the stored map is never 
 assert_file_contains "$GB" 'Areas this PR touches with no map: `src/` (1 files)' 'the file no map covers names its area'
 assert_file_contains "$GB" 'review-guide.diagrams/<id>.svg' 'the brief names where a new map goes'
 assert_file_lacks "$GB" 'Stale' 'a fresh map is not stale'
+run_rp abort 1 "reset"
+
+# a docs-only area is never offered for a map; docs files still mark nodes
+guide_setup diagram_docs_area
+mkdir -p "$FX/docs"; printf '# a\n' > "$FX/docs/a.md"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm docs-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" merge -q --no-edit main
+printf '# a\nmore\n' > "$FX/docs/a.md"; git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm docs-change
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff main...b1 > "$SANDBOX/diff.txt"; git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+mkdir -p "$WORK/diagrams"
+diagram_fx "$WORK/diagrams/docs.svg" docs 'docs/' 'docs/a.md' 'docs/b.md'
+run_rp prepare 1
+assert_file_contains "$(PR_DIR).ctx/diagrams/docs.svg" '<g class="node hl" data-zoom="z-n1" data-ref="n1" data-paths="docs/a.md">' 'a docs file marks its node'
+assert_file_contains "$(PR_DIR).ctx/briefs/review-guide.md" 'Areas this PR touches with no map: `src/` (2 files)' 'the code area is offered'
+assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'with no map: .*docs/' 'a docs-only area is not offered'
+rm -f "$WORK/diagrams/docs.svg"
+run_rp abort 1 "reset"
+run_rp prepare 1
+assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'docs/' 'with no map at all, docs/ is still not offered'
 run_rp abort 1 "reset"
 
 guide_setup diagram_stale

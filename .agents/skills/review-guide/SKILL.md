@@ -180,8 +180,11 @@ than fill it.
 The page may be fully interactive, but **you write no script**: code-guardian
 inserts the vetted `assets/guide.js` before `</body>` once the page passed its
 checks (standalone use: paste that file in a `<script>` there yourself). It
-adds a sticky **zoom bar** (Overview · Sections · Zoom · Code, and the `+`/`−`
-keys) and reads these attributes:
+adds a sticky **level bar** — Overview (all closed) · Sections (the section
+lines open) · Details (every zoom without code open) · Code (all open), the
+`+`/`−` keys too; a level that opens nothing more than the one before it is
+not shown — and reads these attributes. Keep every mini diff in its own
+innermost zoom, so Details and Code differ:
 
 - `data-zoom="<id>"` — a click or Enter opens `<details id="<id>">` and its
   parents, and scrolls to it. code-guardian's marked map copies already carry
@@ -242,7 +245,8 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
   remote fonts or images, no `url(http…)`.
 - **Links** go only to the PR's own repository on its host —
   `https://<host>/<owner>/<repo>/blob/<head-sha>/<path>#L<a>-L<b>`,
-  `…/commit/<sha>`, `…/pull/<n>/files` — or to `#anchors` in the page.
+  `…/commit/<sha>`, `…/pull/<n>/files`, `…/issues/<n>` — or to `#anchors` in
+  the page.
 - **Size**: at most 150 KB; at most about 600 words of prose in all; mini
   diffs at most 8, at most 12 lines each, always inside a zoom.
 - **No secrets** — never copy a credential, token, key or a value from an env
