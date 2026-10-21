@@ -56,9 +56,9 @@ details.zoom details.zoom{border-left-color:var(--k-docs)}
 .crumb b{color:var(--fg);font-weight:600}
 /* file tiles: one per file, flex-grow = changed lines */
 .tiles{display:flex;flex-wrap:wrap;gap:4px}
-.tiles>div{flex:1 1 90px;min-width:90px;border-radius:5px;padding:6px;font-size:12px;line-height:1.3;border:1px solid var(--line);background:var(--bg)}
+.tiles>div{flex:1 1 140px;min-width:140px;border-radius:5px;padding:6px;font-size:12px;line-height:1.3;border:1px solid var(--line);background:var(--bg)}
 .tiles>div.chg{border:1.5px dashed var(--accent);background:var(--accent-bg)}
-.tiles>div code{font-size:11px;word-break:break-all}
+.tiles>div code{font-size:11px;overflow-wrap:anywhere}
 .tiles .m{display:block;height:4px;border-radius:2px;margin-top:4px;background:var(--k-logic)}
 .tiles .m.t{background:var(--k-test)}.tiles .m.d{background:var(--k-docs)}.tiles .m.x{background:var(--k-mech)}
 /* component cards: role, before → after, churn, risk */
@@ -69,7 +69,7 @@ details.zoom details.zoom{border-left-color:var(--k-docs)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
 .dot.hi{background:var(--accent)}.dot.md{background:var(--warn)}.dot.lo{background:var(--ok)}
 /* mini diff: ≤ 12 lines */
-pre.diff{padding:6px 0}
+pre.diff{padding:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
 pre.diff span{display:block;padding:0 8px}
 pre.diff .add{background:var(--ok-bg);color:var(--ok)}
 pre.diff .del{background:var(--warn-bg);color:var(--warn);text-decoration:line-through;text-decoration-color:currentColor}
@@ -88,13 +88,44 @@ pre.diff .ctx{color:var(--muted)}
 .scope .in{border-top:3px solid var(--ok)}.scope .later{border-top:3px solid var(--warn)}.scope .out{border-top:3px solid var(--before)}
 @media (max-width:600px){.scope{grid-template-columns:1fr}}
 .overview{margin:14px 0 6px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-@media (max-width:600px){details.sec>summary{flex-wrap:wrap}details.sec>summary b{min-width:0;flex:1}details.sec>summary span{flex-basis:100%;order:3;padding-left:20px;color:var(--muted)}}
+@media (max-width:760px){details.sec>summary{flex-wrap:wrap}details.sec>summary b{min-width:0;flex:1}details.sec>summary span{flex-basis:100%;order:3;padding-left:20px;color:var(--muted)}}
 .map{overflow-x:auto}
 .map>svg{min-width:560px}
 figure{margin:10px 0 0}
 figcaption{color:var(--muted);font-size:12px;margin-top:4px}
 .ba{display:flex;flex-wrap:wrap;gap:12px}
 .ba svg{flex:1 1 300px;min-width:0}
+/* diagrams laid out by the browser: no coordinates, text wraps in its box */
+.cap{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.ba2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:26px}
+.flow.h{flex-direction:row;flex-wrap:wrap;align-items:stretch;gap:12px 34px}
+.box{position:relative;border:1px solid var(--before);border-radius:7px;padding:8px 10px;background:var(--card);font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.flow.h>.box{flex:1 1 140px;max-width:240px}
+.box small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.box.chg{border:1.6px dashed var(--accent);background:var(--accent-bg)}
+.box[data-tag]::after,.msg[data-tag]::after{content:attr(data-tag);position:absolute;top:-9px;right:8px;font-size:10px;font-weight:700;letter-spacing:.04em;color:#fff;background:var(--accent);border-radius:4px;padding:1px 5px}
+.flow>.box+.box::before{content:"↓";position:absolute;left:50%;top:-24px;transform:translateX(-50%);color:var(--before);font-size:15px;line-height:20px}
+.flow.h>.box+.box::before{content:"→";left:-26px;top:50%;transform:translateY(-50%)}
+.flow>.box.chg::before{color:var(--accent)}
+.flow>.box[data-via]::before{content:"↓  " attr(data-via);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:95%;font-size:11px}
+.flow.h>.box[data-via]::before{content:"→";}
+.seq{position:relative;display:grid;gap:4px;font-size:12px;padding-bottom:6px;
+  background-image:linear-gradient(to right,transparent calc(50% - .5px),var(--line) calc(50% - .5px),var(--line) calc(50% + .5px),transparent calc(50% + .5px));
+  background-size:calc(100% / var(--n)) 100%}
+.seq .ps{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:6px;margin-bottom:6px}
+.seq .ps span{text-align:center;font-weight:600;font-size:12.5px;background:var(--card);border:1px solid var(--before);border-radius:6px;padding:4px 6px;overflow-wrap:anywhere}
+.seq .msg{position:relative;margin-left:calc((min(var(--a),var(--b)) - .5) / var(--n) * 100%);width:calc((max(var(--a),var(--b)) - min(var(--a),var(--b))) / var(--n) * 100%);border-bottom:2px solid var(--before);padding:2px 4px 3px;text-align:center}
+.seq .msg span{display:block;overflow-wrap:anywhere;line-height:1.25}
+.seq .msg::before{content:"";position:absolute;right:-1px;bottom:-6px;border:5px solid transparent;border-left:8px solid var(--before);border-right:0}
+.seq .msg.back::before{right:auto;left:-1px;border-left:0;border-right:8px solid var(--before)}
+.seq .msg.chg{border-bottom:2px dashed var(--accent);color:var(--accent);font-weight:600}
+.seq .msg.chg::before{border-left-color:var(--accent)}.seq .msg.chg.back::before{border-right-color:var(--accent);border-left-color:transparent}
+.seq .msg[data-tag]::after{top:-12px}
+.blast .r2,.blast .r1,.blast .core{border:1px solid var(--line);border-radius:18px;padding:10px 12px;text-align:center}
+.blast .r1{margin-top:10px;background:var(--bg)}.blast .core{margin:10px auto 0;max-width:420px;border:1.6px dashed var(--accent);background:var(--accent-bg)}
+.chip{display:inline-block;margin:3px;padding:3px 9px;border:1px solid var(--before);border-radius:999px;font-size:12px;background:var(--card);overflow-wrap:anywhere}
+.chip.chg{border-color:var(--accent);font-weight:600}
 svg{width:100%;height:auto;display:block}
 svg text{fill:var(--fg);font:12px system-ui,sans-serif}
 svg text.sub{fill:var(--muted);font-size:10px}
@@ -217,19 +248,21 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <details class="sec" id="why">
   <summary><b>Why this PR exists</b><span>{{main point in ≤ 15 words}}</span></summary>
   <div class="body">
-    <figure class="ba">
-      <svg viewBox="0 0 340 170" role="img" aria-label="Before: {{one sentence}}">
-        <text x="4" y="14" class="sub">BEFORE</text>
-        <rect class="box" x="4" y="26" width="220" height="36" rx="6"/><text x="16" y="49">{{symbol}}</text>
-        <path class="edge" d="M114,62 V90"/>
-        <rect class="box" x="4" y="90" width="220" height="36" rx="6"/><text x="16" y="113">{{symbol}}</text>
-      </svg>
-      <svg viewBox="0 0 340 170" role="img" aria-label="After: {{one sentence}}">
-        <text x="4" y="14" class="sub">AFTER</text>
-        <rect class="box" x="4" y="26" width="220" height="36" rx="6"/><text x="16" y="49">{{symbol}}</text>
-        <path class="edge chg" d="M114,62 V90"/>
-        <rect class="chg" x="4" y="90" width="220" height="36" rx="6"/><text x="16" y="113">{{symbol}}</text><text class="tag" x="234" y="113">NEW</text>
-      </svg>
+    <!-- Before | after as two flows: boxes top to bottom, the browser lays them
+         out. Text wraps inside its box. A changed box: class="box chg" plus
+         data-tag="NEW" or "CHANGED" (a corner badge). An arrow label: data-via
+         on the box the arrow points to. ≤ 6 boxes per side. -->
+    <figure class="ba2" role="img" aria-label="{{before and after in one sentence}}">
+      <div><div class="cap">Before</div>
+        <ol class="flow">
+          <li class="box">{{symbol}}<small>{{role}}</small></li>
+          <li class="box" data-via="{{call}}">{{symbol}}<small>{{role}}</small></li>
+        </ol></div>
+      <div><div class="cap">After</div>
+        <ol class="flow">
+          <li class="box">{{symbol}}<small>{{role}}</small></li>
+          <li class="box chg" data-tag="NEW" data-via="{{new call}}">{{symbol}}<small>{{role}}</small></li>
+        </ol></div>
     </figure>
     <p>{{the problem before, and what a user, request or job does differently now — ≤ 60 words}}</p>
     <details class="zoom"><summary><b>Zoom in: the user flow</b><em>steps</em></summary>
@@ -241,17 +274,15 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <details class="sec" id="chain">
   <summary><b>The dependency chain</b><span>{{entry → … → end, in ≤ 15 words}}</span><em>{{N}} links changed</em></summary>
   <div class="body">
-    <figure>
-      <svg viewBox="0 0 680 150" role="img" aria-label="{{the chain in one sentence}}">
-        <!-- sequence form: one lifeline per participant, arrows in order; a
-             flow form uses boxes and .edge paths like the before/after -->
-        <text x="60" y="16" text-anchor="middle">{{caller}}</text><line class="life" x1="60" y1="24" x2="60" y2="140"/>
-        <text x="300" y="16" text-anchor="middle">{{component}}</text><line class="life" x1="300" y1="24" x2="300" y2="140"/>
-        <text x="560" y="16" text-anchor="middle">{{dependency}}</text><line class="life" x1="560" y1="24" x2="560" y2="140"/>
-        <path class="edge" d="M60,48 H296"/><text x="70" y="42" class="sub">1 {{call}}</text>
-        <path class="edge chg" d="M300,84 H556"/><text x="310" y="78" class="tag">2 {{new call}} — NEW</text>
-        <path class="edge" d="M556,120 H64"/><text x="310" y="114" class="sub">3 {{reply}}</text>
-      </svg>
+    <!-- Sequence: --n participants; each message names its columns --a (from)
+         and --b (to); class "back" when it points left, "chg" when the PR adds
+         or changes it. A pipeline or call chain instead: <ol class="flow h">
+         with the same boxes as the before/after. -->
+    <figure class="seq" style="--n:3" role="img" aria-label="{{the chain in one sentence}}">
+      <div class="ps"><span>{{caller}}</span><span>{{component}}</span><span>{{dependency}}</span></div>
+      <div class="msg" style="--a:1;--b:2"><span>1 {{call}}</span></div>
+      <div class="msg chg" style="--a:2;--b:3" data-tag="NEW"><span>2 {{new call}}</span></div>
+      <div class="msg back" style="--a:3;--b:1"><span>3 {{reply}}</span></div>
     </figure>
     <p>{{what the chain shows — ≤ 40 words}}</p>
     <details class="zoom">
@@ -332,14 +363,13 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <details class="sec" id="impact">
   <summary><b>Technical impact</b><span>{{who is affected, in ≤ 15 words}}</span><em class="alert">⚠ {{e.g. breaking for every client}}</em><em>{{additive | breaking | behind a flag}}</em></summary>
   <div class="body">
-    <figure>
-      <svg viewBox="0 0 680 230" role="img" aria-label="{{blast radius in one sentence}}">
-        <circle class="ring" cx="340" cy="115" r="105"/><circle class="ring" cx="340" cy="115" r="65"/>
-        <rect class="chg" x="290" y="100" width="100" height="30" rx="6"/><text x="340" y="119" text-anchor="middle">{{changed part}}</text>
-        <rect class="box" x="300" y="36" width="80" height="24" rx="5"/><text x="340" y="52" text-anchor="middle" class="sub">{{direct dependent}}</text>
-        <rect class="box" x="455" y="104" width="110" height="24" rx="5"/><text x="510" y="120" text-anchor="middle" class="sub">{{consumer}}</text>
-        <text x="580" y="20" class="sub">ring 1: direct · ring 2: consumers</text>
-      </svg>
+    <!-- Blast radius: three nested bands, the browser sizes them. -->
+    <figure class="blast" role="img" aria-label="{{blast radius in one sentence}}">
+      <div class="r2"><div class="cap">Consumers</div><span class="chip">{{consumer}}</span><span class="chip">{{consumer}}</span>
+        <div class="r1"><div class="cap">Direct dependents</div><span class="chip">{{dependent}}</span>
+          <div class="core"><div class="cap">Changed</div><span class="chip chg">{{changed part}}</span></div>
+        </div>
+      </div>
     </figure>
     <p>{{what a caller sees differently — ≤ 60 words}}</p>
     <details class="zoom"><summary><b>Zoom in: the contract</b><em>before → after</em></summary>

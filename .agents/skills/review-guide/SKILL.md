@@ -149,8 +149,8 @@ mini diff. Each zoom starts with a breadcrumb (`Map › <node> › <file>`).
 
 | Section | Its closed line | Level 2 visual | Its zooms (3 → 4) |
 |---|---|---|---|
-| Why this PR exists | the problem and the fix | before → after: two SVGs, the delta loud | the user flow as step cards, the changed step marked |
-| The dependency chain | entry → … → end · `N links changed` | flow or sequence diagram (pick by the change: **sequence** for a protocol or request order, **flow** for a call chain or pipeline, **state** for a lifecycle, **schema** for a data contract) | a card per component (risk dot, before → after, churn bar) → the riskiest step's mini diff |
+| Why this PR exists | the problem and the fix | before → after: two `.flow` columns, the changed boxes dashed with a badge | the user flow as step cards, the changed step marked |
+| The dependency chain | entry → … → end · `N links changed` | pick by the change: **sequence** (`.seq`) for a protocol or a request order, **flow** (`.flow h`) for a call chain, a pipeline or a lifecycle's states, a before → after mini diff for a data contract | a card per component (risk dot, before → after, churn bar) → the riskiest step's mini diff |
 | Decisions and alternatives | the first open question · `K to judge` (the `open` and `inferred` ones) | per decision: the question with its origin badge (⚑ open · ⌕ inferred · ✓ decided by the author), then the PR's choice vs. the alternative with ✓/✗ consequences | why, with its source → the line that carries the choice |
 | Problems encountered | the hardest one · `K solved` | a timeline: ⚠ problem → ✓ fix, with the commit link | the hardest one: the dead end and the comment → the fix as a mini diff |
 | Where the churn landed | where most lines went · `+A −D` | a treemap of areas sized by changed lines, colored by kind | the reading order: numbered rows, churn bars, read/skim tags |
@@ -230,16 +230,31 @@ innermost zoom, so Details and Code differ:
 30 min · 4 = cross-module design, about 1 h · 5 = more than 1 h or needs a
 domain expert — consider asking for a split.
 
-**Drawing rules** — hand-drawn inline SVG, no script.
+**Drawing rules** — **no coordinates.** You cannot measure text, so never
+place a box or a label by pixel position. Every diagram except the project map
+is an HTML component of the template that the browser lays out, and text
+wraps inside its box:
 
-- Every box is a real symbol, component, service or file name; at most 7
-  boxes in one picture. No "process data" boxes.
-- Changed parts carry the accent color **and** a dashed border or a
-  `NEW`/`CHANGED` tag, so color is never the only signal.
-- A before/after pair is two SVGs in the template's `.ba` figure, each about
-  340 units wide, so they stack legibly on a phone.
-- A picture that would repeat another one is left out.
-- **Size scales with the PR**: a small PR that still needs a person gets the
+- **Before / after** — `.ba2` with two `<ol class="flow">`: one `<li
+  class="box">` per step, top to bottom, its role in `<small>`. An arrow
+  label goes in `data-via` on the box it points to.
+- **A call chain or pipeline** — `<ol class="flow h">`, the same boxes left to
+  right. **A protocol or a request order** — `.seq` with `--n` participants,
+  one `.msg` per message with `--a` (from) and `--b` (to), class `back` when it
+  points left.
+- **Blast radius** — `.blast`: the changed parts in `.core`, the direct
+  dependents in `.r1`, the consumers in `.r2`, each a `.chip`.
+- **Changed** — class `chg` on the box, message or chip, plus `data-tag="NEW"`
+  or `"CHANGED"`: a corner badge, never text beside the label. Color is then
+  not the only signal, because the border is dashed and the badge reads.
+- Every box is a real symbol, component, service or file name; at most 7 in
+  one picture. No "process data" boxes. A picture that repeats another is
+  left out.
+- **The project map is the one SVG** (section 4): copy the marked map you
+  were given as it is; the touched nodes are already marked. Add no text tag
+  to it.
+
+**Size scales with the PR**: a small PR that still needs a person gets the
   first screen, the map and one or two sections. Never pad.
 
 ## 4. Project diagrams — the maps you keep
@@ -258,8 +273,14 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 - Every node is `<g class="node" data-paths="<prefix>[,<prefix>…]">` **on its
   own line**, holding its box and its label; `data-paths` names the files or
   directories the node stands for, so a later PR's changes mark it.
-- 5–15 nodes, the edges between them, no PR marks, no link. Read the area's
-  tree (`git ls-tree`) and its entry points; do not read every file.
+- 5–15 nodes on a **fixed grid**: columns at x = 20 + 170·c, rows at
+  y = 50 + 80·r, every box 150 × 46. The label (`<text>`, 12px) at most 18
+  characters, the sub-line (10px) at most 24 — shorten a long name
+  (`verify-onboarding.sh` → `verify-onboarding`), never let it run past the
+  box. Edges run between box edge centers, straight or with one bend in the
+  gap between rows; none crosses a box. No PR marks, no text tag, no link.
+  Read the area's tree (`git ls-tree`) and its entry points; do not read every
+  file.
 - Save it where the brief says, then put a marked copy in this page: add
   ` hl` to the class of each node the PR touches.
 
@@ -303,7 +324,8 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 - Every marked map node has its zoom with the matching id; related elements
   share a `data-ref`.
 - Every section leads with its picture; every picture has real names and a
-  delta visible without color.
+  delta visible without color; no diagram uses pixel positions except the
+  project map, and no label in it runs past its box.
 - Every "why" has evidence or says the PR does not say why.
 - Every link points into the PR's repository; no `<script>`, no remote load,
   no secret, under 150 KB.

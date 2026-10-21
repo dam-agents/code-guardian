@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260" role="img" aria-label="{{AREA}}: its components and how they connect" data-cg-diagram="{{id}}" data-title="{{AREA title}}" data-paths="{{dir/}},{{dir/}}" data-base="{{base sha7}}" data-drawn="{{YYYY-MM-DD}}">
 <!-- A project diagram: a map of one area of the repository as it is on the
-     base branch. 5–15 nodes. Every node opens on its own line as
+     base branch. 5–15 nodes on a fixed grid: column c at x = 20 + 170·c, row r
+     at y = 50 + 80·r, every box 150 × 46, label ≤ 18 chars, sub-line ≤ 24. Every node opens on its own line as
      <g class="node" data-paths="<prefix>[,<prefix>…]"> — code-guardian marks a
      node `hl` when a PR changes a file under one of its prefixes. No PR marks,
      no links, no script. Remove this comment. -->
@@ -14,16 +15,20 @@
 .grpl{font:11px system-ui,sans-serif;fill:#5f6368}
 @media (prefers-color-scheme:dark){.node rect{fill:#1c1c20;stroke:#71717a}.node.hl rect{fill:#2a1a10;stroke:#fb923c}.node text{fill:#ececee}.node text.sub{fill:#a1a1aa}.grp{stroke:#2e2e33}}
 </style>
-<rect class="grp" x="8" y="8" width="664" height="244" rx="10"/><text class="grpl" x="20" y="26">{{AREA}}</text>
+<rect class="grp" x="8" y="8" width="664" height="244" rx="10"/><text class="grpl" x="20" y="30">{{AREA}}</text>
 <g class="node" data-paths="{{dir/entry/}}">
-<rect x="30" y="50" width="170" height="44"/><text x="44" y="70">{{component}}</text><text class="sub" x="44" y="85">{{dir/entry/}}</text>
+<rect x="20" y="50" width="150" height="46"/><text x="32" y="70">{{label ≤ 18}}</text><text class="sub" x="32" y="86">{{sub ≤ 24}}</text>
 </g>
 <g class="node" data-paths="{{dir/core/}}">
-<rect x="255" y="50" width="170" height="44"/><text x="269" y="70">{{component}}</text><text class="sub" x="269" y="85">{{dir/core/}}</text>
+<rect x="190" y="50" width="150" height="46"/><text x="202" y="70">{{label}}</text><text class="sub" x="202" y="86">{{sub}}</text>
 </g>
 <g class="node" data-paths="{{dir/store.ts}}">
-<rect x="480" y="50" width="170" height="44"/><text x="494" y="70">{{component}}</text><text class="sub" x="494" y="85">{{dir/store.ts}}</text>
+<rect x="360" y="50" width="150" height="46"/><text x="372" y="70">{{label}}</text><text class="sub" x="372" y="86">{{sub}}</text>
 </g>
-<path class="e" d="M200,72 H255"/>
-<path class="e" d="M425,72 H480"/>
+<g class="node" data-paths="{{dir/util/}}">
+<rect x="190" y="130" width="150" height="46"/><text x="202" y="150">{{label}}</text><text class="sub" x="202" y="166">{{sub}}</text>
+</g>
+<path class="e" d="M170,73 H190"/>
+<path class="e" d="M340,73 H360"/>
+<path class="e" d="M265,96 V130"/>
 </svg>

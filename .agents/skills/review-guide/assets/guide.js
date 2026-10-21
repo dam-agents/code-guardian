@@ -36,6 +36,33 @@
     ".zc button:hover{border-color:var(--link)}h2 .zc{float:right;margin-top:-2px}";
   doc.head.appendChild(css);
 
+  /* SVG labels (the project map): a text wider than the box it starts in
+     shrinks, down to 9px, then is cut with "…"; the full text stays as its
+     tooltip. Nothing runs over a box edge. */
+  all("svg text").forEach(function (t) {
+    try {
+      var tb = t.getBBox(), cx = tb.x + 1, cy = tb.y + tb.height / 2, box = null;
+      Array.prototype.forEach.call(t.parentNode.children, function (r) {
+        if (r.tagName.toLowerCase() !== "rect" || box) return;
+        var b = r.getBBox();
+        if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) box = b;
+      });
+      if (!box) return;
+      var room = box.x + box.width - tb.x - Math.max(4, tb.x - box.x), full = t.textContent;
+      if (tb.width <= room) return;
+      var size = parseFloat(getComputedStyle(t).fontSize) || 12;
+      while (t.getBBox().width > room && size > 9) { size -= 0.5; t.style.fontSize = size + "px"; }
+      if (t.getBBox().width > room) {
+        var txt = full;
+        while (txt.length > 1 && t.getBBox().width > room) { txt = txt.slice(0, -1); t.textContent = txt + "…"; }
+      }
+      if (t.textContent !== full) {
+        var ti = doc.createElementNS("http://www.w3.org/2000/svg", "title"); ti.textContent = full; t.appendChild(ti);
+        if (!t.hasAttribute("data-tip")) t.setAttribute("data-tip", full);
+      }
+    } catch (e) {}
+  });
+
   /* zoom levels by meaning: 0 overview (all closed) · 1 sections (the seven
      section lines) · 2 details (every zoom without code) · 3 code (all).
      A level that would open nothing more than the one before it is hidden. */
@@ -114,6 +141,16 @@
     if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
     if (e.key === "+" || e.key === "=") setLevel(cur + 1);
     else if (e.key === "-" || e.key === "_") setLevel(cur - 1);
+  });
+
+  /* file and symbol names break only after _ . / - , never mid-word */
+  all(".tiles code, .cards code, .box, .chip").forEach(function (el) {
+    Array.prototype.slice.call(el.childNodes).forEach(function (n) {
+      if (n.nodeType !== 3 || !/[_.\/-]\w/.test(n.nodeValue)) return;
+      var frag = doc.createDocumentFragment();
+      n.nodeValue.split(/(?<=[_.\/-])/).forEach(function (part, i) { if (i) frag.appendChild(doc.createElement("wbr")); frag.appendChild(doc.createTextNode(part)); });
+      el.replaceChild(frag, n);
+    });
   });
 
   /* data-zoom: a click or Enter on a node opens its zoom */
