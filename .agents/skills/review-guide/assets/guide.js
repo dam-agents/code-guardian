@@ -75,7 +75,8 @@
     "main svg .node text{fill:var(--fg)}main svg .node text.sub{fill:var(--muted)}" +
     "main svg .node rect{fill:var(--card);stroke:var(--before)}main svg .node.hl rect{fill:var(--accent-bg);stroke:var(--accent)}" +
     "main svg .grp{stroke:var(--line)}main svg .grpl{fill:var(--muted)}main svg text{fill:var(--fg)}" +
-    ".zoombar .theme{margin-left:auto;width:30px;padding:2px 0}";
+    ".zoombar .theme{margin-left:auto;width:30px;padding:2px 0}" +
+    "main code{font-size:.88em}summary code,.why code,.rk b code{font:inherit;background:none;padding:0}";
   doc.head.appendChild(themeCss);
   var root = doc.documentElement, THEME_KEY = "cg-review-guide-theme";
   function systemDark() { try { return matchMedia("(prefers-color-scheme: dark)").matches; } catch (e) { return false; } }

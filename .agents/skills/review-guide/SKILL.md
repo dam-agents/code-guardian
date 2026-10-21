@@ -138,7 +138,7 @@ pictures, not paragraphs, and the reader goes down only where they want.
 | Level | What the reader sees | The pictures |
 |---|---|---|
 | **0 — the PR** (no click) | header chips, **Why a person must look**, **Risks — what to watch**, **Verified by the review**, **Start here**, **Where it lands** | risk cards with a level edge, the review's findings, the project map with the touched nodes marked |
-| **1 — overview** (no click) | the seven sections as **closed lines**: name · main point in ≤ 15 words · badge (`3 to judge`, `2 solved`, `+386 −10`, `breaking`) | the closed page reads as the PR's story |
+| **1 — overview** (no click) | the seven sections as **closed lines**: name · main point in ≤ 15 plain words, no code marks · badge (`3 to judge`, `2 solved`, `+386 −10`, `breaking`) | the closed page reads as the PR's story |
 | **2 — a section** (open a line) | its main visual and at most about 60 words | before/after, chain, compare cards, timeline, treemap, rings |
 | **3 — zoom in** (a 🔍 zoom) | the parts behind the visual | file tiles sized by churn, component cards with before → after, risk dot and churn bar |
 | **4 — code** (the innermost zoom) | the line that matters | a mini diff (≤ 12 lines, colored +/−) and the GitHub link |
