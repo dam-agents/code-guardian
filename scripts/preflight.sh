@@ -2572,7 +2572,7 @@ if [ "$MODE" = "audit" ]; then
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","stall","anomaly","monitor",
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","monitor",
        "housekeeping","survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),

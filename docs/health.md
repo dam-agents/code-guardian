@@ -41,7 +41,7 @@ dashboard.html    # the last published page
   clears; a classifier day, a refused post, a stall alert, an anomaly, a
   denied GitHub call and an identity change are closed points. A recovery
   notice is no incident.
-- Rows hold counts, class words, UTC times, PR numbers and adapter parts only —
+- Rows hold counts, class words, UTC times, PR and review ids, HTTP codes and adapter parts only —
   never the text of an event.
 
 ## Service status

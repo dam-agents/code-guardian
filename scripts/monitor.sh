@@ -5,8 +5,9 @@
 # outward calls the two opt-ins (monitor-direct.sh, health.sh publish).
 #
 #   monitor.sh            -> worklist JSON: alerts_due[] (each with an `id`),
-#                            stall_alert, review_anomaly, direct, suppressed,
-#                            config, logs; nothing_to_do when none is due
+#                            recorded (history only: conditions, stall_alert,
+#                            review_anomaly), direct, suppressed, config, logs;
+#                            nothing_to_do when no alert is due
 #   monitor.sh ack <id>…  -> records the alerts as delivered (send-then-record)
 #
 # Requires: bash, jq, sed/grep/cut/tr/sort, GNU or BSD date; curl for the
@@ -41,6 +42,12 @@ CLAIM_TTL_S=1800          # an emitted, unacknowledged alert is due again after 
 STATE_KEEP_S=$(( 14 * 86400 ))   # a row whose alert no tick finds goes after this
 MODEL_GAP_S=3600          # API failures this far apart are two outages
 CLASSIFIER_WINDOW_S=86400
+# the kinds that reach the operator (docs/monitor.md → The alerts): the
+# agent's own operation — model, provider, platform, GitHub reachability,
+# schedule, harness, backup. Every other kind goes to the technical history
+# and the dashboard only.
+PAGE_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
+  "dispatch_refused","heartbeat_gap","judge_unavailable","harness_drift","backup_failing"]'
 
 # a non-negative integer key: missing -> <default>, off/none -> 0, other -> <default>
 int_key() { # <key> <default>
@@ -291,8 +298,8 @@ else CLEARED="$CLEARED dispatch_refused"; fi
 # review-pr.sh logs a `dismiss` warn when a review below APPROVE could not
 # revoke a standing approval of the agent — a failed dismissal, or a failed
 # list of the PR's reviews. The approval then stays on a PR its own review
-# no longer approves. One alert per approval (per run for a failed list); a
-# later dismissal of the same approval clears it.
+# no longer approves. One incident per approval (per run for a failed list); a
+# later dismissal of the same approval clears it. History only (PAGE_KINDS).
 DS_SINCE="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
 while IFS= read -r o; do [ -n "$o" ] && cand "$o"; done < <(events_jsonl dismiss | jq -c --arg s "$DS_SINCE" \
     --slurpfile ok <(events_jsonl review_pr | jq -c 'select(.event == "review_pr")
@@ -342,16 +349,16 @@ if [ -n "$GI" ]; then
 fi
 
 # ---------------------------------------------- claim against the ledger ----
-# One candidate per id, the first found: a run that retried a refused post is
-# one review_post_blocked alert. A row whose alert this tick still finds stays,
-# whatever its age — the events log can outlive STATE_KEEP_S (docs/logging.md
-# → Retention), and a sent alert is never sent again. Every other row goes
+# The PAGE_KINDS candidates only, one per id, the first found. A row whose
+# alert this tick still finds stays, whatever its age — the events log can
+# outlive STATE_KEEP_S (docs/logging.md → Retention), and a sent alert is
+# never sent again. Every other row goes
 # STATE_KEEP_S after its last claim or send.
 DUE='[]'; SUPPRESSED=0
 claim() {
   local st new
   st="$(state_read)"
-  new="$(printf '%s' "$CANDIDATES" | jq -sc --argjson st "$st" --arg now "$NOW_ISO" \
+  new="$(printf '%s' "$CANDIDATES" | jq -c --argjson pk "$PAGE_KINDS" 'select(.kind | IN($pk[]))' 2>/dev/null | jq -sc --argjson st "$st" --arg now "$NOW_ISO" \
       --argjson nowe "$NOW_EPOCH" --argjson ttl "$CLAIM_TTL_S" --argjson keep "$STATE_KEEP_S" \
       --arg cleared "$CLEARED" "$EP"'
     ($cleared | split(" ") | map(select(length > 0))) as $clr
@@ -378,8 +385,8 @@ with_state_lock "$STATE" claim || log "alert ledger unreadable — no alert clai
 
 # ---------------------------------------- stalled-review rate alert ----
 # docs/monitor.md → Stalled-review rate alert. Counts the last 24h of
-# `stale in_progress lock` takeovers, one per dead lock, and emits ONE alert
-# per UTC day at the threshold. The day claim is spent here, at detection.
+# `stale in_progress lock` takeovers, one per dead lock, and records ONE
+# incident per UTC day at the threshold. The day claim is spent here.
 STALL_SEL='select(.event == "preflight" and (.msg | test("stale in_progress lock")))
   | {ts, pr: (.msg | capture("PR #(?<n>[0-9]+)") | .n | tonumber),
      lock: ((.msg | capture("locked (?<l>[^ )]+)") | .l) // "")}'
@@ -416,7 +423,7 @@ if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
         --argjson week "$STALL_WEEK" \
         --argjson prs "$(printf '%s' "$STALL_PRS" | tr ' ' '\n' | jq -R . | jq -s '[.[] | select(length>0) | tonumber]')" \
         '{count:$count, threshold:$threshold, prs:$prs, window_hours:24, per_day_7d:$week}')"
-      log "stalled reviews: $STALL_N in the last 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS — alert due"
+      log "stalled reviews: $STALL_N in the last 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS — recorded"
       logev warn stall_rate "$STALL_N stalled review(s) in 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS"
     fi
     rmdir "$WORK/.stall-alert.lock" 2>/dev/null
@@ -512,7 +519,7 @@ if [ "$ANOMALY_FACTOR" != 0 ]; then
                   | . + {kind: ($l.kind // null), size: ($l.size // null)}]}' 2>/dev/null)"
         [ -n "$ANOMALY_ALERT" ] || ANOMALY_ALERT="$(printf '%s' "$ANOMALY_JUDGED" | jq -c --argjson f "$ANOMALY_FACTOR" '{factor: $f, reviews}')"
         ANOMALY_LIST="$(printf '%s' "$ANOMALY_ALERT" | jq -r '[.reviews[] | "PR #\(.pr) (\([.reasons[].rule] | join("+")))"] | join(", ")')"
-        log "review anomaly: $ANOMALY_LIST — alert due"
+        log "review anomaly: $ANOMALY_LIST — recorded"
         logev warn review_anomaly "$ANOMALY_LIST"
       fi
     fi
@@ -587,12 +594,12 @@ fi
 # ------------------------------------------------------------- output ----
 N_DUE="$(printf '%s' "$DUE" | jq length)"
 NOTHING=true
-{ [ "$N_DUE" -gt 0 ] || [ -n "$STALL_ALERT" ] || [ -n "$ANOMALY_ALERT" ]; } && NOTHING=false
+[ "$N_DUE" -gt 0 ] && NOTHING=false
 [ "$N_DUE" -gt 0 ] && log "alerts due: $(printf '%s' "$DUE" | jq -r 'group_by(.kind)
   | map(.[0].kind + (if length > 1 then "×\(length)" else "" end)) | join(", ")')"
 printf '%s\n' "$NOW_ISO monitor nothing_to_do=$NOTHING ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
 # the audit's wake-up count reads these keys back (stats.wakeups)
-logev info heartbeat "mode=monitor nothing_to_do=$NOTHING monitor=$N_DUE stall=$([ -n "$STALL_ALERT" ] && echo 1 || echo 0) anomaly=$([ -n "$ANOMALY_ALERT" ] && echo 1 || echo 0)"
+logev info heartbeat "mode=monitor nothing_to_do=$NOTHING monitor=$N_DUE"
 
 SLACK="$(cfg slack_notifications)"
 jq -n --argjson nothing "$NOTHING" --argjson due "$DUE" --argjson sup "$SUPPRESSED" \
@@ -600,12 +607,13 @@ jq -n --argjson nothing "$NOTHING" --argjson due "$DUE" --argjson sup "$SUPPRESS
   --arg slack "${SLACK:-disabled}" --arg eo "$(cfg escalation_owner)" --arg mo "$(cfg monitor_owner)" --arg name "$(cfg bot_display_name)" \
   --argjson mt "$MODEL_THRESHOLD" --argjson ct "$CLASSIFIER_THRESHOLD" --argjson st "$STALL_ALERT_THRESHOLD" \
   --argjson gt "$GITHUB_THRESHOLD" --argjson direct "$DIRECT" \
+  --argjson rec "$(printf '%s' "$CANDIDATES" | jq -sc --argjson pk "$PAGE_KINDS" '[.[] | objects | select(.kind | IN($pk[]) | not)] | unique_by(.id)' 2>/dev/null || echo '[]')" \
   --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
   --argjson raf "$ANOMALY_FACTOR" \
   --argjson logs "$(printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -s '[.[] | select(length>0)]')" '
   {mode: "monitor", nothing_to_do: $nothing, alerts_due: $due, suppressed: $sup, logs: $logs}
-  + (if $stall == null then {} else {stall_alert: $stall} end)
-  + (if $anomaly == null then {} else {review_anomaly: $anomaly} end)
+  + ({conditions: (if $rec == [] then null else $rec end), stall_alert: $stall, review_anomaly: $anomaly}
+     | with_entries(select(.value != null)) | if length > 0 then {recorded: .} else {} end)
   + (if $direct == null then {} else {direct: $direct} end)
   + {config: {slack_notifications: $slack,
        escalation_owner: (if $eo == "" then null else $eo end),

@@ -126,7 +126,8 @@ record() { # <conditions.json>
 incidents_merge() { # <keep>
   { jq -cR 'fromjson? // empty' "$INCIDENTS" 2>/dev/null || true; } | jq -c -s --slurpfile c "$TMPD/cond" \
       --arg now "$NOW_ISO" --arg keep "${1}:00:00Z" '
-    def pick: {count, runs, errors, failures, silent_minutes, limit_minutes, threshold, pr, prs, parts, minutes}
+    def pick: {count, runs, errors, failures, silent_minutes, limit_minutes, threshold, pr, prs, parts, minutes,
+               approval, verdict, http, by_event}
       | with_entries(select(.value != null));
     def point: IN("classifier_spike", "review_post_blocked", "approval_not_revoked", "stall_alert", "review_anomaly",
                     "github_write_denied", "github_identity_changed");

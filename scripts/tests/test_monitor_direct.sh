@@ -50,12 +50,10 @@ alerts <<'EOF'
  {"id":"github:2026-10-11T07:00:00Z:recovered","kind":"github_recovered","needs":"github:2026-10-11T07:00:00Z","first":"2026-10-11T07:00:00Z","last":"2026-10-11T07:30:00Z","over_at":"2026-10-11T07:40:00Z","minutes":40,"count":3,"errors":{"network":3},"open":false},
  {"id":"heartbeat:2026-10-12T06:00:00Z","kind":"heartbeat_gap","last":"2026-10-12T06:00:00Z","silent_minutes":130,"limit_minutes":90},
  {"id":"harness:automode-rules+hooks","kind":"harness_drift","parts":["automode-rules","hooks"]},
- {"id":"backup:2026-10-12T01:00:00Z","kind":"backup_failing","first":"2026-10-12T01:00:00Z","failures":4,"sample":"push to acme/widgets-state failed"},
- {"id":"classifier:2026-10-12","kind":"classifier_spike","count":21,"threshold":20,"runs":4,"by_tool":{"Bash":18,"Agent":3},"top":[{"pattern":"Bash rm -rf /","count":9}]},
- {"id":"post_blocked:r9:7","kind":"review_post_blocked","pr":7,"ts":"2026-10-12T08:10:00Z","reason":"Blocked by fast classifier"}]
+ {"id":"backup:2026-10-12T01:00:00Z","kind":"backup_failing","first":"2026-10-12T01:00:00Z","failures":4,"sample":"push to acme/widgets-state failed"}]
 EOF
 direct render "$SANDBOX/alerts.json"
-check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 10 alerts
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 8 alerts
 • **Model API unavailable** since 2026-10-12 08:00 UTC: 3 failures in 2 runs (server_error 2, overloaded 1). The last failure was at 2026-10-12 08:40 UTC. Cause: the model provider or the gateway. The agent does the missed review work after the API recovers.
 • **Model API was unavailable** from 2026-10-11 08:00 UTC to 2026-10-11 08:20 UTC: 2 failures in 2 runs (authentication_failed 2). Cause: the credentials or the account. The operator must fix them.
 • **Model API available again.** The outage started at 2026-10-10 08:00 UTC. The last failure was at 2026-10-10 08:30 UTC.
@@ -63,11 +61,9 @@ check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 10 aler
 • **GitHub API available again** at 2026-10-11 07:40 UTC, after 40 min.
 • **Review gate silent:** no tick since 2026-10-12 06:00 UTC (130 min, limit 90 min). Do this: make sure that the review schedule is enabled and that its gate can start.
 • **Harness adapter not current:** automode-rules, hooks. Do this: run `bash "$HOME/scripts/harness/claude-code/install.sh"`. The change applies from the next session.
-• **Work backup failing:** 4 failed pushes since 2026-10-12 01:00 UTC. Do this: examine the access to the work repository.
-• **Classifier refusals:** 21 in 24 h (threshold 20) in 4 runs. Tools: Bash 18, Agent 3. The events log has the patterns (event classifier_block).
-• **Review post refused:** the classifier refused the review post of PR #7 at 2026-10-12 08:10 UTC. No later post of that PR exists. Do this: post the review again in a session, or add the missing auto-mode rule.' 'every template renders its exact text'
-assert_jq '(.ids | length) == 10 and .skipped == []' 'every id is covered'
-assert_out_absent 'upstream|acme/widgets-state|rm -rf|fast classifier' 'no free text of an alert reaches the message'
+• **Work backup failing:** 4 failed pushes since 2026-10-12 01:00 UTC. Do this: examine the access to the work repository.' 'every template renders its exact text'
+assert_jq '(.ids | length) == 8 and .skipped == []' 'every id is covered'
+assert_out_absent 'upstream|acme/widgets-state' 'no free text of an alert reaches the message'
 
 # --- the operator-action templates ------------------------------------------------
 direct_case dir_golden_operator
@@ -79,12 +75,9 @@ alerts <<'JSON'
  {"id":"dismiss:9:list:r1","kind":"approval_not_revoked","pr":9,"ts":"2026-10-15T10:00:00Z","verdict":"request_changes","http":0}]
 JSON
 direct render "$SANDBOX/alerts.json"
-check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 5 alerts
-• **Review dispatch refused** since 2026-10-15 14:52 UTC: the platform refused 12 dispatches in 9 runs (14 PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting.
-• **GitHub refused a call** 413 times in 24 h with HTTP 403 (progress_status 412, post_failed 1). Cause: the token has no permission for the call. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session and give the token the missing permission.
-• **GitHub token changed** at 2026-10-14 14:08 UTC: the token now acts as a different app account. Do this: run `bash "$HOME/scripts/github-access.sh"` in the direct session.
-• **Approval not revoked:** the review of PR #7 at 2026-10-15 09:30 UTC has the verdict comment, but the dismissal of the earlier approval did not succeed (HTTP 403). The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews.
-• **Approval not revoked:** the review of PR #9 at 2026-10-15 10:00 UTC has the verdict request_changes, but the list of the reviews did not succeed. The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews.' 'the operator-action templates render their exact text'
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 1 alert
+• **Review dispatch refused** since 2026-10-15 14:52 UTC: the platform refused 12 dispatches in 9 runs (14 PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting.' 'the dispatch template renders its exact text'
+assert_jq '.skipped == ["gh_write:2026-10-13","identity:2026-10-14T14:08:21Z","dismiss:7:55","dismiss:9:list:r1"]' 'a history-only kind is never sent'
 assert_out_absent 'new-app|old-app' 'no login reaches the message'
 
 direct_case dir_golden_judge
@@ -112,12 +105,12 @@ alerts <<'EOF'
  {"id":"a7","kind":"github_recovered","over_at":"2026-10-11T07:40:00Z","minutes":"40"},
  {"id":"a8","kind":"stall_alert","count":5},
  {"id":"a9","kind":"made_up","first":"2026-10-12T01:00:00Z"},
- {"id":"ok1","kind":"classifier_spike","count":21,"threshold":20,"runs":4,"by_tool":{"Bash":20,"<!here>":1}}]
+ {"id":"a10","kind":"classifier_spike","count":21,"threshold":20,"runs":4,"by_tool":{"Bash":20}},
+ {"id":"ok1","kind":"github_recovered","over_at":"2026-10-11T07:40:00Z","minutes":40}]
 EOF
 direct render "$SANDBOX/alerts.json"
-assert_jq '.ids == ["ok1"] and .skipped == ["a1","a2","a3","a4","a5","a6","a7","a8","a9"]' 'each alert with a bad value, a foreign kind or a session-only kind is skipped'
+assert_jq '.ids == ["ok1"] and .skipped == ["a1","a2","a3","a4","a5","a6","a7","a8","a9","a10"]' 'each alert with a bad value, a foreign kind or a history-only kind is skipped'
 assert_jq '.text | test("[<>@]|https?:") | not' 'the text holds no control sequence, mention or link'
-assert_jq '.text | contains("Bash 20, other 1")' 'an odd tool name reads as other'
 
 direct_case dir_name_and_link '- bot_display_name: <!channel> bot'
 alerts <<'EOF'
@@ -140,9 +133,9 @@ OUT="$(sent_text)"
 assert_out_absent 'URGENT|Dashboard' 'a multi-line share URL never reaches a sent message'
 direct_case dir_name_newline
 jq -n '[{id: "g", kind: "github_recovered", over_at: "2026-10-11T07:40:00Z\n", minutes: 40},
-        {id: "h", kind: "classifier_spike", count: 21, threshold: 20, runs: 4, by_tool: {"evil.com": 3, "Bash\n": 1}}]' | alerts
+        {id: "h", kind: "github_recovered", over_at: "2026-10-11T07:40:00Z", minutes: 40}]' | alerts
 direct render "$SANDBOX/alerts.json"
-assert_jq '.ids == ["h"] and (.text | contains("Tools: other 3, other 1"))' 'a value with a trailing newline fails its type; a dotted tool name reads as other'
+assert_jq '.ids == ["h"] and .skipped == ["g"]' 'a value with a trailing newline fails its type'
 
 direct_case dir_max
 jq -n '[range(12) | {id: "g\(.)", kind: "github_recovered", over_at: "2026-10-11T07:40:00Z", minutes: .}]' | alerts
@@ -313,7 +306,7 @@ direct_case dir_tick_session_kinds '- stall_alert_threshold: 1'
 fail_ev 600; fail_ev 300
 ev 400 review warn preflight "PR #12: stale in_progress lock (locked 2026-10-12T00:00:00Z) — taken over"
 monitor
-assert_jq '.direct.status == "sent" and has("stall_alert") and .nothing_to_do == false' 'a stall alert still starts the session that analyses it'
+assert_jq '.direct.status == "sent" and .recorded.stall_alert.count == 1 and .alerts_due == [] and .nothing_to_do == true' 'a sent alert and a recorded stall start no session'
 
 direct_case dir_tick_idle
 monitor

@@ -25,7 +25,7 @@ cost_event() { # <secs-ago> <pr> <output-tokens> [model] [key=value…]
 baseline() { # <count> <output-tokens> [model]
   local i; for i in $(seq 1 "$1"); do cost_event $(( 7200 + i * 600 )) $(( 100 + i )) "$2" "${3:-}"; done
 }
-rules() { printf '%s' "$OUT" | jq -c '[.review_anomaly.reviews[0].reasons[].rule]' 2>/dev/null; }
+rules() { printf '%s' "$OUT" | jq -c '[.recorded.review_anomaly.reviews[0].reasons[].rule]' 2>/dev/null; }
 assert_rules() { # <json array> <description>
   if [ "$(rules)" = "$1" ]; then printf 'ok   %s: %s\n' "$CASE" "$2"
   else printf 'FAIL %s: %s (want %s, got %s)\n' "$CASE" "$2" "$1" "$(rules)"; FAILED=1; fi
@@ -43,24 +43,24 @@ anomaly_case anomaly_cost
 baseline 12 1000
 cost_event 600 42 5000
 run_monitor
-assert_jq '.review_anomaly.factor == 4 and (.review_anomaly.reviews | length) == 1' 'one review over the default factor'
+assert_jq '.recorded.review_anomaly.factor == 4 and (.recorded.review_anomaly.reviews | length) == 1' 'one review over the default factor'
 assert_rules '["cost"]' 'the reason is cost'
-assert_jq '.review_anomaly.reviews[0] | .pr == 42 and .reasons[0].ratio == 4.9 and .samples == 12 and .unit == "weighted_tokens"' \
+assert_jq '.recorded.review_anomaly.reviews[0] | .pr == 42 and .reasons[0].ratio == 4.9 and .samples == 12 and .unit == "weighted_tokens"' \
   'entry carries PR, ratio, samples; unpriced model is weighted'
-assert_jq '.review_anomaly.reviews[0] | .msgs == 40 and .subagents == 3 and .secs == 600 and .repeat_tool == "Bash"' \
+assert_jq '.recorded.review_anomaly.reviews[0] | .msgs == 40 and .subagents == 3 and .secs == 600 and .repeat_tool == "Bash"' \
   'entry carries the breakdown'
-assert_jq '.nothing_to_do == false and .mode == "monitor"' 'a due alert is work for the monitor'
+assert_jq '.nothing_to_do == true and .mode == "monitor" and .alerts_due == []' 'an anomaly is recorded, not work for the monitor'
 
 # --- judged once: the next pass is silent ------------------------------------
 run_monitor
-assert_jq '.review_anomaly == null' 'a judged review never alerts twice'
+assert_jq '.recorded.review_anomaly == null' 'a judged review never alerts twice'
 
 # --- under every limit → silent ------------------------------------------------
 anomaly_case anomaly_none
 baseline 12 1000
 cost_event 600 42 3900 '' secs=2000 peak_ctx=150000 repeats=7 failures=4 max_out=199999
 run_monitor
-assert_jq '.review_anomaly == null' 'values just under each limit stay silent'
+assert_jq '.recorded.review_anomaly == null' 'values just under each limit stay silent'
 
 # --- the median rules: time and context ----------------------------------------
 anomaly_case anomaly_time_context
@@ -74,17 +74,17 @@ anomaly_case anomaly_floors
 cost_event 600 42 1000 '' repeats=8 failures=5 max_out=200000
 run_monitor
 assert_rules '["repeats","failures","output"]' 'repeats, failures and output at their floors, no baseline needed'
-assert_jq '.review_anomaly.reviews[0].reasons[0] | .limit == 8 and .median == null' 'a floor reason carries its limit and no median'
+assert_jq '.recorded.review_anomaly.reviews[0].reasons[0] | .limit == 8 and .median == null' 'a floor reason carries its limit and no median'
 
 # --- a repo whose norm is higher raises the limit above the floor -------------
 anomaly_case anomaly_adaptive
 for i in $(seq 1 12); do cost_event $(( 7200 + i * 600 )) $(( 100 + i )) 1000 '' repeats=6 failures=2; done
 cost_event 600 42 1000 '' repeats=20 failures=7
 run_monitor
-assert_jq '.review_anomaly == null' 'repeats 20 and failures 7 stay under 4× a median of 6 and 2'
+assert_jq '.recorded.review_anomaly == null' 'repeats 20 and failures 7 stay under 4× a median of 6 and 2'
 cost_event 300 43 1000 '' repeats=24
 run_monitor
-assert_jq '.review_anomaly.reviews[0].reasons == [{rule:"repeats", value:24, limit:24, median:6, ratio:4}]' \
+assert_jq '.recorded.review_anomaly.reviews[0].reasons == [{rule:"repeats", value:24, limit:24, median:6, ratio:4}]' \
   'the limit is factor × the repo median once it exceeds the floor'
 
 # --- the baseline outlives the event retention ----------------------------------
@@ -115,7 +115,7 @@ anomaly_case anomaly_few_samples
 baseline 9 1000
 cost_event 600 42 9000
 run_monitor
-assert_jq '.review_anomaly == null' 'fewer than 10 baseline reviews never apply a median rule'
+assert_jq '.recorded.review_anomaly == null' 'fewer than 10 baseline reviews never apply a median rule'
 
 # --- the baseline is the same model's ------------------------------------------
 anomaly_case anomaly_per_model
@@ -123,7 +123,7 @@ for i in $(seq 1 12); do cost_event $(( 7300 + i * 600 )) $(( 300 + i )) 1000 cl
 baseline 12 8000
 cost_event 600 42 9000
 run_monitor
-assert_jq '.review_anomaly == null' 'a review is compared with its own model, not a cheaper one'
+assert_jq '.recorded.review_anomaly == null' 'a review is compared with its own model, not a cheaper one'
 
 # --- priced model: USD and the configured factor --------------------------------
 anomaly_case anomaly_priced '- review_anomaly_factor: 2.5' '' '## Benchmark model prices' '' \
@@ -132,7 +132,7 @@ anomaly_case anomaly_priced '- review_anomaly_factor: 2.5' '' '## Benchmark mode
 baseline 12 1000
 cost_event 600 42 3000
 run_monitor
-assert_jq '.review_anomaly.factor == 2.5 and .review_anomaly.reviews[0].unit == "usd"' 'priced in USD, factor 2.5 honoured'
+assert_jq '.recorded.review_anomaly.factor == 2.5 and .recorded.review_anomaly.reviews[0].unit == "usd"' 'priced in USD, factor 2.5 honoured'
 assert_jq '.config.review_anomaly_factor == 2.5' 'config object carries the factor'
 
 # --- ledger join: kind and size --------------------------------------------------
@@ -146,7 +146,7 @@ jq -nc 'range(1500) | {src: "ledger", pr: (1000 + .), ts: "2026-10-01T00:00:00Z"
 printf '%s\n' '{"src":"ledger","pr":42,"ts":"2026-10-07T10:00:00Z","sha":"abcdef1234567890abcdef1234567890abcdef12","kind":"first","verdict":"APPROVE","size":{"files":40,"additions":1800,"deletions":20}}' \
   >> "$WORK/REVIEW-LEDGER.jsonl"
 run_monitor
-assert_jq '.review_anomaly.reviews[0] | .kind == "first" and .size.additions == 1800' 'entry carries the ledger kind and size, whatever the ledger size'
+assert_jq '.recorded.review_anomaly.reviews[0] | .kind == "first" and .size.additions == 1800' 'entry carries the ledger kind and size, whatever the ledger size'
 
 # --- first contact judges the last 24 h only -----------------------------------
 anomaly_case anomaly_first_contact
@@ -154,7 +154,7 @@ baseline 12 1000
 cost_event 7100 41 1000
 cost_event 90000 40 99999 '' repeats=50
 run_monitor
-assert_jq '.review_anomaly == null' 'a review older than 24 h is not judged on first contact'
+assert_jq '.recorded.review_anomaly == null' 'a review older than 24 h is not judged on first contact'
 assert_file_contains "$WORK/.review-anomaly-seen" "$(iso_ago 7100 | cut -c1-13)" 'the marker moves to the newest event'
 
 # --- a stale marker (a re-enabled alert, a long outage) judges the last 24 h --
@@ -163,34 +163,34 @@ iso_ago 200000 > "$WORK/.review-anomaly-seen"
 cost_event 90000 40 1000 '' repeats=50
 cost_event 600 41 1000
 run_monitor
-assert_jq '.review_anomaly == null' 'a review older than 24 h is not judged after a stale marker'
+assert_jq '.recorded.review_anomaly == null' 'a review older than 24 h is not judged after a stale marker'
 
 # --- off switch ----------------------------------------------------------------
 anomaly_case anomaly_off '- review_anomaly_factor: off'
 cost_event 600 42 9000 '' repeats=50
 run_monitor
-assert_jq '.review_anomaly == null and .config.review_anomaly_factor == 0' 'factor off disables the detector'
+assert_jq '.recorded.review_anomaly == null and .config.review_anomaly_factor == 0' 'factor off disables the detector'
 
 # --- unparseable value falls back to the documented default -------------------
 anomaly_case anomaly_bad_value '- review_anomaly_factor: banana'
 baseline 12 1000
 cost_event 600 42 5000
 run_monitor
-assert_jq '.review_anomaly.factor == 4' 'garbage factor falls back to 4'
+assert_jq '.recorded.review_anomaly.factor == 4' 'garbage factor falls back to 4'
 
 # --- a factor between 0 and 1 would alert on most reviews: the default applies -
 anomaly_case anomaly_factor_below_one '- review_anomaly_factor: 0.5'
 baseline 12 1000
 cost_event 600 42 5000
 run_monitor
-assert_jq '.review_anomaly.factor == 4 and .config.review_anomaly_factor == 4' 'a factor under 1 falls back to 4'
+assert_jq '.recorded.review_anomaly.factor == 4 and .config.review_anomaly_factor == 4' 'a factor under 1 falls back to 4'
 
 # --- a fresh claim lock (live concurrent run) leaves the judgment to it --------
 anomaly_case anomaly_fresh_lock
 mkdir "$WORK/.review-anomaly.lock"
 cost_event 600 42 5000 '' repeats=50
 run_monitor
-assert_jq '.review_anomaly == null' 'a live concurrent claim suppresses this run'
+assert_jq '.recorded.review_anomaly == null' 'a live concurrent claim suppresses this run'
 
 # --- the weekly audit reports the review shape, this week and the one before ---
 anomaly_case anomaly_audit_shape

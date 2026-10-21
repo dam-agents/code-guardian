@@ -177,8 +177,6 @@ WHAT="$(printf '%s' "$JSON" | jq -r '
       + ( [ .value[] | .number? // empty ] | if length > 0 then " (#" + (map(tostring) | join(", #")) + ")" else "" end ) ]
   + ( if (.benchmark_due | type) == "object" then [ "benchmark_due=" + (.benchmark_due.action // "?") ] else [] end )
   + ( if (.survey_due | type) == "object" then [ "survey_due=" + (.survey_due.path // "?") ] else [] end )
-  + ( if has("stall_alert") then [ "stall_alert=" + (.stall_alert.count | tostring) ] else [] end )
-  + ( if has("review_anomaly") then [ "review_anomaly=" + (.review_anomaly.reviews | length | tostring) ] else [] end )
   + ( if .housekeeping_only == true then [ "housekeeping_only" ] else [] end )
   | join(", ")')"
 

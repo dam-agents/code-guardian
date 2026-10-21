@@ -612,11 +612,11 @@ Final shape:
 - monitor_owner: dana                  # monitor alert DMs go here; omit = escalation_owner
 - monitor_slack_direct: enabled        # the monitor DMs its alerts itself, no model; omit = disabled
 - health_dashboard: dam                # health dashboard surface: dam | off (default)
-- stall_alert_threshold: 4             # stalled reviews per 24h that alert; omit = 4; 0/off disables
-- review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) alerts; omit = 4; 0/off disables
+- stall_alert_threshold: 4             # stalled reviews per 24h recorded as an incident; omit = 4; 0/off disables
+- review_anomaly_factor: 4             # a review metric over max(floor, N × its model's median) is recorded; omit = 4; 0/off disables
 - model_alert_threshold: 2             # runs ended on an API failure in one outage that alert; omit = 2; 0/off disables
 - github_alert_threshold: 2            # gate passes in a row that could not list PRs that alert; omit = 2; 0/off disables
-- classifier_alert_threshold: 20       # classifier refusals per 24h that alert; omit = 20; 0/off disables
+- classifier_alert_threshold: 20       # classifier refusals per 24h recorded as an incident; omit = 20; 0/off disables
 - log_level: info                      # or: debug (diagnostic only); omit = info
 - active_hours: 00-23                  # platform timezone, both ends inclusive; missing = 00-23
 - active_days: Mon-Sun                 # or: Mon-Fri / a comma list; missing = Mon-Sun
