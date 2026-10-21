@@ -38,7 +38,7 @@ Execute exactly this list — never from list absence, never a bulk delete of
    `delete_artifact {id: <id>}` each, skipped silently when the MCP tool is
    absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
-   work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
+   work/reviews/pr-artifacts/pr-<n>.html work/reviews/pr-artifacts/pr-<n>.guide.html` — the PR's ledger rows stay
    ([review-mechanics.md](review-mechanics.md) → **Review ledger**).
 3. Delete the PR's REVIEWS.md row (`review-pr.sh row <n> --delete`), and its
    `work/SHEPHERD.md` row and `work/MENTIONS.md` `body-<n>` row when present.

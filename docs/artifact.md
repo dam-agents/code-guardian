@@ -123,29 +123,39 @@ this PR's paths, id and line:
 1. **Tools** — `create_artifact_upload_url` and `create_artifact` (or
    `update_artifact`) not registered → drop the section and run
    `review-pr.sh guide <n> --skipped dam-unavailable`.
-2. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
+2. **Findings** — `review-pr.sh guide <n> --findings <findings file>`, the
+   file `post` takes: the script renders the review's open blocking findings
+   into the page as **Verified by the review** — escaped, each linked to its
+   line at the head SHA, suggestions only counted — at the template's
+   `<!-- cg:findings -->` mark, in place of an earlier block. The model never
+   writes this block, so the page shows exactly what the review verified.
+3. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction
    script by `collect`.
-3. **Publish** — the history file carries a guide id → `update_artifact {id,
+4. **Publish** — the history file carries a guide id → `update_artifact {id,
    upload_ref}`, a new version behind the same link; an update that fails
    because the artifact is gone → create it as new. No id →
    `create_artifact {title: "PR #<n> review guide", upload_ref, type: "html", visibility: "public"}`.
-4. **Record** — `review-pr.sh guide <n> --id <id> --url <shareUrl>` writes
+5. **Record** — `review-pr.sh guide <n> --id <id> --url <shareUrl>` writes
    `<!-- artifact-guide: <id> <sha7> <url> -->` right after the title of
-   `reviews/pr-<n>.md` and logs the `guide` event
+   `reviews/pr-<n>.md`, stores the published page as
+   `reviews/pr-artifacts/pr-<n>.guide.html`, and logs the `guide` event
    `PR #<n>: <skill> published → DAM <id>, <R> redacted`. It writes before
    the post, so a review that does not post still leaves the id for the next
    round's update and for the prune.
-5. **Section** — the single line
+6. **Section** — the single line
    `📊 [Visual guide for the human reviewer](<shareUrl>) — <what the person must judge> (about <N> min)`.
 
 Any step that fails → drop the section, run `review-pr.sh guide <n> --skipped
 skill-errored` (a `guide` warn event), and post the review without the guide.
 The guide never delays or blocks a post.
 
-**A kept guide** (`🔁 Still holds`) publishes nothing: with a `needs-human`
-triage the section links the recorded URL and names the SHA it describes.
+**A kept guide** (`🔁 Still holds`) is not rebuilt. With a `needs-human`
+triage and a stored page, steps 2–6 run with `--findings <file> --kept`: the
+stored page gets this round's findings block and replaces the same artifact's
+version, so the link never shows stale findings. With no stored page the
+section only links the recorded URL and names the SHA it describes.
 
 **Retention** — the prune deletes the guide with the PR's other state
 ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).

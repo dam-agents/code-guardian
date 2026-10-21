@@ -393,9 +393,10 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   `definition_repo` — does the diff deliver what the linked issue asked;
   [`review-guide`](.agents/skills/review-guide/SKILL.md), a guide skill
   installed the same way — for a PR whose review needs a person, a visual page
-  linked from the review: why a person, the project map with the change
-  marked, then six one-line sections that open to a diagram each (why the PR
-  exists, the dependency chain, decisions, problems met, churn, impact); the
+  linked from the review: why a person, the grounded risks, the review's
+  verified findings, the project map with the change marked, then seven
+  one-line sections that open to a diagram each (why the PR exists, the
+  dependency chain, decisions, problems met, churn, impact, limits); the
   maps it draws stay in `work/diagrams/` as project knowledge
   ([docs/artifact.md](docs/artifact.md) → **Review guide**);
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md), the

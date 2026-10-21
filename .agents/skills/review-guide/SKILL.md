@@ -3,10 +3,11 @@ name: review-guide
 description: >-
   Build a short, picture-first, one-page HTML guide for the person who must
   review a pull request: why a person is needed and where to start, a map of
-  the project with the change marked, then one visual per section — why the PR
-  exists, the dependency chain, the decisions and their alternatives, the
-  problems met and how they were solved, where the churn landed, and the
-  technical impact. It decides first whether a person must judge anything and
+  the project with the change marked, the grounded risks and the review's
+  verified findings, then one visual per section — why the PR exists, the
+  dependency chain, the decisions and their alternatives, the problems met
+  and how they were solved, where the churn landed, the technical impact, and
+  the limits and open points. It decides first whether a person must judge anything and
   writes no page when nothing needs one, and it keeps maps of the project's
   areas to reuse. Use it when an automated review or an author wants a human
   reviewer's guide, a visual PR explainer, a "zooming review", a PR artifact or
@@ -105,6 +106,15 @@ the code around the change.
 - **Technical impact** — coupling and blast radius: which parts now depend on
   the change or are affected by it (the brief's context pack names the
   dependents), and what a caller sees differently.
+- **Risks** (2–4) — what a person must watch, each grounded in a fact
+  (**Risks from facts** below): the brief's risk prescan and forced paths, a
+  changed code file the context pack lists with no test, a contract change, an
+  open point the PR names.
+- **Limits and open points** — what the PR does not do: what it delivers,
+  what it leaves for later (the linked issue's open parts, a follow-up the PR
+  names), and what it does not do on purpose (a scope cut or a rejected
+  option in its `author-decisions`). From the PR body, the linked issue and
+  the comments only; nothing there → leave the section out.
 
 ## 3. The page — short at a glance, deep on demand, pictures at every level
 
@@ -113,8 +123,8 @@ pictures, not paragraphs, and the reader goes down only where they want.
 
 | Level | What the reader sees | The pictures |
 |---|---|---|
-| **0 — the PR** (no click) | header chips, **Why a person must look**, **Start here**, **Where it lands** | the project map with the touched nodes marked |
-| **1 — overview** (no click) | the six sections as **closed lines**: name · main point in ≤ 15 words · badge (`3 to judge`, `2 solved`, `+386 −10`, `breaking`) | the closed page reads as the PR's story |
+| **0 — the PR** (no click) | header chips, **Why a person must look**, **Risks — what to watch**, **Verified by the review**, **Start here**, **Where it lands** | risk cards with a level edge, the review's findings, the project map with the touched nodes marked |
+| **1 — overview** (no click) | the seven sections as **closed lines**: name · main point in ≤ 15 words · badge (`3 to judge`, `2 solved`, `+386 −10`, `breaking`) | the closed page reads as the PR's story |
 | **2 — a section** (open a line) | its main visual and at most about 60 words | before/after, chain, compare cards, timeline, treemap, rings |
 | **3 — zoom in** (a 🔍 zoom) | the parts behind the visual | file tiles sized by churn, component cards with before → after, risk dot and churn bar |
 | **4 — code** (the innermost zoom) | the line that matters | a mini diff (≤ 12 lines, colored +/−) and the GitHub link |
@@ -131,6 +141,36 @@ mini diff. Each zoom starts with a breadcrumb (`Map › <node> › <file>`).
 | Problems encountered | the hardest one · `K solved` | a timeline: ⚠ problem → ✓ fix, with the commit link | the hardest one: the dead end and the comment → the fix as a mini diff |
 | Where the churn landed | where most lines went · `+A −D` | a treemap of areas sized by changed lines, colored by kind | the reading order: numbered rows, churn bars, read/skim tags |
 | Technical impact | who is affected · `additive`/`breaking`/`behind a flag` | blast-radius rings: changed part, direct dependents, consumers | the contract before → after as a mini diff, a card per dependent |
+| Limits and open points | the main thing it does not do · `K open` | a scope board: ✓ in this PR · ⏸ left for later · ✗ not done on purpose | each known limit: when a user meets it, and where it shows |
+
+**The first screen answers the reviewer's questions.** Why was it done and
+what does it do — the callout and the map. What must a person decide — the
+callout. What is risky — **Risks — what to watch**. What did the automated
+review already find — **Verified by the review**: code-guardian renders the
+review's open blocking findings into the page where the template's
+`<!-- cg:findings -->` mark sits. Keep the mark; never write findings
+yourself and never restate them as risks. Where to look first — **Start
+here**.
+
+### Risks from facts
+
+A risk card names a **fact** and what the fact exposes. The kinds of fact:
+`irreversible` (a migration, a delete, a send, a publish), `contract` (an API,
+schema, config key, event or file format others use), `untested` (changed
+logic whose file the context pack lists with no test), `sensitive path` (the
+risk prescan or `human_review_paths`), `concurrency` (shared state, ordering,
+retries), `security` (auth, secrets, input that reaches a query or a shell),
+`data` (a write or a format of stored data), `rollout` (no flag, no fallback),
+`open point` (what the PR itself marks open).
+
+- **Level**: `hi` — irreversible, security, data loss, or a contract other
+  code calls; `md` — untested changed logic, concurrency, a sensitive path;
+  `lo` — the rest worth a look. Highest first, at most 4.
+- Each card: what can go wrong in at most 12 words, the tag, the link to the
+  line, and the fact in at most 15 words. Its `data-ref` ties it to the map
+  node it lives in.
+- Never a guess: "this may cause X" is a risk only when the mechanism is in
+  the code you read. No fact → no card. No risk → leave the section out.
 
 Keep a section, a zoom or a card only when it has content; delete it rather
 than fill it.
@@ -217,17 +257,18 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 
 - **Stay at altitude**: consequences and coupling, not naming, style or
   micro-optimizations.
-- **Describe, do not judge**: present each decision and problem neutrally; no
-  speculative failures ("this may cause X"). Report a risk the PR itself flags
-  as its authors framed it.
+- **Describe decisions, ground risks**: present each decision and problem
+  neutrally; name a risk only from a fact (**Risks from facts**). Report a risk
+  the PR itself flags as its authors framed it.
 - **Do not** narrate the diff file by file, decorate (no poem, mascot, emoji
   rows, filler), repeat the review's findings, give a score without its
   rubric, or describe code you did not read.
 
 ## Self-check before you write the file
 
-- The first screen answers what, why a person, and where to start; the map
-  shows where the change lands; the closed section lines alone tell the PR's
+- The first screen answers why, what, what a person must decide, what is
+  risky and where to start; the `<!-- cg:findings -->` mark is in place; the
+  map shows where the change lands; the closed section lines alone tell the PR's
   story; every level below adds a picture, and the innermost one is code.
 - Every marked map node has its zoom with the matching id; related elements
   share a `data-ref`.

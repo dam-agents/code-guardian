@@ -196,8 +196,9 @@ sections.
   attributes, so the model writes no script. A project
   map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
   and is stored in `work/diagrams/`, whatever the page's fate.
-- **Publish.** The review agent publishes a built page, or links a kept one,
-  only when its own triage is `needs-human` — the step between `meta.json` and
+- **Publish.** The review agent renders the review's open findings into the
+  page (`review-pr.sh guide <n> --findings`), then publishes a built page, or
+  refreshes a kept one, only when its own triage is `needs-human` — the step between `meta.json` and
   `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
   guide**).
 

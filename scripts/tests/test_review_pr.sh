@@ -2032,13 +2032,34 @@ assert_out_contains 'only when your triage is `needs-human`' 'the section depend
 assert_out_contains 'create_artifact {title: "PR #1 review guide"' 'a first guide is created'
 assert_out_absent 'update_artifact \{id' 'no prior guide, no update'
 assert_out_contains 'guide 1 --id <id> --url <shareUrl>' 'the brief names the record step'
+assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json" 'the brief renders the findings before the upload'
 assert_out_contains 'the new query() contract and its callers (about 10 min)' 'the section line carries what the person must judge'
 run_rp guide 1 --skipped later
 assert_jq '.outcome == "error"' 'an unknown skip reason is refused'
 run_rp guide 1 --id 'bad id' --url https://dam.example.test/s/a
 assert_jq '.outcome == "error"' 'an id with a space is refused'
+# the review's open findings go into the page, escaped and linked, by the script
+printf '%s' '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"also":[{"file":"src/gamma.ts","line":1}],"summary":"query <script>alert(1)</script> unbounded","fix":"add a limit & a cap"},
+ {"status":"new","severity":"suggestion","file":"src/beta.ts","line":1,"summary":"rename","fix":null},
+ {"status":"fixed","severity":"warning","file":"src/gamma.ts","line":1,"summary":"old one","fix":null}]' > "$(PR_DIR).ctx/findings.json"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
+assert_jq '.outcome == "rendered" and .blocking == 1 and .html == "'"$(GUIDE_HTML)"'"' 'the open blocking findings are rendered into the built page'
+assert_file_contains "$(GUIDE_HTML)" 'Verified by the review <small class="muted">1 blocking</small>' 'the block counts the blocking findings'
+assert_file_contains "$(GUIDE_HTML)" "href=\"https://github.com/acme/widgets/blob/$B1_SHA/src/alpha.ts#L6\">src/alpha.ts:6</a> — query &lt;script&gt;alert(1)&lt;/script&gt; unbounded" 'a finding links its line at the head SHA, its text escaped'
+assert_file_contains "$(GUIDE_HTML)" 'Fix: add a limit &amp; a cap' 'the fix is escaped'
+assert_file_contains "$(GUIDE_HTML)" '(+1 more places)' 'the sibling locations are counted'
+assert_file_contains "$(GUIDE_HTML)" '+1 suggestion(s) in the review' 'suggestions are counted, not listed'
+assert_file_lacks "$(GUIDE_HTML)" 'old one' 'a fixed finding is not on the page'
+assert_file_lacks "$(GUIDE_HTML)" '<script>alert' 'no script from a finding reaches the page'
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
+[ "$(grep -c 'cg:findings:start' "$(GUIDE_HTML)")" = 1 ] && printf 'ok   %s: a second render replaces the block\n' "$CASE" \
+  || { printf 'FAIL %s: findings block duplicated\n' "$CASE"; FAILED=1; }
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
+assert_jq '.outcome == "error"' 'no stored copy, nothing to keep'
 run_rp guide 1 --id art_9 --url https://dam.example.test/s/abc
 assert_jq '.outcome == "recorded" and .id == "art_9" and .sha == "'"${B1_SHA:0:7}"'"' 'the guide is recorded'
+cmp -s "$(GUIDE_HTML)" "$WORK/reviews/pr-artifacts/pr-1.guide.html" && printf 'ok   %s: the published page is stored for a later round\n' "$CASE" \
+  || { printf 'FAIL %s: the published page was not stored\n' "$CASE"; FAILED=1; }
 [ "$(sed -n 2p "$WORK/reviews/pr-1.md")" = "<!-- artifact-guide: art_9 ${B1_SHA:0:7} https://dam.example.test/s/abc -->" ] \
   && printf 'ok   %s: the marker sits right after the title\n' "$CASE" \
   || { printf 'FAIL %s: marker wrong: %s\n' "$CASE" "$(head -3 "$WORK/reviews/pr-1.md" | tr '\n' '|')"; FAILED=1; }
@@ -2093,6 +2114,29 @@ assert_jq '.skills["review-guide"].guide == "kept"' 'a kept guide'
 run_rp compose-brief 1
 assert_out_contains 'Visual guide for the human reviewer](https://dam.example.test/s/old) — at abc1234: the delta only renames a test' 'a kept guide links the published page'
 assert_out_absent 'create_artifact_upload_url' 'a kept guide publishes nothing'
+run_rp abort 1 "reset"
+
+# a kept guide with its stored page: the findings block is refreshed and the
+# same artifact updated
+guide_setup guide_kept_stored
+printf '# PR #1: alpha PR\n<!-- artifact-guide: art_3 abc1234 https://dam.example.test/s/old -->\n\n## PR-local overrides\n\n' > "$WORK/reviews/pr-1.md"
+mkdir -p "$WORK/reviews/pr-artifacts"
+printf '<!doctype html><html><body><main><h1>x</h1>\n<!-- cg:findings:start -->\n<p>stale block</p>\n<!-- cg:findings:end -->\n<p class="overview">At a glance</p></main></body></html>\n' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out"
+printf '🔁 Still holds — the delta only renames a test.\n' > "$(PR_DIR).out/review-guide.txt"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+run_rp compose-brief 1
+assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json --kept" 'a kept guide with a stored page refreshes its findings'
+assert_out_contains 'update_artifact {id: "art_3"' 'and updates the same artifact'
+printf '[]' > "$(PR_DIR).ctx/findings.json"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
+assert_jq '.outcome == "rendered" and .blocking == 0' 'the stored page is rendered into'
+KH="$(printf '%s' "$OUT" | jq -r .html)"
+assert_file_contains "$KH" 'No blocking finding' 'no blocking finding says so'
+assert_file_lacks "$KH" 'stale block' 'the earlier block is replaced'
+assert_file_contains "$WORK/reviews/pr-artifacts/pr-1.guide.html" 'stale block' 'the stored copy changes only when the publish is recorded'
 run_rp abort 1 "reset"
 
 # --- project diagrams: reused marked, missing areas named, new maps stored -----

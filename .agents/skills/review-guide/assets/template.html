@@ -69,6 +69,19 @@ pre.diff span{display:block;padding:0 8px}
 pre.diff .add{background:var(--ok-bg);color:var(--ok)}
 pre.diff .del{background:var(--warn-bg);color:var(--warn);text-decoration:line-through;text-decoration-color:currentColor}
 pre.diff .ctx{color:var(--muted)}
+/* risks: one card per grounded risk, the level as a colored edge + dot */
+.risks h2 small{font-weight:400}
+.rk{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:8px}
+.rk>div{border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:6px;padding:8px;font-size:13px;background:var(--card)}
+.rk>div.hi{border-left-color:var(--accent)}.rk>div.md{border-left-color:var(--warn)}
+.rk b{display:block;font-size:14px}
+.rk .tg{display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px;margin:3px 0;color:var(--muted)}
+/* limits: in / later / not done */
+.scope{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.scope>div{border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px}
+.scope ul{margin:4px 0 0;padding-left:16px}
+.scope .in{border-top:3px solid var(--ok)}.scope .later{border-top:3px solid var(--warn)}.scope .out{border-top:3px solid var(--before)}
+@media (max-width:600px){.scope{grid-template-columns:1fr}}
 .overview{margin:14px 0 6px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 @media (max-width:600px){details.sec>summary{flex-wrap:wrap}details.sec>summary b{min-width:0;flex:1}details.sec>summary span{flex-basis:100%;order:3;padding-left:20px;color:var(--muted)}}
 .map{overflow-x:auto}
@@ -133,6 +146,19 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
   <span class="chip">about {{MINUTES}} min</span>
 </div>
 <div class="why"><strong>Why a person must look</strong>{{WHY — 1–2 sentences: the question(s) only a person can settle}}</div>
+<!-- RISKS — 2–4 cards, highest first, each grounded in a fact (see SKILL.md
+     → Risks from facts). Level: hi | md | lo. Tag: the kind of fact. -->
+<section class="risks" id="risks">
+  <h2>Risks — what to watch <small class="muted">· {{K}}</small></h2>
+  <div class="rk">
+    <div class="hi" data-ref="{{node}}" data-tip="{{the evidence in one line}}"><span class="dot hi"></span><b>{{what can go wrong, ≤ 12 words}}</b><span class="tg">{{irreversible | contract | untested | sensitive path | concurrency | security | data | rollout | open point}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{the fact behind it, ≤ 15 words}}</div>
+    <div class="md"><span class="dot md"></span><b>{{risk}}</b><span class="tg">{{kind}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{fact}}</div>
+  </div>
+</section>
+
+<!-- cg:findings -->
+<!-- code-guardian renders the review's verified findings here; keep the mark. -->
+
 <p class="start">▶ <b>Start here:</b> <a href="{{LINK to stop 1}}">{{path:line}}</a> — {{what to check there}} · <a href="#decisions">the decisions</a></p>
 
 <section>
@@ -298,6 +324,22 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
         <pre class="diff"><span class="del">{{signature or schema before}}</span><span class="add">{{signature or schema after}}</span></pre>
         <div class="cards"><div><span class="dot md"></span><b>{{dependent}}</b><span class="ba1">{{what it sees now}}</span><a href="{{LINK}}">{{path}}</a></div></div>
       </div>
+    </details>
+  </div>
+</details>
+
+<!-- LIMITS AND OPEN POINTS — what the PR does not do, from the PR body, its
+     author-decisions, the linked issue and the comments only -->
+<details class="sec" id="limits">
+  <summary><b>Limits and open points</b><span>{{the main thing it does not do, ≤ 15 words}}</span><em>{{K}} open</em></summary>
+  <div class="body">
+    <div class="scope">
+      <div class="in"><b>✓ In this PR</b><ul><li>{{delivered}}</li></ul></div>
+      <div class="later"><b>⏸ Left for later</b><ul><li>{{deferred}} — <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/issues/{{n}}">#{{n}}</a></li></ul></div>
+      <div class="out"><b>✗ Not done, on purpose</b><ul><li>{{scope cut}} — {{why, as the PR says}}</li></ul></div>
+    </div>
+    <details class="zoom"><summary><b>Zoom in: the known limits</b><em>where each shows</em></summary>
+      <div class="body"><div class="cards"><div><b>{{limit}}</b><span class="ba1">{{when a user meets it}}</span><a href="{{LINK}}">{{path:line}}</a></div></div></div>
     </details>
   </div>
 </details>

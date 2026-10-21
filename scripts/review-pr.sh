@@ -44,10 +44,12 @@
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
 #                                          dismissal, done row, history, cleanup
-#   guide <n> --id <id> --url <url>        record the review guide published for this
-#   guide <n> --skipped <reason>           review (docs/artifact.md → Review guide):
-#                                          the history marker and the `guide` event,
-#                                          or the skip
+#   guide <n> --findings <file> [--kept]   the review guide (docs/artifact.md → Review
+#   guide <n> --id <id> --url <url>        guide): render the review's open findings
+#   guide <n> --skipped <reason>           into the page (the built one, or with --kept
+#                                          the stored copy), then record the publish —
+#                                          the history marker, the stored copy and the
+#                                          `guide` event — or the skip
 #   ci <n> [--sha <sha>]                  the check rollup for a reviewed SHA:
 #                                          whether it is terminal, which checks
 #                                          failed, and a file of evidence per
@@ -1809,28 +1811,36 @@ cmd_compose_brief() {
 # (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
 # tools, and only the triage it wrote decides whether a person is needed.
 guide_brief() { # <skill> <section> <built|kept> <line> <html>
-  local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge
+  local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge ff store n=1
   gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
   judge="$(printf '%s' "$line" | sed -E 's/^(📊|🔁) *(Guide|Still holds) *— *//; s/\.$//')"
+  ff="$CTX/findings.json"; [ "$(ctx_get '.kind')" = "re-review" ] && ff="$CTX/findings.annotated.json"
+  store="$WORK/reviews/pr-artifacts/pr-$N.guide.html"
   printf '\n## Review guide — `%s` %s — docs/artifact.md → Review guide\n\n' "$s" \
     "$([ "$g" = built ] && printf 'built a page for the human reviewer' || printf 'says the guide at %s still holds' "$gsha")"
   printf 'Its line: %s\n\n' "$line"
   printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
-  if [ "$g" = kept ]; then
+  if [ "$g" = kept ] && [ ! -s "$store" ]; then
     printf '1. The section is the single line: `📊 [Visual guide for the human reviewer](%s) — at %s: %s`\n' "$gurl" "$gsha" "$judge"
-    printf '2. Nothing to publish or record.\n'
+    printf '2. Nothing to publish or record: no stored copy to refresh.\n'
     return 0
   fi
-  printf '1. The DAM tools `create_artifact_upload_url` and `%s` are not registered → drop the section, then `review-pr.sh guide %s --skipped dam-unavailable`.\n' \
-    "$([ -n "$gid" ] && printf update_artifact || printf create_artifact)" "$N"
-  printf '2. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @%s '"'"'<url>'"'"'`\n' "$N" "$html"
+  printf '%s. The DAM tools `create_artifact_upload_url` and `%s` are not registered → drop the section, then `review-pr.sh guide %s --skipped dam-unavailable`.\n' \
+    "$n" "$([ -n "$gid" ] && printf update_artifact || printf create_artifact)" "$N"; n=$((n+1))
+  printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the review'"'"'s open findings go into the page as **Verified by the review**; its `html` is the page to upload.\n' \
+    "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" = kept ] && printf ' --kept')"; n=$((n+1))
+  printf '%s. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @<html> '"'"'<url>'"'"'`\n' "$n" "$N"; n=$((n+1))
   if [ -n "$gid" ]; then
-    printf '3. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$gid" "$gurl"
+    printf '%s. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$n" "$gid" "$gurl"
   else
-    printf '3. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$N"
+    printf '%s. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$n" "$N"
+  fi; n=$((n+1))
+  printf '%s. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker, the stored copy and the `guide` event.\n' "$n" "$N"; n=$((n+1))
+  if [ "$g" = kept ]; then
+    printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — at %s: %s`\n' "$n" "$gsha" "$judge"
+  else
+    printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — %s`\n' "$n" "$judge"
   fi
-  printf '4. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker and the `guide` event.\n' "$N"
-  printf '5. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — %s`\n' "$judge"
   printf 'A step that fails → drop the section, `review-pr.sh guide %s --skipped skill-errored`, and post the review without the guide.\n' "$N"
 }
 
@@ -2364,22 +2374,82 @@ cmd_verify() {
 }
 
 # ====================================================================== ci ====
+# The review's open findings as the page's "Verified by the review" block,
+# rendered by this script from the findings file `post` takes — escaped, linked
+# to the head SHA, no model in the loop (docs/artifact.md → Review guide).
+findings_block() { # <findings file> <head sha>
+  jq -r --arg base "https://$REPO_HOST/$REPO/blob/$2/" '
+    def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;");
+    def link: if (.file // "") == "" then "" else
+      "<a href=\"" + $base + (.file | split("/") | map(@uri) | join("/"))
+      + (if .line then "#L\(.line)" else "" end) + "\">"
+      + ((.file + (if .line then ":\(.line)" else "" end)) | esc) + "</a>" end;
+    [ .[] | select((.status // "new") != "fixed") ] as $open
+    | [ $open[] | select(.severity == "critical" or .severity == "warning") ]
+      | sort_by(if .severity == "critical" then 0 else 1 end) as $b
+    | ([ $open[] | select(.severity == "suggestion") ] | length) as $sg
+    | "<!-- cg:findings:start -->",
+      "<section class=\"found\" id=\"found\"><style>.found{border-left:4px solid var(--warn,#b45309)}.found ul{margin:6px 0 0;padding-left:18px}.found li{margin:0 0 6px}.found .fx{color:var(--muted,#5f6368);font-size:13px}.found .fok{color:var(--ok,#15803d)}</style>",
+      "<h2>Verified by the review <small class=\"muted\">\($b | length) blocking</small></h2>",
+      (if ($b | length) == 0
+       then "<p class=\"fok\">✅ No blocking finding. The review checked the code; the questions above are for a person.</p>"
+       else "<ul>",
+            ($b[] | "<li data-tip=\"\(.summary | esc)\"><b>\(if .severity == "critical" then "🔴 Critical" else "🟡 Warning" end)</b> \(link) — \(.summary | esc)"
+                    + (if (.also // []) | length > 0 then " <span class=\"fx\">(+\(.also | length) more places)</span>" else "" end)
+                    + (if .fix then "<br><span class=\"fx\">Fix: \(.fix | esc)</span>" else "" end) + "</li>"),
+            "</ul>" end),
+      (if $sg > 0 then "<p class=\"fx\">+\($sg) suggestion(s) in the review.</p>" else empty end),
+      "</section>",
+      "<!-- cg:findings:end -->"' "$1" 2>/dev/null
+}
+# The block into the page: in place of an earlier block or of the template's
+# `<!-- cg:findings -->` mark, else before the section overview, else before
+# </main>, else before </body>.
+render_findings() { # <html> <findings file> <head sha>
+  local page blk pre post
+  blk="$(findings_block "$2" "$3")"; [ -n "$blk" ] || return 1
+  page="$(cat "$1")" || return 1
+  case "$page" in
+    (*'<!-- cg:findings:start -->'*'<!-- cg:findings:end -->'*)
+      pre="${page%%<!-- cg:findings:start -->*}"; post="${page#*<!-- cg:findings:end -->}";;
+    (*'<!-- cg:findings -->'*) pre="${page%%<!-- cg:findings -->*}"; post="${page#*<!-- cg:findings -->}";;
+    (*'<p class="overview"'*) pre="${page%%<p class=\"overview\"*}"; post="<p class=\"overview\"${page#*<p class=\"overview\"}";;
+    (*'</main>'*) pre="${page%</main>*}"; post="</main>${page##*</main>}";;
+    (*'</body>'*) pre="${page%</body>*}"; post="</body>${page##*</body>}";;
+    (*) return 1;;
+  esac
+  printf '%s%s\n%s\n' "$pre" "$blk" "$post" > "$1.f" && mv "$1.f" "$1"
+}
+
 # Record the review guide the agent published, or why it did not (docs/artifact.md
 # → Review guide). The marker sits right after the title of the history file,
 # written before the post so a review that does not post still leaves the id for
 # the next round's update and for the prune.
 cmd_guide() {
   need_ctx
-  local id="" url="" skipped="" s sha7 f red tmp
+  local id="" url="" skipped="" findings="" kept=false s sha7 f red tmp page store
   while [ $# -gt 0 ]; do
     case "$1" in
       (--id) id="${2:-}"; shift 2;; (--url) url="${2:-}"; shift 2;;
       (--skipped) skipped="${2:-}"; shift 2;;
+      (--findings) findings="${2:-}"; shift 2;; (--kept) kept=true; shift;;
       (*) fail "unknown argument $1";;
     esac
   done
   s="$(jq -r 'to_entries[] | select(.value.kind == "guide") | .key' "$CTX/collect.json" 2>/dev/null | head -1)"
   [ -n "$s" ] || fail "no guide skill ran for this PR — run collect first"
+  store="$WORK/reviews/pr-artifacts/pr-$N.guide.html"
+  if [ -n "$findings" ]; then
+    [ -r "$findings" ] && jq -e 'type == "array"' "$findings" >/dev/null 2>&1 || fail "--findings must be the findings JSON array post takes"
+    if [ "$kept" = true ]; then page="$store"
+    else page="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"; fi
+    [ -s "$page" ] || fail "no page to render into: $([ "$kept" = true ] && printf 'no stored copy of the published guide' || printf 'the guide was not built')"
+    if [ "$kept" = true ]; then cp "$store" "$CTX/guide.kept.html" || fail "the stored copy was not readable"; page="$CTX/guide.kept.html"; fi
+    render_findings "$page" "$findings" "$(ctx_get '.head_sha')" || fail "the findings block was not rendered into the page"
+    printf '%s\n' "$page" > "$CTX/guide.page"
+    out "$(jq -nc --arg h "$page" --argjson b "$(jq '[.[] | select((.status // "new") != "fixed") | select(.severity == "critical" or .severity == "warning")] | length' "$findings")" \
+      '{outcome:"rendered", html:$h, blocking:$b}')"
+  fi
   if [ -n "$skipped" ]; then
     case "$skipped" in (dam-unavailable|skill-errored) ;; (*) fail "--skipped takes dam-unavailable or skill-errored";; esac
     logev warn guide "PR #$N: $s skipped ($skipped)"
@@ -2395,6 +2465,14 @@ cmd_guide() {
   { head -1 "$f"; printf '<!-- artifact-guide: %s %s %s -->\n' "$id" "$sha7" "$url"
     tail -n +2 "$f" | grep -v '^<!-- artifact-guide: '; } > "$tmp" && mv "$tmp" "$f" \
     || { rm -f "$tmp"; fail "the history marker was not written"; }
+  # the published page, kept so a later round that keeps the guide can refresh
+  # its findings block (docs/artifact.md → Review guide)
+  page="$(cat "$CTX/guide.page" 2>/dev/null)"
+  [ -s "$page" ] || page="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"
+  if [ -s "$page" ] && [ "$page" != "$store" ]; then
+    mkdir -p "${store%/*}" && cp "$page" "$store.tmp" && mv "$store.tmp" "$store" \
+      || logev warn guide "PR #$N: the published guide page was not stored — a kept guide cannot refresh its findings"
+  fi
   red="$(jq -r --arg s "$s" '.[$s].redactions // 0' "$CTX/collect.json" 2>/dev/null)"
   logev info guide "PR #$N: $s published → DAM $id, ${red:-0} redacted"
   out "$(jq -nc --arg i "$id" --arg u "$url" --arg h "$sha7" '{outcome:"recorded", id:$i, url:$u, sha:$h}')"
