@@ -213,9 +213,12 @@ finding; the audit counts it ([audit.md](audit.md) task 31).
 
 Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
 risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
-**Performance** (allocations, N+1, missing indexes) · **Architecture**
-(coupling, layer boundaries, broken contracts) · **Tests** (missing coverage,
-flaky patterns) · **Maintainability** (dead code, error handling) ·
+**Reliability** (an external call with no timeout or error handling, a retry
+that is not idempotent, a swallowed error, a multi-step operation that a
+failure leaves half-applied) · **Performance** (allocations, N+1, missing
+indexes, an unbounded loop over input, blocking I/O on a hot path, no
+pagination) · **Architecture** (coupling, layer boundaries, broken
+contracts) · **Tests** (missing coverage, flaky patterns) · **Maintainability** (dead code, error handling) ·
 **Delivery** (a breaking change in an env var, a CLI flag, a config key or a
 migration; a CI step that does not run what the change needs; a runtime
 assumption about paths, permissions, time zone or the concurrency model). The
