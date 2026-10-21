@@ -368,7 +368,7 @@ measurement.
 
 37. **Review shape** — `stats.review_shape`: the medians of each review's
     `secs`, `msgs`, `peak_ctx`, `repeats`, `failures` and `max_out`, this week
-    against the week before, the reviews this week's anomaly alerts named, and
+    against the week before, the reviews this week's anomaly records named, and
     the stored baseline per model ([monitor.md](monitor.md)
     → **Review anomaly alert**). A slow rise moves the alert's own median with
     it: a median up by half or more against the week before, with a similar

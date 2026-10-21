@@ -202,7 +202,7 @@ run_monitor
 run_preflight audit
 assert_jq '.stats.review_shape.week | .reviews == 5 and .median.repeats == 5 and .median.peak_ctx == 60000' 'this week: count and medians'
 assert_jq '.stats.review_shape.previous | .reviews == 3 and .median.repeats == 2 and .median.peak_ctx == 40000' 'the week before, from the retained log'
-assert_jq '.stats.review_shape.anomalies == 2' 'the week counts the reviews its anomaly alerts named'
+assert_jq '.stats.review_shape.anomalies == 2' 'the week counts the reviews its anomaly records named'
 assert_jq '.stats.review_shape.baseline == {"claude-opus-5-5": 8} and .stats.review_shape.baseline_min == 10' \
   'the stored baseline per model, seeded from every retained event, against the minimum'
 

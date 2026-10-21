@@ -38,7 +38,7 @@ dashboard.html    # the last published page
 
 - **Incident** — `{id, kind, first, last_seen, open, end, detail}`, one per
   condition id of the monitor. An outage or a condition is open until it
-  clears; a classifier day, a refused post, a stall alert, an anomaly, a
+  clears; a classifier day, a refused post, a stall day, an anomaly, a
   denied GitHub call and an identity change are closed points. A recovery
   notice is no incident.
 - Rows hold counts, class words, UTC times, PR and review ids, HTTP codes and adapter parts only —

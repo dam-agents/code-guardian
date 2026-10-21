@@ -528,7 +528,7 @@ if [ "$ANOMALY_FACTOR" != 0 ]; then
 fi
 
 # ------------------------------------------------- technical history ----
-# docs/health.md: every condition of this tick, the stall and anomaly alerts
+# docs/health.md: every condition of this tick, the stall and anomaly records
 # as point incidents. Local writes only.
 COND_FILE="$(mktemp "${TMPDIR:-/tmp}/cg-cond.XXXXXX" 2>/dev/null)"
 if [ -n "$COND_FILE" ]; then
