@@ -130,8 +130,9 @@ this PR's paths, id and line:
    suggestions only counted — at the template's `<!-- cg:findings -->` mark,
    in place of an earlier block. The model never writes this block, so the
    page shows exactly what the review verified. The findings text is model
-   output too, so the command then takes the vetted script out, checks the
-   whole page again, and puts the script back; a page that fails is refused.
+   output too, so the command then takes the vetted script out, redacts and
+   checks the whole page again, and puts the script back; a page that fails
+   is refused. The block goes only at a mark on a line of its own.
 3. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction
@@ -157,7 +158,9 @@ The guide never delays or blocks a post.
 **A kept guide** (`🔁 Still holds`) is not rebuilt. With a `needs-human`
 triage and a stored page, steps 2–6 run with `--findings <file> --kept`: the
 stored page gets this round's findings block and replaces the same artifact's
-version, so the link never shows stale findings. With no stored page the
+version, so the link never shows stale findings. Its marker keeps the SHA
+the page was built at, so the next gate compares against what the page
+shows. With no stored page the
 section only links the recorded URL and names the SHA it describes.
 
 **Retention** — the prune deletes the guide with the PR's other state

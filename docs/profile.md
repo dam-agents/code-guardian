@@ -152,15 +152,19 @@ are orientation, never evidence.
   covers: the first two directories of each uncovered code, test or config
   file — a docs-only area gets no map.
 - **Currency** — a map is stale when it is older than `DIAGRAM_STALE_DAYS`
-  (45) or when files were added, deleted or renamed under its `data-paths`
-  on the base branch since `data-base`; the brief asks the guide to redraw it
-  with the same id when it uses it.
+  (45) or when at least `DIAGRAM_STALE_FILES` (5) files were added, deleted or
+  renamed under its `data-paths` on the base branch since `data-base`; the
+  brief asks the guide to redraw it with the same id when it uses it.
 - **Growth** — a guide run draws or redraws at most `DIAGRAM_NEW_MAX` (1) map,
   the area with the most changes first. `review-pr.sh collect` checks it like a
   guide page (redacted, no script, no remote load, no link outside the
-  repository, at most `DIAGRAM_MAX_BYTES`), stores it, and logs a `diagram`
-  event; the store holds at most `DIAGRAM_STORE_MAX` (40) maps. A map is
+  repository, at most `DIAGRAM_MAX_BYTES`, and a title and path lists in
+  letters, digits and `. _ / , ( ) + -` only), stores it, and logs a
+  `diagram` event; the store holds at most `DIAGRAM_STORE_MAX` (40) maps. A map is
   published only inside a guide page, so it carries no secret and no PR mark.
+- **Trust** — a stored map is model output from an earlier PR. Its title
+  and paths reach a later brief only in those plain characters, and the brief
+  marks them as data.
 - **Operator** — delete a file to have it redrawn; a hand-made map in the same
   form is used like a drawn one.
 

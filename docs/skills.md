@@ -179,7 +179,10 @@ sections.
 - **Cost.** It fans out with the other skills, so it adds no wall clock while
   another skill runs longer. Its budget is `GUIDE_BUDGET_MIN` (10) of
   `review-pr.sh`. The skill decides its gate from the diff stat and the PR
-  context before it opens a file, and most PRs end there: no page.
+  context before it opens a file; a PR that needs no person ends there, with
+  no page. The skill keeps its own budget by the clock; `collect` warns about
+  an output written past it, and nothing stops the subagent sooner. Trial
+  runs on real pull requests took 2–7 minutes for a built page.
 - **Output.** `$PR_DIR.out/<skill>.txt` holds one line: `📊 Guide — <what the
   person must judge> (about <N> min)` with the page beside it, `🔁 Still holds —
   <reason>` when the guide published at an earlier SHA still fits,
@@ -192,8 +195,14 @@ sections.
   or SVG animation, no remote or `data:` load, no address, escape or import
   in its CSS, no `xml:base`, and every URL attribute (`href`, `src`,
   `srcset`, `background`, `ping` and the rest) either an `#anchor` or a URL
-  under `https://<repo-host>/<owner>/<repo>/`. The check reads the page with
-  every run of whitespace folded, so a tag split across lines is one unit. A page that fails is
+  under `https://<repo-host>/<owner>/<repo>/` with no space, comma, entity,
+  escape or `..`. The check folds every run of whitespace, then scans the
+  tags as a browser reads them (a `>` in a quoted value does not end a tag;
+  text between tags, such as code in a mini diff, is not read as
+  attributes); `srcset`, `xml:base` and `http-equiv` are refused, and the
+  only CSS `url()` is `url(#id)`. A page that went through `collect` before
+  has its vetted script taken out first, so a second `collect` reads the
+  same page. A page that fails is
   `refused`, with the reason as a form warning; it does not publish. A page
   that passes gets the skill's vetted `assets/guide.js` inserted before
   `</body>` (`skills.<skill>.interactive`): the level bar, per-section zoom, a

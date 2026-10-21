@@ -145,6 +145,7 @@ DIAGRAM_MAX_BYTES=81920 # the largest project diagram that is stored
 DIAGRAM_NEW_MAX=1       # new or redrawn diagrams one guide run may store
 DIAGRAM_STORE_MAX=40    # diagrams work/diagrams/ holds
 DIAGRAM_STALE_DAYS=45   # a diagram older than this is redrawn when a guide uses it
+DIAGRAM_STALE_FILES=5   # files added, deleted or renamed in its area that make a diagram stale
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -358,44 +359,68 @@ guide_marker() {
 # may: one file, no script, no remote load, links only into this PR's
 # repository (docs/artifact.md → Review guide). Both are model output built from
 # untrusted PR content.
+# The tag scan of markup_refusal, in jq: every tag of the page as a browser
+# reads it — a ">" inside a quoted value does not end it, and text between
+# tags (code in a mini diff) is no tag — then each attribute name and value.
+# Prints the first reason to refuse, or nothing.
+MARKUP_JQ='
+  def unq: if test("^\"") then .[1:-1] elif test("^\u0027") then .[1:-1] else . end;
+  [ scan("<[a-zA-Z!/?][^>\"\u0027]*(?:(?:\"[^\"]*\"|\u0027[^\u0027]*\u0027)[^>\"\u0027]*)*>?") ] as $tags
+  | [ $tags[] | ascii_downcase | (capture("^</?\\s*(?<n>[a-z][a-z0-9:-]*)") // empty) | .n ] as $names
+  | [ $tags[] | [ scan("[\\s/\"\u0027]([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\\s*=\\s*(\"[^\"]*\"|\u0027[^\u0027]*\u0027|[^\\s\"\u0027>]+))?") ]
+      | .[] | { n: (.[0] | ascii_downcase), v: ((.[1] // "") | unq) } ] as $attrs
+  | ([ "script","iframe","frame","object","embed","applet","form","link","base","portal","foreignobject",
+       "animate","animatemotion","animatetransform","set" ]) as $banned
+  | ([ "href","src","xlink:href","action","formaction","poster","background","ping","cite","longdesc",
+       "lowsrc","dynsrc","manifest","icon","codebase","archive","classid","usemap","data" ]) as $urlattrs
+  | ([ "style","fill","stroke","filter","clip-path","mask","marker-start","marker-mid","marker-end","cursor" ]) as $cssattrs
+  | ( [ $names[] | select(IN($banned[])) ] | first // null ) as $el
+  | if $el then "a \($el) element"
+    elif any($attrs[]; .n | test("^on")) then "an event handler attribute"
+    elif any($attrs[]; .n | IN("http-equiv","srcset","imagesrcset","xml:base")) then "an http-equiv, srcset or xml:base attribute"
+    else
+      ( [ $attrs[] | select(.n | IN($urlattrs[])) | .v ]
+        | map(select(test("[\\s,&\\\\]|\\.\\.|%2e"; "i") or ((startswith("#") or startswith($prefix)) | not))) | first // null ) as $bad
+      | if $bad then "a link outside the PR repository, or with a space, comma, entity, escape or dot-dot: \($bad[0:80])"
+        else
+          ( [ $attrs[] | select(.n | IN($cssattrs[])) | .v ] | join(" ") ) as $css
+          | if ($css + " " + $styles) | ascii_downcase | test("https?:|//|data:|\\\\|&|image-set|@import|expression\\(")
+            then "an address, an escape, an entity or an import in CSS"
+            elif (($css + " " + $styles) | ascii_downcase | [ scan("url\\(") ] | length)
+                 != (($css + " " + $styles) | ascii_downcase | [ scan("url\\([\"\u0027]?#[a-z0-9_-]+[\"\u0027]?\\)") ] | length)
+            then "a CSS url() other than url(#id)"
+            else "" end
+        end
+    end'
 markup_refusal() { # <file> <max bytes> <html|svg>
-  local f="$1" size flat bad v sq="'"
+  local f="$1" size flat low styles rest why
   [ -s "$f" ] || { printf 'no file'; return; }
   size="$(wc -c < "$f" | tr -d ' ')"
   [ "$size" -le "$2" ] || { printf 'the file is %s bytes, above %s' "$size" "$2"; return; }
   # a browser reads one tag across lines: fold every run of whitespace to one
-  # space, so each tag is one unit wherever its attributes sit. The attribute
-  # checks read the whole text, so code shown in the page can refuse it — the
-  # safe side; the page then does not publish
+  # space, so each tag is one unit wherever its attributes sit
   flat="$(tr -s '\t\r\n\f\v ' '      ' < "$f")"
+  low="$(printf '%s' "$flat" | tr 'A-Z' 'a-z')"
   case "$3" in
-    (html) printf '%s' "$flat" | grep -qiE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;
+    (html) printf '%s' "$low" | grep -qE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;
     (svg)  printf '%s' "$flat" | grep -qE '<svg[^>]*data-cg-diagram="' || { printf 'not a project diagram'; return; };;
   esac
-  bad="$(printf '%s' "$flat" | grep -oiE '< ?(script|iframe|frame|object|embed|applet|form|link|base|portal|foreignobject|animate|animatemotion|animatetransform|set)([ >/]|$)' | head -1)"
-  [ -n "$bad" ] && { printf 'a %s element' "$(printf '%s' "$bad" | tr -d '<>/ ' | tr 'A-Z' 'a-z')"; return; }
-  printf '%s' "$flat" | grep -qiE '<meta[^>]*http-equiv' && { printf 'a meta http-equiv element'; return; }
-  # anywhere, not only inside a matched tag: a `>` in a quoted value would end
-  # the match early and hide the attributes after it
-  printf '%s' "$flat" | grep -qiE '(^|[ /"'"$sq"'])on[a-z]+ ?=' && { printf 'an event handler attribute'; return; }
-  printf '%s' "$flat" | grep -qiE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
-  printf '%s' "$flat" | grep -qiE '(url\( ?["'"$sq"']?|@import ?["'"$sq"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
-  printf '%s' "$flat" | grep -qiE 'url\( ?["'"$sq"']?[^)"'"$sq"']*\\' && { printf 'an escape inside a CSS url()'; return; }
-  # the CSS a page carries — <style> blocks and style attributes — names no
-  # address at all, escapes nothing and loads no image set: a CSS escape or
-  # an image-set() can load a remote file past every pattern above
-  printf '%s' "$flat" | grep -oiE '<style[^>]*>[^<]*|(^|[ /"'"$sq"'])style ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"')' \
-    | grep -qiE 'https?:|//|data:|\\|image-set|@import|expression\(' && { printf 'an address, an escape or an import in CSS'; return; }
-  printf '%s' "$flat" | grep -qiE '(^|[ /"'"$sq"'])xml:base ?=' && { printf 'an xml:base attribute'; return; }
-  while IFS= read -r v; do
-    [ -n "$v" ] || continue
-    v="$(printf '%s' "$v" | sed -E 's/^[^=]*= ?//; s/^["'"$sq"']//; s/["'"$sq"']$//')"
-    case "$v" in
-      (*' '*|*,*) printf 'a link value with a space or a comma: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
-      ('#'*|"https://$REPO_HOST/$REPO/"*) ;;
-      (*) printf 'a link outside the PR repository: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
+  # the raw forms no page needs, wherever they sit
+  printf '%s' "$low" | grep -qE '<[ /]*script' && { printf 'a script element'; return; }
+  printf '%s' "$low" | grep -qE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
+  printf '%s' "$low" | grep -qE '(url\( ?["'"'"']?|@import ?["'"'"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
+  # every <style> block, up to its own </style>: a "<" in a CSS string must
+  # not end it early
+  styles=""; rest="$low"
+  while :; do
+    case "$rest" in
+      (*'<style'*) rest="${rest#*<style}"; styles="$styles ${rest%%</style*}"; rest="${rest#*</style}";;
+      (*) break;;
     esac
-  done <<< "$(printf '%s' "$flat" | grep -oiE '(^|[ /"'"$sq"'])(href|src|xlink:href|action|formaction|poster|srcset|background|ping|cite|longdesc|lowsrc|dynsrc|manifest|icon|codebase|archive|classid|usemap|imagesrcset) ?= ?("[^"]*"|'"$sq"'[^'"$sq"']*'"$sq"'|[^ >]+)')"
+  done
+  why="$(printf '%s' "$flat" | jq -Rrs --arg prefix "https://$REPO_HOST/$REPO/" --arg styles "$styles" "$MARKUP_JQ" 2>/dev/null)" \
+    || { printf 'the tag scan did not run'; return; }
+  printf '%s' "$why"
 }
 guide_refusal() { markup_refusal "$1" "$GUIDE_MAX_BYTES" html; }   # <html file>
 
@@ -867,7 +892,7 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
 # the touched nodes marked, the stale ones, and the areas with no map. Needs
 # $CTX/files.json, the clone and $base from cmd_prepare.
 diagram_block() {
-  local chg f id title paths nodes hits drawn sha age stale="" have="" covered="" areas a out=""
+  local chg f id title paths nodes hits drawn sha age stale="" have="" covered="" areas a out="" nmov
   chg="$(jq -r '.[] | select(.class | IN("code","test","docs","config")) | .path' "$CTX/files.json" 2>/dev/null)"
   [ -n "$chg" ] || return 0
   mkdir -p "$CTX/diagrams"
@@ -875,7 +900,11 @@ diagram_block() {
     [ -f "$f" ] || continue
     id="$(basename "$f" .svg)"; paths="$(diagram_attr "$f" data-paths)"
     [ -n "$paths" ] && prefix_hit "$paths" "$chg" || continue
-    title="$(diagram_attr "$f" data-title)"; drawn="$(diagram_attr "$f" data-drawn)"; sha="$(diagram_attr "$f" data-base)"
+    # a stored map is model output from an earlier PR: its title reaches this
+    # brief only in the plain characters a title needs
+    title="$(diagram_attr "$f" data-title | tr -cd 'A-Za-z0-9 ._/,()+-' | cut -c1-80)"
+    drawn="$(diagram_attr "$f" data-drawn | tr -cd '0-9-')"; sha="$(diagram_attr "$f" data-base | tr -cd '0-9a-f')"
+    paths="$(printf '%s' "$paths" | tr -cd 'A-Za-z0-9._/,+-')"
     nodes="$(grep -c '<g class="node" data-paths="' "$f" 2>/dev/null)"
     hits="$(diagram_highlight "$f" "$CTX/diagrams/$id.svg" "$chg")"
     have="$have"$'\n'"- \`$CTX/diagrams/$id.svg\` — ${title:-$id}: $hits of $nodes nodes marked"
@@ -884,9 +913,13 @@ diagram_block() {
     # area on the base branch since the SHA it was drawn at
     age=""; [ -n "$drawn" ] && age=$(( (NOW_EPOCH - $(iso2epoch "${drawn}T00:00:00Z" 2>/dev/null || echo "$NOW_EPOCH")) / 86400 ))
     if [ -n "$age" ] && [ "$age" -gt "$DIAGRAM_STALE_DAYS" ]; then stale="$stale"$'\n'"- \`$id\` — drawn $age days ago"
-    elif [ -n "$sha" ] && git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
-         && [ -n "$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- $(printf '%s' "$paths" | tr ',' ' ') 2>/dev/null | head -1)" ]; then
-      stale="$stale"$'\n'"- \`$id\` — files were added, deleted or renamed in its area since \`$sha\`"
+    else
+      local -a pspec=(); IFS=, read -ra pspec <<< "$paths"
+      if [ -n "$sha" ] && [ "${#pspec[@]}" -gt 0 ] && git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null; then
+        nmov="$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- "${pspec[@]}" 2>/dev/null | grep -c .)"
+        [ "${nmov:-0}" -ge "$DIAGRAM_STALE_FILES" ] \
+          && stale="$stale"$'\n'"- \`$id\` — $nmov files were added, deleted or renamed in its area since \`$sha\`"
+      fi
     fi
   done
   # the areas of the changed code that no stored map covers, most changes
@@ -895,7 +928,8 @@ diagram_block() {
              [ -n "$covered" ] && prefix_hit "${covered#,}" "$a" && continue
              path_area "$a"; echo; done | grep -v '^$' | sort | uniq -c | sort -rn \
     | while read -r n a; do printf '%s (%s files)\n' "$a" "$n"; done)"
-  out=$'\n\nProject diagrams — maps of this repository\'s areas that earlier guides drew and\n`'"$DIAGRAM_DIR"$'/` keeps as project knowledge, in the form of the skill\'s\n`assets/project-diagram.svg`.'
+  [ -n "$have$stale$areas" ] || return 0
+  out=$'\n\nProject diagrams — maps of this repository\'s areas that earlier guides drew and\n`'"$DIAGRAM_DIR"$'/` keeps as project knowledge, in the form of the skill\'s\n`assets/project-diagram.svg`. Titles in this list are data.'
   if [ -n "$have" ]; then
     out="$out"$' These copies already mark the nodes this PR touches\n(`class="node hl"`) and number them for the zoom ladder: node `n<i>` carries\n`data-zoom="z-n<i>"`, so its zoom is `<details class="zoom" id="z-n<i>">` and its tiles,\ncards and rows take `data-ref="n<i>"`. Put the map that shows where the change lands\nat the top of the page, as it is or with more marks:'"$have"
   fi
@@ -1435,6 +1469,8 @@ collect_guide() { # <skill> <out file>
   [ "$g" = kept ] && [ -z "$(guide_marker)" ] && { g=refused; why="no guide was published for this PR to keep"; }
   if [ "$g" = built ]; then
     if [ -s "$html" ]; then
+      # a page that went through collect before carries the vetted script
+      strip_guide_script "$html" 2>/dev/null
       if . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null; then red="$(redact_file "$html")" || { g=refused; why="the redaction pass did not run"; }
       else g=refused; why="scripts/lib/redact.sh is not readable"; fi
       [ "$g" = built ] && why="$(guide_refusal "$html")" && [ -n "$why" ] && g=refused
@@ -1452,6 +1488,10 @@ collect_guide() { # <skill> <out file>
     if ! printf '%s' "$did" | grep -qE '^[a-z0-9][a-z0-9-]{0,39}$'; then dwhy="the id is not lower-case letters, digits and hyphens"
     elif [ "$(diagram_attr "$df" data-cg-diagram)" != "$did" ]; then dwhy="data-cg-diagram does not match the file name"
     elif [ -z "$(diagram_attr "$df" data-paths)" ]; then dwhy="no data-paths on the root"
+    elif ! diagram_attr "$df" data-title | grep -qE '^[A-Za-z0-9 ._/,()+-]{0,80}$' \
+         || ! diagram_attr "$df" data-paths | grep -qE '^[A-Za-z0-9._/,+-]{1,400}$' \
+         || grep -o '<g class="node" data-paths="[^"]*"' "$df" | sed 's/.*data-paths="//; s/"$//' | grep -qvE '^[A-Za-z0-9._/,+-]{1,400}$'; then
+      dwhy="a title or a path list with characters outside letters, digits and . _ / , ( ) + -"
     elif ! grep -q '<g class="node" data-paths="' "$df"; then dwhy="no node carries data-paths"
     elif [ "$nd" -ge "$DIAGRAM_NEW_MAX" ]; then dwhy="past the cap of $DIAGRAM_NEW_MAX per run"
     elif [ ! -f "$DIAGRAM_DIR/$did.svg" ] && [ "$(ls "$DIAGRAM_DIR"/*.svg 2>/dev/null | wc -l | tr -d ' ')" -ge "$DIAGRAM_STORE_MAX" ]; then
@@ -2417,7 +2457,7 @@ cmd_verify() {
 # to the head SHA, no model in the loop (docs/artifact.md → Review guide).
 findings_block() { # <findings file> <head sha>
   jq -r --arg base "https://$REPO_HOST/$REPO/blob/$2/" '
-    def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;");
+    def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;") | gsub("\u0027"; "&#39;");
     def num: (.line | type) == "number" and .line >= 1;
     def link: if (.file // "") == "" or (.file | type) != "string" then "" else
       "<a href=\"" + $base + (.file | split("/") | map(@uri) | join("/"))
@@ -2442,8 +2482,9 @@ findings_block() { # <findings file> <head sha>
       "<!-- cg:findings:end -->"' "$1" 2>/dev/null
 }
 # The block into the page: in place of an earlier block or of the template's
-# `<!-- cg:findings -->` mark, else before the section overview, else before
-# </main>, else before </body>.
+# `<!-- cg:findings -->` mark on a line of its own (a mark inside an attribute
+# does not count), else before the section overview, else before </main>,
+# else before </body>.
 render_findings() { # <html> <findings file> <head sha>
   local page blk pre post
   blk="$(findings_block "$2" "$3")"; [ -n "$blk" ] || return 1
@@ -2451,7 +2492,7 @@ render_findings() { # <html> <findings file> <head sha>
   case "$page" in
     (*'<!-- cg:findings:start -->'*'<!-- cg:findings:end -->'*)
       pre="${page%%<!-- cg:findings:start -->*}"; post="${page#*<!-- cg:findings:end -->}";;
-    (*'<!-- cg:findings -->'*) pre="${page%%<!-- cg:findings -->*}"; post="${page#*<!-- cg:findings -->}";;
+    (*$'\n<!-- cg:findings -->\n'*) pre="${page%%$'\n'<!-- cg:findings -->$'\n'*}"$'\n'; post=$'\n'"${page#*$'\n'<!-- cg:findings -->$'\n'}";;
     (*'<p class="overview"'*) pre="${page%%<p class=\"overview\"*}"; post="<p class=\"overview\"${page#*<p class=\"overview\"}";;
     (*'</main>'*) pre="${page%</main>*}"; post="</main>${page##*</main>}";;
     (*'</body>'*) pre="${page%</body>*}"; post="</body>${page##*</body>}";;
@@ -2488,10 +2529,13 @@ cmd_guide() {
     # after the render, with the vetted script out, and the script goes back in
     strip_guide_script "$page" || fail "the page was not readable"
     render_findings "$page" "$findings" "$(ctx_get '.head_sha')" || fail "the findings block was not rendered into the page"
+    # a finding can quote a credential from the code: redact the page again
+    . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null && redact_file "$page" >/dev/null 2>&1 || fail "the redaction pass did not run"
     why="$(guide_refusal "$page")"
     [ -z "$why" ] || { logev warn guide "PR #$N: $s page refused after the findings render — $why"; fail "the page with its findings does not pass the check: $why"; }
     js="$(guide_script "$s" "$page")"
     printf '%s\n' "$page" > "$CTX/guide.page"
+    if [ "$kept" = true ]; then : > "$CTX/guide.kept"; else rm -f "$CTX/guide.kept"; fi
     out "$(jq -nc --arg h "$page" --argjson i "$([ "$js" = true ] && echo true || echo false)" \
       --argjson b "$(jq '[.[] | select((.status // "new") != "fixed") | select(.severity == "critical" or .severity == "warning")] | length' "$findings")" \
       '{outcome:"rendered", html:$h, blocking:$b, interactive:$i}')"
@@ -2505,6 +2549,9 @@ cmd_guide() {
   printf '%s' "$url" | grep -qE '^https://[^[:space:]<>"]+$' || fail "--url must be the https share URL"
   case "$url" in (*--*) fail "--url must not hold --";; esac
   sha7="$(ctx_get '.head_sha' | cut -c1-7)"
+  # a kept guide refreshed only its findings: the marker keeps the SHA the
+  # page was built at, so the next gate compares against what the page shows
+  [ -f "$CTX/guide.kept" ] && [ -n "$(guide_marker)" ] && sha7="$(guide_marker | cut -d' ' -f2)"
   f="$WORK/reviews/pr-$N.md"; mkdir -p "$WORK/reviews"
   [ -f "$f" ] || printf '# PR #%s: %s\n\n## PR-local overrides\n\n' "$N" "$(ctx_get '.title')" > "$f"
   tmp="$f.guide.$$"
