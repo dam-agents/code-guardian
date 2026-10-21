@@ -2572,7 +2572,7 @@ if [ "$MODE" = "audit" ]; then
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","stall","anomaly","monitor",
+    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","monitor",
        "housekeeping","survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
@@ -2680,7 +2680,7 @@ if [ "$MODE" = "audit" ]; then
   # Review shape (docs/audit.md task 37): the medians of the `review_cost`
   # fields this week and the week before — the 14-day retention holds both —
   # so a slow drift that the anomaly alert's own median absorbs still shows;
-  # the week's anomaly alerts; and the stored baseline per model, which says
+  # the week's anomaly records; and the stored baseline per model, which says
   # whether the median rules apply yet (REVIEW-USAGE.jsonl).
   REVIEW_SHAPE="$(events_jsonl | jq -sc --arg s "$SINCE_ISO" --arg p "$(epoch2iso $(( SINCE_EPOCH - 7*86400 )))" \
       --argjson base "$(jq -cR 'fromjson? // empty' "$REVIEW_USAGE" 2>/dev/null \

@@ -12,6 +12,18 @@ delivery** below and the opt-in dashboard publish ([health.md](health.md) →
 
 ## The alerts
 
+The monitor reports only what stops the agent's own operation: the model or
+its provider, the platform, GitHub reachability, the review schedule, the
+harness, the backup. These **page kinds** go to the operator:
+`model_unavailable`, `model_recovered`, `github_unavailable`,
+`github_recovered`, `dispatch_refused`, `heartbeat_gap`, `judge_unavailable`,
+`harness_drift`, `backup_failing`. Every other kind is **history only**: the
+pass records it in the technical history and the dashboard
+([health.md](health.md)), and the worklist carries it under `recorded`
+(`conditions`, `stall_alert`, `review_anomaly`). It is no alert: it starts no
+session and sends no message. The weekly audit reports the stalls, the
+anomalies and the classifier refusals ([audit.md](audit.md)).
+
 | Kind | Condition | Clears when |
 | --- | --- | --- |
 | `model_unavailable` | `model_alert_threshold` (missing = `2`; `0`/`off` disables) runs ended on an availability-class `api_failure` in one outage — failures less than 60 min apart; `open` while the last is under 60 min old | — (one alert per outage) |
@@ -57,10 +69,10 @@ their own detection-time claims (below), not the ledger.
 
 ## Monitor run
 
-1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` and
-   the facts of its row above; `stall_alert` and `review_anomaly` are
-   worklist keys of their own. Under **Direct delivery** `alerts_due` holds
-   only what the pass did not send, and `direct` says why.
+1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` (a
+   page kind) and the facts of its row above. Under **Direct delivery**
+   `alerts_due` holds only what the pass did not send, and `direct` says why.
+   `recorded` is history only: never report it.
 2. Send **one message** for the whole run, in the chat UI: one line per
    alert — what happened, when (UTC), the numbers, the likely cause and the
    one operator action, if any:
@@ -70,10 +82,6 @@ their own detection-time claims (below), not the ledger.
      `oauth_org_not_allowed`, `account_on_hold` → credentials or the
      account, operator-only; `rate_limit`, `billing_error` → quota or
      budget). Missed review work recovers on the next heartbeat by itself.
-   - `classifier_spike` / `review_post_blocked` — the top patterns and the
-     reasons; a documented step of the agent is an `autoMode.allow` rule
-     missing from the definition
-     ([harness-claude-code.md](harness-claude-code.md) → **Adapter**), anything else is a refusal that stands.
    - `github_unavailable` / `github_recovered` — first and last failed pass,
      the classes (`auth`, `access` → the token, operator-only; `rate_limit` →
      quota; `server_error`, `network` → GitHub or the network). Missed review
@@ -93,23 +101,13 @@ their own detection-time claims (below), not the ledger.
    - `dispatch_refused` — the platform's reason from the `dispatch_refused`
      events; a platform setting is the operator's to correct, a cap clears
      by itself.
-   - `github_write_denied` / `github_identity_changed` — the events and the
-     login; the operator runs `scripts/github-access.sh` in the direct
-     session and gives the token the missing permission
-     ([github-access.md](github-access.md)).
-   - `approval_not_revoked` — the PR, the verdict and the HTTP code; the PR
-     still shows the agent's approval. The operator dismisses it by hand and
-     gives the token the permission to dismiss reviews (a branch protection
-     can restrict who dismisses).
-   - `stall_alert` / `review_anomaly` — per their sections below.
 3. Under `slack_notifications: enabled` **and** a monitor owner, also DM that
    person the same message — never the shared channel; roster-only mentions
    still apply. The monitor owner is `monitor_owner`, or `escalation_owner`
    when `monitor_owner` is unset; a set `monitor_owner` with no roster
    `slack_id` sends no DM — say so in the report.
 4. **After the send**, `bash "$HOME/scripts/monitor.sh" ack <every id of
-   alerts_due>`, and log `stall_alert_sent <count>` / `review_anomaly_sent
-   <n>` for those. A failed send is logged and not acknowledged: the next tick
+   alerts_due>`. A failed send is logged and not acknowledged: the next tick
    after the claim retries it.
 5. Back up `work/` (`scripts/work-backup.sh persist`).
 
@@ -129,8 +127,7 @@ cannot stop them.
   (`send_channel_message`, `chatId` = the roster id), never the shared
   channel: a header, one bullet per alert from a fixed template, at most 10
   alerts, and the dashboard share URL when one is kept
-  ([health.md](health.md)). `stall_alert` and `review_anomaly` need an
-  analysis and stay with the session.
+  ([health.md](health.md)).
 - **Type checks** — every value is a UTC time, a whole number, a class word,
   an adapter part or a PR number; an alert with any other value is skipped and
   stays due for the session. The text of an event — error details, commands,
@@ -155,12 +152,11 @@ cannot stop them.
 The monitor counts the stalled reviews of the last 24 h — one per dead lock
 (PR, lock time), however many `stale in_progress lock` takeover lines it left;
 `per_day_7d` counts each stall on the UTC day of its first line. At or above
-`stall_alert_threshold` (missing = `4`; `0`/`off` disables) it emits
-`stall_alert: {count, threshold, prs, window_hours, per_day_7d}` — **once per
-UTC day** (`work/.stall-alert-day`, claimed under a `mkdir` lock at
-detection). Report count, threshold, the PR numbers and the `per_day_7d`
-trend; investigate per [logging.md](logging.md) and record a recurring cause
-as an operational lesson ([preferences.md](preferences.md)).
+`stall_alert_threshold` (missing = `4`; `0`/`off` disables) it records
+`recorded.stall_alert: {count, threshold, prs, window_hours, per_day_7d}` and
+one incident — **once per UTC day** (`work/.stall-alert-day`, claimed under a
+`mkdir` lock at detection). History only; the weekly audit reports the
+wasted reviews ([audit.md](audit.md) task 29).
 
 ## Review anomaly alert (`review_anomaly`)
 
@@ -189,19 +185,19 @@ at or over any limit is an entry:
 - **Baseline** — `work/REVIEW-USAGE.jsonl` keeps the last 30 judged reviews
   per model, beyond the 14-day event retention. First contact seeds it from
   every retained event.
-- **Entry** — `review_anomaly: {factor, reviews: [{pr, sha, ts, model,
+- **Entry** — `recorded.review_anomaly: {factor, reviews: [{pr, sha, ts, model,
   reasons: [{rule, value, limit, median, ratio}], unit, cost, samples, secs,
   msgs, subagents, input, output, cache_read, cache_creation, peak_ctx,
   repeats, repeat_tool, max_out, failures, kind, size}]}`; `median` and
   `ratio` are `null` while the floor alone sets the limit; `kind` and `size`
   come from the review ledger, `null` when it has no row.
 
-Report per review the PR, each broken rule with its value, limit and median,
-and the likely cause — `repeats` or many `msgs` on a small diff is a loop,
-`context` or high `cache_read` per message is a large context or memory,
+History only: one incident per review. To read an entry: `repeats` or many
+`msgs` on a small diff is a loop, `context` or high `cache_read` per message
+is a large context or memory,
 `output` is a huge file or API dump, `failures` is a broken tool, many
 `subagents` is fan-out, a large `size` or a `first` review of a large PR is a
-legitimate cost. A chronic problem enters the median and stops alerting: the
+legitimate cost. A chronic problem enters the median and stops recording: the
 weekly audit's review-shape line shows that drift ([audit.md](audit.md)
 task 37).
 
@@ -210,6 +206,5 @@ task 37).
 - Every `alerts_due` entry is in the one message, and acknowledged after the
   send — never before, never on a failed send. A directly sent alert is not
   in the worklist and gets no second message.
-- `stall_alert` / `review_anomaly` reported with their facts and their
-  `_sent` line logged.
+- Nothing of `recorded` in the message.
 - Nothing repaired, re-run or reconfigured in response.

@@ -57,8 +57,8 @@ case "$MODE" in
     LOST='a second pass may report less than the first';;
   monitor) PASS=monitor.sh; PASS_ARGS=()
     RERUN='bash "$HOME/scripts/monitor.sh"'
-    SPENT='the alert claims, the daily stall-alert claim, the anomaly-alert marker'
-    LOST='a second pass skips the alerts this pass claimed for 30 min, and may miss a stall or anomaly alert';;
+    SPENT='the alert claims, the daily stall-record claim, the anomaly marker'
+    LOST='a second pass skips the alerts this pass claimed for 30 min, and may miss the stall or anomaly record of this pass';;
   audit)
     printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
@@ -177,8 +177,6 @@ WHAT="$(printf '%s' "$JSON" | jq -r '
       + ( [ .value[] | .number? // empty ] | if length > 0 then " (#" + (map(tostring) | join(", #")) + ")" else "" end ) ]
   + ( if (.benchmark_due | type) == "object" then [ "benchmark_due=" + (.benchmark_due.action // "?") ] else [] end )
   + ( if (.survey_due | type) == "object" then [ "survey_due=" + (.survey_due.path // "?") ] else [] end )
-  + ( if has("stall_alert") then [ "stall_alert=" + (.stall_alert.count | tostring) ] else [] end )
-  + ( if has("review_anomaly") then [ "review_anomaly=" + (.review_anomaly.reviews | length | tostring) ] else [] end )
   + ( if .housekeeping_only == true then [ "housekeeping_only" ] else [] end )
   | join(", ")')"
 

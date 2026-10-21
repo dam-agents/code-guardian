@@ -30,9 +30,6 @@ NOW_EPOCH=$(date -u +%s)
 . "$SCRIPT_DIR/lib/common.sh"
 . "$SCRIPT_DIR/lib/mcp.sh"
 
-DIRECT_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
-  "heartbeat_gap","harness_drift","backup_failing","classifier_spike","review_post_blocked",
-  "dispatch_refused","github_write_denied","github_identity_changed","judge_unavailable","approval_not_revoked"]'
 MAX_ALERTS=10        # alerts in one message; the rest stay for the session
 DAILY_CAP=12         # direct messages in 24 h; past it the session delivers
 MAX_CHARS=3500
@@ -47,12 +44,11 @@ render() { # <alerts.json>
   url="$(jq -r '.share_url // "" | strings
     | select(test("\\Ahttps://[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+(:[0-9]{1,5})?/[A-Za-z0-9/_~%=&-]{1,200}\\z"))' \
     "$WORK/health/state.json" 2>/dev/null)"
-  jq -c --arg name "$name" --arg url "$url" --argjson kinds "$DIRECT_KINDS" --argjson max "$MAX_ALERTS" '
+  jq -c --arg name "$name" --arg url "$url" --argjson kinds "$PAGE_KINDS" --argjson max "$MAX_ALERTS" '
     def ts: if type == "string" and test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?Z\\z")
             then .[0:10] + " " + .[11:16] + " UTC" else error("ts") end;
     def int: if type == "number" and . >= 0 and . == floor and . < 1e9 then tostring else error("int") end;
     def word: if type == "string" and test("\\A[a-z][a-z0-9_]{0,39}\\z") then . else error("word") end;
-    def tool: if type == "string" and test("\\A[A-Za-z][A-Za-z0-9_-]{0,63}\\z") then . else "other" end;
     def counts(f): if type == "object" and length > 0 then to_entries | sort_by(-.value) | .[0:5]
                      | map("\(.key | f) \(.value | int)") | join(", ") else error("counts") end;
     def top: if type == "object" then to_entries | max_by(.value) | .key | word else error("top") end;
@@ -83,20 +79,10 @@ render() { # <alerts.json>
         "**Harness adapter not current:** \(.parts | parts). Do this: run `bash \"$HOME/scripts/harness/claude-code/install.sh\"`. The change applies from the next session."
       elif .kind == "backup_failing" then
         "**Work backup failing:** \(.failures | int) failed pushes since \(.first | ts). Do this: examine the access to the work repository."
-      elif .kind == "classifier_spike" then
-        "**Classifier refusals:** \(.count | int) in 24 h (threshold \(.threshold | int)) in \(.runs | int) runs. Tools: \(.by_tool | counts(tool)). The events log has the patterns (event classifier_block)."
       elif .kind == "dispatch_refused" then
         "**Review dispatch refused** since \(.first | ts): the platform refused \(.count | int) dispatches in \(.runs | int) runs (\(.prs | int) PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting."
-      elif .kind == "github_write_denied" then
-        "**GitHub refused a call** \(.count | int) times in 24 h with HTTP 403 (\(.by_event | counts(word))). Cause: the token has no permission for the call. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session and give the token the missing permission."
-      elif .kind == "github_identity_changed" then
-        "**GitHub token changed** at \(.changed_at | ts): the token now acts as a different \(.token_kind | word) account. Do this: run `bash \"$HOME/scripts/github-access.sh\"` in the direct session."
       elif .kind == "judge_unavailable" then
         "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI and no pi CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in, and the host has no pi CLI" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
-      elif .kind == "approval_not_revoked" then
-        "**Approval not revoked:** the review of PR #\(.pr | int) at \(.ts | ts) has the verdict \(.verdict | word), but \(if .approval then "the dismissal of the earlier approval did not succeed" else "the list of the reviews did not succeed" end)\(if .http > 0 then " (HTTP \(.http | int))" else "" end). The PR still shows the approval of the agent. Do this: dismiss the approval on the PR by hand, and give the token the permission to dismiss reviews."
-      elif .kind == "review_post_blocked" then
-        "**Review post refused:** the classifier refused the review post of PR #\(.pr | int) at \(.ts | ts). No later post of that PR exists. Do this: post the review again in a session, or add the missing auto-mode rule."
       else error("kind") end;
     [ .[] | select(.kind as $k | $kinds | index($k)) | {id, l: (try line catch null)} ] as $r
     | [ $r[] | select(.l != null and (.id | type) == "string") ][0:$max] as $ok

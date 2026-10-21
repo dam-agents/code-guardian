@@ -21,6 +21,13 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# The monitor kinds that reach the operator (docs/monitor.md → The alerts):
+# the agent's own operation — model, provider, platform, GitHub reachability,
+# schedule, harness, backup. monitor.sh claims only these; monitor-direct.sh
+# sends only these. Every other kind is history only.
+PAGE_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
+  "dispatch_refused","heartbeat_gap","judge_unavailable","harness_drift","backup_failing"]'
+
 # --- the token's GitHub identity (docs/github-access.md) --------------------
 # $WORK/GITHUB.json caches {login, kind, checked_at} for IDENTITY_TTL_MIN, plus
 # {previous, changed_at} once the login changed. kind: `app` for a GitHub App

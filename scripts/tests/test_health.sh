@@ -137,6 +137,16 @@ echo '[]' > "$SANDBOX/cond.json"
 record
 incidents
 assert_jq 'all(.[]; .open == false) and (.[] | select(.kind == "heartbeat_gap") | .end != null)' 'a condition that cleared closes its incident'
+h_case h_incident_dismiss
+cat > "$SANDBOX/cond.json" <<EOF
+[{"id":"dismiss:7:55","kind":"approval_not_revoked","pr":7,"ts":"$(iso_ago 600)","verdict":"comment","http":403,"approval":55},
+ {"id":"gh_write:$(date -u +%Y-%m-%d)","kind":"github_write_denied","first":"$(iso_ago 900)","last":"$(iso_ago 300)","count":2,"by_event":{"progress_status":2}}]
+EOF
+record
+incidents
+assert_jq '(.[] | select(.kind == "approval_not_revoked") | .detail == {"pr": 7, "approval": 55, "verdict": "comment", "http": 403})
+  and (.[] | select(.kind == "github_write_denied") | .detail == {"count": 2, "by_event": {"progress_status": 2}})' \
+  'a history-only incident keeps the approval, the verdict, the HTTP code and the events per kind'
 
 # --- the service status ------------------------------------------------------------------------
 h_case h_status '- work_repo: acme/widgets-state'
