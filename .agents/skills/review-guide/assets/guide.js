@@ -32,7 +32,7 @@
     ".x-tip{position:fixed;z-index:9;max-width:280px;padding:6px 8px;border-radius:6px;background:var(--fg);color:var(--bg);font-size:12px;line-height:1.35;pointer-events:none;opacity:0;transition:opacity .12s}" +
     ".x-tip.on{opacity:1}.x-off{opacity:.15}" +
     ".legend [data-kind]{cursor:pointer;user-select:none}.legend [data-kind].x-mute{text-decoration:line-through;opacity:.6}" +
-    ".zc{display:inline-flex;gap:2px;margin-left:auto;flex:none}.zc button{font:inherit;font-size:13px;line-height:1;width:24px;height:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;padding:0}" +
+    "details.sec>summary>.zc,h2>.zc{display:inline-flex;gap:2px;margin-left:auto;flex:none;flex-basis:auto;order:0;padding:0}.zc button{font:inherit;font-size:13px;line-height:1;width:24px;height:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;padding:0}" +
     ".zc button:hover{border-color:var(--link)}h2 .zc{float:right;margin-top:-2px}";
   doc.head.appendChild(css);
 
@@ -63,6 +63,25 @@
     } catch (e) {}
   });
 
+  /* light / dark: the page follows the system until the reader picks one;
+     the pick is kept in this browser. The palettes are set here too, so a
+     page built from an older template switches as well. The project map's
+     own colors give way to the page's. */
+  var themeCss = doc.createElement("style");
+  themeCss.textContent =
+    ":root[data-theme=light]{--bg:#fbfaf8;--fg:#1d1d1f;--muted:#5f6368;--line:#e3e1dc;--card:#fff;--accent:#c2410c;--accent-bg:#fff1e8;--ok:#15803d;--ok-bg:#ecfdf3;--warn:#b45309;--warn-bg:#fff7e6;--link:#1d4ed8;--before:#8a8f98;--k-logic:#c2410c;--k-test:#15803d;--k-docs:#2563eb;--k-mech:#a1a1aa}" +
+    ":root[data-theme=dark]{--bg:#141416;--fg:#ececee;--muted:#a1a1aa;--line:#2e2e33;--card:#1c1c20;--accent:#fb923c;--accent-bg:#2a1a10;--ok:#4ade80;--ok-bg:#0f2417;--warn:#fbbf24;--warn-bg:#2a2110;--link:#93c5fd;--before:#71717a;--k-logic:#fb923c;--k-test:#4ade80;--k-docs:#60a5fa;--k-mech:#52525b}" +
+    ":root[data-theme]{color-scheme:light dark}:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}" +
+    "main svg .node text{fill:var(--fg)}main svg .node text.sub{fill:var(--muted)}" +
+    "main svg .node rect{fill:var(--card);stroke:var(--before)}main svg .node.hl rect{fill:var(--accent-bg);stroke:var(--accent)}" +
+    "main svg .grp{stroke:var(--line)}main svg .grpl{fill:var(--muted)}main svg text{fill:var(--fg)}" +
+    ".zoombar .theme{margin-left:auto;width:30px;padding:2px 0}";
+  doc.head.appendChild(themeCss);
+  var root = doc.documentElement, THEME_KEY = "cg-review-guide-theme";
+  function systemDark() { try { return matchMedia("(prefers-color-scheme: dark)").matches; } catch (e) { return false; } }
+  function isDark() { var t = root.getAttribute("data-theme"); return t ? t === "dark" : systemDark(); }
+  try { var saved = localStorage.getItem(THEME_KEY); if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved); } catch (e) {}
+
   /* zoom levels by meaning: 0 overview (all closed) · 1 sections (the seven
      section lines) · 2 details (every zoom without code) · 3 code (all).
      A level that would open nothing more than the one before it is hidden. */
@@ -81,7 +100,7 @@
   function setLevel(i) {
     cur = Math.max(0, Math.min(levels.length - 1, i));
     dets.forEach(function (d) { d.open = wants(d, levels[cur]); });
-    all(".zoombar button").forEach(function (b, j) { b.setAttribute("aria-pressed", String(j === cur)); });
+    all(".zoombar button:not(.theme)").forEach(function (b, j) { b.setAttribute("aria-pressed", String(j === cur)); });
   }
   var bar = doc.createElement("nav"); bar.className = "zoombar"; bar.setAttribute("aria-label", "Detail level");
   bar.innerHTML = "<span>Level</span>";
@@ -91,13 +110,21 @@
     b.addEventListener("click", function () { setLevel(i); });
     bar.appendChild(b);
   });
+  var tb = doc.createElement("button"); tb.type = "button"; tb.className = "theme";
+  function themeLabel() { var d = isDark(); tb.textContent = d ? "☀" : "☾"; tb.title = d ? "Light mode" : "Dark mode"; tb.setAttribute("aria-label", tb.title); }
+  tb.addEventListener("click", function () {
+    var next = isDark() ? "light" : "dark"; root.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+    themeLabel();
+  });
+  themeLabel(); bar.appendChild(tb);
   var anchor = doc.querySelector(".why") || doc.querySelector("main > *");
   if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
   cur = 0;
   for (var k = levels.length - 1; k > 0; k--) {
     if (dets.every(function (d) { return d.open === wants(d, levels[k]); })) { cur = k; break; }
   }
-  all(".zoombar button")[cur].setAttribute("aria-pressed", "true");
+  all(".zoombar button:not(.theme)")[cur].setAttribute("aria-pressed", "true");
 
   /* per-section zoom: − / + beside each section's title moves only that
      section through its own levels (closed · open · details · code). The map

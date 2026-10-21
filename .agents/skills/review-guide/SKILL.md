@@ -209,7 +209,9 @@ adds a sticky **level bar** — Overview (all closed) · Sections (the section
 lines open) · Details (every zoom without code open) · Code (all open), the
 `+`/`−` keys too; a level that opens nothing more than the one before it is
 not shown — plus a **− / +** pair on each section's title that zooms that
-section alone through its own levels, and reads these attributes. Keep every mini diff in its own
+section alone through its own levels, and a **light / dark** switch (the
+system's setting until the reader picks one, then kept in the browser). It
+reads these attributes. Keep every mini diff in its own
 innermost zoom, so Details and Code differ:
 
 - `data-zoom="<id>"` — a click or Enter opens `<details id="<id>">` and its
@@ -300,7 +302,8 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
   or config file into the page or a diagram; refer to it by name.
 - **Language**: ASD-STE100 Simplified Technical English — one topic per
   sentence, active voice, sentences of 20 words or fewer, one term per concept.
-- **Readable**: light and dark (`prefers-color-scheme`), 375 px wide with no
+- **Readable**: light and dark — keep the template's palettes, which follow
+  `prefers-color-scheme` and the switch's `data-theme` — 375 px wide with no
   horizontal scroll, headings in order, every SVG with an `aria-label`, every
   link text says where it goes.
 

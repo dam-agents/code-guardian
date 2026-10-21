@@ -193,7 +193,8 @@ sections.
   URL under `https://<repo-host>/<owner>/<repo>/`. A page that fails is
   `refused`, with the reason as a form warning; it does not publish. A page
   that passes gets the skill's vetted `assets/guide.js` inserted before
-  `</body>` (`skills.<skill>.interactive`): the level bar, map-node zoom, linked
+  `</body>` (`skills.<skill>.interactive`): the level bar, per-section zoom, a
+  light/dark switch, map-node zoom, linked
   highlight, tooltips and the churn filter, all driven by `data-*`
   attributes, so the model writes no script. A project
   map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
