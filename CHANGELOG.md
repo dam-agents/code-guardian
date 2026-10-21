@@ -11,7 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 10.1.1 — 2026-10-21
+## 10.2.1 — 2026-10-21
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 10.2.0 — 2026-10-21
 
 **Upgrade:** Nothing — docs are re-read per run.
 

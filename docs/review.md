@@ -98,7 +98,8 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract: t
    review to the chat UI.
 f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
-   <ctx>/meta.json]`, as `compose-brief` prints it; a re-review passes
+   <ctx>/meta.json] --model <id>`, as `compose-brief` prints it — `<id>` is
+   the exact model id of this session, for the footer; a re-review passes
    `--findings <ctx>/findings.annotated.json`. It runs Check 2 and the dedup
    re-check, maps the inline comments
    ([review-mechanics.md](review-mechanics.md) → **Mapping findings to inline

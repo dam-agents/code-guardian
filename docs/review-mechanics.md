@@ -35,15 +35,18 @@ moved, and `post` aborts.
 <the full structured review>
 
 ---
-_Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian_
+_Review by [<bot_display_name>](https://<def_host>/<definition_repo>) · automated code guardian · `<model>` on <harness>_
 
 <!-- findings-json: [{"status":"new","severity":"critical","file":"src/auth.ts","line":42,"also":[{"file":"src/session.ts","line":18}],"inline":true,"summary":"token compared with ==","fix":"compare tokens with a constant–time equality helper"}] -->
 <!-- review-meta: {"diff_digest":"<12 hex>","checks":[{"for":"token compared with ==","run":"git grep -nE -e 'token ==|== token'","clean":"no hits"}],"deferred":[{"file":"src/session.ts","line":18,"note":"<≤ ~12 words>"}],"rereview":{"trigger":"label","label":"<rereview_label>","login":null}} -->
 <!-- <review_marker> headRefOid=<full-sha> -->
 ```
 
-Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The trailing marker line is
-**mandatory** — it drives dedup — and uses the full 40-char SHA.
+Emoji: ✅ APPROVE, ⚠️ COMMENT, ❌ REQUEST_CHANGES. The footer names the model
+(`post --model`, else `PI_MODEL` / `ANTHROPIC_MODEL`) and the harness
+(`scripts/lib/harness.sh`) that wrote the review; an unknown part is left
+out. The trailing marker line is **mandatory** — it drives dedup — and uses
+the full 40-char SHA.
 
 **`findings-json`** — the machine-readable copy of `### Findings`, in every
 posted full review. Per finding: `status` (`new`|`still`|`fixed`; first

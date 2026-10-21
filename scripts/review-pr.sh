@@ -39,7 +39,7 @@
 #   rapid <n> --verdict <V> --body <file>  urgent phase 1: the rapid preliminary post
 #                                          (APPROVE | REQUEST_CHANGES)
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
-#                                [--meta <file>] [--closed-issue <id>]
+#                                [--meta <file>] [--closed-issue <id>] [--model <id>]
 #                                          Check 2 + dedup re-check, inline
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
@@ -142,6 +142,7 @@ if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
 . "$SCRIPT_DIR/lib/common.sh"
+. "$SCRIPT_DIR/lib/harness.sh"
 
 TARGET_REF="$(cfg github_repo)"
 REPO_HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
@@ -1518,7 +1519,7 @@ cmd_compose_brief() {
   # a re-review posts the file `delta` annotated, a first review its own list
   local pfind="findings.json"; [ "$kind" = "re-review" ] && pfind="findings.annotated.json"
   printf -- '- payload files: write them in `%s/`\n' "$CTX"
-  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json]` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
+  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json] --model <your exact session model id>` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
   exit 0
 }
 
@@ -1604,8 +1605,9 @@ dismiss_approvals() {
 # ==================================================================== post ====
 cmd_post() {
   need_ctx
-  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" META="" CLOSED_ISSUE=""
+  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" META="" CLOSED_ISSUE="" MODEL=""
   while [ $# -gt 0 ]; do case "$1" in
+    (--model) MODEL="${2:-}"; shift 2;;
     (--verdict) VERDICT="${2:-}"; shift 2;; (--body) BODY="${2:-}"; shift 2;; (--findings) FINDINGS="${2:-}"; shift 2;;
     (--comments) COMMENTS="${2:-}"; shift 2;; (--meta) META="${2:-}"; shift 2;;
     (--closed-issue) CLOSED_ISSUE="${2:-}"; shift 2;; (*) shift;; esac; done
@@ -1765,7 +1767,15 @@ cmd_post() {
   # --- payload ---
   local emoji footer fj
   case "$VERDICT" in (APPROVE) emoji="✅";; (COMMENT) emoji="⚠️";; (REQUEST_CHANGES) emoji="❌";; esac
-  footer="_Review by [$BOT_NAME](https://$DEF_HOST/$DEFINITION_REPO) · automated code guardian_"
+  # the footer names the model and harness that wrote the review: the model
+  # from --model, else the harness env; each part is left out when unknown
+  local fmodel fharness made=""
+  fmodel="$(printf '%s' "${MODEL:-${PI_MODEL:-${ANTHROPIC_MODEL:-}}}" | tr -d '`\n')"
+  case "$(cg_harness)" in (claude-code) fharness="Claude Code";; (pi) fharness="pi";; (bob) fharness="Bob";; (unknown) fharness="";; (*) fharness="$(cg_harness)";; esac
+  if [ -n "$fmodel" ] && [ -n "$fharness" ]; then made=" · \`$fmodel\` on $fharness"
+  elif [ -n "$fmodel" ]; then made=" · \`$fmodel\`"
+  elif [ -n "$fharness" ]; then made=" · $fharness"; fi
+  footer="_Review by [$BOT_NAME](https://$DEF_HOST/$DEFINITION_REPO) · automated code guardian${made}_"
   # review-meta: the agent's own `checks` and `deferred` (docs/review-mechanics.md
   # → Summary body format) plus the digest of the diff this review read, which is
   # what the next `prepare` compares its own range against. Never rendered.
