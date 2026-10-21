@@ -400,6 +400,12 @@ markup_refusal() { # <file> <max bytes> <html|svg>
   # a browser reads one tag across lines: fold every run of whitespace to one
   # space, so each tag is one unit wherever its attributes sit
   flat="$(tr -s '\t\r\n\f\v ' '      ' < "$f")"
+  # a comment holds no markup a browser acts on, so its words are no
+  # attributes: drop every comment span, ended the way a browser ends it —
+  # at "-->" or "--!>", "<!-->" and "<!--->" being whole comments — so no
+  # live tag can hide behind a comment the browser has already closed
+  flat="$(printf '%s' "$flat" | jq -Rrs 'gsub("<!--(?:>|->|(?:(?!--!?>).)*(?:--!?>|$))"; " ")' 2>/dev/null)" \
+    || { printf 'the comment pass did not run'; return; }
   low="$(printf '%s' "$flat" | tr 'A-Z' 'a-z')"
   case "$3" in
     (html) printf '%s' "$low" | grep -qE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;

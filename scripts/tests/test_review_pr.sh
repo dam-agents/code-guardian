@@ -2123,10 +2123,26 @@ for bad in '<script>alert(1)</script>' '<img src="https://evil.example.test/x.pn
            '<style>.a{content:"<"} .b{background:url(\2f\2f evil.example.test/p)}</style>' \
            '<svg><rect fill="url(&#x2F;&#x2F;evil.example.test/x)"/></svg>' \
            '<a href="https://github.com/acme/widgets/../../evil/repo">x</a>' \
-           "<p title='x' autofocus onfocus=alert(1) z=''>x</p>"; do
+           "<p title='x' autofocus onfocus=alert(1) z=''>x</p>" \
+           '<!-- a comment --!><img src="https://evil.example.test/x.png"> -->' \
+           '<!--><img src="https://evil.example.test/x.png">'; do
   guide_page "$bad"
   run_rp collect 1
   assert_jq '.skills["review-guide"].guide == "refused" and (.form_warnings | any(contains("review-guide: guide not published")))' "refused: $bad"
+done
+# a comment's words are no attributes: a comment with common words passes
+guide_page '<!-- one data background only on: notes for the model -->'
+run_rp collect 1
+assert_jq '.skills["review-guide"].guide == "built"' 'a comment with common words does not refuse the page'
+# the shipped templates pass the gate with their comments left in, once the
+# model filled the placeholders
+for tpl in template.html project-diagram.svg; do
+  sed -E 's#(href|data-paths)="\{\{[^}]*\}\}"#\1="\#x"#g; s#href="https://\{\{[^"]*"#href="\#x"#g; s#\{\{[^}]*\}\}#x#g' \
+    "$REPO_ROOT/.agents/skills/review-guide/assets/$tpl" > "$SANDBOX/filled-$tpl"
+  kind=html; case "$tpl" in (*.svg) kind=svg;; esac
+  why="$(cd "$REPO_ROOT" && REPO_HOST=github.com REPO=acme/widgets bash -c '. <(sed -n "/^MARKUP_JQ=/,/^    end'"'"'$/p;/^markup_refusal() {/,/^}/p" scripts/review-pr.sh); markup_refusal "$1" 200000 "$2"' _ "$SANDBOX/filled-$tpl" "$kind")"
+  [ -z "$why" ] && printf 'ok   %s: the filled %s passes the gate with its comments\n' "$CASE" "$tpl" \
+    || { printf 'FAIL %s: the filled %s is refused: %s\n' "$CASE" "$tpl" "$why"; FAILED=1; }
 done
 # code in a mini diff is text, not attributes: a React handler in it passes
 guide_page '<pre class="diff"><span class="add">&lt;button onClick={save} data={x}&gt;Save&lt;/button&gt; img.src = url;</span></pre><svg><path style="marker-end:url(#arr)" fill="url(#g)"/></svg>'

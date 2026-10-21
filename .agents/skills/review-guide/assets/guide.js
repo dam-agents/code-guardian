@@ -177,7 +177,8 @@
     Array.prototype.slice.call(el.childNodes).forEach(function (n) {
       if (n.nodeType !== 3 || !/[_.\/-]\w/.test(n.nodeValue)) return;
       var frag = doc.createDocumentFragment();
-      n.nodeValue.split(/(?<=[_.\/-])/).forEach(function (part, i) { if (i) frag.appendChild(doc.createElement("wbr")); frag.appendChild(doc.createTextNode(part)); });
+      /* a capturing split, no lookbehind: Safari 16.3 and older reject one */
+      n.nodeValue.split(/([_.\/-])/).forEach(function (part, i) { frag.appendChild(doc.createTextNode(part)); if (i % 2) frag.appendChild(doc.createElement("wbr")); });
       el.replaceChild(frag, n);
     });
   });
