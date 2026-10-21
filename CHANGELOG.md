@@ -13,10 +13,13 @@ they are released history and stay as written.
 
 ## 10.3.0 — 2026-10-21
 
-**Upgrade:** Offer the review guide row to the operator, as ONBOARDING Step 7
-asks it: `| review-guide | <definition_repo> | always | Human Review Guide |`
-in `## Review skills`. A yes adds the row; no answer leaves the table as it
-is, and nothing else changes.
+**Upgrade:** Add the review guide row — now in the default set — to
+`## Review skills` in `work/CONFIG.md` when the table has no `review-guide`
+row: `| review-guide | <definition_repo> | always | Human Review Guide |`,
+right after the `issue-fit` row (else first). Tell the operator in one chat
+line that the guide is public by link and that removing the row turns it off.
+Idempotent — a table with the row is left as it is. `work/diagrams/` is
+created on the first stored map.
 
 ## 10.2.1 — 2026-10-21
 

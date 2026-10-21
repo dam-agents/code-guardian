@@ -39,7 +39,7 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `artifact`, `guide`, `stall_rate`, `stall_alert_sent`, `review_cost`,
+  `artifact`, `guide`, `diagram`, `stall_rate`, `stall_alert_sent`, `review_cost`,
   `review_anomaly`, `review_anomaly_sent`, `classifier_block`, `api_failure`,
   `adapter_failure`,
   `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,

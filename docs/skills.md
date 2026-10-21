@@ -130,8 +130,9 @@ exist in the chat UI:
 
 - `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
-- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|refused>)` —
-  a guide skill (**Guide skills**).
+- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|refused>[, diagrams=<N>])` —
+  a guide skill (**Guide skills**); `diagrams` counts the project maps it
+  stored.
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.
@@ -170,8 +171,10 @@ sections.
   [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
   instead of the review brief: the diff, the PR context, the context pack, the
   risk prescan, a `human_review_paths` match (which passes the skill's gate),
-  the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`
-  and links pinned to the head SHA. `skills.<skill>.kind` is `guide` and
+  the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`,
+  links pinned to the head SHA, and the project diagrams of the touched areas
+  marked for this PR, with the areas that have none ([profile.md](profile.md) →
+  **Project diagrams**). `skills.<skill>.kind` is `guide` and
   `skills.<skill>.html` the page path.
 - **Cost.** It fans out with the other skills, so it adds no wall clock while
   another skill runs longer. Its budget is `GUIDE_BUDGET_MIN` (10) of
@@ -186,7 +189,13 @@ sections.
   `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form or `<link>`,
   no remote or `data:` load, and every `href`/`src` either an `#anchor` or a
   URL under `https://<repo-host>/<owner>/<repo>/`. A page that fails is
-  `refused`, with the reason as a form warning; it does not publish.
+  `refused`, with the reason as a form warning; it does not publish. A page
+  that passes gets the skill's vetted `assets/guide.js` inserted before
+  `</body>` (`skills.<skill>.interactive`): the zoom bar, map-node zoom, linked
+  highlight, tooltips and the churn filter, all driven by `data-*`
+  attributes, so the model writes no script. A project
+  map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
+  and is stored in `work/diagrams/`, whatever the page's fate.
 - **Publish.** The review agent publishes a built page, or links a kept one,
   only when its own triage is `needs-human` — the step between `meta.json` and
   `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review

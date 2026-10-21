@@ -1984,6 +1984,7 @@ guide_config() { # [extra config lines…]
     '| review-guide | acme/code-guardian | always | Human Review Guide |'
   mkdir -p "$FAKE_HOME/.claude/skills/review-guide/assets"
   cp "$REPO_ROOT/.agents/skills/review-guide/SKILL.md" "$FAKE_HOME/.claude/skills/review-guide/SKILL.md"
+  cp "$REPO_ROOT/.agents/skills/review-guide/assets/guide.js" "$FAKE_HOME/.claude/skills/review-guide/assets/guide.js"
 }
 guide_setup() { # <case> [extra config lines…]
   new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; guide_config "${@:2}"; pr_fx; ctx_fx
@@ -2020,6 +2021,11 @@ assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=buil
 assert_jq '.skills["review-guide"].guide == "built" and .skills["review-guide"].redactions >= 1' 'a built page is redacted before anything reads it'
 assert_file_lacks "$(GUIDE_HTML)" 'ghp_abcdefghij' 'the token is masked in the page'
 assert_jq '.form_warnings == []' 'an accepted page warns nothing'
+assert_jq '.skills["review-guide"].interactive == true' 'an accepted page gets the vetted script'
+[ "$(grep -c '<script>' "$(GUIDE_HTML)")" = 1 ] && grep -q 'review-guide interactions' "$(GUIDE_HTML)" \
+  && [ "$(tail -2 "$(GUIDE_HTML)" | tr -d '\n')" = '</script></body></html>' ] \
+  && printf 'ok   %s: one script, the vetted file, right before </body>\n' "$CASE" \
+  || { printf 'FAIL %s: script insertion wrong: %s\n' "$CASE" "$(tail -3 "$(GUIDE_HTML)" | tr '\n' '|')"; FAILED=1; }
 run_rp compose-brief 1
 assert_out_contains '### Human Review Guide' 'a built guide gets its section in the skeleton'
 assert_out_contains 'only when your triage is `needs-human`' 'the section depends on the triage'
@@ -2087,6 +2093,60 @@ assert_jq '.skills["review-guide"].guide == "kept"' 'a kept guide'
 run_rp compose-brief 1
 assert_out_contains 'Visual guide for the human reviewer](https://dam.example.test/s/old) — at abc1234: the delta only renames a test' 'a kept guide links the published page'
 assert_out_absent 'create_artifact_upload_url' 'a kept guide publishes nothing'
+run_rp abort 1 "reset"
+
+# --- project diagrams: reused marked, missing areas named, new maps stored -----
+# (docs/profile.md → Project diagrams)
+diagram_fx() { # <file> <id> <root data-paths> <node-a paths> <node-b paths> [drawn]
+  printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" data-cg-diagram="%s" data-title="Alpha area" data-paths="%s" data-base="abc1234" data-drawn="%s">\n<g class="node" data-paths="%s">\n<rect x="0" y="0" width="5" height="5"/><text>a</text>\n</g>\n<g class="node" data-paths="%s">\n<rect x="5" y="0" width="5" height="5"/><text>b</text>\n</g>\n</svg>\n' \
+    "$2" "$3" "${6:-$(date -u +%Y-%m-%d)}" "$4" "$5" > "$1"
+}
+guide_setup diagram_prepare
+mkdir -p "$WORK/diagrams"
+diagram_fx "$WORK/diagrams/alpha.svg" alpha 'src/alpha.ts,src/beta.ts' 'src/alpha.ts' 'src/beta.ts'
+diagram_fx "$WORK/diagrams/other.svg" other 'lib/' 'lib/x/' 'lib/y/'
+run_rp prepare 1
+GB="$(PR_DIR).ctx/briefs/review-guide.md"
+assert_file_contains "$GB" "$(PR_DIR).ctx/diagrams/alpha.svg\` — Alpha area: 1 of 2 nodes marked" 'a stored map of a touched area is handed over, marked'
+assert_file_contains "$(PR_DIR).ctx/diagrams/alpha.svg" '<g class="node hl" data-zoom="z-n1" data-ref="n1" data-paths="src/alpha.ts">' 'the touched node is marked and numbered for the zoom ladder'
+assert_file_contains "$(PR_DIR).ctx/diagrams/alpha.svg" '<g class="node" data-paths="src/beta.ts">' 'an untouched node stays plain'
+assert_file_lacks "$WORK/diagrams/alpha.svg" 'node hl' 'the stored map is never marked'
+[ -e "$(PR_DIR).ctx/diagrams/other.svg" ] && { printf 'FAIL %s: a map of an untouched area was handed over\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a map of an untouched area stays out\n' "$CASE"
+assert_file_contains "$GB" 'Areas this PR touches with no map: `src/` (1 files)' 'the file no map covers names its area'
+assert_file_contains "$GB" 'review-guide.diagrams/<id>.svg' 'the brief names where a new map goes'
+assert_file_lacks "$GB" 'Stale' 'a fresh map is not stale'
+run_rp abort 1 "reset"
+
+guide_setup diagram_stale
+mkdir -p "$WORK/diagrams"
+diagram_fx "$WORK/diagrams/alpha.svg" alpha 'src/' 'src/alpha.ts' 'src/gamma.ts' 2025-01-01
+run_rp prepare 1
+assert_file_contains "$(PR_DIR).ctx/briefs/review-guide.md" '`alpha` — drawn [0-9]* days ago' 'an old map is stale'
+assert_file_contains "$(PR_DIR).ctx/diagrams/alpha.svg" '<g class="node hl" data-zoom="z-n2" data-ref="n2" data-paths="src/gamma.ts">' 'a node of an added file is marked'
+assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'with no map' 'a covered area is not listed as missing'
+run_rp abort 1 "reset"
+
+guide_setup diagram_collect
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out/review-guide.diagrams"
+printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+diagram_fx "$(PR_DIR).out/review-guide.diagrams/a-src.svg" a-src 'src/' 'src/alpha.ts' 'src/gamma.ts'
+diagram_fx "$(PR_DIR).out/review-guide.diagrams/b-src.svg" b-src 'src/' 'src/alpha.ts' 'src/gamma.ts'
+diagram_fx "$(PR_DIR).out/review-guide.diagrams/bad.svg" wrong-id 'src/' 'src/alpha.ts' 'src/gamma.ts'
+run_rp collect 1
+assert_jq '.skills["review-guide"].diagrams.stored == ["a-src"]' 'one valid map is stored per run'
+assert_jq '.skills["review-guide"].diagrams.refused | map(.id) == ["b-src","bad"]' 'the map past the cap and the misnamed one are refused'
+assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=not-needed, diagrams=1)") != null' 'the audit line counts the stored map'
+assert_jq '.form_warnings | any(contains("project diagram bad not stored — data-cg-diagram does not match"))' 'the refusal reason is a form warning'
+[ -f "$WORK/diagrams/a-src.svg" ] && [ ! -f "$WORK/diagrams/b-src.svg" ] \
+  && printf 'ok   %s: the stored map is in work/diagrams/\n' "$CASE" || { printf 'FAIL %s: store wrong: %s\n' "$CASE" "$(ls "$WORK/diagrams" 2>&1 | tr '\n' ' ')"; FAILED=1; }
+rm -f "$(PR_DIR).out/review-guide.diagrams/"*.svg
+diagram_fx "$(PR_DIR).out/review-guide.diagrams/c-src.svg" c-src 'src/' 'src/alpha.ts' 'src/gamma.ts'
+printf '<script>x()</script>\n' >> "$(PR_DIR).out/review-guide.diagrams/c-src.svg"
+run_rp collect 1
+assert_jq '.skills["review-guide"].diagrams.refused == [{"id":"c-src","why":"a script element"}]' 'a map with a script is refused'
 run_rp abort 1 "reset"
 
 finish

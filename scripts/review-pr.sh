@@ -138,6 +138,11 @@ CARRY_MAX_HOPS=3        # HEAD moves a carried review survives (docs/review-rere
 SKILL_BUDGET_MIN=30     # wall-clock minutes per skill subagent (docs/skills.md → Invocation & audit log)
 GUIDE_BUDGET_MIN=10     # wall-clock minutes of a guide skill (docs/skills.md → Guide skills)
 GUIDE_MAX_BYTES=153600  # the largest review guide page that publishes (docs/artifact.md → Review guide)
+DIAGRAM_DIR="${WORK_DIR:-${HOME:-/home/agent}/work}/diagrams"   # project diagrams (docs/profile.md → Project diagrams)
+DIAGRAM_MAX_BYTES=81920 # the largest project diagram that is stored
+DIAGRAM_NEW_MAX=1       # new or redrawn diagrams one guide run may store
+DIAGRAM_STORE_MAX=40    # diagrams work/diagrams/ holds
+DIAGRAM_STALE_DAYS=45   # a diagram older than this is redrawn when a guide uses it
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -347,28 +352,83 @@ guide_marker() {
   sed -n 's/^<!-- artifact-guide: \([A-Za-z0-9_-]*\) \([0-9a-f]*\) \(https:[^ ]*\) -->$/\1 \2 \3/p' \
     "$WORK/reviews/pr-$N.md" 2>/dev/null | tail -1
 }
-# Why a guide page must not publish, or nothing when it may: one file, no
-# script, no remote load, links only into this PR's repository (docs/artifact.md
-# → Review guide). The page is model output built from untrusted PR content.
-guide_refusal() { # <html file>
+# Why a guide page or a project diagram must not publish, or nothing when it
+# may: one file, no script, no remote load, links only into this PR's
+# repository (docs/artifact.md → Review guide). Both are model output built from
+# untrusted PR content.
+markup_refusal() { # <file> <max bytes> <html|svg>
   local f="$1" size bad v
-  [ -s "$f" ] || { printf 'no page file'; return; }
+  [ -s "$f" ] || { printf 'no file'; return; }
   size="$(wc -c < "$f" | tr -d ' ')"
-  [ "$size" -le "$GUIDE_MAX_BYTES" ] || { printf 'the page is %s bytes, above %s' "$size" "$GUIDE_MAX_BYTES"; return; }
-  grep -qiE '<(!doctype html|html)' "$f" || { printf 'not an HTML page'; return; }
-  bad="$(grep -oiE '<(script|iframe|frame|object|embed|applet|form|link|base|portal)([[:space:]>/]|$)' "$f" | head -1)"
+  [ "$size" -le "$2" ] || { printf 'the file is %s bytes, above %s' "$size" "$2"; return; }
+  case "$3" in
+    (html) grep -qiE '<(!doctype html|html)' "$f" || { printf 'not an HTML page'; return; };;
+    (svg)  grep -qE '<svg[^>]*data-cg-diagram="' "$f" || { printf 'not a project diagram'; return; };;
+  esac
+  bad="$(grep -oiE '<(script|iframe|frame|object|embed|applet|form|link|base|portal|foreignobject)([[:space:]>/]|$)' "$f" | head -1)"
   [ -n "$bad" ] && { printf 'a %s element' "$(printf '%s' "$bad" | tr -d '<>/ ' | tr 'A-Z' 'a-z')"; return; }
   grep -qiE '<meta[^>]*http-equiv' "$f" && { printf 'a meta http-equiv element'; return; }
   grep -qiE '<[^>]*[[:space:]/]on[a-z]+[[:space:]]*=' "$f" && { printf 'an event handler attribute'; return; }
   grep -qiE 'javascript:|vbscript:' "$f" && { printf 'a script URL'; return; }
   grep -qiE '(url\([[:space:]]*["'"'"']?|@import[[:space:]]*["'"'"']?)(https?:|//|data:)' "$f" && { printf 'a remote or data load in CSS'; return; }
   while IFS= read -r v; do
+    [ -n "$v" ] || continue
     v="$(printf '%s' "$v" | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//')"
     case "$v" in
       ('#'*|"https://$REPO_HOST/$REPO/"*) ;;
       (*) printf 'a link outside the PR repository: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
     esac
   done <<< "$(grep -oiE '(href|src|xlink:href|action|formaction|poster|srcset)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$f")"
+}
+guide_refusal() { markup_refusal "$1" "$GUIDE_MAX_BYTES" html; }   # <html file>
+
+# --------------------------------------------------------- project diagrams ----
+# Agent-drawn maps of the reviewed repository's areas in work/diagrams/, the
+# project knowledge a guide reuses (docs/profile.md → Project diagrams). Each
+# is one SVG whose root carries data-cg-diagram (its id), data-title,
+# data-paths (the directory prefixes it maps), data-base and data-drawn, and
+# whose every node opens on its own line as
+# `<g class="node" data-paths="<prefix>[,<prefix>…]">`.
+diagram_attr() { # <file> <attribute> → the root's value
+  grep -m1 -o "<svg[^>]*" "$1" 2>/dev/null | grep -o "$2=\"[^\"]*\"" | head -1 | sed -E 's/^[^"]*"//; s/"$//'
+}
+prefix_hit() { # <comma-separated prefixes> <newline-separated paths> → 0 when a path lies under one
+  local pre p
+  while IFS= read -r pre; do
+    pre="$(printf '%s' "$pre" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$pre" ] || continue
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      case "$p" in ("$pre"*) return 0;; esac
+    done <<< "$2"
+  done <<< "$(printf '%s' "$1" | tr ',' '\n')"
+  return 1
+}
+# The copy of a diagram with every node the PR touches marked `hl` and
+# numbered for the page's zoom ladder (data-zoom="z-n<i>", data-ref="n<i>"),
+# and the count of marked nodes on stdout.
+diagram_highlight() { # <src svg> <dest svg> <changed paths>
+  local line np n=0
+  : > "$2"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      (*'<g class="node" data-paths="'*)
+        np="$(printf '%s' "$line" | sed -E 's/.*<g class="node" data-paths="([^"]*)".*/\1/')"
+        if prefix_hit "$np" "$3"; then
+          n=$((n+1)); line="${line/<g class=\"node\"/<g class=\"node hl\" data-zoom=\"z-n$n\" data-ref=\"n$n\"}"
+        fi;;
+    esac
+    printf '%s\n' "$line" >> "$2"
+  done < "$1"
+  printf '%s' "$n"
+}
+# The area a changed file belongs to, for a map: its first two directories,
+# else its first one; a file at the root has none.
+path_area() { # <path>
+  case "$1" in
+    (*/*/*) printf '%s/' "$(printf '%s' "$1" | cut -d/ -f1-2)";;
+    (*/*)   printf '%s/' "${1%%/*}";;
+  esac
 }
 
 # Every `{{<name>}}` of the brief text in the caller's `$t` replaced by <value>,
@@ -785,6 +845,55 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
   out "$j"
 }
 
+# The guide brief's project-diagram block (docs/profile.md → Project diagrams):
+# the stored maps of the areas this PR touches, copied into $CTX/diagrams/ with
+# the touched nodes marked, the stale ones, and the areas with no map. Needs
+# $CTX/files.json, the clone and $base from cmd_prepare.
+diagram_block() {
+  local chg f id title paths nodes hits drawn sha age stale="" have="" covered="" areas a out=""
+  chg="$(jq -r '.[] | select(.class | IN("code","test","docs","config")) | .path' "$CTX/files.json" 2>/dev/null)"
+  [ -n "$chg" ] || return 0
+  mkdir -p "$CTX/diagrams"
+  for f in "$DIAGRAM_DIR"/*.svg; do
+    [ -f "$f" ] || continue
+    id="$(basename "$f" .svg)"; paths="$(diagram_attr "$f" data-paths)"
+    [ -n "$paths" ] && prefix_hit "$paths" "$chg" || continue
+    title="$(diagram_attr "$f" data-title)"; drawn="$(diagram_attr "$f" data-drawn)"; sha="$(diagram_attr "$f" data-base)"
+    nodes="$(grep -c '<g class="node" data-paths="' "$f" 2>/dev/null)"
+    hits="$(diagram_highlight "$f" "$CTX/diagrams/$id.svg" "$chg")"
+    have="$have"$'\n'"- \`$CTX/diagrams/$id.svg\` — ${title:-$id}: $hits of $nodes nodes marked"
+    covered="$covered,$paths"
+    # stale: older than the window, or files added, deleted or renamed in its
+    # area on the base branch since the SHA it was drawn at
+    age=""; [ -n "$drawn" ] && age=$(( (NOW_EPOCH - $(iso2epoch "${drawn}T00:00:00Z" 2>/dev/null || echo "$NOW_EPOCH")) / 86400 ))
+    if [ -n "$age" ] && [ "$age" -gt "$DIAGRAM_STALE_DAYS" ]; then stale="$stale"$'\n'"- \`$id\` — drawn $age days ago"
+    elif [ -n "$sha" ] && git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
+         && [ -n "$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- $(printf '%s' "$paths" | tr ',' ' ') 2>/dev/null | head -1)" ]; then
+      stale="$stale"$'\n'"- \`$id\` — files were added, deleted or renamed in its area since \`$sha\`"
+    fi
+  done
+  # the areas of the changed code that no stored map covers, most changes
+  # first — a docs-only area gets no map
+  areas="$(jq -r '.[] | select(.class | IN("code","test","config")) | .path' "$CTX/files.json" 2>/dev/null | while IFS= read -r a; do
+             [ -n "$covered" ] && prefix_hit "${covered#,}" "$a" && continue
+             path_area "$a"; echo; done | grep -v '^$' | sort | uniq -c | sort -rn \
+    | while read -r n a; do printf '%s (%s files)\n' "$a" "$n"; done)"
+  out=$'\n\nProject diagrams — maps of this repository\'s areas that earlier guides drew and\n`'"$DIAGRAM_DIR"$'/` keeps as project knowledge, in the form of the skill\'s\n`assets/project-diagram.svg`.'
+  if [ -n "$have" ]; then
+    out="$out"$' These copies already mark the nodes this PR touches\n(`class="node hl"`) and number them for the zoom ladder: node `n<i>` carries\n`data-zoom="z-n<i>"`, so its zoom is `<details class="zoom" id="z-n<i>">` and its tiles,\ncards and rows take `data-ref="n<i>"`. Put the map that shows where the change lands\nat the top of the page, as it is or with more marks:'"$have"
+  fi
+  if [ -n "$stale" ]; then
+    out="$out"$'\nStale — redraw it with the same id when you use it:'"$stale"
+  fi
+  if [ -n "$areas" ]; then
+    out="$out"$'\nAreas this PR touches with no map: '"$(printf '%s' "$areas" | head -5 | sed 's/^/`/; s/ (/` (/' | paste -sd, - | sed 's/,/, /g')"$'.'
+  fi
+  if [ -n "$stale" ] || [ -n "$areas" ]; then
+    out="$out"$'\nDraw or redraw at most '"$DIAGRAM_NEW_MAX"$' map in this run — the area with the most changes first —\nfrom the base branch, and save it as `'"$OUT"$'/<skill>.diagrams/<id>.svg`. It is a map of\nthe area as it is on the base branch, with no PR marks; mark the copy you put in\nthe page.'
+  fi
+  printf '%s' "$out"
+}
+
 cmd_prepare() {
   local ETA="" ONDEMAND=false me="$ME"
   while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (*) shift;; esac; done
@@ -1056,6 +1165,9 @@ cmd_prepare() {
   fh="$(forced_human_path)"
   [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
   gm="$(guide_marker)"
+  local gdiag=""
+  printf '%s' "$skills" | jq -r '.[].skill' | while IFS= read -r s; do [ "$(skill_kind "$s")" = guide ] && echo y; done | grep -q y \
+    && gdiag="$(diagram_block)"
   [ -n "$gm" ] && gprior=$'\n- a guide was published for this PR at `'"$(printf '%s' "$gm" | cut -d' ' -f2)"$'`: build a new page only when the\n  changes since then alter what a person must judge; else write `'"$OUT/<skill>.txt"$'` with the\n  single line `🔁 Still holds — <the reason in 12 words or fewer>.` and write no page.'
   local vl vlblock="" rk rkblock=""
   vl="$(jq -r '[.profile_slice[]? | select(.verify_live) | .row] + (.structure_changed // []) | unique | .[]' "$CTX/slice.json" 2>/dev/null | sed 's/^/- /')"
@@ -1113,6 +1225,7 @@ cmd_prepare() {
         html="$OUT/$s.html"; t="$gtpl"
         fill DIFF "$DIFF"; fill CONTEXT "$CTX/context.json"; fill PACK "$CTX/pack.json"
         fill HTML_FILE "$html"; fill FORCED_BLOCK "$gforced"; fill PRIOR_BLOCK "${gprior//<skill>/$s}"
+        fill DIAGRAMS_BLOCK "${gdiag//<skill>/$s}"
         if [ -n "$profile" ]; then fill PROFILE_LINE "- the repository map slice: \`$profile\` — where to look, never evidence."
         else fill PROFILE_LINE "- no repository map — find your way in the tree."; fi
         [ -n "$rk" ] && fill RISK_BLOCK $'\n- the risk prescan — changed paths in sensitive areas and added lines that ask\n  for a second look:\n'"$(printf '%s\n' "$rk" | sed 's/^/  /')"
@@ -1252,13 +1365,30 @@ cmd_guard() {
 }
 
 # ================================================================= collect ====
+# The skill's vetted interaction script (assets/guide.js), inserted before
+# the page's last </body> once the page passed its checks: the model writes no
+# script, only the data-* attributes the script reads. No asset → the page
+# stays static, which still works. Prints true when inserted.
+guide_script() { # <skill> <html file>
+  local js="$HOME_DIR/.claude/skills/$1/assets/guide.js" page pre post
+  [ -s "$js" ] || { echo false; return; }
+  page="$(cat "$2")" || { echo false; return; }
+  case "$page" in
+    (*'</body>'*) pre="${page%</body>*}"; post="</body>${page##*</body>}";;
+    (*) pre="$page"; post="";;
+  esac
+  { printf '%s<script>\n' "$pre"; cat "$js"; printf '</script>\n%s\n' "$post"; } > "$2.js" && mv "$2.js" "$2" \
+    && echo true || { rm -f "$2.js"; echo false; }
+}
+
 # One guide skill's output (docs/skills.md → Guide skills): its line says
 # `built`, `kept` or `not-needed`; a built page is redacted, then checked, and a
 # page that may not publish is `refused` with the reason as a form warning.
 # Writes into cmd_collect's `lines`, `warns`, `results` and `timing`.
 collect_guide() { # <skill> <out file>
-  local s="$1" f="$2" first g html red=0 why="" mt
+  local s="$1" f="$2" first g html red=0 why="" mt js=false
   html="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/skills.json")"
+  . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null || redact_file() { return 1; }
   first="$(grep -m1 -vE '^[[:space:]]*$' "$f" | sed 's/^[[:space:]]*//')"
   case "$first" in
     ("📊"*) g=built;; ("🔁"*) g=kept;; ("➖"*) g=not-needed;;
@@ -1270,11 +1400,38 @@ collect_guide() { # <skill> <out file>
       if . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null; then red="$(redact_file "$html")" || { g=refused; why="the redaction pass did not run"; }
       else g=refused; why="scripts/lib/redact.sh is not readable"; fi
       [ "$g" = built ] && why="$(guide_refusal "$html")" && [ -n "$why" ] && g=refused
+      [ "$g" = built ] && js="$(guide_script "$s" "$html")"
     else g=refused; why="the line says built, but the page file is missing"; fi
   fi
   case "$red" in (''|*[!0-9]*) red=0;; esac
   [ "$g" = refused ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: guide not published — $why" '. + [$w]')"
-  lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s ran (findings=0, guide=$g)" '. + [$l]')"
+  # project diagrams the skill drew: checked, redacted and stored as project
+  # knowledge whatever the page's fate (docs/profile.md → Project diagrams)
+  local df did dwhy nd=0 dstored='[]' drefused='[]'
+  for df in "$OUT/$s.diagrams"/*.svg; do
+    [ -f "$df" ] || continue
+    did="$(basename "$df" .svg)"; dwhy=""
+    if ! printf '%s' "$did" | grep -qE '^[a-z0-9][a-z0-9-]{0,39}$'; then dwhy="the id is not lower-case letters, digits and hyphens"
+    elif [ "$(diagram_attr "$df" data-cg-diagram)" != "$did" ]; then dwhy="data-cg-diagram does not match the file name"
+    elif [ -z "$(diagram_attr "$df" data-paths)" ]; then dwhy="no data-paths on the root"
+    elif ! grep -q '<g class="node" data-paths="' "$df"; then dwhy="no node carries data-paths"
+    elif [ "$nd" -ge "$DIAGRAM_NEW_MAX" ]; then dwhy="past the cap of $DIAGRAM_NEW_MAX per run"
+    elif [ ! -f "$DIAGRAM_DIR/$did.svg" ] && [ "$(ls "$DIAGRAM_DIR"/*.svg 2>/dev/null | wc -l | tr -d ' ')" -ge "$DIAGRAM_STORE_MAX" ]; then
+      dwhy="the store holds $DIAGRAM_STORE_MAX diagrams"
+    else
+      redact_file "$df" >/dev/null 2>&1 || dwhy="the redaction pass did not run"
+      [ -n "$dwhy" ] || dwhy="$(markup_refusal "$df" "$DIAGRAM_MAX_BYTES" svg)"
+    fi
+    if [ -z "$dwhy" ] && mkdir -p "$DIAGRAM_DIR" && cp "$df" "$DIAGRAM_DIR/$did.svg.tmp" && mv "$DIAGRAM_DIR/$did.svg.tmp" "$DIAGRAM_DIR/$did.svg"; then
+      nd=$((nd+1)); dstored="$(printf '%s' "$dstored" | jq --arg i "$did" '. + [$i]')"
+      logev info diagram "PR #$N: $s stored project diagram $did"
+    else
+      [ -n "$dwhy" ] || dwhy="the store write did not succeed"
+      drefused="$(printf '%s' "$drefused" | jq --arg i "$did" --arg w "$dwhy" '. + [{id:$i, why:$w}]')"
+      warns="$(printf '%s' "$warns" | jq --arg w "$s: project diagram $did not stored — $dwhy" '. + [$w]')"
+    fi
+  done
+  lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s ran (findings=0, guide=$g$([ "$nd" -gt 0 ] && printf ', diagrams=%s' "$nd"))" '. + [$l]')"
   mt="$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)"
   timing="$timing$s.txt=$mt "
   case "$mt" in (''|*[!0-9]*) ;; (*)
@@ -1282,8 +1439,9 @@ collect_guide() { # <skill> <out file>
       && warns="$(printf '%s' "$warns" | jq --arg w "$s: output $(( (mt - fo) / 60 )) min after the fan-out, past the $GUIDE_BUDGET_MIN min budget" '. + [$w]')";;
   esac
   results="$(printf '%s' "$results" | jq --arg s "$s" --arg g "$g" --arg f "$f" --arg h "$html" --arg l "$first" --argjson r "$red" --arg y "$why" \
-    '. + {($s): ({status:"ran", kind:"guide", findings:0, file:$f, guide:$g, line:$l}
-                 + (if $g == "built" then {html:$h, redactions:$r} else {} end)
+    --argjson ds "$dstored" --argjson dr "$drefused" --arg js "$js" \
+    '. + {($s): ({status:"ran", kind:"guide", findings:0, file:$f, guide:$g, line:$l, diagrams:{stored:$ds, refused:$dr}}
+                 + (if $g == "built" then {html:$h, redactions:$r, interactive:($js == "true")} else {} end)
                  + (if $y != "" then {refused:$y} else {} end))}')"
 }
 

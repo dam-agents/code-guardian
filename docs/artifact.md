@@ -125,7 +125,8 @@ this PR's paths, id and line:
    `review-pr.sh guide <n> --skipped dam-unavailable`.
 2. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
-   The page is already redacted and checked by `collect`.
+   The page is already redacted, checked and given its vetted interaction
+   script by `collect`.
 3. **Publish** — the history file carries a guide id → `update_artifact {id,
    upload_ref}`, a new version behind the same link; an update that fails
    because the artifact is gone → create it as new. No id →

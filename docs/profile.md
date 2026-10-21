@@ -131,6 +131,39 @@ builds its `files[]` from the diff, whole.
   ([audit.md](audit.md) task 35). The audit re-verifies `stale` rows against
   the live source and drops `orphan` ones.
 
+## Project diagrams — `work/diagrams/`
+
+The profile is declared, never drawn. **Project diagrams** are its drawn
+layer: agent-owned maps of the repository's areas — components and how they
+connect, as on the default branch — that a guide skill draws once and every
+later guide reuses ([skills.md](skills.md) → **Guide skills**). Like the notes,
+they are judgement, kept apart from the declared rows; like the profile, they
+are orientation, never evidence.
+
+- **Form** — one SVG per area, `work/diagrams/<id>.svg`, from the bundled
+  skill's `assets/project-diagram.svg`. The root carries `data-cg-diagram`
+  (the id), `data-title`, `data-paths` (the directory prefixes it maps),
+  `data-base` (the base SHA it was drawn at) and `data-drawn` (the date). Every
+  node opens on its own line as `<g class="node" data-paths="<prefix>,…">`.
+- **Reuse** — `review-pr.sh prepare` hands a guide skill every map whose
+  `data-paths` cover a changed file, as a copy in `$PR_DIR.ctx/diagrams/` with
+  each node the PR touches marked `class="node hl"`: the marking is
+  deterministic, no model call. The brief also names the touched areas no map
+  covers: the first two directories of each uncovered code, test or config
+  file — a docs-only area gets no map.
+- **Currency** — a map is stale when it is older than `DIAGRAM_STALE_DAYS`
+  (45) or when files were added, deleted or renamed under its `data-paths`
+  on the base branch since `data-base`; the brief asks the guide to redraw it
+  with the same id when it uses it.
+- **Growth** — a guide run draws or redraws at most `DIAGRAM_NEW_MAX` (1) map,
+  the area with the most changes first. `review-pr.sh collect` checks it like a
+  guide page (redacted, no script, no remote load, no link outside the
+  repository, at most `DIAGRAM_MAX_BYTES`), stores it, and logs a `diagram`
+  event; the store holds at most `DIAGRAM_STORE_MAX` (40) maps. A map is
+  published only inside a guide page, so it carries no secret and no PR mark.
+- **Operator** — delete a file to have it redrawn; a hand-made map in the same
+  form is used like a drawn one.
+
 ## Configuration
 
 `project_profile` in `work/CONFIG.md`: `enabled` (missing = enabled) |

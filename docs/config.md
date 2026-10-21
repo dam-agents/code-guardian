@@ -131,9 +131,9 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 
 - **`## Review skills` table** — the per-PR review skills; semantics in
   [skills.md](skills.md). Missing or empty → no review skills run (log once).
-  A row whose skill is a guide skill — the bundled `review-guide` — builds a
-  visual page for the human reviewer of a `needs-human` PR and links it from
-  the review; it publishes to the DAM Artifact Library like `artifact_skill`
+  A row whose skill is a guide skill — the bundled `review-guide`, in the
+  default set — builds a visual page for the human reviewer of a
+  `needs-human` PR and links it from the review; it publishes to the DAM Artifact Library like `artifact_skill`
   ([skills.md](skills.md) → **Guide skills**, [artifact.md](artifact.md) →
   **Review guide**).
 - **`artifact_skill`** — `<skill>@<[host/]owner/repo>`, or `none`/missing = the

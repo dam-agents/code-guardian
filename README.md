@@ -237,7 +237,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `project_profile` | asked (default `enabled`) | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
 | `artifact_skill` | asked (default `none`; suggested `pr-artifact@dam-agents/dam`) | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published publicly to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
 | `artifact_label` | asked with the artifact skill (default off) | PR label that requests the visual artifact, beside the assignment of `bot_login` — the artifact trigger of a GitHub App `bot_login`. The agent removes it once the artifact is published. |
-| `## Review skills` table | defaulted to the public set (issue-fit + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
+| `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
@@ -392,9 +392,11 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   through a `## Review skills` row whose `source` is the instance's
   `definition_repo` — does the diff deliver what the linked issue asked;
   [`review-guide`](.agents/skills/review-guide/SKILL.md), a guide skill
-  installed the same way — for a PR whose review needs a person, a short
-  visual page (why a person, one before/after diagram, the decisions to judge,
-  where to read first) linked from the review
+  installed the same way — for a PR whose review needs a person, a visual page
+  linked from the review: why a person, the project map with the change
+  marked, then six one-line sections that open to a diagram each (why the PR
+  exists, the dependency chain, decisions, problems met, churn, impact); the
+  maps it draws stay in `work/diagrams/` as project knowledge
   ([docs/artifact.md](docs/artifact.md) → **Review guide**);
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md), the
   author side — install it in whichever agent answers the reviews, to fix

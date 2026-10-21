@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260" role="img" aria-label="{{AREA}}: its components and how they connect" data-cg-diagram="{{id}}" data-title="{{AREA title}}" data-paths="{{dir/}},{{dir/}}" data-base="{{base sha7}}" data-drawn="{{YYYY-MM-DD}}">
+<!-- A project diagram: a map of one area of the repository as it is on the
+     base branch. 5–15 nodes. Every node opens on its own line as
+     <g class="node" data-paths="<prefix>[,<prefix>…]"> — code-guardian marks a
+     node `hl` when a PR changes a file under one of its prefixes. No PR marks,
+     no links, no script. Remove this comment. -->
+<style>
+.node rect{fill:#fff;stroke:#8a8f98;rx:6px}
+.node.hl rect{fill:#fff1e8;stroke:#c2410c;stroke-dasharray:5 3;stroke-width:1.6px}
+.node text{font:12px system-ui,sans-serif;fill:#1d1d1f}
+.node text.sub{font-size:10px;fill:#5f6368}
+.e{stroke:#8a8f98;fill:none;stroke-width:1.2px}
+.grp{fill:none;stroke:#e3e1dc;stroke-dasharray:4 4}
+.grpl{font:11px system-ui,sans-serif;fill:#5f6368}
+@media (prefers-color-scheme:dark){.node rect{fill:#1c1c20;stroke:#71717a}.node.hl rect{fill:#2a1a10;stroke:#fb923c}.node text{fill:#ececee}.node text.sub{fill:#a1a1aa}.grp{stroke:#2e2e33}}
+</style>
+<rect class="grp" x="8" y="8" width="664" height="244" rx="10"/><text class="grpl" x="20" y="26">{{AREA}}</text>
+<g class="node" data-paths="{{dir/entry/}}">
+<rect x="30" y="50" width="170" height="44"/><text x="44" y="70">{{component}}</text><text class="sub" x="44" y="85">{{dir/entry/}}</text>
+</g>
+<g class="node" data-paths="{{dir/core/}}">
+<rect x="255" y="50" width="170" height="44"/><text x="269" y="70">{{component}}</text><text class="sub" x="269" y="85">{{dir/core/}}</text>
+</g>
+<g class="node" data-paths="{{dir/store.ts}}">
+<rect x="480" y="50" width="170" height="44"/><text x="494" y="70">{{component}}</text><text class="sub" x="494" y="85">{{dir/store.ts}}</text>
+</g>
+<path class="e" d="M200,72 H255"/>
+<path class="e" d="M425,72 H480"/>
+</svg>
