@@ -30,8 +30,6 @@ NOW_EPOCH=$(date -u +%s)
 . "$SCRIPT_DIR/lib/common.sh"
 . "$SCRIPT_DIR/lib/mcp.sh"
 
-DIRECT_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
-  "heartbeat_gap","harness_drift","backup_failing","dispatch_refused","judge_unavailable"]'
 MAX_ALERTS=10        # alerts in one message; the rest stay for the session
 DAILY_CAP=12         # direct messages in 24 h; past it the session delivers
 MAX_CHARS=3500
@@ -46,7 +44,7 @@ render() { # <alerts.json>
   url="$(jq -r '.share_url // "" | strings
     | select(test("\\Ahttps://[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+(:[0-9]{1,5})?/[A-Za-z0-9/_~%=&-]{1,200}\\z"))' \
     "$WORK/health/state.json" 2>/dev/null)"
-  jq -c --arg name "$name" --arg url "$url" --argjson kinds "$DIRECT_KINDS" --argjson max "$MAX_ALERTS" '
+  jq -c --arg name "$name" --arg url "$url" --argjson kinds "$PAGE_KINDS" --argjson max "$MAX_ALERTS" '
     def ts: if type == "string" and test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?Z\\z")
             then .[0:10] + " " + .[11:16] + " UTC" else error("ts") end;
     def int: if type == "number" and . >= 0 and . == floor and . < 1e9 then tostring else error("int") end;

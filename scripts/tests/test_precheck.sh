@@ -204,7 +204,7 @@ run_precheck monitor "$SANDBOX/scripts"
 chmod 700 "$SANDBOX/tmp"
 assert_rc 0 'an unwritable monitor worklist starts the session too'
 assert_out_contains 'scripts/monitor.sh"` yourself' 'and names monitor.sh without a mode'
-assert_out_contains '(the alert claims, the daily stall-alert claim, the anomaly-alert marker) is already spent' 'and the bookkeeping the monitor pass spent'
+assert_out_contains '(the alert claims, the daily stall-record claim, the anomaly marker) is already spent' 'and the bookkeeping the monitor pass spent'
 assert_out_absent 'awaiting_label' 'and no review bookkeeping'
 
 # --- the gate cleans up after itself ----------------------------------------

@@ -17,8 +17,8 @@ echo.
 
 - **Read that file and never run `preflight.sh` (or `monitor.sh`) again this
   run.** One fire is one pass: the `done → awaiting_label` flip and the
-  monitor's claims (alert claims, the once-per-UTC-day stall-alert claim, the
-  anomaly-alert marker) are already spent, so a second pass answers with less
+  monitor's claims (alert claims, the once-per-UTC-day stall-record claim, the
+  anomaly marker) are already spent, so a second pass answers with less
   than the first.
 - **Bookkeeping alone waits.** `selfheals_due`, `prunes_due`,
   `status_resets_due` and an `artifacts_due` entry with

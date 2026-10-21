@@ -57,8 +57,8 @@ case "$MODE" in
     LOST='a second pass may report less than the first';;
   monitor) PASS=monitor.sh; PASS_ARGS=()
     RERUN='bash "$HOME/scripts/monitor.sh"'
-    SPENT='the alert claims, the daily stall-alert claim, the anomaly-alert marker'
-    LOST='a second pass skips the alerts this pass claimed for 30 min, and may miss a stall or anomaly alert';;
+    SPENT='the alert claims, the daily stall-record claim, the anomaly marker'
+    LOST='a second pass skips the alerts this pass claimed for 30 min, and may miss the stall or anomaly record of this pass';;
   audit)
     printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;

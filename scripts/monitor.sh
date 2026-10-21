@@ -42,12 +42,6 @@ CLAIM_TTL_S=1800          # an emitted, unacknowledged alert is due again after 
 STATE_KEEP_S=$(( 14 * 86400 ))   # a row whose alert no tick finds goes after this
 MODEL_GAP_S=3600          # API failures this far apart are two outages
 CLASSIFIER_WINDOW_S=86400
-# the kinds that reach the operator (docs/monitor.md → The alerts): the
-# agent's own operation — model, provider, platform, GitHub reachability,
-# schedule, harness, backup. Every other kind goes to the technical history
-# and the dashboard only.
-PAGE_KINDS='["model_unavailable","model_recovered","github_unavailable","github_recovered",
-  "dispatch_refused","heartbeat_gap","judge_unavailable","harness_drift","backup_failing"]'
 
 # a non-negative integer key: missing -> <default>, off/none -> 0, other -> <default>
 int_key() { # <key> <default>
