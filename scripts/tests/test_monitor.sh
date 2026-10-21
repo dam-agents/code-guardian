@@ -160,14 +160,14 @@ mon_case mon_classifier_spike '- classifier_alert_threshold: 3'
 block_ev 900 'cd /home/agent && bash scripts/work-backup.sh persist'
 block_ev 600 'cd /home/agent && bash scripts/work-backup.sh persist'
 run_monitor
-assert_jq '[.alerts_due[] | select(.kind == "classifier_spike")] == []' 'under the threshold, no spike'
+assert_jq '[.recorded.conditions[]? | select(.kind == "classifier_spike")] == []' 'under the threshold, no spike'
 block_ev 300 'rm -f reviews/pr-4555.md'
 run_monitor
-assert_jq '.alerts_due[] | select(.kind == "classifier_spike") | .count == 3 and .id == "classifier:'"$(date -u +%Y-%m-%d)"'" and .top[0].count == 2 and .by_tool.Bash == 3' 'at the threshold: one alert per UTC day with its top pattern'
+assert_jq '.recorded.conditions[]? | select(.kind == "classifier_spike") | .count == 3 and .id == "classifier:'"$(date -u +%Y-%m-%d)"'" and .top[0].count == 2 and .by_tool.Bash == 3' 'at the threshold: one alert per UTC day with its top pattern'
 mon_case mon_classifier_off '- classifier_alert_threshold: 0'
 for s in 900 600 300; do block_ev "$s"; done
 run_monitor
-assert_jq '.alerts_due == []' '0 disables the classifier alerts'
+assert_jq '.alerts_due == [] and .recorded == null' '0 disables the classifier alerts'
 
 # --- a refused review post alerts, unless the PR was posted after it --------------
 mon_case mon_post_blocked
@@ -175,14 +175,14 @@ block_ev 900 'cd /home/agent && bash "$HOME/scripts/review-pr.sh" post 4517 --ve
 block_ev 600 'cd /home/agent && bash scripts/review-pr.sh post 4518 --verdict COMMENT --body /tmp/r.md' runB
 ev 300 review info review_step "PR #4518 1df8905 posted COMMENT" runB
 run_monitor
-assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 1 and .[0].pr == 4517 and .[0].id == "post_blocked:runA:4517"' 'the unposted PR alerts, the PR posted later does not'
+assert_jq '[.recorded.conditions[]? | select(.kind == "review_post_blocked")] | length == 1 and .[0].pr == 4517 and .[0].id == "post_blocked:runA:4517"' 'the unposted PR alerts, the PR posted later does not'
 
 # a run that retries the refused post is still one alert: one entry per id
 mon_case mon_post_blocked_retry
 block_ev 900 'bash scripts/review-pr.sh post 4519 --verdict COMMENT --body /tmp/r.md' runC
 block_ev 600 'bash scripts/review-pr.sh post 4519 --verdict COMMENT --body /tmp/r2.md' runC
 run_monitor
-assert_jq '[.alerts_due[] | select(.kind == "review_post_blocked")] | length == 1 and .[0].id == "post_blocked:runC:4519"' 'two refusals of one post in one run are one alert'
+assert_jq '[.recorded.conditions[]? | select(.kind == "review_post_blocked")] | length == 1 and .[0].id == "post_blocked:runC:4519"' 'two refusals of one post in one run are one alert'
 
 # --- the review gate went silent --------------------------------------------------
 new_case mon_heartbeat_gap
@@ -249,7 +249,7 @@ ev 500 session error tool_failure "Bash [gh api user]: Exit code 1 gh: Resource 
 ev 400 session error api_failure "authentication_failed: the proxy refused the model with HTTP 403"
 ev 300 review warn dismiss "PR #7: dismissing stale approval 55 did not succeed (APPROVE → COMMENT) — HTTP 403"
 run_monitor
-assert_jq '.alerts_due[] | select(.kind == "github_write_denied") | .count == 2 and .by_event == {"progress_status": 1, "post_failed": 1} and .id == "gh_write:'"$(date -u +%Y-%m-%d)"'"' \
+assert_jq '.recorded.conditions[]? | select(.kind == "github_write_denied") | .count == 2 and .by_event == {"progress_status": 1, "post_failed": 1} and .id == "gh_write:'"$(date -u +%Y-%m-%d)"'"' \
   'a 403 alerts once per UTC day; a rate limit, the gate list failure and hook events do not count'
 
 # --- a stale approval the review could not revoke --------------------------------
@@ -260,19 +260,20 @@ ev 700 review warn dismiss "PR #9: listing the reviews for a stale approval did 
 ev 600 review info review_pr "PR #8: dismissed stale approval 66 (APPROVE → COMMENT)" runC
 ev 500 review warn dismiss "PR #7: dismissing stale approval 55 did not succeed (APPROVE → COMMENT) — HTTP 403" runD
 run_monitor
-assert_jq '[.alerts_due[] | select(.kind == "approval_not_revoked")] | (map(.id) | sort) == ["dismiss:7:55", "dismiss:9:list:runB"]' \
+assert_jq '[.recorded.conditions[]? | select(.kind == "approval_not_revoked")] | (map(.id) | sort) == ["dismiss:7:55", "dismiss:9:list:runB"]' \
   'one alert per approval and per failed list; a later dismissal of the approval clears it'
-assert_jq '.alerts_due[] | select(.id == "dismiss:7:55") | .pr == 7 and .approval == 55 and .verdict == "comment" and .http == 403' 'the alert carries the PR, the approval, the verdict and the HTTP code'
-assert_jq '.alerts_due[] | select(.id == "dismiss:9:list:runB") | .http == 0 and has("approval") == false' 'a failed list has no approval and no code'
+assert_jq '.alerts_due == [] and .nothing_to_do == true' 'a history-only condition is no alert and starts no session'
+assert_jq '.recorded.conditions[] | select(.id == "dismiss:7:55") | .pr == 7 and .approval == 55 and .verdict == "comment" and .http == 403' 'the alert carries the PR, the approval, the verdict and the HTTP code'
+assert_jq '.recorded.conditions[] | select(.id == "dismiss:9:list:runB") | .http == 0 and has("approval") == false' 'a failed list has no approval and no code'
 
 # --- the token's identity changed -------------------------------------------------
 mon_case mon_identity_changed
 jq -nc --arg t "$(iso_ago 3600)" '{login: "new-app[bot]", kind: "app", checked_at: $t, previous: {login: "old-app[bot]", kind: "app"}, changed_at: $t}' > "$WORK/GITHUB.json"
 run_monitor
-assert_jq '.alerts_due[] | select(.kind == "github_identity_changed") | .login == "new-app[bot]" and .previous == "old-app[bot]" and .token_kind == "app"' 'a login change in the last 7 days alerts'
+assert_jq '.recorded.conditions[]? | select(.kind == "github_identity_changed") | .login == "new-app[bot]" and .previous == "old-app[bot]" and .token_kind == "app"' 'a login change in the last 7 days alerts'
 jq '.changed_at = "2020-01-01T00:00:00Z"' "$WORK/GITHUB.json" > "$WORK/g.json" && mv "$WORK/g.json" "$WORK/GITHUB.json"
 run_monitor
-assert_jq '[.alerts_due[] | select(.kind == "github_identity_changed")] == []' 'an older change does not'
+assert_jq '[.recorded.conditions[]? | select(.kind == "github_identity_changed")] == []' 'an older change does not'
 
 # --- harness drift from install.sh --check -----------------------------------------
 mon_case mon_harness

@@ -262,13 +262,13 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 ### Monitor
 
 - **`stall_alert_threshold`** — stalled reviews (locked, never posted) within 24
-  h that trigger one alert, at most once per UTC day. **Missing = `4`**;
+  h that record one history incident, at most once per UTC day (no alert). **Missing = `4`**;
   `0`/`off` disables; an unparseable value falls back to `4`
   (monitor.md → **Stalled-review rate alert**).
 - **`review_anomaly_factor`** — a review whose cost, time, peak context,
   repeated calls, failures or largest tool result reaches max(floor, this ×
-  the median of its model's recent reviews) alerts once. **Missing = `4`**;
-  `0`/`off` disables the whole anomaly alert; a number of `1` or more, a
+  the median of its model's recent reviews) records one history incident (no
+  alert). **Missing = `4`**; `0`/`off` disables the whole detector; a number of `1` or more, a
   decimal too, sets it; any other value falls back to `4`
   (monitor.md → **Review anomaly alert**).
 - **`model_alert_threshold`** — runs that ended on an API failure within one
@@ -279,7 +279,8 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   disables; an unparseable value falls back to `2` (monitor.md → **The
   alerts**).
 - **`classifier_alert_threshold`** — auto-mode classifier refusals within 24
-  h that alert once per UTC day; a refused review post alerts on its own.
+  h that record one history incident per UTC day (no alert); a refused review
+  post is its own incident.
   **Missing = `20`**; `0`/`off` disables both; an unparseable value falls
   back to `20` (monitor.md → **The alerts**).
 - **`monitor_owner`** — roster login the monitor's alert DMs go to, both the

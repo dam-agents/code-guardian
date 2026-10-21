@@ -1926,7 +1926,9 @@ dismiss_approvals() {
          -f message="Superseded by $BOT_NAME $what at $2 — verdict is now $3." 2>&1 >/dev/null)"; then
       last="$aid"; logev info review_pr "PR #$N: dismissed stale approval $aid (APPROVE → $3)"
     else
-      err="$(printf '%s' "$err" | grep -oE 'HTTP [0-9]{3}' | head -1)"
+      # the HTTP code, else gh's first error line (a failure with no answer)
+      err="$( { printf '%s' "$err" | grep -oE 'HTTP [0-9]{3}' \
+              || printf '%s' "$err" | grep -m1 -v '^[[:space:]]*$' | tr -d '\r' | cut -c1-160; } | head -1)"
       logev warn dismiss "PR #$N: dismissing stale approval $aid did not succeed (APPROVE → $3)${err:+ — $err}"
     fi
   done

@@ -17,8 +17,8 @@ echo.
 
 - **Read that file and never run `preflight.sh` (or `monitor.sh`) again this
   run.** One fire is one pass: the `done → awaiting_label` flip and the
-  monitor's claims (alert claims, the once-per-UTC-day stall-alert claim, the
-  anomaly-alert marker) are already spent, so a second pass answers with less
+  monitor's claims (alert claims, the once-per-UTC-day stall-record claim, the
+  anomaly marker) are already spent, so a second pass answers with less
   than the first.
 - **Bookkeeping alone waits.** `selfheals_due`, `prunes_due`,
   `status_resets_due` and an `artifacts_due` entry with
@@ -109,7 +109,7 @@ changes", then end the run the same way.
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` (`judge_unavailable`: why the judge cannot run, or null) | [benchmark.md](benchmark.md) |
 | `survey_due` | survey mode: the area to read this run, with its history slice | [survey.md](survey.md) |
-| `alerts_due`, `stall_alert`, `review_anomaly`, `direct`, `suppressed` | monitor mode: the alerts to report (each with its `id`), the stall and anomaly alerts, the direct send's result, the count of alerts already sent | [monitor.md](monitor.md) |
+| `alerts_due`, `recorded`, `direct`, `suppressed` | monitor mode: the alerts to report (each with its `id`), the history-only conditions (never reported), the direct send's result, the count of alerts already sent | [monitor.md](monitor.md) |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |
 | `dispatched` | `{number, by}`, present in a worklist `dispatch.sh plan` cut for one PR → the session takes that PR's hold first | [runbook.md](runbook.md) → **Review run** step 1 |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |

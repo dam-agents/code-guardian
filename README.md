@@ -257,11 +257,11 @@ what it can and asking for the rest. Per-key semantics are in
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | The heartbeat's two cadences and the window between them; each interval bounds how long a new PR waits for its run. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
-| `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that trigger one monitor alert, at most once per UTC day; `0`/`off` disables. |
-| `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) triggers one monitor alert; `0`/`off` disables. |
+| `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that record one history incident (no alert), at most once per UTC day; `0`/`off` disables. |
+| `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) records one history incident (no alert); `0`/`off` disables. |
 | `model_alert_threshold` | not set (= `2`) | Runs ended on an API failure within one outage before the monitor alerts; `0`/`off` disables. |
 | `github_alert_threshold` | not set (= `2`) | Gate passes in a row that could not list the open PRs before the monitor alerts; `0`/`off` disables. |
-| `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that alert once per UTC day; `0`/`off` disables. |
+| `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that record one history incident per UTC day (no alert); `0`/`off` disables. |
 | `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
 | `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the fallback DM target of the monitor's alerts. |
 | `monitor_owner` | asked with the escalation owner (default: not set) | Roster member the monitor's alert DMs go to; not set = `escalation_owner`. |
