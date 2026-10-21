@@ -454,6 +454,14 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
+   - **The review guide row** — default off. Ask:
+
+     > When my review decides that a person must judge a PR, I can add a short visual guide to the review: why a person is needed, one before/after picture, the decisions to judge and where to read first. It runs beside the other review skills, takes a few minutes, and most PRs need no guide. I publish it to the DAM Artifact Library. Anyone with its link can open it, and it shows code from the PR. Turn it on? (Default: off.)
+
+     **Yes** → add the row `| review-guide | <definition_repo> | always | Human Review Guide |`
+     (the skill ships in this definition repo), validated like any repo-sourced
+     row; place it right after `issue-fit` so its link line sits high in the
+     review. **No, or no reply** → no row.
    - **`artifact_skill`** — default `none`. Ask:
 
      > When someone assigns **<bot_login>** to a PR, I can make a visual artifact of the PR. I publish it to the DAM Artifact Library. The artifact is public: anyone with its link can open it, and it shows code from the PR. Turn it on? (Default: off. Suggested skill: `pr-artifact@dam-agents/dam`.)

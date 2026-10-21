@@ -1012,8 +1012,9 @@ if [ "$MODE" = "review" ]; then
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
           did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
-          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg d "${did:-}" \
-            '{number:$n, state:$s, dam_id:(if $d=="" then null else $d end)}')" '. + [$e]')"
+          gid="$(grep -o '<!-- artifact-guide: [A-Za-z0-9_-]* ' "$WORK/reviews/pr-$n.md" 2>/dev/null | tail -1 | cut -d' ' -f3)"
+          PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg d "${did:-}" --arg g "${gid:-}" \
+            '{number:$n, state:$s, dam_id:(if $d=="" then null else $d end), guide_id:(if $g=="" then null else $g end)}')" '. + [$e]')"
           log "PR #$n: $state — prune due"
         fi;;
       *) : ;;  # OPEN / API error -> leave the row alone
@@ -2620,6 +2621,14 @@ if [ "$MODE" = "audit" ]; then
       check artifacts warn "${art_unrep} artifact generation(s) with no outcome event — the step skipped its audit line, so stats.artifacts.generated is a floor (docs/artifact.md step 6)"
     else check artifacts ok "artifact outcomes logged: $(printf '%s' "$ARTIFACTS_WEEK" | jq -r '"\(.generated) published, \(.skipped) skipped"')"; fi
   fi
+  # Review guides published this week, from the `guide` events that
+  # `review-pr.sh guide` writes (docs/artifact.md → Review guide), per PR.
+  GUIDES_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
+    [ .[] | select(.ts >= $s) | select(.event=="guide") | .msg
+      | capture("^PR #(?<n>[0-9]+): +[^ ]+ +(?<o>published|skipped)") ] as $out
+    | { published: ([ $out[] | select(.o == "published") | .n ] | unique | length),
+        skipped:   ([ $out[] | select(.o == "skipped")   | .n ] | unique | length) }' 2>/dev/null)"
+  [ -n "$GUIDES_WEEK" ] || GUIDES_WEEK='null'
 
   # Wasted-review accounting: a run that locked a PR and never reached a
   # terminal `review_step` threw its work away — the next heartbeat redoes the
@@ -3261,15 +3270,15 @@ if [ "$MODE" = "audit" ]; then
   STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
       "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
       "${REACTIONS:-null}" "${ARTIFACTS_WEEK:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
-      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" \
     | jq -cs --arg since "$SINCE_ISO" '
     . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
-          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard]
+          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd]
     | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
-      artifacts:$art,
+      artifacts:$art, guides:$gd,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
       classifier:$guard.classifier, api_failures:$guard.api_failures}')"

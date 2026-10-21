@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- review-guide template. Fill every {{…}}; delete a block that has no
+     content. No <script>, no remote load, links only into the PR's repository
+     at the head SHA. Remove these comments in the output. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #{{N}} review guide</title>
+<style>
+:root{--bg:#fbfaf8;--fg:#1d1d1f;--muted:#5f6368;--line:#e3e1dc;--card:#fff;--accent:#c2410c;--accent-bg:#fff1e8;--ok:#15803d;--warn:#b45309;--link:#1d4ed8;--before:#8a8f98}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--fg:#ececee;--muted:#a1a1aa;--line:#2e2e33;--card:#1c1c20;--accent:#fb923c;--accent-bg:#2a1a10;--ok:#4ade80;--warn:#fbbf24;--link:#93c5fd;--before:#71717a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+a{color:var(--link)}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
+h1{font-size:20px;line-height:1.3;margin:0 0 6px}
+h2{font-size:16px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;color:var(--muted);font-size:13px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.why{border-left:4px solid var(--accent);background:var(--accent-bg);padding:12px 14px;border-radius:6px;margin:0 0 12px}
+.why strong{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.start{margin:0 0 22px}
+section,details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin:0 0 12px}
+summary{cursor:pointer;font-weight:600}
+summary small,.muted{color:var(--muted);font-weight:400}
+figure{margin:12px 0 0}
+.ba{display:flex;flex-wrap:wrap;gap:12px}
+.ba svg{flex:1 1 300px;min-width:0}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font:12px system-ui,sans-serif}
+svg .box{fill:var(--card);stroke:var(--before)}
+svg .chg{fill:var(--accent-bg);stroke:var(--accent);stroke-dasharray:5 3;stroke-width:1.6}
+svg .edge{stroke:var(--before);fill:none;marker-end:url(#arr)}
+svg .edge.chg{stroke:var(--accent)}
+svg .tag{fill:var(--accent);font-weight:600;font-size:10px}
+.card{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+.card:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.card dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0}
+.card dt{color:var(--muted)}
+.card dd{margin:0}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+th,td{text-align:left;padding:6px 6px;border-top:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px}
+.bar{display:inline-block;height:8px;border-radius:2px;background:var(--accent);vertical-align:middle}
+.bar.low{background:var(--before)}
+.tagr{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px}
+.read{color:var(--accent)}.skim{color:var(--muted)}
+pre{overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:12px}
+footer{color:var(--muted);font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+
+<!-- LEVEL 0 — the first screen: what, why a person, where to start -->
+<h1>PR #{{N}}: {{TITLE}}</h1>
+<div class="chips">
+  <span class="chip">head <code>{{SHA7}}</code></span>
+  <span class="chip">+{{ADD}} −{{DEL}} · {{FILES}} files</span>
+  <span class="chip" title="Effort 1–5: 1 one concern, under 10 min · 2 about 15 min · 3 several parts, about 30 min · 4 cross-module design, about 1 h · 5 more than 1 h or a domain expert">effort {{EFFORT}}/5</span>
+  <span class="chip">about {{MINUTES}} min</span>
+</div>
+<div class="why"><strong>Why a person must look</strong>{{WHY — 1–2 sentences: the question(s) only a person can settle}}</div>
+<p class="start">▶ <b>Start here:</b> <a href="{{LINK to stop 1}}">{{path:line}}</a> — {{what to check there}}</p>
+
+<!-- LEVEL 1 — how it works now: the purpose and ONE before/after picture -->
+<section>
+  <h2>How it works now</h2>
+  <p>{{PURPOSE — what a user, request or job does differently now}}</p>
+  <!-- Before | after as two SVGs: they sit side by side and stack on a
+       narrow screen. ≤ 7 boxes per side, real names, about 340 wide each.
+       Changed parts: class="chg" (accent + dashed) and a NEW / CHANGED tag.
+       One shared <defs> marker in the first SVG serves both. -->
+  <figure class="ba">
+    <svg viewBox="0 0 340 170" role="img" aria-label="Before: {{one sentence}}">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a8f98"/></marker></defs>
+      <text x="4" y="14" class="muted">Before</text>
+      <rect class="box" x="4" y="26" width="220" height="36" rx="6"/><text x="16" y="49">{{symbol}}</text>
+      <path class="edge" d="M114,62 V90"/>
+      <rect class="box" x="4" y="90" width="220" height="36" rx="6"/><text x="16" y="113">{{symbol}}</text>
+    </svg>
+    <svg viewBox="0 0 340 170" role="img" aria-label="After: {{one sentence}}">
+      <text x="4" y="14" class="muted">After</text>
+      <rect class="box" x="4" y="26" width="220" height="36" rx="6"/><text x="16" y="49">{{symbol}}</text>
+      <path class="edge chg" d="M114,62 V90"/>
+      <rect class="chg" x="4" y="90" width="220" height="36" rx="6"/><text x="16" y="113">{{symbol}}</text><text class="tag" x="234" y="113">NEW</text>
+    </svg>
+  </figure>
+</section>
+
+<!-- LEVEL 2 — decisions to judge: first card open, the others closed -->
+<details open>
+  <summary>Decisions to judge <small>· {{K}}</small></summary>
+  <div class="card">
+    <b>{{QUESTION a person must answer}}</b>
+    <dl>
+      <dt>PR's choice</dt><dd>{{choice}}</dd>
+      <dt>Alternatives</dt><dd>{{alternatives — named by the PR or obvious from the code}}</dd>
+      <dt>Why</dt><dd>{{the PR's reason with its source, or: The PR does not say why.}}</dd>
+      <dt>At stake</dt><dd>{{what the choice puts at risk — from evidence only}}</dd>
+      <dt>Evidence</dt><dd><a href="{{LINK}}">{{path:line}}</a></dd>
+    </dl>
+  </div>
+</details>
+
+<!-- LEVEL 3 — reading order: riskiest group first, related files together -->
+<details>
+  <summary>Reading order <small>· {{MINUTES}} min</small></summary>
+  <table>
+    <tr><th>#</th><th>Where</th><th>Check</th><th>Churn</th><th>Min</th></tr>
+    <tr><td>1</td><td><a href="{{LINK}}">{{path}}</a> <span class="tagr read">read</span></td><td>{{what to check}}</td><td><span class="bar" style="width:{{px ≤ 80}}px"></span> +{{a}} −{{d}}</td><td>{{m}}</td></tr>
+    <tr><td>…</td><td colspan="2" class="muted">{{N}} mechanical files — renames, imports, constants <span class="tagr skim">skim</span></td><td><span class="bar low" style="width:{{px}}px"></span></td><td>{{m}}</td></tr>
+  </table>
+</details>
+
+<!-- LEVEL 4 — coupling: who depends on the changed parts -->
+<details>
+  <summary>Coupling <small>· who depends on this</small></summary>
+  <ul>
+    <li><code>{{changed part}}</code> ← {{caller / consumer / job}} (<a href="{{LINK}}">{{path}}</a>)</li>
+  </ul>
+</details>
+
+<footer>Guide for the human reviewer of <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/pull/{{N}}/files">PR #{{N}}</a> at <code>{{SHA7}}</code>. It shows where to look; the review carries the findings.</footer>
+</main>
+</body>
+</html>

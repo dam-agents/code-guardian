@@ -1975,4 +1975,118 @@ assert_jq '.failing[0].evidence_source == "output"' 'a check outside Actions fal
 EV="$(printf '%s' "$OUT" | jq -r '.failing[0].evidence')"
 assert_file_contains "$EV" 'login spec timed out' 'the output text is the evidence'
 
+# --- review guide: a guide skill's brief, collect, compose and record ----------
+# (docs/skills.md → Guide skills, docs/artifact.md → Review guide)
+guide_config() { # [extra config lines…]
+  base_config "$@" '' '## Review skills' '' \
+    '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+    '| doc-drift | harness | always | Documentation Check |' \
+    '| review-guide | acme/code-guardian | always | Human Review Guide |'
+  mkdir -p "$FAKE_HOME/.claude/skills/review-guide/assets"
+  cp "$REPO_ROOT/.agents/skills/review-guide/SKILL.md" "$FAKE_HOME/.claude/skills/review-guide/SKILL.md"
+}
+guide_setup() { # <case> [extra config lines…]
+  new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; guide_config "${@:2}"; pr_fx; ctx_fx
+  CLONE_SRC=""; : > "$SANDBOX/gh.log"
+}
+GUIDE_HTML() { printf '%s.out/review-guide.html' "$(PR_DIR)"; }
+guide_page() { # [extra body markup] — a page the checks accept
+  printf '<!doctype html><html><head><meta charset="utf-8"><style>svg .edge{marker-end:url(#arr)}</style></head><body>\n<p>See <a href="https://github.com/acme/widgets/blob/%s/src/alpha.ts#L6-L7">src/alpha.ts:6</a> and <a href="#d1">the decision</a>.</p>\n%s\n</body></html>\n' "$B1_SHA" "${1:-}" > "$(GUIDE_HTML)"
+}
+
+guide_setup guide_prepare '- human_review_paths: src/al*'
+run_rp prepare 1
+assert_jq '.skills["review-guide"].kind == "guide" and .skills["doc-drift"].kind == "review"' 'the SKILL.md frontmatter marks the guide skill'
+assert_jq '.skills["review-guide"].html == "'"$(GUIDE_HTML)"'" and .skills["doc-drift"].html == null' 'a guide skill gets a page path'
+GB="$(PR_DIR).ctx/briefs/review-guide.md"
+assert_file_contains "$GB" "write the page to \`$(GUIDE_HTML)\`" 'the guide brief names the page path'
+assert_file_contains "$GB" "Time budget: $(sed -n 's/^GUIDE_BUDGET_MIN=\([0-9]*\).*/\1/p' "$RP") minutes" 'the guide brief carries the guide budget'
+assert_file_contains "$GB" 'https://github.com/acme/widgets/blob/'"$B1_SHA" 'the guide brief pins links to the head SHA'
+assert_file_contains "$GB" 'forced: `src/alpha.ts (src/al\*)`' 'a human_review_paths match passes the gate'
+assert_file_contains "$GB" 'no repository map' 'without a profile the guide brief says so'
+assert_file_lacks "$GB" '{{' 'no placeholder left in the guide brief'
+assert_file_lacks "$GB" 'still holds' 'no guide published yet, no keep option'
+assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" 'write the page' 'a review skill keeps the review brief'
+run_rp abort 1 "reset"
+
+guide_setup guide_built
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out"
+printf -- '- 🟢 **Suggestion:** x (`src/alpha.ts:6`)\n' > "$(PR_DIR).out/doc-drift.txt"
+printf '📊 Guide — the new query() contract and its callers (about 10 min)\n' > "$(PR_DIR).out/review-guide.txt"
+guide_page '<pre>token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"</pre>'
+run_rp collect 1
+assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=built)") != null' 'the guide audit line names its state'
+assert_jq '.skills["review-guide"].guide == "built" and .skills["review-guide"].redactions >= 1' 'a built page is redacted before anything reads it'
+assert_file_lacks "$(GUIDE_HTML)" 'ghp_abcdefghij' 'the token is masked in the page'
+assert_jq '.form_warnings == []' 'an accepted page warns nothing'
+run_rp compose-brief 1
+assert_out_contains '### Human Review Guide' 'a built guide gets its section in the skeleton'
+assert_out_contains 'only when your triage is `needs-human`' 'the section depends on the triage'
+assert_out_contains 'create_artifact {title: "PR #1 review guide"' 'a first guide is created'
+assert_out_absent 'update_artifact \{id' 'no prior guide, no update'
+assert_out_contains 'guide 1 --id <id> --url <shareUrl>' 'the brief names the record step'
+assert_out_contains 'the new query() contract and its callers (about 10 min)' 'the section line carries what the person must judge'
+run_rp guide 1 --skipped later
+assert_jq '.outcome == "error"' 'an unknown skip reason is refused'
+run_rp guide 1 --id 'bad id' --url https://dam.example.test/s/a
+assert_jq '.outcome == "error"' 'an id with a space is refused'
+run_rp guide 1 --id art_9 --url https://dam.example.test/s/abc
+assert_jq '.outcome == "recorded" and .id == "art_9" and .sha == "'"${B1_SHA:0:7}"'"' 'the guide is recorded'
+[ "$(sed -n 2p "$WORK/reviews/pr-1.md")" = "<!-- artifact-guide: art_9 ${B1_SHA:0:7} https://dam.example.test/s/abc -->" ] \
+  && printf 'ok   %s: the marker sits right after the title\n' "$CASE" \
+  || { printf 'FAIL %s: marker wrong: %s\n' "$CASE" "$(head -3 "$WORK/reviews/pr-1.md" | tr '\n' '|')"; FAILED=1; }
+run_rp guide 1 --id art_9 --url https://dam.example.test/s/abc
+[ "$(grep -c '^<!-- artifact-guide: ' "$WORK/reviews/pr-1.md")" = 1 ] \
+  && printf 'ok   %s: a second record replaces the marker\n' "$CASE" || { printf 'FAIL %s: duplicate guide markers\n' "$CASE"; FAILED=1; }
+cat "$WORK"/logs/events-*.jsonl | jq -e 'select(.event=="guide") | .msg | test("^PR #1: review-guide published → DAM art_9")' >/dev/null \
+  && printf 'ok   %s: the guide event is logged\n' "$CASE" || { printf 'FAIL %s: no guide event\n' "$CASE"; FAILED=1; }
+run_rp compose-brief 1
+assert_out_contains 'update_artifact {id: "art_9"' 'a recorded guide is updated in place'
+run_rp abort 1 "reset"
+
+# a page that may not publish: refused with the reason, no section
+guide_setup guide_refused
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out"
+printf '📊 Guide — x (about 5 min)\n' > "$(PR_DIR).out/review-guide.txt"
+for bad in '<script>alert(1)</script>' '<img src="https://evil.example.test/x.png">' \
+           '<a href="https://evil.example.test/">x</a>' '<p onclick="x()">x</p>' \
+           '<style>@import "https://evil.example.test/a.css";</style>'; do
+  guide_page "$bad"
+  run_rp collect 1
+  assert_jq '.skills["review-guide"].guide == "refused" and (.form_warnings | any(contains("review-guide: guide not published")))' "refused: $bad"
+done
+run_rp compose-brief 1
+assert_out_absent '### Human Review Guide' 'a refused page gets no section'
+assert_out_contains 'no page to link (audit line only): review-guide (refused)' 'the refused guide is named'
+run_rp abort 1 "reset"
+
+# no person needed: no page, no section
+guide_setup guide_not_needed
+run_rp prepare 1
+mkdir -p "$(PR_DIR).out"
+printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+assert_jq '.skills["review-guide"].guide == "not-needed" and .form_warnings == []' 'not needed is a clean run'
+run_rp compose-brief 1
+assert_out_absent '### Human Review Guide' 'no page, no section'
+assert_out_absent '_Limits:' 'a guide that was not needed is no limit of the review'
+run_rp abort 1 "reset"
+
+# a published guide that still holds: linked again, nothing published
+guide_setup guide_kept
+printf '# PR #1: alpha PR\n<!-- artifact-guide: art_3 abc1234 https://dam.example.test/s/old -->\n\n## PR-local overrides\n\n' > "$WORK/reviews/pr-1.md"
+run_rp prepare 1
+assert_file_contains "$(PR_DIR).ctx/briefs/review-guide.md" 'published for this PR at `abc1234`' 'the brief offers to keep the published guide'
+mkdir -p "$(PR_DIR).out"
+printf '🔁 Still holds — the delta only renames a test.\n' > "$(PR_DIR).out/review-guide.txt"
+run_rp collect 1
+assert_jq '.skills["review-guide"].guide == "kept"' 'a kept guide'
+run_rp compose-brief 1
+assert_out_contains 'Visual guide for the human reviewer](https://dam.example.test/s/old) — at abc1234: the delta only renames a test' 'a kept guide links the published page'
+assert_out_absent 'create_artifact_upload_url' 'a kept guide publishes nothing'
+run_rp abort 1 "reset"
+
 finish

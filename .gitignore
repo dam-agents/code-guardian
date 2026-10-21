@@ -23,6 +23,7 @@
 !/.agents/skills/issue-fit
 !/.agents/skills/pr-open
 !/.agents/skills/review-remediation
+!/.agents/skills/review-guide
 !/CLAUDE.md
 !/AGENTS.md
 !/README.md

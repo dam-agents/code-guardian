@@ -1,6 +1,11 @@
 # Visual PR artifact
 
-Read this file when the worklist has a non-empty `artifacts_due`. Each entry is
+Two surfaces publish a visual page of a PR to the DAM Artifact Library: the
+**artifact** a person asks for (this section and **Procedure**), and the
+**review guide** a guide skill builds during a review (**Review guide**).
+
+Read this file when the worklist has a non-empty `artifacts_due`, or when
+`review-pr.sh compose-brief` prints a `## Review guide` block. Each entry is
 `{number, action, triggers}`. `triggers` names what asks for the artifact:
 `assignee` (`$BOT_LOGIN` assigned to the PR), `label` (`artifact_label` on the
 PR), or both.
@@ -97,7 +102,57 @@ The saved HTML is persisted `work/` state. It and the DAM artifact are
 deleted by the prune step when the PR closes
 ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
 
+## Review guide
+
+A guide skill ([skills.md](skills.md) → **Guide skills**) builds a page for
+the person who must review the PR, in the same fan-out as the review skills.
+The link goes into the review itself, as the skill's section — no separate
+comment, no trigger to release.
+
+**The gate is the review's triage.** The page publishes only when the
+`meta.json` triage of this review is `needs-human` (a `human_review_paths`
+match forces it, [review-mechanics.md](review-mechanics.md) → **Summary body
+format**). A `quick-check` triage publishes nothing and drops the section. A
+person is the audience, so the guide needs no human trigger: the triage is the
+consent the operator gave when they added the row
+([ONBOARDING.md](../ONBOARDING.md) step 7).
+
+**Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
+this PR's paths, id and line:
+
+1. **Tools** — `create_artifact_upload_url` and `create_artifact` (or
+   `update_artifact`) not registered → drop the section and run
+   `review-pr.sh guide <n> --skipped dam-unavailable`.
+2. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
+   then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
+   The page is already redacted and checked by `collect`.
+3. **Publish** — the history file carries a guide id → `update_artifact {id,
+   upload_ref}`, a new version behind the same link; an update that fails
+   because the artifact is gone → create it as new. No id →
+   `create_artifact {title: "PR #<n> review guide", upload_ref, type: "html", visibility: "public"}`.
+4. **Record** — `review-pr.sh guide <n> --id <id> --url <shareUrl>` writes
+   `<!-- artifact-guide: <id> <sha7> <url> -->` right after the title of
+   `reviews/pr-<n>.md` and logs the `guide` event
+   `PR #<n>: <skill> published → DAM <id>, <R> redacted`. It writes before
+   the post, so a review that does not post still leaves the id for the next
+   round's update and for the prune.
+5. **Section** — the single line
+   `📊 [Visual guide for the human reviewer](<shareUrl>) — <what the person must judge> (about <N> min)`.
+
+Any step that fails → drop the section, run `review-pr.sh guide <n> --skipped
+skill-errored` (a `guide` warn event), and post the review without the guide.
+The guide never delays or blocks a post.
+
+**A kept guide** (`🔁 Still holds`) publishes nothing: with a `needs-human`
+triage the section links the recorded URL and names the SHA it describes.
+
+**Retention** — the prune deletes the guide with the PR's other state
+([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
+
 ## Self-check
 
 - Redacted before the first publish, published to the DAM Artifact Library,
   one comment with the link, marker recorded.
+- Review guide: published or linked only under a `needs-human` triage, recorded
+  with `review-pr.sh guide` before the post, and its section dropped on every
+  other outcome.

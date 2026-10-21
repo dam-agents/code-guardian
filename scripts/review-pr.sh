@@ -44,6 +44,10 @@
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
 #                                          dismissal, done row, history, cleanup
+#   guide <n> --id <id> --url <url>        record the review guide published for this
+#   guide <n> --skipped <reason>           review (docs/artifact.md → Review guide):
+#                                          the history marker and the `guide` event,
+#                                          or the skip
 #   ci <n> [--sha <sha>]                  the check rollup for a reviewed SHA:
 #                                          whether it is terminal, which checks
 #                                          failed, and a file of evidence per
@@ -109,8 +113,8 @@ usage() { # the subcommand table of this file's header, verbatim
   sed -n '/^#   prepare /,/^#$/p' "$0" | sed -e '/^#$/d' -e 's/^# \{0,3\}//'
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
-case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge) ;;
-  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
+case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge) ;;
+  (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
 
@@ -132,6 +136,8 @@ CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triag
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
 CARRY_MAX_HOPS=3        # HEAD moves a carried review survives (docs/review-rereview.md → Carried review after a HEAD move)
 SKILL_BUDGET_MIN=30     # wall-clock minutes per skill subagent (docs/skills.md → Invocation & audit log)
+GUIDE_BUDGET_MIN=10     # wall-clock minutes of a guide skill (docs/skills.md → Guide skills)
+GUIDE_MAX_BYTES=153600  # the largest review guide page that publishes (docs/artifact.md → Review guide)
 NOW_EPOCH=$(date -u +%s)
 TAB="$(printf '\t')"
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -322,6 +328,47 @@ severity_rubric() {
     | sed '1d' | sed '/./,$!d' | sed '/^$/,$d')"
   [ -n "$r" ] || r='(the rubric: docs/finding-form.md → **Severity**)'
   printf '%s\n' "$r" | sed 's/^/   /'
+}
+
+# ------------------------------------------------------------ review guide ----
+# A skill whose installed SKILL.md frontmatter carries
+# `code-guardian-output: guide` builds a page for the human reviewer instead of
+# findings (docs/skills.md → Guide skills); every other skill is `review`.
+skill_kind() { # <skill> → guide | review
+  local f="$HOME_DIR/.claude/skills/$1/SKILL.md"
+  if [ -r "$f" ] && [ "$(head -1 "$f")" = "---" ] \
+     && sed -n '2,/^---$/p' "$f" | grep -qE '^[[:space:]]*code-guardian-output:[[:space:]]*["'"'"']?guide["'"'"']?[[:space:]]*$'; then
+    echo guide
+  else echo review; fi
+}
+# The guide published for this PR, from its history marker
+# `<!-- artifact-guide: <id> <sha7> <url> -->` → `<id> <sha7> <url>`, or empty.
+guide_marker() {
+  sed -n 's/^<!-- artifact-guide: \([A-Za-z0-9_-]*\) \([0-9a-f]*\) \(https:[^ ]*\) -->$/\1 \2 \3/p' \
+    "$WORK/reviews/pr-$N.md" 2>/dev/null | tail -1
+}
+# Why a guide page must not publish, or nothing when it may: one file, no
+# script, no remote load, links only into this PR's repository (docs/artifact.md
+# → Review guide). The page is model output built from untrusted PR content.
+guide_refusal() { # <html file>
+  local f="$1" size bad v
+  [ -s "$f" ] || { printf 'no page file'; return; }
+  size="$(wc -c < "$f" | tr -d ' ')"
+  [ "$size" -le "$GUIDE_MAX_BYTES" ] || { printf 'the page is %s bytes, above %s' "$size" "$GUIDE_MAX_BYTES"; return; }
+  grep -qiE '<(!doctype html|html)' "$f" || { printf 'not an HTML page'; return; }
+  bad="$(grep -oiE '<(script|iframe|frame|object|embed|applet|form|link|base|portal)([[:space:]>/]|$)' "$f" | head -1)"
+  [ -n "$bad" ] && { printf 'a %s element' "$(printf '%s' "$bad" | tr -d '<>/ ' | tr 'A-Z' 'a-z')"; return; }
+  grep -qiE '<meta[^>]*http-equiv' "$f" && { printf 'a meta http-equiv element'; return; }
+  grep -qiE '<[^>]*[[:space:]/]on[a-z]+[[:space:]]*=' "$f" && { printf 'an event handler attribute'; return; }
+  grep -qiE 'javascript:|vbscript:' "$f" && { printf 'a script URL'; return; }
+  grep -qiE '(url\([[:space:]]*["'"'"']?|@import[[:space:]]*["'"'"']?)(https?:|//|data:)' "$f" && { printf 'a remote or data load in CSS'; return; }
+  while IFS= read -r v; do
+    v="$(printf '%s' "$v" | sed -E 's/^[^=]*=[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//')"
+    case "$v" in
+      ('#'*|"https://$REPO_HOST/$REPO/"*) ;;
+      (*) printf 'a link outside the PR repository: %s' "$(printf '%s' "$v" | cut -c1-80)"; return;;
+    esac
+  done <<< "$(grep -oiE '(href|src|xlink:href|action|formaction|poster|srcset)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$f")"
 }
 
 # Every `{{<name>}}` of the brief text in the caller's `$t` replaced by <value>,
@@ -1002,6 +1049,14 @@ cmd_prepare() {
   fi
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
+  # a guide skill's brief: its own inputs, output and budget (docs/skills.md →
+  # Guide skills); the forced path and the guide already published feed its gate
+  local gtpl gforced="" gprior="" gm fh
+  gtpl="$(cat "$SCRIPT_DIR/templates/guide-brief.md" 2>/dev/null)"
+  fh="$(forced_human_path)"
+  [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
+  gm="$(guide_marker)"
+  [ -n "$gm" ] && gprior=$'\n- a guide was published for this PR at `'"$(printf '%s' "$gm" | cut -d' ' -f2)"$'`: build a new page only when the\n  changes since then alter what a person must judge; else write `'"$OUT/<skill>.txt"$'` with the\n  single line `🔁 Still holds — <the reason in 12 words or fewer>.` and write no page.'
   local vl vlblock="" rk rkblock=""
   vl="$(jq -r '[.profile_slice[]? | select(.verify_live) | .row] + (.structure_changed // []) | unique | .[]' "$CTX/slice.json" 2>/dev/null | sed 's/^/- /')"
   [ -n "$vl" ] && vlblock=$' Rows and paths this PR itself changes — read them live, never from the map:\n'"$vl"
@@ -1032,10 +1087,11 @@ cmd_prepare() {
   local focus=""
   [ "$routable" != "$CTX/files.json" ] \
     && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
-  local SK='{}' s trig files status brief copy fblock
+  local SK='{}' s trig files status brief copy fblock kind html
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
+    kind="$(skill_kind "$s")"; html=""
     files='[]'; status=run
     if [ "$trig" != "always" ]; then
       files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
@@ -1053,20 +1109,30 @@ cmd_prepare() {
       else fblock=$'\nRouted files (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')"; fi
       brief="$CTX/briefs/$s.md"
       local t="$tpl"
+      if [ "$kind" = guide ] && [ -n "$gtpl" ]; then
+        html="$OUT/$s.html"; t="$gtpl"
+        fill DIFF "$DIFF"; fill CONTEXT "$CTX/context.json"; fill PACK "$CTX/pack.json"
+        fill HTML_FILE "$html"; fill FORCED_BLOCK "$gforced"; fill PRIOR_BLOCK "${gprior//<skill>/$s}"
+        if [ -n "$profile" ]; then fill PROFILE_LINE "- the repository map slice: \`$profile\` — where to look, never evidence."
+        else fill PROFILE_LINE "- no repository map — find your way in the tree."; fi
+        [ -n "$rk" ] && fill RISK_BLOCK $'\n- the risk prescan — changed paths in sensitive areas and added lines that ask\n  for a second look:\n'"$(printf '%s\n' "$rk" | sed 's/^/  /')"
+      fi
       # no map: the orientation paragraph says so instead of naming a missing path
       case "$t" in (*'Orientation: '*'{{VERIFY_LIVE_BLOCK}}'*)
         [ -n "$profile" ] || t="${t%%Orientation: *}Orientation: no repository map is available — find your way in the tree. Whatever orients you says where to look; it is never evidence for a finding.{{VERIFY_LIVE_BLOCK}}${t#*\{\{VERIFY_LIVE_BLOCK\}\}}";;
       esac
       fill SKILL "$s"; fill PR "$N"; fill REPO "$REPO_HOST/$REPO"; fill HEAD_SHA "$sha"; fill BASE_REF "$base"
       fill OUT_FILE "$OUT/$s.txt"; fill PROFILE "$profile"; fill FILES_BLOCK "$fblock"; fill VERIFY_LIVE_BLOCK "$vlblock"
-      fill RISK_BLOCK "$rkblock"; fill TOOL_PATHS "$tpaths"; fill SEVERITY "$sevr"; fill BUDGET_MIN "$SKILL_BUDGET_MIN"
+      fill RISK_BLOCK "$rkblock"; fill TOOL_PATHS "$tpaths"; fill SEVERITY "$sevr"
+      if [ "$kind" = guide ]; then fill BUDGET_MIN "$GUIDE_BUDGET_MIN"; else fill BUDGET_MIN "$SKILL_BUDGET_MIN"; fi
       printf '%s\n' "$t" > "$brief.tmp"
       mv "$brief.tmp" "$brief"
     fi
     # the subagent reads its brief itself: the prompt names the skill and the PR
     # (the adapter hook derives `skill:<name> done` from them) and the path
     SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg st "$status" --argjson f "$files" --arg b "$brief" --arg c "$copy" --arg n "$N" \
-      '. + {($s): {status:$st, files:$f, brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end),
+      --arg k "$kind" --arg h "$html" \
+      '. + {($s): {status:$st, kind:$k, files:$f, html:(if $h=="" then null else $h end), brief:(if $b=="" then null else $b end), workdir:(if $c=="" then null else $c end),
                    prompt:(if $b=="" then null else "Review skill `\($s)` for PR #\($n): read `\($b)` and follow it exactly — it holds your whole task." end)}}')"
   done < <(printf '%s' "$skills" | jq -r '.[].skill')
   if [ "$nrun" -gt 0 ]; then
@@ -1186,6 +1252,41 @@ cmd_guard() {
 }
 
 # ================================================================= collect ====
+# One guide skill's output (docs/skills.md → Guide skills): its line says
+# `built`, `kept` or `not-needed`; a built page is redacted, then checked, and a
+# page that may not publish is `refused` with the reason as a form warning.
+# Writes into cmd_collect's `lines`, `warns`, `results` and `timing`.
+collect_guide() { # <skill> <out file>
+  local s="$1" f="$2" first g html red=0 why="" mt
+  html="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/skills.json")"
+  first="$(grep -m1 -vE '^[[:space:]]*$' "$f" | sed 's/^[[:space:]]*//')"
+  case "$first" in
+    ("📊"*) g=built;; ("🔁"*) g=kept;; ("➖"*) g=not-needed;;
+    (*) g=refused; why="the output line is not a guide line";;
+  esac
+  [ "$g" = kept ] && [ -z "$(guide_marker)" ] && { g=refused; why="no guide was published for this PR to keep"; }
+  if [ "$g" = built ]; then
+    if [ -s "$html" ]; then
+      if . "$SCRIPT_DIR/lib/redact.sh" 2>/dev/null; then red="$(redact_file "$html")" || { g=refused; why="the redaction pass did not run"; }
+      else g=refused; why="scripts/lib/redact.sh is not readable"; fi
+      [ "$g" = built ] && why="$(guide_refusal "$html")" && [ -n "$why" ] && g=refused
+    else g=refused; why="the line says built, but the page file is missing"; fi
+  fi
+  case "$red" in (''|*[!0-9]*) red=0;; esac
+  [ "$g" = refused ] && warns="$(printf '%s' "$warns" | jq --arg w "$s: guide not published — $why" '. + [$w]')"
+  lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s ran (findings=0, guide=$g)" '. + [$l]')"
+  mt="$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)"
+  timing="$timing$s.txt=$mt "
+  case "$mt" in (''|*[!0-9]*) ;; (*)
+    [ -n "$fo" ] && [ $((mt - fo)) -gt $((GUIDE_BUDGET_MIN * 60)) ] \
+      && warns="$(printf '%s' "$warns" | jq --arg w "$s: output $(( (mt - fo) / 60 )) min after the fan-out, past the $GUIDE_BUDGET_MIN min budget" '. + [$w]')";;
+  esac
+  results="$(printf '%s' "$results" | jq --arg s "$s" --arg g "$g" --arg f "$f" --arg h "$html" --arg l "$first" --argjson r "$red" --arg y "$why" \
+    '. + {($s): ({status:"ran", kind:"guide", findings:0, file:$f, guide:$g, line:$l}
+                 + (if $g == "built" then {html:$h, redactions:$r} else {} end)
+                 + (if $y != "" then {refused:$y} else {} end))}')"
+}
+
 cmd_collect() {
   need_ctx
   head_guard collect
@@ -1199,7 +1300,9 @@ cmd_collect() {
     f="$OUT/$s.txt"
     case "$st" in
       (run)
-        if [ -s "$f" ]; then
+        if [ -s "$f" ] && [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/skills.json")" = guide ]; then
+          collect_guide "$s" "$f"
+        elif [ -s "$f" ]; then
           n="$(grep -cE '^- (🔴|🟡|🟢)' "$f" || true)"
           if [ "$(jq -r --arg s "$s" '.[$s].files | length' "$CTX/skills.json")" -gt 0 ]; then
             lines="$(printf '%s' "$lines" | jq --arg l "PR #$N: $s ran (findings=$n, files=$files)" '. + [$l]')"
@@ -1403,12 +1506,29 @@ cmd_compose_brief() {
   # skills: table order, sections only for the ones that ran (`collect`
   # decides ran vs skill-errored; before it, the routed status stands)
   local skills s st sec ran="" omitted="" skipped="" nskipped=0 stopped="" nstopped=0
+  local gskill="" gsec="" gstate="" gline="" ghtml="" gnone=""
   skills="$(skills_table_json)"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status // "unknown"' "$CTX/skills.json" 2>/dev/null)"
     [ -f "$CTX/collect.json" ] && st="$(jq -r --arg s "$s" --arg d "$st" '.[$s].status // $d' "$CTX/collect.json" 2>/dev/null)"
     sec="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .section')"
+    # a guide skill posts its section only with a page to link (docs/skills.md
+    # → Guide skills); with none, its audit line is its whole trace
+    if [ "$st" = ran ] && [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/collect.json" 2>/dev/null)" = guide ]; then
+      case "$(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")" in
+        (built|kept)
+          if [ -z "$gskill" ]; then
+            gskill="$s"; gsec="$sec"
+            gstate="$(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")"
+            gline="$(jq -r --arg s "$s" '.[$s].line' "$CTX/collect.json")"
+            ghtml="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"
+            ran="$ran$sec"$'\n'
+          else gnone="$gnone$s (a second guide skill), "; fi;;
+        (*) gnone="$gnone$s ($(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")), ";;
+      esac
+      continue
+    fi
     case "$st" in
       (run|ran) ran="$ran$sec"$'\n'
         [ "$(jq -r --arg s "$s" '.[$s].budget_stopped // false' "$CTX/collect.json" 2>/dev/null)" = true ] \
@@ -1473,7 +1593,9 @@ cmd_compose_brief() {
   fi
   printf '%s' "$ran" | while IFS= read -r sec; do
     [ -n "$sec" ] || continue
-    printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"
+    if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
+      printf '### %s\n<only when your triage is `needs-human` and the guide link is in hand: the one 📊 line of **Review guide** below — else drop this section>\n\n' "$sec"
+    else printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"; fi
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
 
@@ -1503,6 +1625,7 @@ cmd_compose_brief() {
   local seclist; seclist="$(printf '%s' "$ran" | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
   printf -- '- sections that post: %s\n' "${seclist:-none}"
   [ -n "$omitted" ] && printf -- '- no section (audit line only): %s\n' "${omitted%, }"
+  [ -n "$gnone" ] && printf -- '- no section, no page to link (audit line only): %s\n' "${gnone%, }"
   [ -n "$limits" ] && printf -- '- the `_Limits:_` line above goes into `### Summary` word for word — `post` refuses a body without it\n'
   local ovr mem mdue
   ovr="$(prior_overrides | jq -r '.[]' 2>/dev/null | sed 's/^/  /')"
@@ -1514,6 +1637,7 @@ cmd_compose_brief() {
   printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -e '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}],"triage":{"class":"needs-human|quick-check","why":"<≤ ~15 words>","verified":"<≤ ~15 words>","minutes":<int>}}` — the portable form of each class sweep, and your call on whether a person must read this PR (docs/review-mechanics.md → Summary body format)\n'
   local fh; fh="$(forced_human_path)"
   [ -n "$fh" ] && printf -- '- triage is forced to `needs-human`: `%s` matches `human_review_paths` — say in `why` what a person must judge there\n' "$fh"
+  [ -n "$gskill" ] && guide_brief "$gskill" "$gsec" "$gstate" "$gline" "$ghtml"
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
   # so the shell never stands in the directory it removes (docs/review.md step f)
   # a re-review posts the file `delta` annotated, a first review its own list
@@ -1521,6 +1645,35 @@ cmd_compose_brief() {
   printf -- '- payload files: write them in `%s/`\n' "$CTX"
   printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json] --model <your exact session model id>` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
   exit 0
+}
+
+# The publish steps of a built or kept guide, between `meta.json` and `post`
+# (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
+# tools, and only the triage it wrote decides whether a person is needed.
+guide_brief() { # <skill> <section> <built|kept> <line> <html>
+  local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge
+  gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
+  judge="$(printf '%s' "$line" | sed -E 's/^(📊|🔁) *(Guide|Still holds) *— *//; s/\.$//')"
+  printf '\n## Review guide — `%s` %s — docs/artifact.md → Review guide\n\n' "$s" \
+    "$([ "$g" = built ] && printf 'built a page for the human reviewer' || printf 'says the guide at %s still holds' "$gsha")"
+  printf 'Its line: %s\n\n' "$line"
+  printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
+  if [ "$g" = kept ]; then
+    printf '1. The section is the single line: `📊 [Visual guide for the human reviewer](%s) — at %s: %s`\n' "$gurl" "$gsha" "$judge"
+    printf '2. Nothing to publish or record.\n'
+    return 0
+  fi
+  printf '1. The DAM tools `create_artifact_upload_url` and `%s` are not registered → drop the section, then `review-pr.sh guide %s --skipped dam-unavailable`.\n' \
+    "$([ -n "$gid" ] && printf update_artifact || printf create_artifact)" "$N"
+  printf '2. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @%s '"'"'<url>'"'"'`\n' "$N" "$html"
+  if [ -n "$gid" ]; then
+    printf '3. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$gid" "$gurl"
+  else
+    printf '3. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$N"
+  fi
+  printf '4. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker and the `guide` event.\n' "$N"
+  printf '5. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — %s`\n' "$judge"
+  printf 'A step that fails → drop the section, `review-pr.sh guide %s --skipped skill-errored`, and post the review without the guide.\n' "$N"
 }
 
 # ------------------------------------------------------ own pull request ----
@@ -2053,6 +2206,42 @@ cmd_verify() {
 }
 
 # ====================================================================== ci ====
+# Record the review guide the agent published, or why it did not (docs/artifact.md
+# → Review guide). The marker sits right after the title of the history file,
+# written before the post so a review that does not post still leaves the id for
+# the next round's update and for the prune.
+cmd_guide() {
+  need_ctx
+  local id="" url="" skipped="" s sha7 f red tmp
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--id) id="${2:-}"; shift 2;; (--url) url="${2:-}"; shift 2;;
+      (--skipped) skipped="${2:-}"; shift 2;;
+      (*) fail "unknown argument $1";;
+    esac
+  done
+  s="$(jq -r 'to_entries[] | select(.value.kind == "guide") | .key' "$CTX/collect.json" 2>/dev/null | head -1)"
+  [ -n "$s" ] || fail "no guide skill ran for this PR — run collect first"
+  if [ -n "$skipped" ]; then
+    case "$skipped" in (dam-unavailable|skill-errored) ;; (*) fail "--skipped takes dam-unavailable or skill-errored";; esac
+    logev warn guide "PR #$N: $s skipped ($skipped)"
+    out "$(jq -nc --arg r "$skipped" '{outcome:"skipped", reason:$r}')"
+  fi
+  printf '%s' "$id" | grep -qE '^[A-Za-z0-9_-]+$' || fail "--id must be the DAM artifact id"
+  printf '%s' "$url" | grep -qE '^https://[^[:space:]<>"]+$' || fail "--url must be the https share URL"
+  case "$url" in (*--*) fail "--url must not hold --";; esac
+  sha7="$(ctx_get '.head_sha' | cut -c1-7)"
+  f="$WORK/reviews/pr-$N.md"; mkdir -p "$WORK/reviews"
+  [ -f "$f" ] || printf '# PR #%s: %s\n\n## PR-local overrides\n\n' "$N" "$(ctx_get '.title')" > "$f"
+  tmp="$f.guide.$$"
+  { head -1 "$f"; printf '<!-- artifact-guide: %s %s %s -->\n' "$id" "$sha7" "$url"
+    tail -n +2 "$f" | grep -v '^<!-- artifact-guide: '; } > "$tmp" && mv "$tmp" "$f" \
+    || { rm -f "$tmp"; fail "the history marker was not written"; }
+  red="$(jq -r --arg s "$s" '.[$s].redactions // 0' "$CTX/collect.json" 2>/dev/null)"
+  logev info guide "PR #$N: $s published → DAM $id, ${red:-0} redacted"
+  out "$(jq -nc --arg i "$id" --arg u "$url" --arg h "$sha7" '{outcome:"recorded", id:$i, url:$u, sha:$h}')"
+}
+
 cmd_ci() {
   local sha=""
   while [ $# -gt 0 ]; do case "$1" in (--sha) sha="${2:-}"; shift 2;; (*) shift;; esac; done
@@ -2277,7 +2466,7 @@ case "$CMD" in
   (prepare) cmd_prepare "$@";; (step) cmd_step "$@";; (guard) cmd_guard "$@";;
   (context) cmd_context "$@";; (sweep) cmd_sweep "$@";;
   (collect) cmd_collect "$@";; (delta) cmd_delta "$@";; (compose-brief) cmd_compose_brief "$@";;
-  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
+  (rapid) cmd_rapid "$@";; (post) cmd_post "$@";; (guide) cmd_guide "$@";; (ci) cmd_ci "$@";; (verify) cmd_verify;;
   (abort) cmd_abort "$@";; (hold) cmd_hold;; (release) cmd_release;; (row) cmd_row "$@";; (progress) cmd_progress "$@";;
   (fix-start) cmd_fix_start "$@";; (fix-push) cmd_fix_push "$@";;
   (merge) cmd_merge "$@";;

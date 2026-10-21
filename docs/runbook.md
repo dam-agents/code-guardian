@@ -410,7 +410,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [config.md](config.md) | No preflight `config` object (manual fallback), a config change in the direct session, or a new key |
 | [mentions.md](mentions.md) | `mentions_due` non-empty — thread fetch, classification, dedup ledger, reply mechanics |
 | [watches.md](watches.md) | `read_set` names it (`reviews_due` or `mentions_due` with watch rules in `work/CONFIG.md`) — table format, evaluation, dedup, sending |
-| [artifact.md](artifact.md) | `artifacts_due` non-empty — DAM publishing, the trigger release and its `retry_release` |
+| [artifact.md](artifact.md) | `artifacts_due` non-empty — DAM publishing, the trigger release and its `retry_release`; a `## Review guide` block in the compose brief — the review guide's publish steps |
 | [ci-triage.md](ci-triage.md) | `ci_failures_due` non-empty, or a review ends with a failing check — rollup read, evidence, the one comment, dedup |
 | [agent-fixes.md](agent-fixes.md) | `fixes_due` non-empty — the fix round, its limits, the push, the comment |
 | [auto-merge.md](auto-merge.md) | `merges_due` non-empty — the gates, the merge call, the refusal comment |

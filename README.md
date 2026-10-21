@@ -391,6 +391,11 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   [`issue-fit`](.agents/skills/issue-fit/SKILL.md), a review skill installed
   through a `## Review skills` row whose `source` is the instance's
   `definition_repo` — does the diff deliver what the linked issue asked;
+  [`review-guide`](.agents/skills/review-guide/SKILL.md), a guide skill
+  installed the same way — for a PR whose review needs a person, a short
+  visual page (why a person, one before/after diagram, the decisions to judge,
+  where to read first) linked from the review
+  ([docs/artifact.md](docs/artifact.md) → **Review guide**);
   [`review-remediation`](.agents/skills/review-remediation/SKILL.md), the
   author side — install it in whichever agent answers the reviews, to fix
   every blocking finding at every location and run the checks the review

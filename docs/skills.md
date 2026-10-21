@@ -130,6 +130,8 @@ exist in the chat UI:
 
 - `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
+- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|refused>)` —
+  a guide skill (**Guide skills**).
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.
@@ -144,6 +146,51 @@ Missing lines mean the skill step is not done: do not proceed to posting.
   and the review's `_Limits:_` line, which counts and names the skills that did
   not run ([review.md](review.md) → **Output format (first reviews)**), are its
   trace.
+- A **guide skill** posts its section only with a page to link: a
+  `needs-human` triage and a guide published or kept. Any other outcome omits
+  the section, and the audit line is its whole trace — not a `_Limits:_` entry,
+  because the skill ran.
+
+## Guide skills
+
+A skill whose `SKILL.md` frontmatter carries
+
+```yaml
+metadata:
+  code-guardian-output: guide
+```
+
+builds a page for the human reviewer instead of findings. The bundled one is
+[`review-guide`](../.agents/skills/review-guide/SKILL.md): one row in the
+table, source the instance's `definition_repo`, trigger `always`, its section
+for example `Human Review Guide`. Table order places its link line among the
+sections.
+
+- **Brief.** `prepare` reads the frontmatter of the installed skill and renders
+  [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
+  instead of the review brief: the diff, the PR context, the context pack, the
+  risk prescan, a `human_review_paths` match (which passes the skill's gate),
+  the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`
+  and links pinned to the head SHA. `skills.<skill>.kind` is `guide` and
+  `skills.<skill>.html` the page path.
+- **Cost.** It fans out with the other skills, so it adds no wall clock while
+  another skill runs longer. Its budget is `GUIDE_BUDGET_MIN` (10) of
+  `review-pr.sh`. The skill decides its gate from the diff stat and the PR
+  context before it opens a file, and most PRs end there: no page.
+- **Output.** `$PR_DIR.out/<skill>.txt` holds one line: `📊 Guide — <what the
+  person must judge> (about <N> min)` with the page beside it, `🔁 Still holds —
+  <reason>` when the guide published at an earlier SHA still fits, or
+  `➖ Not needed — <reason>`.
+- **Collect.** `review-pr.sh collect` redacts a built page
+  (`scripts/lib/redact.sh`) and then checks it: one file under
+  `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form or `<link>`,
+  no remote or `data:` load, and every `href`/`src` either an `#anchor` or a
+  URL under `https://<repo-host>/<owner>/<repo>/`. A page that fails is
+  `refused`, with the reason as a form warning; it does not publish.
+- **Publish.** The review agent publishes a built page, or links a kept one,
+  only when its own triage is `needs-human` — the step between `meta.json` and
+  `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
+  guide**).
 
 ## Verdict integration
 
