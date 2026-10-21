@@ -110,6 +110,8 @@ svg .ring{fill:none;stroke:var(--line)}
 .cmp .pick{border-color:var(--accent);background:var(--accent-bg)}
 .cmp b{display:block;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
 .y{color:var(--ok)}.n{color:var(--warn)}
+.org{display:inline-block;font-size:11px;font-weight:600;border-radius:999px;padding:0 8px;margin-left:4px;vertical-align:middle;border:1px solid currentColor}
+.org.open{color:var(--accent)}.org.author{color:var(--ok)}.org.inferred{color:var(--muted)}
 @media (max-width:520px){.cmp{grid-template-columns:1fr}}
 /* problems: timeline */
 .tl{list-style:none;margin:8px 0 0;padding:0 0 0 18px;border-left:2px solid var(--line)}
@@ -260,8 +262,11 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <details class="sec" id="decisions">
   <summary><b>Decisions and alternatives</b><span>{{the first question to judge}}</span><em>{{K}} to judge</em></summary>
   <div class="body">
+    <!-- one card per decision, `open` first, then `inferred`, then `author`;
+         the origin badge: open (the agent decided alone — judge it), author
+         (the person decided — confirm it), inferred (no text names it) -->
     <div class="dec">
-      <b>{{QUESTION a person must answer}}</b>
+      <b>{{QUESTION a person must answer}}</b> <span class="org open" data-tip="{{where the origin is stated}}">⚑ open — the agent decided alone</span>
       <div class="cmp">
         <div class="pick"><b>PR's choice</b>{{choice}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
         <div><b>Alternative</b>{{alternative}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
@@ -270,6 +275,14 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
         <div class="body"><p>{{the PR's reason with its source, or: The PR does not say why.}}</p>
           <pre class="diff"><span class="add">{{the line that carries the choice}}</span></pre><a href="{{LINK}}">{{path:line}} on GitHub</a></div>
       </details>
+    </div>
+    <div class="dec">
+      <b>{{QUESTION}}</b> <span class="org author" data-tip="author-decisions, {{date}}">✓ decided by the author · {{date}}</span>
+      <div class="cmp">
+        <div class="pick"><b>PR's choice</b>{{choice}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+        <div><b>Alternative</b>{{alternative}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+      </div>
+      <p class="muted">Why, in the author's words: {{the entry's why}} · scope: <code>{{the entry's scope}}</code></p>
     </div>
   </div>
 </details>
