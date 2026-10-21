@@ -247,9 +247,23 @@ ev 700 review warn gh_api "HTTP 403: You have exceeded a secondary rate limit"
 ev 600 review error preflight "could not list open PRs (API error HTTP 403)"
 ev 500 session error tool_failure "Bash [gh api user]: Exit code 1 gh: Resource not accessible by integration (HTTP 403)"
 ev 400 session error api_failure "authentication_failed: the proxy refused the model with HTTP 403"
+ev 300 review warn dismiss "PR #7: dismissing stale approval 55 did not succeed (APPROVE → COMMENT) — HTTP 403"
 run_monitor
 assert_jq '.alerts_due[] | select(.kind == "github_write_denied") | .count == 2 and .by_event == {"progress_status": 1, "post_failed": 1} and .id == "gh_write:'"$(date -u +%Y-%m-%d)"'"' \
   'a 403 alerts once per UTC day; a rate limit, the gate list failure and hook events do not count'
+
+# --- a stale approval the review could not revoke --------------------------------
+mon_case mon_approval_not_revoked
+ev 900 review warn dismiss "PR #7: dismissing stale approval 55 did not succeed (APPROVE → COMMENT) — HTTP 403" runA
+ev 800 review warn dismiss "PR #8: dismissing stale approval 66 did not succeed (APPROVE → REQUEST_CHANGES)" runA
+ev 700 review warn dismiss "PR #9: listing the reviews for a stale approval did not succeed (APPROVE → COMMENT)" runB
+ev 600 review info review_pr "PR #8: dismissed stale approval 66 (APPROVE → COMMENT)" runC
+ev 500 review warn dismiss "PR #7: dismissing stale approval 55 did not succeed (APPROVE → COMMENT) — HTTP 403" runD
+run_monitor
+assert_jq '[.alerts_due[] | select(.kind == "approval_not_revoked")] | (map(.id) | sort) == ["dismiss:7:55", "dismiss:9:list:runB"]' \
+  'one alert per approval and per failed list; a later dismissal of the approval clears it'
+assert_jq '.alerts_due[] | select(.id == "dismiss:7:55") | .pr == 7 and .approval == 55 and .verdict == "comment" and .http == 403' 'the alert carries the PR, the approval, the verdict and the HTTP code'
+assert_jq '.alerts_due[] | select(.id == "dismiss:9:list:runB") | .http == 0 and has("approval") == false' 'a failed list has no approval and no code'
 
 # --- the token's identity changed -------------------------------------------------
 mon_case mon_identity_changed
