@@ -254,7 +254,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    of `review-pr.sh` and its Orientation paragraph the no-map form `prepare`
    writes, because a fixture has no profile and no live PR means no
    `review-pr.sh` helper applies; each subagent's prompt is the one line
-   `prepare` would write, naming the skill, PR #0 and that brief). Then spawn
+   `prepare` would write, naming the skill, PR #0 and that brief). A guide
+   skill ([skills.md](skills.md) → **Guide skills**) does not run: it reports
+   no findings, so nothing scores it, and a fixture has no PR to guide. Then spawn
    **one fresh reviewer subagent**, without a model or effort override, whose
    prompt is [`scripts/templates/reviewer-brief.md`](../scripts/templates/reviewer-brief.md)
    rendered verbatim — nothing added, nothing cut. Each value is substituted
