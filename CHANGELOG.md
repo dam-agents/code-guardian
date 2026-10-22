@@ -18,6 +18,10 @@ they are released history and stay as written.
 **operator-only** to fix before the next run — make `work_repo` private
 ([docs/benchmark.md](docs/benchmark.md) → **Isolation**).
 
+## 10.3.1 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 10.3.0 — 2026-10-21
 
 **Upgrade:** Nothing — docs are re-read per run. The monitor sends only the
