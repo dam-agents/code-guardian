@@ -521,10 +521,10 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Which paths always need a person (for example `migrations/*, src/auth/*`)? Default: none.
 
     A path list → `human_review_paths: <globs>`; none → omit.
-12. **Codebase survey** — the weekly deep pass over one area of the repository
+12. **Codebase survey** — the weekly security pass over one area of the repository
     (`docs/survey.md`). Ask:
 
-    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report what a diff cannot show: code nothing reaches, logic that exists twice, a critical path with no test, drift from your own conventions and decision records. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
+    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
     default `dam`) and register the schedule in Step 6e. Default off. With

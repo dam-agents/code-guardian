@@ -215,9 +215,10 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   **Definition-repo issues**). Off, the findings stay in the audit report and
   the chat UI.
 - **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
-  deep pass over one area of the repository: what a diff cannot show —
-  unreachable code, duplicated logic, untested paths, drift from the
-  repository's own conventions and decision records ([survey.md](survey.md)).
+  security pass over one area of the repository as it stands: the security
+  holes, data loss and reachable failures that a diff review cannot see. It
+  reports only blocking findings — no suggestion, no refactor
+  ([survey.md](survey.md)).
 - **`survey_report`** — publish surface for the accumulated survey artifact,
   updated in place so its URL stays stable: `dam` (default) | `off`, as
   `audit_trend`.

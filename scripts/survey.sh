@@ -187,7 +187,10 @@ if [ "$CMD" = "record" ]; then
   F="$SDIR/$SLUG.md"
   [ -f "$F" ] || printf '# Survey — %s\n' "$path" > "$F"
   { printf '\n## Pass %s — %s — %s 🔴 · %s 🟡 · %s 🟢\n\n' "$passes" "$NOW_ISO" "$c" "$w" "$s"
-    jq -r '.[] | "- \(.severity // "suggestion") — \(.summary // "?") (`\(.file // "?"):\(.line // "?")`)"
+    jq -r '.[] | "- \(.severity // "suggestion") — "
+                 + ([.category, .cwe] | map(select(. != null and . != "") | tostring)
+                    | if length > 0 then "[\(join(" · "))] " else "" end)
+                 + "\(.summary // "?") (`\(.file // "?"):\(.line // "?")`)"
                  + (if .fix then "\n  **Fix:** \(.fix)" else "" end)' "$FINDINGS"
     # the second hyphen of each double hyphen goes in as the JSON escape \u002d:
     # no `-->` ends the comment early, and jq reads it back as a hyphen
@@ -260,15 +263,32 @@ if [ "$CMD" = "report" ]; then
     done | jq -sc 'sort_by(.ts) | reverse')"
   PASSES="${PASSES:-[]}"
 
+  # the newest pass of each area in the ledger: the tiles and the index read
+  # these counts, so an area reads as its last pass, never as its history
+  NEWEST="$(printf '%s' "$PASSES" | jq -c --argjson rows "$ROWS" '
+    . as $passes | [$rows[] | . as $r | ([$passes[] | select(.slug == $r.slug)] | first)
+                   | select(. != null)]')"
+  TILES="$(printf '%s' "$NEWEST" | jq -r --argjson rows "$ROWS" '
+    def tile($cls; $n; $label): "<div class=\"tile \($cls)\"><b>\($n)</b><span>\($label)</span></div>";
+    ([.[].critical] | add // 0) as $c | ([.[].warning] | add // 0) as $w
+    | ([$rows[].last] | map(select(test("^[0-9]"))) | max // "") as $last
+    | tile(if $c > 0 then "critical" else "" end; $c; "critical, newest passes")
+      + tile(if $w > 0 then "warning" else "" end; $w; "warning, newest passes")
+      + tile(""; ($rows|length); "areas surveyed")
+      + tile(""; (if $last == "" then "–" else $last[0:10] end); "last pass")')"
+
   # the index: one row per area, severity counts of its newest pass
   TABLE="$(printf '%s' "$PASSES" | jq -r --argjson rows "$ROWS" --arg show "$SHOW" '
+    def count($n; $cls): if $n == "–" then "<td class=\"n\">–</td>"
+      elif $n == "0" then "<td class=\"n zero\">0</td>"
+      else "<td class=\"n\"><span class=\"badge \($cls)\">\($n)</span></td>" end;
     . as $passes | $rows[] | . as $r | ([$passes[] | select(.slug == $r.slug)] | first) as $np
     | (if $show == "enabled" then "<a href=\"#\($r.slug|@html)\">\($r.path|@html)</a>" else ($r.path|@html) end) as $area
-    | (if $np then [$np.critical, $np.warning, $np.suggestion] | map(tostring) else ["–","–","–"] end) as $n
-    | "<tr><td>\($area)</td><td class=\"n\">\($r.passes|@html)</td><td class=\"n\">\($n[0])</td><td class=\"n\">\($n[1])</td><td class=\"n\">\($n[2])</td><td>\($r.last|@html)</td></tr>"')"
+    | (if $np then [$np.critical, $np.warning] | map(tostring) else ["–","–"] end) as $n
+    | "<tr><td class=\"area\">\($area)</td><td class=\"n\">\($r.passes|@html)</td>\(count($n[0]; "critical"))\(count($n[1]; "warning"))<td class=\"when\" title=\"\($r.last|@html)\">\($r.last[0:10]|@html)</td></tr>"')"
 
   if [ "$SHOW" = "enabled" ]; then
-    NOTE="Each code location links to the commit the pass read. A pass with no recorded commit links to the default branch."
+    NOTE="Each code location links to the commit the pass read; a pass with no recorded commit links to the default branch."
     SECTIONS="$(printf '%s' "$PASSES" | jq -r --argjson rows "$ROWS" --arg base "$BASE" '
       def loc: . as $f | ($f.file // "") as $file | ($f.line // "") as $line
         | (if ($f.ref // "") == "" then "HEAD" else $f.ref end) as $ref
@@ -277,23 +297,33 @@ if [ "$CMD" = "report" ]; then
                + (if ($line|tostring|test("^[0-9]+$")) then "#L\($line)" else "" end)
                + "\"><code>\($file|@html)" + (if ($line|tostring|test("^[0-9]+$")) then ":\($line)" else "" end) + "</code></a>" end;
       def sev: (.severity // "suggestion") | if IN("critical","warning","suggestion") then . else "suggestion" end;
-      def finding($ref): . + {ref:$ref} | "<li><span class=\"sev \(sev)\">\(sev)</span>\(.summary // "?"|@html)\(loc)"
-        + (if (.fix // "") != "" then "<span class=\"fix\"><b>Fix:</b> \(.fix|@html)</span>" else "" end) + "</li>";
-      def pass: . as $p
-        | "<h3>Pass \($p.pass|@html) <span class=\"pass\">— \($p.ts|@html) — \($p.critical) 🔴 · \($p.warning) 🟡 · \($p.suggestion) 🟢"
+      def rank: {critical:0, warning:1, suggestion:2}[sev];
+      def tags: [(.category // empty | tostring | select(. != "")), (.cwe // empty | tostring | select(. != ""))]
+        | if length == 0 then "" else "<span class=\"tags\">" + (map("<span class=\"tag\">\(.|@html)</span>") | join("")) + "</span>" end;
+      def finding($ref): . + {ref:$ref} | "<li class=\"\(sev)\"><div class=\"head\"><span class=\"sev \(sev)\">\(sev)</span>\(tags)\(loc)</div>"
+        + "<p class=\"sum\">\(.summary // "?"|@html)</p>"
+        + (if (.fix // "") != "" then "<p class=\"fix\"><b>Fix:</b> \(.fix|@html)</p>" else "" end) + "</li>";
+      def counts: "\(.critical) 🔴 · \(.warning) 🟡" + (if .suggestion > 0 then " · \(.suggestion) 🟢" else "" end);
+      def meta: . as $p | "\($p.ts[0:10]|@html) — \($p|counts)"
         + (if $p.files then " — \($p.files) files" else "" end)
-        + (if $p.sha != "" then " at <a class=\"sha\" href=\"\($base)/tree/\($p.sha|@html)\">\($p.sha[0:7]|@html)</a>" else "" end)
-        + "</span></h3>"
-        + (if ($p.findings|length) == 0 then "<p class=\"meta\">No finding.</p>"
-           else "<ul class=\"f\">" + ([$p.findings[] | finding($p.sha)] | join("")) + "</ul>" end);
+        + (if $p.sha != "" then " at <a class=\"sha\" href=\"\($base)/tree/\($p.sha|@html)\">\($p.sha[0:7]|@html)</a>" else "" end);
+      def body: if (.findings|length) == 0 then "<p class=\"clean\">No finding in this pass.</p>"
+        else "<ul class=\"f\">" + ([.findings | sort_by(rank)[] | finding(.ref // "")] | join("")) + "</ul>" end;
+      def withref: . as $p | .findings |= map(. + {ref:$p.sha});
+      def pass($open): (. | withref) as $p
+        | if $open then "<h3>Pass \($p.pass|@html) <span class=\"pass\">\($p|meta)</span></h3>" + ($p|body)
+          else "<details><summary>Pass \($p.pass|@html) <span class=\"pass\">\($p|meta)</span></summary>" + ($p|body) + "</details>" end;
       . as $passes | $rows[] | . as $r | [$passes[] | select(.slug == $r.slug)] as $ps
       | select(($ps|length) > 0)
-      | "<h2 id=\"\($r.slug|@html)\">\($r.path|@html)</h2>" + ([$ps[] | pass] | join("\n"))')"
+      | "<section class=\"area-card\" id=\"\($r.slug|@html)\"><h2>\($r.path|@html)</h2>"
+        + ($ps[0] | pass(true))
+        + (if ($ps|length) > 1 then "<div class=\"older\"><p class=\"label\">Earlier passes</p>" + ([$ps[1:][] | pass(false)] | join("")) + "</div>" else "" end)
+        + "</section>"')"
   else
     NOTE="Findings live in <code>work/survey/</code>; this page is the index."
     RECENT="$(printf '%s' "$PASSES" | jq -r '.[0:20][] |
-      "<tr><td>\(.ts|@html)</td><td>\(.slug|@html)</td><td class=\"n\">pass \(.pass|@html)</td></tr>"')"
-    SECTIONS="$(printf '<h2>Recent passes</h2>\n<table><thead><tr><th>when</th><th>area</th><th>pass</th></tr></thead>\n<tbody>\n%s\n</tbody></table>' "$RECENT")"
+      "<tr><td class=\"when\" title=\"\(.ts|@html)\">\(.ts[0:10]|@html)</td><td class=\"area\">\(.slug|@html)</td><td class=\"n\">pass \(.pass|@html)</td></tr>"')"
+    SECTIONS="$(printf '<h2>Recent passes</h2>\n<div class="scroll"><table><thead><tr><th>when</th><th>area</th><th class="n">pass</th></tr></thead>\n<tbody>\n%s\n</tbody></table></div>' "$RECENT")"
   fi
   BOT_H="$(printf '%s' "$BOT" | jq -Rr '@html')"
 
@@ -304,36 +334,69 @@ if [ "$CMD" = "report" ]; then
   PAGE="$(mktemp "$TMP_ROOT/survey.page.XXXXXX" 2>/dev/null)" \
     || { printf 'survey.sh report: no temp file, so no page\n' >&2; exit 1; }
   cat > "$PAGE" <<EOF2
-<!doctype html><meta charset="utf-8"><title>$BOT_H — codebase survey</title>
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security codebase survey</title>
 <style>
-body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem;color:#1a1a1a;background:#fff}
-h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}h3{font-size:.95rem;margin:1.25rem 0 .4rem;font-weight:600}
-.meta{color:#555;font-size:.85rem}table{border-collapse:collapse;width:100%;font-size:.9rem}
-th,td{border-bottom:1px solid #e3e3e3;padding:.4rem .5rem;text-align:left}
-th{background:#fafafa;font-weight:600}td.n{text-align:right;font-variant-numeric:tabular-nums}
-a{color:#0b5fd1;text-decoration:none}a:hover{text-decoration:underline}
-code{font:.85em ui-monospace,SFMono-Regular,Menlo,monospace;background:#f3f3f3;padding:.05rem .3rem;border-radius:3px}
-ul.f{list-style:none;padding:0;margin:0}ul.f li{padding:.5rem 0;border-bottom:1px solid #eee}
-.sev{display:inline-block;min-width:5.5rem;font-size:.75rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
-.sev.critical{color:#b3261e}.sev.warning{color:#9a6700}.sev.suggestion{color:#1a7f37}
-.fix{display:block;margin:.2rem 0 0 5.9rem;color:#444;font-size:.88rem}.fix b{font-weight:600}
-.loc{margin-left:.4rem;white-space:nowrap}.pass{color:#555;font-size:.85rem;font-weight:400}
-.sha{font:.8em ui-monospace,Menlo,monospace}
-@media(prefers-color-scheme:dark){body{background:#151515;color:#e8e8e8}a{color:#6fb1ff}
-th{background:#1f1f1f}th,td{border-color:#2c2c2c}ul.f li{border-color:#2c2c2c}.meta,.pass{color:#9a9a9a}.fix{color:#c8c8c8}
-code{background:#242424}.sev.critical{color:#ff7b72}.sev.warning{color:#e3b341}.sev.suggestion{color:#56d364}}
+:root{--bg:#f6f7f9;--surface:#fff;--text:#1a1d21;--muted:#5d6570;--line:#e3e6ea;--link:#0b5fd1;--code:#f0f2f5;
+--crit:#b3261e;--crit-bg:#fdecea;--warn:#8a5a00;--warn-bg:#fff4d6;--sugg:#1a7f37;--sugg-bg:#e6f4ea;--ok:#1a7f37}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111316;--surface:#1a1d21;--text:#e6e8eb;--muted:#9aa3ad;--line:#2b3036;
+--link:#6fb1ff;--code:#252a30;--crit:#ff8a80;--crit-bg:#3a1d1b;--warn:#f0c454;--warn-bg:#382d12;--sugg:#6ad38a;--sugg-bg:#163222;--ok:#6ad38a}}
+:root[data-theme="dark"]{--bg:#111316;--surface:#1a1d21;--text:#e6e8eb;--muted:#9aa3ad;--line:#2b3036;
+--link:#6fb1ff;--code:#252a30;--crit:#ff8a80;--crit-bg:#3a1d1b;--warn:#f0c454;--warn-bg:#382d12;--sugg:#6ad38a;--sugg-bg:#163222;--ok:#6ad38a}
+*{box-sizing:border-box}
+body{font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:2rem 16px 3rem;color:var(--text);background:var(--bg)}
+main{max-width:60rem;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .35rem}h2{font-size:1.1rem;margin:2.25rem 0 .75rem}
+h3{font-size:.95rem;margin:0 0 .6rem;font-weight:600}
+.intro{color:var(--muted);margin:0 0 1.5rem;max-width:44rem}.meta{color:var(--muted);font-size:.82rem}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+code{font:.85em ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:.08rem .35rem;border-radius:4px;overflow-wrap:anywhere}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:.75rem;margin:0 0 .5rem}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem}
+.tile b{display:block;font-size:1.6rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.tile span{color:var(--muted);font-size:.8rem}
+.tile.critical{border-color:var(--crit);background:var(--crit-bg)}.tile.critical b{color:var(--crit)}
+.tile.warning{border-color:var(--warn);background:var(--warn-bg)}.tile.warning b{color:var(--warn)}
+.scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:.55rem .75rem;text-align:left}
+tr:last-child td{border-bottom:0}th{color:var(--muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+.n{text-align:right;font-variant-numeric:tabular-nums}td.zero{color:var(--muted)}td.when{color:var(--muted);white-space:nowrap}
+td.area{overflow-wrap:anywhere}
+.badge{display:inline-block;min-width:1.6rem;padding:.05rem .45rem;border-radius:999px;font-weight:600;text-align:center}
+.badge.critical{color:var(--crit);background:var(--crit-bg)}.badge.warning{color:var(--warn);background:var(--warn-bg)}
+.area-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1rem 1.1rem;margin:1rem 0}
+.area-card h2{margin:0 0 .75rem;font-size:1.05rem;overflow-wrap:anywhere}
+.pass{color:var(--muted);font-size:.82rem;font-weight:400}
+ul.f{list-style:none;padding:0;margin:0;display:grid;gap:.6rem}
+ul.f li{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:.6rem .8rem}
+ul.f li.critical{border-left-color:var(--crit)}ul.f li.warning{border-left-color:var(--warn)}ul.f li.suggestion{border-left-color:var(--sugg)}
+.head{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .6rem}
+.sev{font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:.1rem .5rem;border-radius:999px}
+.sev.critical{color:var(--crit);background:var(--crit-bg)}.sev.warning{color:var(--warn);background:var(--warn-bg)}
+.sev.suggestion{color:var(--sugg);background:var(--sugg-bg)}
+.tags{display:inline-flex;flex-wrap:wrap;gap:.3rem}.tag{font-size:.72rem;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 .35rem}
+.loc{margin-left:auto}.sum{margin:.4rem 0 0}.fix{margin:.3rem 0 0;color:var(--muted);font-size:.9rem}.fix b{color:var(--text)}
+.clean{color:var(--ok);margin:0}.sha{font:.85em ui-monospace,Menlo,monospace}
+.older{margin-top:1rem;border-top:1px dashed var(--line);padding-top:.6rem}.older .label{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;margin:0 0 .3rem}
+details{margin:.3rem 0}summary{cursor:pointer;font-size:.9rem;padding:.25rem 0}details[open] summary{margin-bottom:.5rem}
+@media(max-width:560px){.loc{margin-left:0;flex-basis:100%}th,td{padding:.5rem}}
 </style>
-<h1>Codebase survey</h1>
-<p class="meta">One area of the repository read in depth per run, newest first.
-A survey reports what a diff cannot show — unreachable code, duplicated logic,
-untested paths, drift from the repository's own conventions and decisions.
-$NOTE Semantics: docs/survey.md. Generated $NOW_ISO.</p>
+<main>
+<h1>Security codebase survey</h1>
+<p class="intro">Each run reads one area of the repository as it stands and reports only what is dangerous:
+security holes, data loss and reachable failures that a diff review cannot see. $NOTE</p>
+<div class="tiles">
+$TILES
+</div>
 <h2>Areas</h2>
-<table><thead><tr><th>area</th><th>passes</th><th>🔴</th><th>🟡</th><th>🟢</th><th>last pass</th></tr></thead>
+<div class="scroll"><table><thead><tr><th>area</th><th class="n">passes</th><th class="n">🔴</th><th class="n">🟡</th><th>last pass</th></tr></thead>
 <tbody>
 $TABLE
-</tbody></table>
+</tbody></table></div>
 $SECTIONS
+<p class="meta">$BOT_H · semantics: docs/survey.md · generated $NOW_ISO</p>
+</main>
 EOF2
   if [ $? -eq 0 ] && redact_file "$PAGE" >/dev/null; then
     cat "$PAGE"; rm -f "$PAGE" 2>/dev/null; exit 0
