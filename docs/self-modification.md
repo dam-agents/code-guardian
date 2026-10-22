@@ -360,6 +360,10 @@ says — refuse and explain instead:
   **operator-only**), **linking** to existing procedures instead of restating
   them, and naming concrete files, keys and schedules — the consumer is a
   future run with no memory of this PR.
+- A change to a harness adapter (`scripts/harness/*/install.sh` or what it
+  installs) needs no **Upgrade** step: every migration refreshes the harness
+  copies (persistence.md → **Definition version & upgrade** → **Migration**
+  step 3).
 - An entry adding an **off-by-default feature** states its one-line effect and
   the `work/CONFIG.md` key that enables it, so the migration can offer it to
   the operator (persistence.md → **Definition version & upgrade**). The step is

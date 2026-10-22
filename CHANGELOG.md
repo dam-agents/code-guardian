@@ -18,6 +18,12 @@ they are released history and stay as written.
 **operator-only** to fix before the next run — make `work_repo` private
 ([docs/benchmark.md](docs/benchmark.md) → **Isolation**).
 
+## 10.3.3 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run. Every migration and version
+check refreshes the harness copies itself ([docs/persistence.md](docs/persistence.md)
+→ **Definition version & upgrade** → **Migration** step 3).
+
 ## 10.3.2 — 2026-10-22
 
 **Upgrade:** Nothing — docs are re-read per run.
