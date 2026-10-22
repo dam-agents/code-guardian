@@ -21,6 +21,16 @@ line that the guide is public by link and that removing the row turns it off.
 Idempotent — a table with the row is left as it is. `work/diagrams/` is
 created on the first stored map.
 
+## 10.3.3 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run. Every migration and version
+check refreshes the harness copies itself ([docs/persistence.md](docs/persistence.md)
+→ **Definition version & upgrade** → **Migration** step 3).
+
+## 10.3.2 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 10.3.1 — 2026-10-22
 
 **Upgrade:** Nothing — docs are re-read per run.

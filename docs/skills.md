@@ -9,6 +9,16 @@ installs from — its host may differ from the target repo's), **trigger**,
 **section** (the exact `###` heading for its output). Table order = section
 order in the output.
 
+## Where a skill lives
+
+The definition repo's [`.agents/skills/`](../.agents/skills/) holds only the
+code-guardian protocol: `issue-fit`, the `review-guide` guide skill, and the
+author side of a review (`pr-open`, `review-remediation`). A domain skill — a language, a framework,
+a checklist such as OWASP or WCAG — lives with the team that keeps it current:
+in that team's skills repository, or in the reviewed repository itself under
+`.agents/skills/<skill>/`. Its row's `source` names that repository, and the
+skill installs from its default branch (below).
+
 ## Installation — done by preflight
 
 `scripts/preflight.sh review` installs or refreshes every repo-sourced skill

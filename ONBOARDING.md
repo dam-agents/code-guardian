@@ -446,8 +446,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    `<skill>@<[host/]owner/repo>` or `none`). Present the default public set —
    the example below, where `issue-fit` and `review-guide` ship in this
    definition repo, so their `source` is the instance's `definition_repo` — and
-   let the operator adjust
-   rows, triggers and sources.
+   let the operator adjust rows, triggers and sources. A skill kept in the
+   reviewed repository gets `github_repo` as its `source`, and it must be on
+   that repository's default branch (`docs/skills.md` → **Where a skill lives**).
    **Validate every row before writing:**
    - Repo-sourced rows and the artifact skill:
      `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed;
