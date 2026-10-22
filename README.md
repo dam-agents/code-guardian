@@ -402,6 +402,10 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   counterpart: it self-reviews the branch and writes a PR body with the
   scope, a guide for a human reviewer and the person's decisions in a hidden
   `author-decisions` block, which the reviewer reads.
+  Only protocol skills live here; a domain skill (language, framework,
+  OWASP or WCAG checklist) lives in its team's skills repository or in the
+  reviewed repository ([`docs/skills.md`](docs/skills.md) → **Where a skill
+  lives**).
 - [`ONBOARDING.md`](ONBOARDING.md) — the first-run setup runbook; it also
   carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
 - [`kit.yaml`](kit.yaml) — the starter kit this definition is offered as:
