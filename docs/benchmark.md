@@ -45,11 +45,12 @@ target repo's stack gets a new sibling slug alongside it (the set may grow past
   from the next benchmark tick on. The creation report invites the operator to
   ask for an on-demand run when they want the first baseline sooner than the
   monthly tick.
-- In a `run`, `manifest.json`, `RESULTS.md` and past `results/` are read in the
-  scoring phase only — after every raw review is written. Phase 1 inputs are
-  exactly `pr.json`, the diff patches, the trees, `prior-review.md`, and the
-  files a production review reads (docs/review.md, docs/finding-form.md,
-  docs/skills.md, `work/MEMORY.md`, `work/LESSONS.md`).
+- In a `run`, Phase 1 runs in sub-agents that hold no ground truth
+  (**Isolation**), and `manifest.json`, `RESULTS.md` and past `results/` are
+  read in the scoring phase only — after every raw review is written. Phase 1
+  inputs are exactly `pr.json`, the diff patches, the trees, `prior-review.md`,
+  and the files a production review reads (docs/review.md,
+  docs/finding-form.md, docs/skills.md, `work/MEMORY.md`, `work/LESSONS.md`).
 
 ## Creating the fixture set (`action: create_fixture`, or operator ask)
 
@@ -147,7 +148,8 @@ catches a labelled defect.
 ## Running the benchmark (`action: run`, or operator ask)
 
 The entry carries `fixtures`, `fixture_root`, `judge`, `judge_unavailable`
-(null, or why this host cannot run the judge), `report` and `last_run`.
+(null, or why this host cannot run the judge), `isolation_unavailable` (null,
+or why the run cannot be isolated), `report` and `last_run`.
 
 **Gate first — never score an unvalidated set:**
 
@@ -198,14 +200,89 @@ usage snapshots (skill fan-outs included), or `tokens: null` when the harness
 gives no snapshot. **Never derive a duration by hand** — from file mtimes,
 elapsed guesses or arithmetic.
 
+First, **install or refresh every configured repo-sourced skill** per
+[skills.md](skills.md) → **Installation** (benchmark preflight installs
+nothing), and write each skill's source SHA to
+`$HOME/.claude/skills/.cache/<skill>.sha` so `skill_sources` provenance stays
+complete — the sub-agents get exactly these installs. Name in the run summary
+any configured extension skill that routes zero files across **all** fixtures
+— that is missing fixture coverage.
+
+### Isolation
+
+Phase 1 runs in **isolated platform sub-agents**: one per fixture and phase,
+all at once, each a separate agent with its own volume and no connection. A
+sub-agent gets the definition at this checkout's commit (a seed of the public
+definition repo) and one bundle of its task's inputs; nothing of this volume —
+the manifests, past results, the work repo's credentials — reaches it.
+`benchmark-isolate.sh` refuses a bundle or a definition history (every commit
+of every local ref) that holds ground truth, and a work repo that is public.
+
+1. `isolation_unavailable` is set, or
+   `bash "$HOME/scripts/benchmark-isolate.sh" check` prints a reason →
+   **Isolation unavailable**.
+2. The expected sub-agent state, this checkout's provenance:
+   `bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark" > "$PSTATE.expect.json"`.
+3. Spawn every task:
+   ```bash
+   bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] [--model <m>] \
+     "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
+   ```
+   `--effort` = this session's effort when the harness exposes one
+   (`effort` of the provenance). `--model` only on the operator's ask for
+   another model, provider-qualified; without it the sub-agents run the
+   agent's default model, as the production reviews do. A refusal before the
+   first `spawned` line → **Isolation unavailable**; after it → abort.
+4. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
+   foreground until exit 0; exit 3 means call it again.
+5. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "$HOME/work/benchmark/results/raw" "$PSTATE.expect.json"`
+   writes every raw review and skill archive — only when nothing failed or
+   mismatched — and prints per task `seconds`,
+   `tokens`, `suppressed` and `spawn`, plus the run's `model`,
+   `harness_version` and `effort`. A `failed` task gets one retry — the same
+   `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`
+   again; a second failure
+   or any `mismatches` entry (the sub-agent ran other inputs than this
+   checkout) → abort.
+
+**Abort** = cleanup (step 11), nothing recorded, the reason in the chat UI.
+Sub-agents still running end at their deadline.
+
+### Isolation unavailable
+
+- **Scheduled run:** stop before any review. Release the lock, record
+  nothing, report the reason in the chat UI, and log
+  `benchmark run stopped: isolation unavailable (<reason>)` as a `warn` event.
+- **Direct session:** report the reason and ask the operator. Only on their
+  explicit yes for this run, run **Phase 1** in this pod (the in-pod notes
+  below) and record `isolation: "none"`, `isolation_reason` and
+  `isolation_approved: "<ISO> operator"`.
+
+### Isolated review (benchmark sub-agent)
+
+Runs in the sub-agent, which the prompt of
+[`scripts/templates/benchmark-child.md`](../scripts/templates/benchmark-child.md)
+names. `$HOME` holds the definition at the production commit; the bundle put
+the fixture inputs (no manifest) under `$HOME/work/benchmark/fixture/<slug>/`,
+`work/MEMORY.md`, `LESSONS.md`, `CONFIG.md` and the repo-sourced skills in
+place, and the harness adapter is installed.
+
+1. `NONCE` = the prompt's, `PSTATE="/tmp/benchmark-phase-$NONCE"`,
+   `B="$HOME/work/benchmark/fixture/<slug>"`, `<ts>` = the prompt's, and
+   `mkdir -p "$HOME/work/benchmark/results/raw"`. No gate, no lock, no skill
+   install, no Phase 2.
+2. Phase `first`: **Phase 1** step 1, then step 2. Phase `rereview`: step 1,
+   then step 3. Write the phase helper's `end` output to
+   `$HOME/work/benchmark/.measure-<slug>-<phase>.json`.
+3. `bash "$HOME/scripts/benchmark-child.sh" report <slug> <phase> <ts> <model> <suppressed>`
+   with this session's exact model id and the reviewer subagent's
+   `suppressed`. It reports the result; end the turn once it is accepted.
+
 ### Phase 1 — review replay, per fixture (before any ground-truth read)
 
-First, **install or refresh every configured repo-sourced skill** per
-[skills.md](skills.md) → **Installation** (benchmark preflight is purely local
-and installs nothing), and write each skill's source SHA to
-`$HOME/.claude/skills/.cache/<skill>.sha` so `skill_sources` provenance stays
-complete. Name in the run summary any configured extension skill that routes
-zero files across **all** fixtures — that is missing fixture coverage.
+The steps a sub-agent runs for its one task (**Isolated review**), or this
+session in-pod for every fixture after an approval (**Isolation
+unavailable**).
 
 **Review execution is delegated.** Each phase's review is composed by a fresh
 reviewer subagent (the mechanism the skill fan-out uses); the session only
@@ -220,8 +297,8 @@ transcripts holding the nonce. The subagent mechanism is the harness's
 with none, review inline and fall back to **Segmented run** when depth would
 degrade.
 
-Loop over the slugs sequentially — fixtures and phases never run concurrently
-(`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
+In-pod, loop over the slugs sequentially — fixtures and phases never run
+concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)), with `origin/main` on the base
@@ -330,7 +407,9 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
    `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
    from one deterministic call — merge its object in verbatim and add what only
    the session knows (`model`, `trigger`, `judge`, and `judge_model_used` from
-   step 6):
+   step 6). An isolated run adds `isolation: "platform-subagent"` and each
+   phase's `spawn`, and takes `model`, `harness_version` and `effort` from
+   `collect`, the values its sub-agents ran:
 
    ```bash
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
@@ -362,7 +441,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 
    A failed publish is logged; the local `report.html` is current regardless.
 10. Report to the chat UI, each delta against the previous run **of the same
-    model and effort** ("baseline" without one), read from
+    model, effort and isolation** ("baseline" without one), read from
     `bash "$HOME/scripts/benchmark-report.sh" index "$HOME/work/benchmark"`
     (one JSON row per run with `cost_usd`; the weights and the price lookup
     live only in that script):
@@ -379,7 +458,7 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
       1.0` in this and the previous run of the same model and effort —
       recommend a harder sibling), and the report URL when published.
 11. Clean up every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
-    `.s-*` variants), your phase-state directory, your nonce cache
+    `.s-*` variants), your phase-state directory with `$PSTATE.expect.json`, your nonce cache
     (`${TMPDIR:-/tmp}/.bench-usage-$NONCE`) and temp payload files; **remove
     the run lock**; log `benchmark run scored (avg f1=<x> over <n> fixtures)`;
     back up `work/` last.
@@ -394,10 +473,12 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
  "harness_version": "...", "effort": "<low|medium|high|xhigh|max|unknown>",
  "memory_sha": "...", "skill_sources": {},
  "definition_ref": {"branch": "...", "sha": "..."},
+ "isolation": "platform-subagent|none", "isolation_reason": "<none only>",
+ "isolation_approved": "<ISO> operator (none only)",
  "fixtures": {
    "<slug>": {
      "skills": {"<skill>": "ran (findings=N) | skipped (<reason>)"},
-     "first":    {"<scorer output>": "...", "seconds": 0, "suppressed": 0,
+     "first":    {"<scorer output>": "...", "seconds": 0, "suppressed": 0, "spawn": "<id>",
                   "tokens": {"input":0,"output":0,"cache_read":0,"cache_creation":0,"msgs":0},
                   "judge": null},
      "rereview": {"<scorer output>": "...", "seconds": 0, "suppressed": 0, "tokens": null, "judge": null}
@@ -411,14 +492,16 @@ Loop over the slugs sequentially — fixtures and phases never run concurrently
 when no call answered `ok`; `judge_harness` is the CLI that answered. The report shows judge scores only for a run
 whose `judge_model_used` the pinned `judge` matches.
 
-`model` is the **exact model id** of the session as the harness names it; when
-unavailable, write `unknown` and log it. `effort` is the reasoning effort the
-session ran at, read from the harness (`scripts/lib/harness.sh`: `CLAUDE_EFFORT`
+`model` is the **exact model id** the reviews ran on as the harness names it —
+the sub-agents' (`collect`), in-pod the session's; when unavailable, write
+`unknown` and log it. `effort` is the reasoning effort the reviews ran at,
+read from the harness (`scripts/lib/harness.sh`: `CLAUDE_EFFORT`
 on Claude Code, `PI_REASONING_LEVEL` on pi), else `unknown`; reviewer and
 skill subagents run without an effort override. Deltas compare runs of the
-same harness, model **and** effort; a run without `effort` matches only
-another run without it, and a run at effort `unknown` gets no
-delta — report it as `effort unknown`.
+same harness, model, effort **and** isolation; a run without `effort` matches
+only another run without it, a run without `isolation` (before 10.4.0) counts
+as `none`, and a run at effort `unknown` gets no delta — report it as `effort
+unknown`.
 
 ### `RESULTS.md`
 
@@ -436,10 +519,11 @@ publish markers are added when the first publish succeeds):
 
 ## Segmented run (operator, direct session)
 
-The fallback when delegated execution is unavailable (a harness without
-subagents) and one session cannot give every fixture the same review depth: a
-manual run split into segments, **one fixture per session**. Operator-triggered
-only — a scheduled run is never segmented.
+The fallback for an approved in-pod run (**Isolation unavailable**) when
+delegated execution is unavailable (a harness without subagents) and one
+session cannot give every fixture the same review depth: a manual run split
+into segments, **one fixture per session**. Operator-triggered only — a
+scheduled run is never segmented.
 
 - **One identity across segments.** Segment 1 takes the run's `TS` + `trigger`
   and creates the ledger `$HOME/work/benchmark/.run-notes-<TS>.md`, recording
@@ -528,7 +612,8 @@ under the trial's own folder.
 - **Procedure**: the run steps above, with these substitutions:
   - `TRIAL="$HOME/work/benchmark/trials/<id>"`, `<id>` = `pr-<n>` or the branch
     slug; results to `$TRIAL/results/<ts>.json`, raw reviews and skill archives
-    to `$TRIAL/results/raw/…`.
+    to `$TRIAL/results/raw/…` (`collect`'s raw dir).
+  - Push the branch first: the sub-agents seed the checked-out commit.
   - `trigger: "trial"`; provenance from the same `benchmark-provenance.sh`
     call, whose `definition_ref: {branch, sha}` is what identifies
     feature-branch code (`VERSION` alone does not).
@@ -554,9 +639,10 @@ under the trial's own folder.
 - "Run the benchmark" → the run steps with `trigger: manual`. A manual run is
   never gated, and only `trigger: scheduled` results feed the gate, so a
   scheduled run still lands on the 1st after a mid-month manual run. To
-  benchmark a specific model, the operator switches the session model first — a
-  run measures the session it runs in. On request, split it one fixture per
-  session (**Segmented run**).
+  benchmark a specific model, pass it to `start` as `--model` (**Isolation**);
+  a run measures the model its reviews ran on. An approved in-pod run measures
+  the session it runs in, and on request splits one fixture per session
+  (**Segmented run**).
 - "Show benchmark results" → read `RESULTS.md` / `report.html` (and
   `results/*.json` for detail) and summarize the trend. Reading results is free
   of the session-separation rule when no `run` follows in the same session.

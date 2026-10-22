@@ -69,6 +69,27 @@ assert_jq '.benchmark_due.judge == "pinned-judge-model"' 'judge key is carried'
 assert_jq '.benchmark_due.report == "off"' 'the report surface is carried'
 assert_jq '.benchmark_due.last_run == null' 'no prior run recorded'
 
+# the isolation repository check of a due run (docs/benchmark.md → Isolation)
+iso_fx() { # <work-repo visibility> <definition visibility>
+  printf '{"visibility":"%s"}' "$1" | fx 'api --hostname github.com repos/acme/cg-state'
+  printf '{"visibility":"%s"}' "$2" | fx 'api --hostname github.com repos/acme/cg-def'
+}
+new_case benchmark_run_isolation_ready
+base_config '- benchmark: enabled' '- work_repo: acme/cg-state' '- definition_repo: acme/cg-def'
+seed_full_set
+iso_fx private public
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run" and .benchmark_due.isolation_unavailable == null' 'a private backup and a public definition allow isolation'
+
+new_case benchmark_run_public_work_repo
+base_config '- benchmark: enabled' '- work_repo: acme/cg-state' '- definition_repo: acme/cg-def'
+seed_full_set
+iso_fx public public
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "run"' 'the run stays due'
+assert_jq '.benchmark_due.isolation_unavailable | test("work_repo acme/cg-state is public")' 'the run knows before it starts that it cannot be isolated'
+assert_jq '.logs | any(contains("benchmark isolation unavailable"))' 'the reason is logged'
+
 new_case benchmark_judge_not_signed_in
 base_config '- benchmark: enabled' '- benchmark_judge: pinned-judge-model'
 seed_full_set
