@@ -80,8 +80,9 @@ The pi adapter runs the hook scripts below from pi events
   the target repo's issues and every other tool pass; an unresolved
   definition repo guards nothing.
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
-  run at onboarding Step 1b and after definition updates that change the
-  adapter; effective from the next session). It also keeps the auto-mode
+  run at onboarding Step 1b and by every definition migration,
+  [persistence.md](persistence.md) → **Definition version & upgrade**;
+  effective from the next session). It also keeps the auto-mode
   classifier rules for the agent's documented writes outside the target repo —
   the anonymous tracking issue on `definition_repo` through
   `scripts/definition-issue.sh`, the `curl -X PUT` upload of every published
