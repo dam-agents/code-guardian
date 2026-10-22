@@ -11,12 +11,22 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 10.4.0 — 2026-10-22
+## 10.5.0 — 2026-10-22
 
 **Upgrade:** under `benchmark: enabled`, run
 `bash "$HOME/scripts/benchmark-isolate.sh" check repos`; a printed reason is
 **operator-only** to fix before the next run — make `work_repo` private
 ([docs/benchmark.md](docs/benchmark.md) → **Isolation**).
+
+## 10.4.0 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 10.3.4 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run. A benchmark run recorded
+before this version on the Copilot harness carries a borrowed Claude Code
+`harness_version`; correct it by hand only with the operator's decision.
 
 ## 10.3.3 — 2026-10-22
 
