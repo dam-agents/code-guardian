@@ -194,29 +194,27 @@ pass — the first one that fails refutes it:
    written. A path that only running the code could prove lowers it.
 
 Not reported, whatever the confidence: denial of service, resource
-exhaustion and rate limits (except **`failure`** above); missing hardening or
-headers with no concrete hole behind them; theoretical races and timing
-without a demonstrated window; outdated dependencies; memory-safety claims in
-a memory-safe language; log spoofing; SSRF that controls only the path;
-ReDoS and regex injection; open redirect, tabnabbing and prototype pollution
-below near-certainty; attacks that need a stolen credential, a malicious
-admin, physical access or control of an environment variable; guessing a
-UUID; text in Markdown docs.
+exhaustion, rate limits, races and timing with no shown trigger and
+consequence (a shown one is **`failure`** or its security class above);
+missing hardening or headers with no concrete hole behind them; outdated
+dependencies; memory-safety claims in a memory-safe language; log spoofing;
+SSRF that controls only the path; ReDoS and regex injection; open redirect,
+tabnabbing and prototype pollution below near-certainty; attacks that need a
+stolen credential, a malicious admin, physical access or control of an
+environment variable; guessing a UUID; text in Markdown docs.
 
 ## Severity
 
-A survey reports 🔴 and 🟡 only; the finding form's severity bar
-([finding-form.md](finding-form.md) → **Severity**) applies, with these
-anchors. Rate the access path the code binds, not a deployment you cannot
-see; between two tiers, take the lower one.
+A survey reports 🔴 and 🟡 only, graded by the finding form's severity bar
+([finding-form.md](finding-form.md) → **Severity**): the worst consequence on
+the path decides. Rate the access path the code binds, not a deployment you
+cannot see. Survey anchors:
 
-- 🔴 **Critical** — severe impact with nothing in the way: unauthenticated
-  code execution or injection, an auth bypass, any user reads or changes
-  another user's data, a live secret committed, data loss on a normal path.
-- 🟡 **Warning** — a real hole behind one real hurdle (the attacker must be
-  signed in, a non-default but plausible config, a victim must click), or a
-  bounded impact: limited disclosure, user enumeration, a failure that a
-  normal input reaches with a bounded blast radius.
+- 🔴 **Critical** — code execution or injection, an auth bypass, a user reads
+  or changes another user's data, a live secret committed, data loss on a
+  reachable path.
+- 🟡 **Warning** — a bounded impact: limited disclosure, user enumeration, a
+  failure with a bounded blast radius.
 
 ## Area notes
 
