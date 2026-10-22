@@ -98,8 +98,9 @@ to Slack when enabled, and to the chat UI always
 ([`docs/audit.md`](docs/audit.md)).
 
 **Codebase survey** — weekly in a quiet hour, gated by `survey`. A review reads
-a diff; a survey reads one area of the repository as it stands and reports what
-a diff structurally cannot show. The area is chosen deterministically (never
+a diff; a survey reads one area of the repository as it stands, traces its
+inputs to their dangerous sinks, and reports only the dangerous findings a diff
+structurally cannot show — security holes, data loss, reachable failures. The area is chosen deterministically (never
 surveyed first, then the oldest pass), the pass is capped before it starts, and
 the history accumulates in one artifact with a stable URL
 ([`docs/survey.md`](docs/survey.md)).
@@ -118,7 +119,7 @@ with known seeded defects through its full pipeline, measures time and tokens
 per review, scores each output against the fixture's manifest, and republishes
 an accumulated report, kept with full provenance so review quality stays
 comparable across model, harness and definition versions. Unrecorded **trial
-runs** score a feature branch during development
+runs** score feature branches during development, several at once
 ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**
@@ -249,7 +250,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
 | `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
 | `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
-| `survey` | asked (default `disabled`) | Weekly deep pass over one area of the repository — unreachable code, duplicated logic, untested paths, drift from the repo's own conventions and decision records (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
+| `survey` | asked (default `disabled`) | Weekly security pass over one area of the repository — security holes, data loss and reachable failures, traced from input to sink; no suggestion, no refactor (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `survey_report_findings` | asked with `survey_report: dam` (default `disabled`) | Whether the public survey artifact shows the findings themselves, each code location linked to the commit the pass read, or stays an index of areas and passes. |
 | `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
@@ -275,7 +276,9 @@ what it can and asking for the rest. Per-key semantics are in
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
   schedules, one-time review sessions, session titles and Slack. The monitor's
   opt-ins call that server from a script, at the `platform-outbound` URL of
-  `~/.mcp.json` (`scripts/lib/mcp.sh`). Running elsewhere requires
+  `~/.mcp.json` (`scripts/lib/mcp.sh`). The benchmark runs its reviews in
+  platform sub-agents through the platform's Driver REST routes beside that
+  URL (`docs/benchmark.md` → **Isolation**). Running elsewhere requires
   adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
   target repo, this definition, the skill sources and the `work_repo` backup may

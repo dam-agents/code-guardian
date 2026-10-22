@@ -166,6 +166,7 @@ TIPS='{
 "effort": "The reasoning effort the reviews ran at. Lower effort means less thought per review, and it moves recall and tokens as much as a model change. Compare rows of the same effort; a dash means the run did not record it, and unknown means the harness did not expose it — such a row gets no delta.",
 "version": "The agent definition version under test. If a number moves between two versions, the table of definition changes below shows what changed.",
 "harness": "The version of the software that runs the agent. A change here can move speed and token counts without any change of the definition.",
+"isolation": "Where the reviews ran. platform-subagent: in separate sub-agents that could not read the known defects. none: in the agent itself, after the operator approved it, or before isolation existed. Compare rows of the same isolation.",
 "fixtures": "How many test projects the run scored. More is more stable. A run with fewer fixtures than its neighbours is not fully comparable.",
 "index": "The single quality number, 0 to 1 — higher is better. It mixes the scores that matter most: defects found, correct severity, correct re-review, no circles. Near 0.9 is very good, below 0.5 the review misses much. It uses the deterministic scorer only, so the judge cannot move it.",
 "avg f1": "Balance of the two errors, averaged over the fixtures: 0 to 1, higher is better. 1.0 means the review found every defect and reported nothing false. A low value can come from misses, from false alarms, or from both.",
@@ -202,7 +203,7 @@ JQ_TH='
 
 if [ "$OUT_MODE" = "index" ]; then
   printf '%s' "$ALL" | jq --argjson prices "$PRICES" "$JQ_COMMON"'
-    [.[] | {ts, trigger, model, effort, definition_version,
+    [.[] | {ts, trigger, model, effort, isolation: (.isolation // "none"), definition_version,
             index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
             cost_usd: run_cost,
             fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
@@ -211,17 +212,19 @@ fi
 
 ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
-  # deltas compare against the previous run of the SAME harness, model and
-  # effort — a cross-harness, cross-model or cross-effort delta would conflate
-  # that change with the regression being watched; an "unknown" effort matches
+  # deltas compare against the previous run of the SAME harness, model,
+  # effort and isolation — a cross-configuration delta would conflate that
+  # change with the regression being watched; an "unknown" effort matches
   # nothing. The harness is the first word of harness_version — pi, copilot —
   # (lib/harness.sh); every other run, the ones before named lines included,
-  # is Claude Code.
+  # is Claude Code. A run before isolation was recorded ran in-pod: none.
   | def harness_of: (.harness_version // "" | if startswith("pi ") then "pi"
                      elif startswith("copilot ") then "copilot" else "claude-code" end);
+    def isolation_of: (.isolation // "none");
     (if $r.effort == "unknown" then null
      else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort
-                                 and harness_of == ($r | harness_of))] | last
+                                 and harness_of == ($r | harness_of)
+                                 and isolation_of == ($r | isolation_of))] | last
      end) as $prev
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
@@ -232,6 +235,7 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
     + "<td>\($r.model // "—" | @html)</td><td>\($r.effort // "—" | @html)</td>"
     + "<td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
+    + "<td>\($r | isolation_of | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
     + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
     + ($fx | avg(.first.f1) | ncell)
@@ -297,7 +301,7 @@ VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
     end')"
 
 HEAD_ALL="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
-  [ "run", "trigger", "model", "effort", "version", "harness", "fixtures", "index",
+  [ "run", "trigger", "model", "effort", "version", "harness", "isolation", "fixtures", "index",
     "avg f1", "avg sev", "avg fixed", "avg new", "circles", "FPs", "judge",
     "find-acc", "sec", "out-tok", "est $" ] | map(th(.)) | add')"
 
@@ -381,7 +385,7 @@ li{margin:.1rem 0}
 read what that column measures, which direction is better, and what a bad value
 costs. A "—" is data that was not measured, never a zero. The bar under each
 index is that same 0–1 value; unbounded columns get no bar. Deltas (▲▼) compare
-against the previous run of the <b>same harness, model and effort</b> — green means moved
+against the previous run of the <b>same harness, model, effort and isolation</b> — green means moved
 the good way for that column, so ▼ on sec/tokens/cost is green. Comparison
 across models or efforts is the table itself. The index is deterministic — computed from scorer output only,
 judge scores never enter it. Click a header to sort, type to filter, page long

@@ -220,9 +220,10 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   **Definition-repo issues**). Off, the findings stay in the audit report and
   the chat UI.
 - **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
-  deep pass over one area of the repository: what a diff cannot show —
-  unreachable code, duplicated logic, untested paths, drift from the
-  repository's own conventions and decision records ([survey.md](survey.md)).
+  security pass over one area of the repository as it stands: the security
+  holes, data loss and reachable failures that a diff review cannot see. It
+  reports only blocking findings — no suggestion, no refactor
+  ([survey.md](survey.md)).
 - **`survey_report`** — publish surface for the accumulated survey artifact,
   updated in place so its URL stays stable: `dam` (default) | `off`, as
   `audit_trend`.
@@ -239,7 +240,9 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
   monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
   pipeline and scores each output against its known defects; results
-  accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)).
+  accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)). A run needs
+  a non-public `work_repo` and a public definition repo
+  ([benchmark.md](benchmark.md) → **Isolation**).
 - **`benchmark_judge`** — pinned model id for the benchmark's LLM-judged
   quality scores; `off`/missing = deterministic scoring only. The judge runs as
   its own `claude -p` call on this model, whatever model the reviews ran on

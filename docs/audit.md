@@ -56,12 +56,15 @@ reason, never dropped.
    scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
    of every volume a run writes to (work/, the review clones, the backup's
    clone), skills, roster, definition currency, benchmark fixture and results
-   integrity, the memory budget, artifact outcome logging, the profile's
+   integrity, the work repo's visibility, the memory budget, artifact outcome logging, the profile's
    currency, the definition repo's open-issue backlog
    ([preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
    do not recompute. Two special cases:
    - A missing **token scope** is **operator-only**: report what it breaks
      (README → **Token scopes**), never work around it.
+   - A `work_repo_visibility` **fail** is **operator-only** and **Action
+     needed**: the backup of `work/` is public. Never change the visibility
+     yourself.
    - A `benchmark_fixtures` **fail** means the scores are invalid until the set
      is retired and replaced. Report it as **Action needed**
      ([benchmark.md](benchmark.md) → **Retiring a fixture set**); never retire

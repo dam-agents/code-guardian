@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # mcp.sh — one platform-outbound MCP tool call from a script, with no model in
 # the loop (docs/monitor.md → **Direct delivery**, docs/health.md →
-# **Publish**). Only the monitor's pass calls it.
+# **Publish**). The monitor's pass calls it, and a benchmark sub-agent reports
+# its result through it (scripts/benchmark-child.sh); benchmark-isolate.sh reads
+# the Driver REST root from mcp_url.
 #
 #   . scripts/lib/mcp.sh
 #   mcp_call <tool> <arguments.json>   # -> the tool's text result on stdout

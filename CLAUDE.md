@@ -6,7 +6,9 @@ never hard-code a repository slug. Resolution order: `github_repo` in
 
 **First-run onboarding:** a fresh agent initializes once by following
 [`ONBOARDING.md`](ONBOARDING.md) — started by the kit's first turn or by the
-operator, self-guarded by the `$HOME/.code-guardian-onboarded` sentinel.
+operator, self-guarded by the `$HOME/.code-guardian-onboarded` sentinel. A
+benchmark sub-agent (`CG_BENCHMARK_CHILD=1`) never onboards: its prompt is its
+whole task.
 
 ## Every scheduled run
 

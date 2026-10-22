@@ -158,7 +158,7 @@ survey_ledger "| src_api | src/api | $(iso_ago 86400) | 3 | 7 |" \
               "| src_ui | src/ui | $(iso_ago 604800) | 1 | 0 |"
 bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
 assert_file_contains "$SANDBOX/report.html" 'src/api' 'the report lists the areas'
-assert_file_contains "$SANDBOX/report.html" 'Codebase survey' 'the report has its title'
+assert_file_contains "$SANDBOX/report.html" '<title>Security codebase survey</title>' 'the report has its title'
 grep -q 'http://\|https://.*\(cdn\|googleapis\)' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: the page loads an external asset\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the page is self-contained\n' "$CASE"
@@ -191,7 +191,8 @@ assert_file_contains "$WORK/survey/src_api.md" "\"sha\":\"$SHA\"" 'record keeps 
 assert_file_contains "$WORK/survey/src_api.md" '"files":1' 'record keeps the file count'
 bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
 assert_file_contains "$SANDBOX/report.html" 'this page is the index' 'a missing key keeps the page an index'
-assert_file_contains "$SANDBOX/report.html" '<td class="n">2</td><td class="n">1</td><td class="n">0</td><td class="n">0</td>' 'the index carries the severity counts of the newest pass'
+assert_file_contains "$SANDBOX/report.html" '<td class="n">2</td><td class="n"><span class="badge critical">1</span></td><td class="n zero">0</td>' 'the index carries the severity counts of the newest pass'
+assert_file_contains "$SANDBOX/report.html" '<div class="tile critical"><b>1</b>' 'the tiles count the critical findings of the newest passes'
 grep -q 'timingSafeEqual\|blob/\|alert(1)' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: a finding reached the index-only page\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no finding and no code link on the index-only page\n' "$CASE"
@@ -207,6 +208,7 @@ assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> use timingSafeEqual' 't
 assert_file_contains "$SANDBOX/report.html" '&lt;script&gt;alert(1)&lt;/script&gt; &amp; co' 'finding text is HTML-escaped'
 assert_file_contains "$SANDBOX/report.html" '<b>Fix:</b> a &lt; b' 'the Fix line is HTML-escaped'
 assert_file_contains "$SANDBOX/report.html" "1 files at <a class=\"sha\" href=\"https://github.com/acme/widgets/tree/$SHA\">" 'the pass heading links to the commit'
+assert_file_contains "$SANDBOX/report.html" '<details><summary>Pass 1 ' 'an earlier pass is folded under the newest one'
 grep -q '<script>' "$SANDBOX/report.html" \
   && { printf 'FAIL %s: raw finding text reached the page\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no raw finding text on the page\n' "$CASE"
@@ -261,10 +263,26 @@ LONG="$(printf '%0300d' 0)"
 [ "$(( $(wc -c < "$WORK/survey/src_api.md") ))" -gt 131072 ] \
   || { printf 'FAIL %s: the fixture is not above 128 KiB\n' "$CASE"; FAILED=1; }
 bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
-assert_file_contains "$SANDBOX/report.html" '<a href="#src_api">src/api</a></td><td class="n">2</td><td class="n">0</td><td class="n">1</td>' 'the index row survives a history above 128 KiB'
-n="$(grep -o '<li>' "$SANDBOX/report.html" | grep -c .)"
+assert_file_contains "$SANDBOX/report.html" '<a href="#src_api">src/api</a></td><td class="n">2</td><td class="n zero">0</td><td class="n"><span class="badge warning">1</span></td>' 'the index row survives a history above 128 KiB'
+n="$(grep -o '<li class=' "$SANDBOX/report.html" | grep -c .)"
 [ "$n" -eq 251 ] && printf 'ok   %s: every finding of a history above 128 KiB is on the page\n' "$CASE" \
   || { printf 'FAIL %s: %s of 251 findings on the page\n' "$CASE" "$n"; FAILED=1; }
+
+# --- a finding carries its class, and the dangerous ones come first ------------
+new_case survey_report_category_order
+base_config '- survey: enabled' '- survey_report_findings: enabled'
+mkdir -p "$WORK/survey"
+survey_ledger "| src_api | src/api | $(iso_ago 1209600) | 0 | 0 |"
+printf '[{"severity":"warning","summary":"second","file":"src/api/a.ts","line":2,"fix":"x"},
+         {"severity":"critical","category":"injection","cwe":"CWE-89","summary":"first","file":"src/api/b.ts","line":3,"fix":"y"}]' > "$SANDBOX/f.json"
+TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/f.json" >/dev/null 2>&1
+assert_file_contains "$WORK/survey/src_api.md" 'critical — \[injection · CWE-89] first' 'the recorded line names the class'
+bash "$REPO_ROOT/scripts/survey.sh" report "$WORK" > "$SANDBOX/report.html" 2>/dev/null
+assert_file_contains "$SANDBOX/report.html" '<span class="tag">CWE-89</span>' 'the class is a tag on the page'
+order="$(grep -o '<p class="sum">[a-z]*</p>' "$SANDBOX/report.html" | tr -d '\n')"
+[ "$order" = '<p class="sum">first</p><p class="sum">second</p>' ] \
+  && printf 'ok   %s: a critical finding comes before a warning\n' "$CASE" \
+  || { printf 'FAIL %s: the order is %s\n' "$CASE" "$order"; FAILED=1; }
 
 # --- the resolved key travels in the worklist's config object -----------------
 new_case survey_findings_config_default

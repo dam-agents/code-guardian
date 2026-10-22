@@ -128,6 +128,30 @@ if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" |
 else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
 
+new_case report_delta_needs_same_isolation
+seed_results
+# model-a, same effort (none recorded), but isolated: the in-pod run 1 is no
+# baseline for it; a later isolated run compares against the isolated one
+for ts in 20260901T060000Z 20261001T060000Z; do
+  iso_ts="${ts:0:4}-${ts:4:2}-${ts:6:2}T06:00:00Z"
+  jq -n --arg ts "$iso_ts" --argjson s "$([ "$ts" = 20260901T060000Z ] && echo 100 || echo 150)" \
+    '{ts:$ts, trigger:"scheduled", model:"model-a", definition_version:"10.4.0", isolation:"platform-subagent",
+      fixtures:{"ts-api":{first:{f1:0.5,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:$s,tokens:null},
+        rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}}}}' \
+    > "$SANDBOX/bench/results/$ts.json"
+done
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains 'title="[^"]*Where the reviews ran[^"]*">isolation</th>' 'the isolation column carries its help text'
+assert_out_contains '<td>platform-subagent</td>' 'an isolated run is named'
+assert_out_contains '<td>none</td>' 'a run before isolation counts as none'
+row="$(printf '%s' "$OUT" | grep -m1 '<td>2026-09-01')"
+if ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: the first isolated run carries no delta against an in-pod run\n' "$CASE"
+else printf 'FAIL %s: the first isolated run must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+assert_out_contains '250 <span class="d down">▲+50</span>' 'isolated runs compare with each other'
+OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
+assert_jq '.[0].isolation == "none" and .[3].isolation == "platform-subagent"' 'index mode carries isolation per run'
+
 new_case report_index_mode
 seed_results
 OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
@@ -210,6 +234,30 @@ assert_jq '.definition_ref.branch == null' 'no git checkout degrades definition_
 assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never null'
 OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.effort == "medium"' 'harness effort recorded'
+
+new_case provenance_of_another_commit
+# a trial seeds a branch commit while $HOME stays on production
+# (docs/benchmark.md → Trial runs); the state comes from a run snapshot
+seed_results
+mkdir -p "$FAKE_HOME/work" "$SANDBOX/snap/work" "$SANDBOX/snap/.claude/skills/.cache"
+printf '10.0.0\n' > "$FAKE_HOME/VERSION"
+git -C "$FAKE_HOME" init -q
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t add VERSION
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm prod
+git -C "$FAKE_HOME" checkout -qb feature
+printf '10.1.0\n' > "$FAKE_HOME/VERSION"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam feature
+FEAT="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+git -C "$FAKE_HOME" checkout -q -
+printf '# mem\n' > "$FAKE_HOME/work/MEMORY.md"; printf '# snapped mem\n' > "$SANDBOX/snap/work/MEMORY.md"
+printf 'fedcba9876543210fedcba9876543210fedcba98' > "$SANDBOX/snap/.claude/skills/.cache/sec.sha"
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" --commit "$FEAT" --branch feature --state-root "$SANDBOX/snap" "$SANDBOX/bench")"
+assert_jq '.definition_version == "10.1.0"' 'VERSION read from the commit, not the checkout'
+assert_jq ".definition_ref == {branch: \"feature\", sha: \"${FEAT:0:12}\"}" 'definition_ref names the commit and the given branch'
+assert_jq ".memory_sha == \"$(git hash-object "$SANDBOX/snap/work/MEMORY.md")\"" 'memory hashed from the snapshot'
+assert_jq '.skill_sources == {"sec": "fedcba987654"}' 'skills read from the snapshot cache'
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.definition_version == "10.0.0" and .definition_ref.branch != "feature"' 'without --commit the checkout is described'
 
 new_case pi_usage_snapshot_sums_pi_transcripts
 # pi transcripts (docs/harness-pi.md): message entries carry message.usage with

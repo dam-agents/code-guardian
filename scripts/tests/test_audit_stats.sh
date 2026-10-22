@@ -1436,4 +1436,21 @@ roster_case audit_roster_both '- escalation_owner: dave' '- monitor_owner: carol
 assert_jq '.checks[] | select(.id == "roster") | .status == "warn" and (.detail | contains("escalation_owner '"'dave'"'") and contains("monitor_owner '"'carol'"'"))' \
   'the warn names both owners, not only the first'
 
+# --- work repo visibility -------------------------------------------------------
+# the backup holds all of work/, the benchmark's ground truth included: a public
+# one fails, an unreadable one warns (docs/benchmark.md → Isolation)
+for v in private public unknown; do
+  new_case "audit_work_repo_visibility_$v"
+  base_config '- work_repo: acme/cg-state'
+  pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+  if [ "$v" = unknown ]; then fx_fail 'api --hostname github.com repos/acme/cg-state'
+  else printf '{"visibility":"%s"}' "$v" | fx 'api --hostname github.com repos/acme/cg-state'; fi
+  run_preflight audit
+  case "$v" in
+    (private) assert_jq '.checks[] | select(.id == "work_repo_visibility") | .status == "ok"' 'a private backup passes';;
+    (public) assert_jq '.checks[] | select(.id == "work_repo_visibility") | .status == "fail" and (.detail | contains("PUBLIC"))' 'a public backup fails';;
+    (unknown) assert_jq '.checks[] | select(.id == "work_repo_visibility") | .status == "warn"' 'an unreadable visibility warns';;
+  esac
+done
+
 finish

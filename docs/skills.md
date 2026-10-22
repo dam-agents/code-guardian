@@ -31,13 +31,12 @@ that SHA. The worklist's `skills` object reports per-skill status:
 - `install-failed` → that skill is skipped for every PR this run (section
   omitted, audit line `skipped (install-failed)`); never abort the run.
 - `harness` skills need no install.
-- Fallback (no preflight status for a configured skill): install it yourself —
-  `rm -rf ~/.claude/skills/<skill>`, read `<sha>` with
-  `gh api --hostname <src-host> "repos/<src-slug>/commits/HEAD" --jq .sha`, enumerate
-  `gh api --hostname <src-host> "repos/<src-slug>/git/trees/<sha>?recursive=1"`
-  for paths under `.agents/skills/<skill>/`, then fetch each blob with
-  `gh api --hostname <src-host> "repos/<src-slug>/contents/<path>?ref=<sha>" -H 'Accept: application/vnd.github.raw'`,
-  preserving subdirectories.
+- An install outside preflight (no preflight status for a configured skill,
+  the benchmark refresh, an on-demand review) is the same install:
+  `bash "$HOME/scripts/skill-install.sh" [<skill>…]` (no name: every skill of
+  the table) prints the same statuses. Never install a skill by hand: an
+  install swaps its files in under the skills lock that a benchmark snapshot
+  copies under (`scripts/lib/skills.sh`).
 
 ## Mandatory — not skippable
 
