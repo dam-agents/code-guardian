@@ -227,7 +227,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 1. Title the session (**Session titles**), then read
    [benchmark.md](benchmark.md) and perform the entry's action:
    `create_fixture` tops the fixture set up to ≥5 and ends the run; `run`
-   replays, scores and records every fixture review, republishes the report
+   replays every fixture review in isolated platform sub-agents, scores and
+   records them, republishes the report
    and reports the scores in the chat UI. **`scripts/benchmark-validate.sh`
    gates both.**
 2. Back up `work/` as the very last action.
@@ -340,6 +341,9 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   protected record is refused, and a failed or unverified restore stops
   onboarding before any template is seeded ([persistence.md](persistence.md) →
   **Backup & restore**).
+- A benchmark review never runs where it can read the ground truth: in an
+  isolated sub-agent, or in-pod only on the operator's recorded approval for
+  that run ([benchmark.md](benchmark.md) → **Isolation**).
 - **Never run `git clean` in `$HOME`**; never `git add` outside the outer
   repo's allowlist. Definition changes go through branch + PR
   ([persistence.md](persistence.md)), never from a heartbeat — and **before

@@ -14,6 +14,8 @@
 set -u
 
 MODE="${1:-persist}"
+# a benchmark sub-agent's volume is thrown away with it (docs/benchmark.md)
+[ "${CG_BENCHMARK_CHILD:-}" = 1 ] && [ "$MODE" = persist ] && { echo "work-backup: benchmark sub-agent — nothing to back up"; exit 0; }
 WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 BRANCH="${WORK_BACKUP_BRANCH:-main}"
 RETRIES="${WORK_BACKUP_RETRIES:-3}"

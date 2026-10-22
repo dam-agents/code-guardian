@@ -37,7 +37,8 @@
 #                             checks and sends the report (docs/audit.md)
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
 #                             `benchmark: enabled` and the monthly gate passes
-#                             (docs/benchmark.md); purely local, no API calls
+#                             (docs/benchmark.md); local, plus two repo GETs
+#                             on a due run (isolation_unavailable)
 #   preflight.sh survey    -> survey_due (the area to read and its
 #                             history) when `survey: enabled` and the interval
 #                             passed (docs/survey.md)
@@ -58,6 +59,12 @@ set -u
 export LC_ALL=C
 
 MODE="${1:-review}"
+# a benchmark sub-agent replays one review and nothing else (docs/benchmark.md
+# → Isolated review): no worklist, no bookkeeping, no network
+if [ "${CG_BENCHMARK_CHILD:-}" = 1 ]; then
+  jq -n --arg m "$MODE" '{mode: $m, nothing_to_do: true, logs: ["benchmark sub-agent — no preflight"]}'
+  exit 0
+fi
 HOME_DIR="${HOME:-/home/agent}"
 WORK="${WORK_DIR:-$HOME_DIR/work}"
 CONFIG="$WORK/CONFIG.md"
@@ -226,7 +233,7 @@ if [ "$MODE" = "survey" ]; then
 fi
 
 # ========================================================= BENCHMARK MODE ====
-# Purely local — deciding a benchmark run needs no GitHub call, so this block
+# Local — deciding a benchmark run needs no GitHub call, so this block
 # sits before the target-repo resolution (whose last fallback is a gh call)
 # and the open-PR fetch: a disabled or gated benchmark tick never touches the
 # network, and a missing CONFIG degrades to nothing_to_do instead of a
@@ -234,7 +241,8 @@ fi
 # (set incomplete) and run (monthly). The scheduled cadence is monthly; the
 # 27-day floor keeps a drifting cron from double-running inside one calendar
 # month, and only `trigger: scheduled` results feed it — manual and trial
-# runs never move the official cadence.
+# runs never move the official cadence. A due run alone reads GitHub: the
+# isolation check's two repository GETs.
 if [ "$MODE" = "benchmark" ]; then
   BENCH="$(cfg benchmark)"
   if [ "$BENCH" != "enabled" ]; then
@@ -307,10 +315,16 @@ if [ "$MODE" = "benchmark" ]; then
   # judge call and reports the reason once (docs/benchmark.md, phase 2 step 6)
   BENCH_JUDGE_WHY="$(bash "$SCRIPT_DIR/benchmark-judge.sh" check "$BENCH_JUDGE" 2>/dev/null)" \
     || { BENCH_JUDGE_WHY="${BENCH_JUDGE_WHY:-the judge check failed}"; log "benchmark judge unavailable — $BENCH_JUDGE_WHY"; }
+  # isolation (docs/benchmark.md → Isolation): the reviews run in sub-agents
+  # that hold no ground truth only while the work repo is not public and the
+  # seeded definition repo is — two GitHub GETs, on a due run only
+  BENCH_ISO_WHY="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-isolate.sh" check repos 2>/dev/null)" \
+    || { BENCH_ISO_WHY="${BENCH_ISO_WHY:-the isolation check failed}"; log "benchmark isolation unavailable — $BENCH_ISO_WHY"; }
   local_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
-    --arg j "$BENCH_JUDGE" --arg ju "$BENCH_JUDGE_WHY" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
+    --arg j "$BENCH_JUDGE" --arg ju "$BENCH_JUDGE_WHY" --arg iu "$BENCH_ISO_WHY" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
     '{action:"run", fixtures:$f, fixture_root:$r, judge:$j,
-      judge_unavailable:(if $ju == "" then null else $ju end), report:$rep,
+      judge_unavailable:(if $ju == "" then null else $ju end),
+      isolation_unavailable:(if $iu == "" then null else $iu end), report:$rep,
       last_run:(if $l == "" then null else $l end)}')"
 fi
 
@@ -2083,6 +2097,14 @@ if [ "$MODE" = "audit" ]; then
     else
       check work_repo ok "work/ plain data dir; durable backup via pod-local clone (any work_backup push errors surface in the log triage below)"
     fi
+    # the backup holds all of work/ — reviews, roster, the benchmark's ground
+    # truth — so it must never be public (docs/persistence.md, docs/benchmark.md → Isolation)
+    wr_vis="$(repo_visibility "$WORK_REPO")"
+    case "$wr_vis" in
+      (private|internal) check work_repo_visibility ok "$WORK_REPO is $wr_vis";;
+      (public) check work_repo_visibility fail "$WORK_REPO is PUBLIC — anyone can read the backed-up work/ state, and benchmark runs stop (no isolation); operator: make the repository private";;
+      (*) check work_repo_visibility warn "$WORK_REPO visibility unreadable — benchmark runs stop until it reads private";;
+    esac
   else check work_repo ok "local-only persistence (no work_repo)"; fi
 
   # count only STUCK silly-renames (>5min): a fresh .nfs* is a normal transient

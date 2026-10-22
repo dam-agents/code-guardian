@@ -13,16 +13,51 @@
 #   fail-<tool>   that tool's call gets an HTTP error status (rc 22)
 #   hang-<tool>   that tool's call times out with no answer (rc 28)
 #   ping-<tool>   a server request with the call's own id precedes the answer
-out=""; hdr=""; data=""; url=""; prev=""
+#
+# REST mode (the URL starts with $CURL_REST_BASE, the platform's Driver routes
+# benchmark-isolate.sh calls): appends `<METHOD> <path>` and the body of a
+# `--data-binary @<file>` to $CURL_REST_LOG and answers from $CURL_REST_DIR:
+# <key>.json, else the first of <key>.<n>.json (consumed), where <key> is the
+# method plus the path with every character outside [A-Za-z0-9._-] as `_`;
+# <key>.code sets the status (default 200). A POST to /invocations with no file
+# answers {"id":"inv-<n>"}; `fail` refuses every request (rc 7).
+out=""; hdr=""; data=""; url=""; prev=""; method=""; wfmt=""
 for a in "$@"; do
   case "$prev" in
     (-o) out="$a";;
     (-D) hdr="$a";;
     (--data-binary) data="$a";;
+    (-X) method="$a";;
+    (-w) wfmt="$a";;
   esac
   case "$a" in (http://*|https://*) url="$a";; esac
   prev="$a"
 done
+
+if [ -n "${CURL_REST_BASE:-}" ] && [ "${url#"$CURL_REST_BASE"}" != "$url" ]; then
+  d="${CURL_REST_DIR:-/nonexistent}"
+  [ -e "$d/fail" ] && exit 7
+  path="${url#"$CURL_REST_BASE"}"; method="${method:-GET}"
+  key="$method$(printf '%s' "$path" | tr -c 'A-Za-z0-9._-' '_')"
+  if [ -n "${CURL_REST_LOG:-}" ]; then
+    printf '%s %s\n' "$method" "$path" >> "$CURL_REST_LOG"
+    case "$data" in (@*) [ -f "${data#@}" ] && { jq -c . "${data#@}" >> "$CURL_REST_LOG.body" 2>/dev/null; };; esac
+  fi
+  code=200; [ -f "$d/$key.code" ] && code="$(cat "$d/$key.code")"
+  resp=""
+  if [ -f "$d/$key.json" ]; then resp="$(cat "$d/$key.json")"
+  else
+    for f in "$d/$key".*.json; do [ -f "$f" ] && { resp="$(cat "$f")"; rm -f "$f"; break; }; done
+  fi
+  if [ -z "$resp" ] && [ "$method" = POST ] && [ "$path" = /invocations ]; then
+    n=$(( $(grep -c '^POST /invocations$' "${CURL_REST_LOG:-/dev/null}" 2>/dev/null || echo 0) ))
+    resp="{\"id\":\"inv-$n\"}"; [ -f "$d/$key.code" ] || code=201
+  fi
+  [ -n "$resp" ] || resp='{}'
+  if [ -n "$out" ]; then printf '%s' "$resp" > "$out"; else printf '%s' "$resp"; fi
+  [ -n "$wfmt" ] && printf '%s' "$code"
+  exit 0
+fi
 
 if [ -n "${CURL_MCP_URL:-}" ] && [ "$url" = "$CURL_MCP_URL" ]; then
   body=""; [ "$data" = "@-" ] && body="$(cat)"

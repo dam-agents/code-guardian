@@ -234,7 +234,9 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
   monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
   pipeline and scores each output against its known defects; results
-  accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)).
+  accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)). A run needs
+  a non-public `work_repo` and a public definition repo
+  ([benchmark.md](benchmark.md) → **Isolation**).
 - **`benchmark_judge`** — pinned model id for the benchmark's LLM-judged
   quality scores; `off`/missing = deterministic scoring only. The judge runs as
   its own `claude -p` call on this model, whatever model the reviews ran on

@@ -78,7 +78,9 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    > Where should I keep a durable backup of my state (config, memory, review history)? Give me the repo as `[host/]owner/repo` — an empty one for a new agent, or the existing backup to continue a previous agent — or say "local-only" and the state lives on this volume alone.
 
    A reference → validate it
-   (`gh api --hostname "<host>" "repos/<owner/repo>" --jq .full_name`) and
+   (`gh api --hostname "<host>" "repos/<owner/repo>" --jq '.full_name + " " + .visibility'`)
+   — a **public** repository is refused: ask for a private one, since the
+   backup holds all of `work/` (the audit's `work_repo_visibility` check) — and
    `export WORK_REPO="<[host/]owner/repo>"` for Step 3a, which persists it as
    `work_repo`. "Local-only", or no reply → leave `$WORK_REPO` empty and tell
    the operator the state is not recoverable if the volume is lost.

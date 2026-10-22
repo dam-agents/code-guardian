@@ -411,7 +411,7 @@ assert_jq '.tokens == null' 'tokens is null when no snapshot exists, never estim
 # assemble the results file in the documented shape and validate it
 jq -n --argjson ph "$PHASE_JSON" '{
   ts: "2026-09-01T06:00:00Z", trigger: "scheduled", model: "test-model",
-  effort: "medium", definition_version: "3.12.0", judge: "off",
+  effort: "medium", definition_version: "3.12.0", judge: "off", isolation: "platform-subagent",
   fixtures: {"ts-cart": {
     first:    {f1: 0.8, precision: 0.667, recall: 0.667, recall_critical: 1,
                severity_accuracy: 1, fp: [{}], length: {words_total: 120},
@@ -437,6 +437,7 @@ assert_out_contains 'FAIL fixtures_shape' 'an array-shaped fixtures map is rejec
 assert_out_contains 'FAIL trigger' 'a trigger outside the enum is rejected'
 assert_out_contains 'FAIL judge_key' 'the drifted judge key is rejected'
 assert_out_contains 'FAIL fields.*effort' 'a run without its effort is rejected'
+assert_out_contains 'FAIL isolation:.*isolation is missing' 'a run without its isolation is rejected'
 assert_out_contains 'rc=1' 'the run would stop before writing history'
 # estimated/absent timings are caught too
 jq -n '{ts: "2026-09-01T06:00:00Z", trigger: "manual", model: "m",
@@ -456,6 +457,14 @@ OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r3.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'first.fp not an array' 'a dropped fp array is rejected'
 assert_out_contains 'rereview.churn not numeric' 'a dropped churn is rejected'
 assert_out_contains 'rc=1' 'incomplete scorer output never reaches the history'
+# an in-pod run carries the operator's approval and its reason, or it is rejected
+jq '.isolation = "none"' "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bad/r4.json" 2>/dev/null \
+  || jq -n '{isolation: "none"}' > "$SANDBOX/bad/r4.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r4.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL isolation:.*without isolation_reason, isolation_approved' 'an unapproved in-pod run is rejected'
+jq '. + {isolation_reason: "spawn refused", isolation_approved: "2026-09-01T05:59:00Z operator"}' "$SANDBOX/bad/r4.json" > "$SANDBOX/bad/r5.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r5.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   isolation' 'an approved in-pod run with its reason validates'
 
 new_case e2e_report_renders_and_normalizes_legacy_shape
 mkdir -p "$SANDBOX/rep/results"

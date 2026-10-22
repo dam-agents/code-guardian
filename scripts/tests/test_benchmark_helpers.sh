@@ -128,6 +128,30 @@ if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" |
 else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
 
+new_case report_delta_needs_same_isolation
+seed_results
+# model-a, same effort (none recorded), but isolated: the in-pod run 1 is no
+# baseline for it; a later isolated run compares against the isolated one
+for ts in 20260901T060000Z 20261001T060000Z; do
+  iso_ts="${ts:0:4}-${ts:4:2}-${ts:6:2}T06:00:00Z"
+  jq -n --arg ts "$iso_ts" --argjson s "$([ "$ts" = 20260901T060000Z ] && echo 100 || echo 150)" \
+    '{ts:$ts, trigger:"scheduled", model:"model-a", definition_version:"10.4.0", isolation:"platform-subagent",
+      fixtures:{"ts-api":{first:{f1:0.5,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:$s,tokens:null},
+        rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}}}}' \
+    > "$SANDBOX/bench/results/$ts.json"
+done
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains 'title="[^"]*Where the reviews ran[^"]*">isolation</th>' 'the isolation column carries its help text'
+assert_out_contains '<td>platform-subagent</td>' 'an isolated run is named'
+assert_out_contains '<td>none</td>' 'a run before isolation counts as none'
+row="$(printf '%s' "$OUT" | grep -m1 '<td>2026-09-01')"
+if ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: the first isolated run carries no delta against an in-pod run\n' "$CASE"
+else printf 'FAIL %s: the first isolated run must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+assert_out_contains '250 <span class="d down">▲+50</span>' 'isolated runs compare with each other'
+OUT="$(bash "$REPORT" index "$SANDBOX/bench")"
+assert_jq '.[0].isolation == "none" and .[3].isolation == "platform-subagent"' 'index mode carries isolation per run'
+
 new_case report_index_mode
 seed_results
 OUT="$(bash "$REPORT" index "$SANDBOX/bench")"

@@ -173,6 +173,16 @@ DEFAULT_HOST="${GH_HOST:-github.com}"
 refhost() { case "$1" in (*/*/*) printf '%s' "${1%%/*}";; (*) printf '%s' "$DEFAULT_HOST";; esac; }
 refslug() { case "$1" in (*/*/*) printf '%s' "${1#*/}";;  (*) printf '%s' "$1";; esac; }
 
+# A repository's visibility: public | private | internal, else `unknown` when
+# the API gives no answer (docs/benchmark.md → **Isolation**, audit
+# work_repo_visibility).
+repo_visibility() { # <[host/]owner/repo>
+  local v
+  v="$(gh_get --hostname "$(refhost "$1")" "repos/$(refslug "$1")" \
+    | jq -r '.visibility // (if .private == true then "private" elif .private == false then "public" else empty end)' 2>/dev/null)"
+  case "$v" in (public|private|internal) printf '%s' "$v";; (*) printf unknown;; esac
+}
+
 # The backup's scratch clone (docs/persistence.md → Backup & restore): pod-local
 # disk, off the shared home volume. It holds work/ and the work repo's history,
 # which outgrow a 64 MB /dev/shm. Overridable for testing.
