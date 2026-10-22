@@ -1009,6 +1009,21 @@ assert_jq '.stats.artifacts.generated == 3' 'published events counted once per P
 assert_jq '.stats.artifacts.skipped == 1' 'only the skipped outcome counts as a skip'
 assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
 assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
+assert_jq '.stats.guides == {published: 0, skipped: 0}' 'a trigger artifact is no review guide'
+
+# review guides (stats.guides): the `guide` events of docs/artifact.md → Review
+# guide, per PR, in the window
+new_case audit_guides
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+mkdir -p "$WORK/logs"
+eva guide info "PR #20: review-guide published → DAM g1, 0 redacted" 172800
+eva guide info "PR #20: review-guide published → DAM g1, 0 redacted" 86400   # a re-review updates the same PR
+eva guide info "PR #21: review-guide published → DAM g2, 1 redacted" 86400
+eva guide warn "PR #22: review-guide skipped (dam-unavailable)"      86400
+eva guide info "PR #23: review-guide published → DAM g3, 0 redacted" 1814400 # outside the window
+run_preflight audit
+assert_jq '.stats.guides == {published: 2, skipped: 1}' 'guides counted once per PR, in-window only'
 
 new_case audit_artifacts_zero
 base_config '- artifact_skill: pr-artifact@acme/skills'

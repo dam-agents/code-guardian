@@ -131,6 +131,50 @@ builds its `files[]` from the diff, whole.
   ([audit.md](audit.md) task 35). The audit re-verifies `stale` rows against
   the live source and drops `orphan` ones.
 
+## Project diagrams — `work/diagrams/`
+
+The profile is declared, never drawn. **Project diagrams** are its drawn
+layer: agent-owned maps of the repository's areas — components and how they
+connect, as on the default branch — that a guide skill draws once and every
+later guide reuses ([skills.md](skills.md) → **Guide skills**). Like the notes,
+they are judgement, kept apart from the declared rows; like the profile, they
+are orientation, never evidence.
+
+- **Form** — one SVG per area, `work/diagrams/<id>.svg`, from the bundled
+  skill's `assets/project-diagram.svg`. The root carries `data-cg-diagram`
+  (the id), `data-title`, `data-paths` (the directory prefixes it maps),
+  `data-base` (the full base commit it was drawn at) and `data-drawn` (the
+  date); `collect` refuses a map whose `data-base` is not 40 hex characters or
+  whose `data-drawn` is not a past date. Every
+  node opens on its own line as `<g class="node" data-paths="<prefix>,…">`.
+- **Reuse** — `review-pr.sh prepare` hands a guide skill every map whose
+  `data-paths` cover a changed file, as a copy in `$PR_DIR.ctx/diagrams/` with
+  each node the PR touches marked `class="node hl"`: the marking is
+  deterministic, no model call. The brief also names the touched areas no map
+  covers: the first two directories of each uncovered code, test or config
+  file — a docs-only area gets no map.
+- **Currency** — a map is stale when it is older than `DIAGRAM_STALE_DAYS`
+  (45) or when at least `DIAGRAM_STALE_FILES` (5) files were added, deleted or
+  renamed under its `data-paths` on the base branch since `data-base`; the
+  brief asks the guide to redraw it with the same id when it uses it. A
+  `data-base` older than the clone's 50 commits is fetched alone, trees only;
+  the comparison runs without rename detection, so it reads no file contents
+  (a rename counts as a delete and an add).
+  An input that cannot be read — no date, an unreadable date, a commit that
+  cannot be fetched or compared — makes the map stale, never fresh.
+- **Growth** — a guide run draws or redraws at most `DIAGRAM_NEW_MAX` (1) map,
+  the area with the most changes first. `review-pr.sh collect` checks it like a
+  guide page (redacted, no script, no remote load, no link outside the
+  repository, at most `DIAGRAM_MAX_BYTES`, and a title and path lists in
+  letters, digits and `. _ / , ( ) + -` only), stores it, and logs a
+  `diagram` event; the store holds at most `DIAGRAM_STORE_MAX` (40) maps. A map is
+  published only inside a guide page, so it carries no secret and no PR mark.
+- **Trust** — a stored map is model output from an earlier PR. Its title
+  and paths reach a later brief only in those plain characters, and the brief
+  marks them as data.
+- **Operator** — delete a file to have it redrawn; a hand-made map in the same
+  form is used like a drawn one.
+
 ## Configuration
 
 `project_profile` in `work/CONFIG.md`: `enabled` (missing = enabled) |

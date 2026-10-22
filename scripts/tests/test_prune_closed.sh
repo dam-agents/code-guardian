@@ -24,10 +24,11 @@ pr_json 1 "still open" '[]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
 closed_pr_fx 5 "$SHA5" false
-printf '# PR #5: gone PR\n<!-- artifact-dam: dam_1 -->\n' > "$WORK/reviews/pr-5.md"
+printf '# PR #5: gone PR\n<!-- artifact-guide: guide_7 abc1234 https://dam.example.test/s/x -->\n<!-- artifact-dam: dam_1 -->\n' > "$WORK/reviews/pr-5.md"
 run_preflight review
 assert_jq '.prunes_due | length == 1' 'one prune due'
 assert_jq '.prunes_due[0] | .number == 5 and .state == "CLOSED" and .dam_id == "dam_1" and (has("gist_id") | not)' 'prune carries artifact ids'
+assert_jq '.prunes_due[0].guide_id == "guide_7"' 'prune carries the review guide id'
 assert_jq '.reviews_due | length == 0' 'nothing to review'
 
 # --- a pruned PR's last nudge is recorded before its shepherd row goes --------
@@ -54,7 +55,7 @@ closed_pr_fx 5 "$SHA5" false
 printf '# PR #5: gone PR\n<!-- urgent-announced: 2026-09-28T10:00:00Z -->\n' > "$WORK/reviews/pr-5.md"
 printf '# PR #1: still open\n' > "$WORK/reviews/pr-1.md"
 run_preflight review
-assert_jq '.prunes_due | length == 1 and .[0].number == 5 and .[0].state == "CLOSED" and .[0].dam_id == null' 'a history file without a row prunes once its PR is closed'
+assert_jq '.prunes_due | length == 1 and .[0].number == 5 and .[0].state == "CLOSED" and .[0].dam_id == null and .[0].guide_id == null' 'a history file without a row prunes once its PR is closed'
 assert_jq '.reviews_due | length == 0' 'a closed PR without a row owes no review'
 
 # --- a history file without a row for an open PR stays -----------------------

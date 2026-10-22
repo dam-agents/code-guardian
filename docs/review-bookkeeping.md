@@ -25,19 +25,20 @@ never fatal — preflight re-emits the entry.
 
 ## Pruning (`prunes_due`)
 
-Preflight verified every entry `{number, state, dam_id}` CLOSED/MERGED. The
+Preflight verified every entry `{number, state, dam_id, guide_id}` CLOSED/MERGED. The
 candidates are the REVIEWS.md rows and the PRs with step-2 files or a
 `work/MENTIONS.md` `body-<n>` row but no REVIEWS.md row.
 Execute exactly this list — never from list absence, never a bulk delete of
 `reviews/pr-*.md`. An entry without an id → read the
-`<!-- artifact-dam: … -->` marker from `work/reviews/pr-<n>.md` before step 2
-deletes it.
+`<!-- artifact-dam: … -->` and `<!-- artifact-guide: … -->` markers from
+`work/reviews/pr-<n>.md` before step 2 deletes it.
 
-1. Artifact, a failure logged and never blocking: `dam_id` →
-   `delete_artifact {id: <dam_id>}`, skipped silently when the MCP tool is
+1. Artifacts, a failure logged and never blocking: `dam_id` and `guide_id`
+   (the review guide, [artifact.md](artifact.md) → **Review guide**) → one
+   `delete_artifact {id: <id>}` each, skipped silently when the MCP tool is
    absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
-   work/reviews/pr-artifacts/pr-<n>.html` — the PR's ledger rows stay
+   work/reviews/pr-artifacts/pr-<n>.html work/reviews/pr-artifacts/pr-<n>.guide.html` — the PR's ledger rows stay
    ([review-mechanics.md](review-mechanics.md) → **Review ledger**).
 3. Delete the PR's REVIEWS.md row (`review-pr.sh row <n> --delete`), and its
    `work/SHEPHERD.md` row and `work/MENTIONS.md` `body-<n>` row when present.

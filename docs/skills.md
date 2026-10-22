@@ -12,8 +12,8 @@ order in the output.
 ## Where a skill lives
 
 The definition repo's [`.agents/skills/`](../.agents/skills/) holds only the
-code-guardian protocol: `issue-fit`, and the author side of a review
-(`pr-open`, `review-remediation`). A domain skill — a language, a framework,
+code-guardian protocol: `issue-fit`, the `review-guide` guide skill, and the
+author side of a review (`pr-open`, `review-remediation`). A domain skill — a language, a framework,
 a checklist such as OWASP or WCAG — lives with the team that keeps it current:
 in that team's skills repository, or in the reviewed repository itself under
 `.agents/skills/<skill>/`. Its row's `source` names that repository, and the
@@ -139,6 +139,9 @@ exist in the chat UI:
 
 - `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
+- `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|budget|refused>[, diagrams=<N>])` —
+  a guide skill (**Guide skills**); `diagrams` counts the project maps it
+  stored.
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.
@@ -153,6 +156,77 @@ Missing lines mean the skill step is not done: do not proceed to posting.
   and the review's `_Limits:_` line, which counts and names the skills that did
   not run ([review.md](review.md) → **Output format (first reviews)**), are its
   trace.
+- A **guide skill** posts its section only with a page to link: a
+  `needs-human` triage and a guide published or kept. Any other outcome omits
+  the section, and the audit line is its whole trace — not a `_Limits:_` entry,
+  because the skill ran.
+
+## Guide skills
+
+A skill whose `SKILL.md` frontmatter carries
+
+```yaml
+metadata:
+  code-guardian-output: guide
+```
+
+builds a page for the human reviewer instead of findings. The bundled one is
+[`review-guide`](../.agents/skills/review-guide/SKILL.md): one row in the
+table, source the instance's `definition_repo`, trigger `always`, its section
+for example `Human Review Guide`. Table order places its link line among the
+sections.
+
+- **Brief.** `prepare` reads the frontmatter of the installed skill and renders
+  [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
+  instead of the review brief: the diff, the PR context, the context pack, the
+  risk prescan, a `human_review_paths` match (which passes the skill's gate),
+  the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`,
+  links pinned to the head SHA, and the project diagrams of the touched areas
+  marked for this PR, with the areas that have none ([profile.md](profile.md) →
+  **Project diagrams**). `skills.<skill>.kind` is `guide` and
+  `skills.<skill>.html` the page path.
+- **Cost.** It fans out with the other skills, so it adds no wall clock while
+  another skill runs longer. Its budget is `GUIDE_BUDGET_MIN` (10) of
+  `review-pr.sh`. The skill decides its gate from the diff stat and the PR
+  context before it opens a file; a PR that needs no person ends there, with
+  no page. The skill keeps its own budget by the clock; `collect` warns about
+  an output written past it, and nothing stops the subagent sooner. Trial
+  runs on real pull requests took 2–7 minutes for a built page.
+- **Output.** `$PR_DIR.out/<skill>.txt` holds one line: `📊 Guide — <what the
+  person must judge> (about <N> min)` with the page beside it, `🔁 Still holds —
+  <reason>` when the guide published at an earlier SHA still fits,
+  `➖ Not needed — <reason>`, or `➖ Not built — budget reached.` when the
+  skill stopped at its budget (state `budget`, a form warning — never read as
+  not needed).
+- **Collect.** `review-pr.sh collect` redacts a built page
+  (`scripts/lib/redact.sh`) and then checks it: one file under
+  `GUIDE_MAX_BYTES`, no script, no event attribute, no frame, form, `<link>`
+  or SVG animation, no remote or `data:` load, no address, escape or import
+  in its CSS, no `xml:base`, and every URL attribute (`href`, `src`,
+  `srcset`, `background`, `ping` and the rest) either an `#anchor` or a URL
+  under `https://<repo-host>/<owner>/<repo>/` with no space, comma, entity,
+  escape or `..`. The check folds every run of whitespace, then scans the
+  tags as a browser reads them (a quote opens a value only after `=`, and a
+  `>` in a quoted value does not end a tag; text between tags, such as code
+  in a mini diff, is not read as attributes). It drops each comment that
+  opens between tags, and refuses a `<!--` inside a quoted value or a
+  raw-text element such as `<style>`. `srcset`, `xml:base` and `http-equiv`
+  are refused, and the only CSS `url()` is `url(#id)`. A page that went through `collect` before
+  has its vetted script taken out first, so a second `collect` reads the
+  same page. A page that fails is
+  `refused`, with the reason as a form warning; it does not publish. A page
+  that passes gets the skill's vetted `assets/guide.js` inserted before
+  `</body>` (`skills.<skill>.interactive`): the level bar, per-section zoom, a
+  light/dark switch, map-node zoom, linked
+  highlight, tooltips and the churn filter, all driven by `data-*`
+  attributes, so the model writes no script. A project
+  map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
+  and is stored in `work/diagrams/`, whatever the page's fate.
+- **Publish.** The review agent renders the review's open findings into the
+  page (`review-pr.sh guide <n> --findings`), then publishes a built page, or
+  refreshes a kept one, only when its own triage is `needs-human` — the step between `meta.json` and
+  `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
+  guide**).
 
 ## Verdict integration
 

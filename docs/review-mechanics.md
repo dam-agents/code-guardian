@@ -188,6 +188,7 @@ alive for `FANOUT_QUIET_MIN` (60) instead; calibrate the value against
 
 ```markdown
 # PR #<number>: <title>
+<!-- artifact-guide: <DAM_ID> <sha7> <share-url> -->
 <!-- artifact-dam: <DAM_ID> -->
 
 ## PR-local overrides
@@ -204,8 +205,8 @@ alive for `FANOUT_QUIET_MIN` (60) instead; calibrate the value against
 Title header and overrides stay at the top; reviews append below, oldest first,
 separated by `---`. Update the header on a title change. The artifact markers
 sit right after the title, one per line, overwritten in place by the artifact
-step ([artifact.md](artifact.md)); omit a marker whose surface was not
-published. Watch-rule markers (`<!-- watch-sent: <id> -->`,
+step and by `review-pr.sh guide` ([artifact.md](artifact.md)); omit a marker
+whose surface was not published. Watch-rule markers (`<!-- watch-sent: <id> -->`,
 [watches.md](watches.md)) follow on their own lines.
 
 **Review ledger** — `work/REVIEW-LEDGER.jsonl`, the append-only record of the

@@ -1,0 +1,494 @@
+<!doctype html>
+<!-- review-guide template. Fill every {{…}}; delete a section that has no
+     content. Each section: one visual + at most about 60 words, then its zooms.
+     Write no script element: code-guardian adds the vetted assets/guide.js at
+     the end of the body (standalone use: paste that file in a script element there).
+     No remote load, links only into the PR's repository. Remove these
+     comments in the output. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #{{N}} review guide</title>
+<style>
+:root,:root[data-theme=light]{--bg:#fbfaf8;--fg:#1d1d1f;--muted:#5f6368;--line:#e3e1dc;--card:#fff;--accent:#c2410c;--accent-bg:#fff1e8;--ok:#15803d;--ok-bg:#ecfdf3;--warn:#b45309;--warn-bg:#fff7e6;--link:#1d4ed8;--before:#8a8f98;--k-logic:#c2410c;--k-test:#15803d;--k-docs:#2563eb;--k-mech:#a1a1aa}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#141416;--fg:#ececee;--muted:#a1a1aa;--line:#2e2e33;--card:#1c1c20;--accent:#fb923c;--accent-bg:#2a1a10;--ok:#4ade80;--ok-bg:#0f2417;--warn:#fbbf24;--warn-bg:#2a2110;--link:#93c5fd;--before:#71717a;--k-logic:#fb923c;--k-test:#4ade80;--k-docs:#60a5fa;--k-mech:#52525b}}
+:root[data-theme=dark]{--bg:#141416;--fg:#ececee;--muted:#a1a1aa;--line:#2e2e33;--card:#1c1c20;--accent:#fb923c;--accent-bg:#2a1a10;--ok:#4ade80;--ok-bg:#0f2417;--warn:#fbbf24;--warn-bg:#2a2110;--link:#93c5fd;--before:#71717a;--k-logic:#fb923c;--k-test:#4ade80;--k-docs:#60a5fa;--k-mech:#52525b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:880px;margin:0 auto;padding:20px 16px 48px}
+a{color:var(--link)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+/* a closed line is plain words: code in it takes the line's own type */
+summary code,.why code,.rk b code{font:inherit;background:none;padding:0}
+h1{font-size:20px;line-height:1.3;margin:0 0 6px}
+h2{font-size:16px;margin:0 0 4px}
+p{margin:6px 0}
+.muted{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;color:var(--muted);font-size:13px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.why{border-left:4px solid var(--accent);background:var(--accent-bg);padding:12px 14px;border-radius:6px;margin:0 0 10px}
+.why strong{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.start{margin:0 0 16px}
+section,details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin:0 0 12px}
+details.sec{padding:0}
+details.sec>summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;gap:10px;align-items:baseline}
+details.sec>summary::-webkit-details-marker{display:none}
+details.sec>summary::before{content:"▸";color:var(--muted);flex:none}
+details.sec[open]>summary::before{content:"▾"}
+details.sec>summary b{flex:none;min-width:11.5em}
+details.sec>summary>span:not(.zc){flex:1;color:var(--fg)}
+details.sec>summary em{flex:none;font-style:normal;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 8px}
+/* the flag on a closed line: what in this section a person must not miss */
+details.sec>summary em.alert{font-weight:600;color:#fff;border:0;background:var(--warn)}
+details.sec>summary em.alert.hi{background:var(--accent)}
+details.sec:has(>summary em.alert){border-left:4px solid var(--warn)}
+details.sec:has(>summary em.alert.hi){border-left-color:var(--accent)}
+details.sec>.body{padding:0 14px 14px}
+details.more{border:0;border-top:1px dashed var(--line);border-radius:0;padding:8px 0 0;margin:10px 0 0;background:none}
+details.more>summary{cursor:pointer;color:var(--link);font-size:13px}
+/* zoom ladder: nested details, a breadcrumb per level */
+details.zoom{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;padding:0;margin:8px 0 0;background:var(--card)}
+details.zoom>summary{cursor:pointer;padding:8px 10px;font-size:14px;list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+details.zoom>summary::-webkit-details-marker{display:none}
+details.zoom>summary::before{content:"🔍";font-size:12px}
+details.zoom>summary em{font-style:normal;font-size:12px;color:var(--muted)}
+details.zoom>.body{padding:0 10px 10px}
+details.zoom details.zoom{border-left-color:var(--k-docs)}
+.crumb{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.crumb b{color:var(--fg);font-weight:600}
+/* file tiles: one per file, flex-grow = changed lines */
+.tiles{display:flex;flex-wrap:wrap;gap:4px}
+.tiles>div{flex:1 1 140px;min-width:140px;border-radius:5px;padding:6px;font-size:12px;line-height:1.3;border:1px solid var(--line);background:var(--bg)}
+.tiles>div.chg{border:1.5px dashed var(--accent);background:var(--accent-bg)}
+.tiles>div code{font-size:11px;overflow-wrap:anywhere}
+.tiles .m{display:block;height:4px;border-radius:2px;margin-top:4px;background:var(--k-logic)}
+.tiles .m.t{background:var(--k-test)}.tiles .m.d{background:var(--k-docs)}.tiles .m.x{background:var(--k-mech)}
+/* component cards: role, before → after, churn, risk */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:8px}
+.cards>div{border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px}
+.cards>div.chg{border:1.5px dashed var(--accent);background:var(--accent-bg)}
+.cards .ba1{display:block;color:var(--muted);font-size:12px;margin:4px 0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.dot.hi{background:var(--accent)}.dot.md{background:var(--warn)}.dot.lo{background:var(--ok)}
+/* mini diff: ≤ 12 lines */
+pre.diff{padding:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+pre.diff span{display:block;padding:0 8px}
+pre.diff .add{background:var(--ok-bg);color:var(--ok)}
+pre.diff .del{background:var(--warn-bg);color:var(--warn);text-decoration:line-through;text-decoration-color:currentColor}
+pre.diff .ctx{color:var(--muted)}
+/* risks: one card per grounded risk, the level as a colored edge + dot */
+.risks h2 small{font-weight:400}
+.rk{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-top:8px}
+.rk>div{border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:6px;padding:8px;font-size:13px;background:var(--card)}
+.rk>div.hi{border-left-color:var(--accent)}.rk>div.md{border-left-color:var(--warn)}
+.rk b{display:block;font-size:14px}
+.rk .tg{display:inline-block;font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px;margin:3px 0;color:var(--muted)}
+/* limits: in / later / not done */
+.scope{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.scope>div{border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px}
+.scope ul{margin:4px 0 0;padding-left:16px}
+.scope .in{border-top:3px solid var(--ok)}.scope .later{border-top:3px solid var(--warn)}.scope .out{border-top:3px solid var(--before)}
+@media (max-width:600px){.scope{grid-template-columns:1fr}}
+.overview{margin:14px 0 6px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:760px){details.sec>summary{flex-wrap:wrap}details.sec>summary b{min-width:0;flex:1}details.sec>summary>span:not(.zc){flex-basis:100%;order:3;padding-left:20px;color:var(--muted)}}
+.map{overflow-x:auto}
+.map>svg{min-width:560px}
+figure{margin:10px 0 0}
+figcaption{color:var(--muted);font-size:12px;margin-top:4px}
+.ba{display:flex;flex-wrap:wrap;gap:12px}
+.ba svg{flex:1 1 300px;min-width:0}
+/* diagrams laid out by the browser: no coordinates, text wraps in its box */
+.cap{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.ba2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:26px}
+.flow.h{flex-direction:row;flex-wrap:wrap;align-items:stretch;gap:12px 34px}
+.box{position:relative;border:1px solid var(--before);border-radius:7px;padding:8px 10px;background:var(--card);font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.flow.h>.box{flex:1 1 140px;max-width:240px}
+.box small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.box.chg{border:1.6px dashed var(--accent);background:var(--accent-bg)}
+.box[data-tag]::after,.msg[data-tag]::after{content:attr(data-tag);position:absolute;top:-9px;right:8px;font-size:10px;font-weight:700;letter-spacing:.04em;color:#fff;background:var(--accent);border-radius:4px;padding:1px 5px}
+.flow>.box+.box::before{content:"↓";position:absolute;left:50%;top:-24px;transform:translateX(-50%);color:var(--before);font-size:15px;line-height:20px}
+.flow.h>.box+.box::before{content:"→";left:-26px;top:50%;transform:translateY(-50%)}
+.flow>.box.chg::before{color:var(--accent)}
+.flow>.box[data-via]::before{content:"↓  " attr(data-via);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:95%;font-size:11px}
+.flow.h>.box[data-via]::before{content:"→";}
+.seq{position:relative;display:grid;gap:4px;font-size:12px;padding-bottom:6px;
+  background-image:linear-gradient(to right,transparent calc(50% - .5px),var(--line) calc(50% - .5px),var(--line) calc(50% + .5px),transparent calc(50% + .5px));
+  background-size:calc(100% / var(--n)) 100%}
+.seq .ps{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:6px;margin-bottom:6px}
+.seq .ps span{text-align:center;font-weight:600;font-size:12.5px;background:var(--card);border:1px solid var(--before);border-radius:6px;padding:4px 6px;overflow-wrap:anywhere}
+.seq .msg{position:relative;margin-left:calc((min(var(--a),var(--b)) - .5) / var(--n) * 100%);width:calc((max(var(--a),var(--b)) - min(var(--a),var(--b))) / var(--n) * 100%);border-bottom:2px solid var(--before);padding:2px 4px 3px;text-align:center}
+.seq .msg span{display:block;overflow-wrap:anywhere;line-height:1.25}
+.seq .msg::before{content:"";position:absolute;right:-1px;bottom:-6px;border:5px solid transparent;border-left:8px solid var(--before);border-right:0}
+.seq .msg.back::before{right:auto;left:-1px;border-left:0;border-right:8px solid var(--before)}
+.seq .msg.chg{border-bottom:2px dashed var(--accent);color:var(--accent);font-weight:600}
+.seq .msg.chg::before{border-left-color:var(--accent)}.seq .msg.chg.back::before{border-right-color:var(--accent);border-left-color:transparent}
+.seq .msg[data-tag]::after{top:-12px}
+.blast .r2,.blast .r1,.blast .core{border:1px solid var(--line);border-radius:18px;padding:10px 12px;text-align:center}
+.blast .r1{margin-top:10px;background:var(--bg)}.blast .core{margin:10px auto 0;max-width:420px;border:1.6px dashed var(--accent);background:var(--accent-bg)}
+.chip{display:inline-block;margin:3px;padding:3px 9px;border:1px solid var(--before);border-radius:999px;font-size:12px;background:var(--card);overflow-wrap:anywhere}
+.chip.chg{border-color:var(--accent);font-weight:600}
+.term{border-bottom:1px dotted var(--muted);cursor:help}
+/* verification tables: a status column, one row per ask, situation or claim */
+.req .st,.prf .st{width:28px;text-align:center;font-weight:700;font-size:15px}
+.req tr.ok .st,.prf tr.ok .st{color:var(--ok)}.req tr.part .st,.prf tr.part .st{color:var(--warn)}
+.req tr.miss .st,.prf tr.miss .st{color:var(--accent)}.req tr.extra .st{color:var(--k-docs)}
+.req tr.miss td,.prf tr.miss td{background:var(--accent-bg)}
+.scn td:first-child{font-weight:600}.scn tr.chg td:last-child{background:var(--accent-bg);font-weight:600}
+.scn tr.chg td:nth-child(2){color:var(--muted);text-decoration:line-through;text-decoration-color:var(--before)}
+.fitl{list-style:none;margin:6px 0 0;padding:0}.fitl li{padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.fitl .st{display:inline-block;min-width:84px;text-align:center;font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;color:#fff;background:var(--ok)}
+.fitl .updates .st{background:var(--k-docs)}.fitl .contradicts .st{background:var(--accent)}
+.asm{font-size:13px;margin:4px 0 8px}.asm .st{font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;border:1px solid currentColor}
+.asm .st.ok{color:var(--ok)}.asm .st.miss{color:var(--accent)}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font:12px system-ui,sans-serif}
+svg text.sub{fill:var(--muted);font-size:10px}
+svg .box,svg .node rect{fill:var(--card);stroke:var(--before)}
+svg .chg,svg .node.hl rect{fill:var(--accent-bg);stroke:var(--accent);stroke-dasharray:5 3;stroke-width:1.6}
+svg .edge{stroke:var(--before);fill:none;marker-end:url(#arr)}
+svg .edge.chg{stroke:var(--accent);stroke-dasharray:5 3}
+svg .tag{fill:var(--accent);font-weight:600;font-size:10px}
+svg .life{stroke:var(--line);stroke-dasharray:3 3}
+svg .ring{fill:none;stroke:var(--line)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+/* decisions: question + compare */
+.dec{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+.dec:first-of-type{border-top:0;margin-top:4px;padding-top:0}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.cmp>div{border:1px solid var(--line);border-radius:6px;padding:8px;font-size:14px}
+.cmp .pick{border-color:var(--accent);background:var(--accent-bg)}
+.cmp b{display:block;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.y{color:var(--ok)}.n{color:var(--warn)}
+.org{display:inline-block;font-size:11px;font-weight:600;border-radius:999px;padding:0 8px;margin-left:4px;vertical-align:middle;border:1px solid currentColor}
+.org.open{color:var(--accent)}.org.author{color:var(--ok)}.org.inferred{color:var(--muted)}
+@media (max-width:520px){.cmp{grid-template-columns:1fr}}
+/* problems: timeline */
+.tl{list-style:none;margin:8px 0 0;padding:0 0 0 18px;border-left:2px solid var(--line)}
+.tl li{position:relative;margin:0 0 12px}
+.tl li::before{content:"";position:absolute;left:-25px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--warn);border:2px solid var(--card)}
+.tl .p{background:var(--warn-bg);border-radius:4px;padding:2px 6px}
+.tl .f{background:var(--ok-bg);border-radius:4px;padding:2px 6px;display:inline-block;margin-top:3px}
+/* churn: treemap + table */
+.tm{display:flex;flex-wrap:wrap;gap:3px;margin-top:8px}
+.tm div{min-width:60px;padding:6px;border-radius:4px;color:#fff;font-size:12px;line-height:1.3;overflow:hidden}
+.tm .logic{background:var(--k-logic)}.tm .test{background:var(--k-test)}.tm .docs{background:var(--k-docs)}.tm .mech{background:var(--k-mech)}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+th,td{text-align:left;padding:6px;border-top:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px}
+.bar{display:inline-block;height:8px;border-radius:2px;background:var(--accent);vertical-align:middle}
+.bar.low{background:var(--before)}
+.tagr{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px}
+.read{color:var(--accent)}.skim{color:var(--muted)}
+pre{overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:12px}
+footer{color:var(--muted);font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+<!-- one marker for every SVG on the page -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a8f98"/></marker></defs></svg>
+
+<!-- FIRST SCREEN — what, why a person, where to start, where it lands -->
+<h1>PR #{{N}}: {{TITLE}}</h1>
+<div class="chips">
+  <span class="chip">head <code>{{SHA7}}</code></span>
+  <span class="chip">+{{ADD}} −{{DEL}} · {{FILES}} files</span>
+  <span class="chip" title="Effort 1–5: 1 one concern, under 10 min · 2 about 15 min · 3 several parts, about 30 min · 4 cross-module design, about 1 h · 5 more than 1 h or a domain expert">effort {{EFFORT}}/5</span>
+  <span class="chip">about {{MINUTES}} min</span>
+</div>
+<div class="why"><strong>Why a person must look</strong>{{WHY — 1–2 sentences: the question(s) only a person can settle}}</div>
+<!-- RISKS — 2–4 cards, highest first, each grounded in a fact (see SKILL.md
+     → Risks from facts). Level: hi | md | lo. Tag: the kind of fact. -->
+<section class="risks" id="risks">
+  <h2>Risks — what to watch <small class="muted">· {{K}}</small></h2>
+  <div class="rk">
+    <div class="hi" data-ref="{{node}}" data-zoom="{{id of the section it concerns, e.g. impact}}" data-tip="{{the evidence in one line}}"><span class="dot hi"></span><b>{{what can go wrong, ≤ 12 words}}</b><span class="tg">{{irreversible | contract | untested | sensitive path | concurrency | security | data | rollout | open point}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{the fact behind it, ≤ 15 words}}</div>
+    <div class="md"><span class="dot md"></span><b>{{risk}}</b><span class="tg">{{kind}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{fact}}</div>
+  </div>
+</section>
+
+<!-- cg:findings -->
+<!-- code-guardian renders the review's verified findings here; keep the mark. -->
+
+<p class="start">▶ <b>Start here:</b> <a href="{{LINK to stop 1}}">{{path:line}}</a> — {{what to check there}} · <a href="#decisions">the decisions</a></p>
+
+<section>
+  <h2>Where it lands</h2>
+  <!-- The marked project diagram from the brief, pasted whole (its <svg> keeps
+       its data-* attributes and its nodes). No diagram: a small component map
+       of the touched area in the same node style. -->
+  <figure class="map">
+    {{PROJECT DIAGRAM SVG with class="node hl" on the touched nodes}}
+    <figcaption>{{area}} — marked: the parts this PR changes. Zoom into a marked part below.</figcaption>
+  </figure>
+  <!-- ZOOM LADDER: one zoom per marked node (at most 3, most churn first).
+       Zoom 1 = its files as tiles; zoom 2 = one file: a mini diff + link.
+       Interactions (the vetted script code-guardian adds; you write no script):
+       on each marked map node add data-zoom="z-<node>" (a click opens this
+       zoom), data-ref="<node>" and data-tip="<role, +a −d>"; give the same
+       data-ref to its tiles, cards and reading-order rows (hover links them). -->
+  <details class="zoom" id="z-{{node}}" data-ref="{{node}}">
+    <summary><b>{{node name}}</b><em>{{K}} files · +{{a}} −{{d}}</em></summary>
+    <div class="body">
+      <div class="crumb">Map › <b>{{node name}}</b></div>
+      <div class="tiles">
+        <div class="chg" data-kind="logic" data-ref="{{node}}" data-tip="{{what changed in it, ≤ 15 words}}" style="flex-grow:{{lines}}"><code>{{file}}</code><br>{{role in ≤ 6 words}}<span class="m" style="width:{{%}}%"></span></div>
+        <div data-kind="test" data-tip="{{what it proves}}" style="flex-grow:{{lines}}"><code>{{file}}</code><br>{{role}}<span class="m t" style="width:{{%}}%"></span></div>
+      </div>
+      <details class="zoom">
+        <summary><code>{{file}}</code><em>the change that matters</em></summary>
+        <div class="body">
+          <div class="crumb">Map › {{node name}} › <b>{{file}}</b></div>
+          <pre class="diff"><span class="ctx">{{context line}}</span><span class="del">{{removed line}}</span><span class="add">{{added line}}</span></pre>
+          <a href="{{LINK to the lines at the head SHA}}">{{path:line}} on GitHub</a>
+        </div>
+      </details>
+    </div>
+  </details>
+</section>
+
+<!-- FLAG ON A CLOSED LINE: when a section holds something a person must not
+     miss — an open decision, a hi/md risk, a breaking change, an unsolved
+     problem, untested changed logic — put ONE flag in its summary, before the
+     badge: <em class="alert hi">⚠ {{≤ 6 words}}</em> (hi) or
+     <em class="alert">⚠ {{≤ 6 words}}</em> (md). No flag when nothing is.
+     THE SECTIONS — collapsed: each summary line is the section's main
+     point, so the closed page reads as an overview. Open = the main visual and
+     ≤ 60 words; each "Zoom in" goes one level deeper with more pictures:
+     component cards or file tiles, then the code as a mini diff. Order is fixed. -->
+<p class="overview">At a glance — open a line for its picture</p>
+
+<details class="sec" id="why">
+  <summary><b>Why this PR exists</b><span>{{main point in ≤ 15 words}}</span></summary>
+  <div class="body">
+    <!-- Before | after as two flows: boxes top to bottom, the browser lays them
+         out. Text wraps inside its box. A changed box: class="box chg" plus
+         data-tag="NEW" or "CHANGED" (a corner badge). An arrow label: data-via
+         on the box the arrow points to. ≤ 6 boxes per side. -->
+    <figure class="ba2" role="img" aria-label="{{before and after in one sentence}}">
+      <div><div class="cap">Before</div>
+        <ol class="flow">
+          <li class="box">{{symbol}}<small>{{role}}</small></li>
+          <li class="box" data-via="{{call}}">{{symbol}}<small>{{role}}</small></li>
+        </ol></div>
+      <div><div class="cap">After</div>
+        <ol class="flow">
+          <li class="box">{{symbol}}<small>{{role}}</small></li>
+          <li class="box chg" data-tag="NEW" data-via="{{new call}}">{{symbol}}<small>{{role}}</small></li>
+        </ol></div>
+    </figure>
+    <!-- explain a term the reader may not know at its first use, for example:
+         the <span class="term" data-tip="The proxy that passes chat frames between a client and the agent.">ACP relay</span> -->
+    <p>{{the problem before, and what a user, request or job does differently now — ≤ 60 words, each unfamiliar term wrapped as a .term with its meaning}}</p>
+    <details class="zoom"><summary><b>Zoom in: the user flow</b><em>steps</em></summary>
+      <div class="body"><div class="cards"><div><b>1</b> {{step}}</div><div><b>2</b> {{step}}</div><div class="chg"><b>3</b> {{the changed step}}</div></div></div>
+    </details>
+  </div>
+</details>
+
+<!-- ASKED VS DELIVERED — the linked issue's asks and the PR's stated goal,
+     each against the diff. Status: ok ✓ delivered · part ◐ partly · miss ✗
+     missing · extra ➕ done but not asked. -->
+<details class="sec" id="asked">
+  <summary><b>Asked vs delivered</b><span>{{does the PR do what was asked, ≤ 15 words}}</span><em class="alert hi">⚠ {{e.g. 1 ask missing}}</em><em>{{K}}/{{N}} delivered</em></summary>
+  <div class="body">
+    <table class="req">
+      <tr><th></th><th>Asked</th><th>Delivered — the evidence</th></tr>
+      <tr class="ok"><td class="st" data-tip="Delivered">✓</td><td>{{the ask, in the issue's words, ≤ 12 words}} <a href="{{issue link}}">#{{n}}</a></td><td>{{how}} · <a href="{{LINK}}">{{path:line}}</a></td></tr>
+      <tr class="part"><td class="st">◐</td><td>{{ask}}</td><td>{{what is missing}}</td></tr>
+      <tr class="miss"><td class="st">✗</td><td>{{ask}}</td><td>{{not in this PR}}</td></tr>
+      <tr class="extra"><td class="st">➕</td><td class="muted">not asked</td><td>{{what the PR adds beyond the ask}}</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- BEHAVIOR: BEFORE → AFTER — the few situations a user or a caller meets,
+     what happened before and what happens now. A changed row: class "chg". -->
+<details class="sec" id="behavior">
+  <summary><b>Behavior: before → after</b><span>{{the main change a user sees, ≤ 15 words}}</span><em>{{K}} changed</em></summary>
+  <div class="body">
+    <table class="scn">
+      <tr><th>When…</th><th>Before</th><th>After</th></tr>
+      <tr class="chg"><td data-tip="{{who meets this, and how often}}">{{situation}}</td><td>{{old result}}</td><td>{{new result}}</td></tr>
+      <tr><td>{{situation}}</td><td>{{result}}</td><td>same</td></tr>
+    </table>
+  </div>
+</details>
+
+<details class="sec" id="chain">
+  <summary><b>The dependency chain</b><span>{{entry → … → end, in ≤ 15 words}}</span><em>{{N}} links changed</em></summary>
+  <div class="body">
+    <!-- Sequence: --n participants; each message names its columns --a (from)
+         and --b (to); class "back" when it points left, "chg" when the PR adds
+         or changes it. A pipeline or call chain instead: <ol class="flow h">
+         with the same boxes as the before/after. -->
+    <figure class="seq" style="--n:3" role="img" aria-label="{{the chain in one sentence}}">
+      <div class="ps"><span>{{caller}}</span><span>{{component}}</span><span>{{dependency}}</span></div>
+      <div class="msg" style="--a:1;--b:2"><span>1 {{call}}</span></div>
+      <div class="msg chg" style="--a:2;--b:3" data-tag="NEW"><span>2 {{new call}}</span></div>
+      <div class="msg back" style="--a:3;--b:1"><span>3 {{reply}}</span></div>
+    </figure>
+    <p>{{what the chain shows — ≤ 40 words}}</p>
+    <details class="zoom">
+      <summary><b>Zoom in: each step</b><em>{{K}} components</em></summary>
+      <div class="body">
+        <div class="cards">
+          <div data-ref="{{node}}" data-tip="{{risk: why high}}"><span class="dot hi"></span><b>{{component}}</b><span class="ba1">{{before}} → <b>{{after}}</b></span><span class="bar" style="width:{{px}}px"></span> +{{a}} −{{d}}<br><a href="{{LINK}}">{{path:line}}</a></div>
+          <div><span class="dot lo"></span><b>{{component}}</b><span class="ba1">unchanged</span></div>
+        </div>
+        <details class="zoom"><summary><code>{{the riskiest step}}</code><em>code</em></summary>
+          <div class="body"><pre class="diff"><span class="add">{{added line}}</span></pre><a href="{{LINK}}">{{path:line}} on GitHub</a></div>
+        </details>
+      </div>
+    </details>
+  </div>
+</details>
+
+<details class="sec" id="decisions">
+  <summary><b>Decisions and alternatives</b><span>{{the first open question}}</span><em class="alert hi" data-tip="{{why it matters}}">⚠ {{K}} open, decided by the agent</em><em>{{K}} to judge</em></summary>
+  <div class="body">
+    <!-- one card per decision, `open` first, then `inferred`, then `author`;
+         the origin badge: open (the agent decided alone — judge it), author
+         (the person decided — confirm it), inferred (no text names it) -->
+    <div class="dec">
+      <b>{{QUESTION a person must answer}}</b> <span class="org open" data-tip="{{where the origin is stated}}">⚑ open — the agent decided alone</span>
+      <div class="cmp">
+        <div class="pick"><b>PR's choice</b>{{choice}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+        <div><b>Alternative</b>{{alternative}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+      </div>
+      <p class="asm"><b>Assumes:</b> {{what must be true for this choice to be right}} <span class="st {{ok|miss}}" data-tip="{{where it is checked, or: nothing checks it}}">{{verified | not verified}}</span></p>
+      <details class="zoom"><summary><b>Why, and the evidence</b><em>source · code</em></summary>
+        <div class="body"><p>{{the PR's reason with its source, or: The PR does not say why.}}</p>
+          <pre class="diff"><span class="add">{{the line that carries the choice}}</span></pre><a href="{{LINK}}">{{path:line}} on GitHub</a></div>
+      </details>
+    </div>
+    <div class="dec">
+      <b>{{QUESTION}}</b> <span class="org author" data-tip="author-decisions, {{date}}">✓ decided by the author · {{date}}</span>
+      <div class="cmp">
+        <div class="pick"><b>PR's choice</b>{{choice}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+        <div><b>Alternative</b>{{alternative}}<br><span class="y">✓ {{gain}}</span><br><span class="n">✗ {{cost}}</span></div>
+      </div>
+      <p class="muted">Why, in the author's words: {{the entry's why}} · scope: <code>{{the entry's scope}}</code></p>
+    </div>
+  </div>
+</details>
+
+<!-- FITS THE PROJECT'S DECISIONS — the recorded decisions and docs that
+     cover the changed paths (the profile's Decisions and Docs rows), each with
+     what this PR does to it: aligned · updates (the PR changes the doc too) ·
+     contradicts (the code goes against it, the doc stays). -->
+<details class="sec" id="fit">
+  <summary><b>Fits the project's decisions</b><span>{{in line with the records, or where not}}</span><em class="alert hi">⚠ {{e.g. contradicts ADR-12}}</em><em>{{K}} records</em></summary>
+  <div class="body">
+    <ul class="fitl">
+      <li class="aligned"><span class="st">aligned</span> <a href="{{LINK to the doc}}">{{ADR or doc title}}</a> — {{the rule it states, ≤ 15 words}}</li>
+      <li class="updates"><span class="st">updates</span> <a href="{{LINK}}">{{doc}}</a> — {{what the PR changes in it}}</li>
+      <li class="contradicts"><span class="st">contradicts</span> <a href="{{LINK}}">{{doc}}</a> — {{the rule}} · <a href="{{LINK}}">{{path:line}}</a> {{goes against it}}</li>
+    </ul>
+  </div>
+</details>
+
+<details class="sec" id="problems">
+  <summary><b>Problems encountered</b><span>{{the hardest one, in ≤ 15 words}}</span><em>{{K}} solved</em></summary>
+  <div class="body">
+    <ol class="tl">
+      <li><span class="p">⚠ {{problem}}</span><br><span class="f">✓ {{fix}}</span> <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/commit/{{SHA}}">{{sha7}}</a></li>
+    </ol>
+    <details class="zoom"><summary><b>Zoom in: the hardest one</b><em>the fix as a diff</em></summary>
+      <div class="body"><p>{{the dead end or edge case, and the comment that raised it}}</p>
+        <pre class="diff"><span class="del">{{before the fix}}</span><span class="add">{{the fix}}</span></pre><a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/commit/{{SHA}}">{{sha7}} on GitHub</a></div>
+    </details>
+  </div>
+</details>
+
+<!-- HOW IT IS PROVEN — each behavior or ask the PR claims, and what proves
+     it: a test (link), a manual check the PR body reports, or nothing. -->
+<details class="sec" id="proof">
+  <summary><b>How it is proven</b><span>{{what the tests cover and what they do not}}</span><em class="alert">⚠ {{e.g. 1 behavior untested}}</em><em>{{K}}/{{N}} tested</em></summary>
+  <div class="body">
+    <table class="prf">
+      <tr><th></th><th>Claim</th><th>Proof</th></tr>
+      <tr class="ok"><td class="st">✓</td><td>{{behavior}}</td><td><a href="{{LINK to the test}}">{{test name}}</a></td></tr>
+      <tr class="part"><td class="st">~</td><td>{{behavior}}</td><td>{{manual check the PR reports}}</td></tr>
+      <tr class="miss"><td class="st">✗</td><td>{{behavior}}</td><td>no test, no reported check</td></tr>
+    </table>
+  </div>
+</details>
+
+<details class="sec" id="churn">
+  <summary><b>Where the churn landed</b><span>{{where most lines went}}</span><em>+{{ADD}} −{{DEL}}</em></summary>
+  <div class="body">
+    <!-- one box per area; flex-grow = changed lines; class = logic|test|docs|mech -->
+    <div class="tm">
+      <div class="logic" data-kind="logic" data-ref="{{node}}" data-tip="{{files in it}}" style="flex-grow:{{lines}}">{{area}}<br>+{{a}} −{{d}}</div>
+      <div class="test" data-kind="test" data-tip="{{files in it}}" style="flex-grow:{{lines}}">{{area}}<br>+{{a}} −{{d}}</div>
+    </div>
+    <div class="legend"><span data-kind="logic"><i style="background:var(--k-logic)"></i>logic</span><span data-kind="test"><i style="background:var(--k-test)"></i>tests</span><span data-kind="docs"><i style="background:var(--k-docs)"></i>docs</span><span data-kind="mech"><i style="background:var(--k-mech)"></i>mechanical</span></div>
+    <details class="zoom" id="reading"><summary><b>Zoom in: the reading order</b><em>{{MINUTES}} min</em></summary><div class="body">
+      <table>
+        <tr><th>#</th><th>Where</th><th>Check</th><th>Churn</th><th>Min</th></tr>
+        <tr data-ref="{{node}}"><td>1</td><td><a href="{{LINK}}">{{path}}</a> <span class="tagr read">read</span></td><td>{{what to check}}</td><td><span class="bar" style="width:{{px ≤ 80}}px"></span></td><td>{{m}}</td></tr>
+        <tr><td>…</td><td colspan="2" class="muted">{{N}} mechanical files <span class="tagr skim">skim</span></td><td><span class="bar low" style="width:{{px}}px"></span></td><td>{{m}}</td></tr>
+      </table></div>
+    </details>
+  </div>
+</details>
+
+<details class="sec" id="impact">
+  <summary><b>Technical impact</b><span>{{who is affected, in ≤ 15 words}}</span><em class="alert">⚠ {{e.g. breaking for every client}}</em><em>{{additive | breaking | behind a flag}}</em></summary>
+  <div class="body">
+    <!-- Blast radius: three nested bands, the browser sizes them. -->
+    <figure class="blast" role="img" aria-label="{{blast radius in one sentence}}">
+      <div class="r2"><div class="cap">Consumers</div><span class="chip">{{consumer}}</span><span class="chip">{{consumer}}</span>
+        <div class="r1"><div class="cap">Direct dependents</div><span class="chip">{{dependent}}</span>
+          <div class="core"><div class="cap">Changed</div><span class="chip chg">{{changed part}}</span></div>
+        </div>
+      </div>
+    </figure>
+    <p>{{what a caller sees differently — ≤ 60 words}}</p>
+    <details class="zoom"><summary><b>Zoom in: the contract</b><em>before → after</em></summary>
+      <div class="body">
+        <pre class="diff"><span class="del">{{signature or schema before}}</span><span class="add">{{signature or schema after}}</span></pre>
+        <div class="cards"><div><span class="dot md"></span><b>{{dependent}}</b><span class="ba1">{{what it sees now}}</span><a href="{{LINK}}">{{path}}</a></div></div>
+      </div>
+    </details>
+  </div>
+</details>
+
+<!-- LIMITS AND OPEN POINTS — what the PR does not do, from the PR body, its
+     author-decisions, the linked issue and the comments only -->
+<!-- ROLLOUT AND ROLLBACK — how the change reaches users and how to undo it:
+     the steps in order (a migration, a config key, a flag, a deploy), each
+     tagged reversible or not, then the way back. -->
+<details class="sec" id="rollout">
+  <summary><b>Rollout and rollback</b><span>{{how it ships and how to undo it, ≤ 15 words}}</span><em class="alert hi">⚠ {{e.g. migration cannot be undone}}</em><em>{{reversible | partly | one-way}}</em></summary>
+  <div class="body">
+    <ol class="flow h">
+      <li class="box" data-tip="{{what this step does}}">{{step}}<small>reversible</small></li>
+      <li class="box chg" data-tag="ONE-WAY" data-tip="{{why it cannot be undone}}">{{step}}<small>{{what stays after it}}</small></li>
+    </ol>
+    <p><b>Way back:</b> {{how to undo the change, or: the PR does not say how}}</p>
+  </div>
+</details>
+
+<details class="sec" id="limits">
+  <summary><b>Limits and open points</b><span>{{the main thing it does not do, ≤ 15 words}}</span><em>{{K}} open</em></summary>
+  <div class="body">
+    <div class="scope">
+      <div class="in"><b>✓ In this PR</b><ul><li>{{delivered}}</li></ul></div>
+      <div class="later"><b>⏸ Left for later</b><ul><li>{{deferred}} — <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/issues/{{n}}">#{{n}}</a></li></ul></div>
+      <div class="out"><b>✗ Not done, on purpose</b><ul><li>{{scope cut}} — {{why, as the PR says}}</li></ul></div>
+    </div>
+    <details class="zoom"><summary><b>Zoom in: the known limits</b><em>where each shows</em></summary>
+      <div class="body"><div class="cards"><div><b>{{limit}}</b><span class="ba1">{{when a user meets it}}</span><a href="{{LINK}}">{{path:line}}</a></div></div></div>
+    </details>
+  </div>
+</details>
+
+<footer>Guide for the human reviewer of <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/pull/{{N}}/files">PR #{{N}}</a> at <code>{{SHA7}}</code>. It shows where to look; the review carries the findings.</footer>
+</main>
+</body>
+</html>

@@ -39,7 +39,7 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `artifact`, `stall_rate`, `review_cost`,
+  `artifact`, `guide`, `diagram`, `stall_rate`, `review_cost`,
   `review_anomaly`, `classifier_block`, `api_failure`,
   `adapter_failure`,
   `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,
@@ -68,6 +68,11 @@ hand-rolled line matches exactly:
   (`retry_release`) carries neither ([artifact.md](artifact.md) step 6). A
   missing event makes `stats.artifacts.generated` a floor, which the
   `artifacts` check reports.
+- **`guide` `msg`** — the same shape for the review guide,
+  `PR #<n>: <skill> published → DAM <id>, <R> redacted` or
+  `PR #<n>: <skill> skipped (<reason>)`, written by `review-pr.sh guide`;
+  the audit counts it per PR as `stats.guides`
+  ([artifact.md](artifact.md) → **Review guide**).
 
 ### Tool path resolution (`scripts/lib/toolpath.sh`)
 

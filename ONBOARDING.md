@@ -447,11 +447,11 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or
    the `[host/]owner/repo` it installs from; artifact format
    `<skill>@<[host/]owner/repo>` or `none`). Present the default public set —
-   the example below, where `issue-fit` ships in this definition repo, so its
-   `source` is the instance's `definition_repo` — and let the operator adjust
-   rows, triggers and sources. A skill kept in the reviewed repository gets
-   `github_repo` as its `source`, and it must be on that repository's default
-   branch (`docs/skills.md` → **Where a skill lives**).
+   the example below, where `issue-fit` and `review-guide` ship in this
+   definition repo, so their `source` is the instance's `definition_repo` — and
+   let the operator adjust rows, triggers and sources. A skill kept in the
+   reviewed repository gets `github_repo` as its `source`, and it must be on
+   that repository's default branch (`docs/skills.md` → **Where a skill lives**).
    **Validate every row before writing:**
    - Repo-sourced rows and the artifact skill:
      `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed;
@@ -459,6 +459,14 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
    - An empty table plus `artifact_skill: none` is valid — plain reviews only.
+   - **The review guide row** — in the default set, **on**. Say it once with
+     the table, because the guide is public by link:
+
+     > The default set includes **Human Review Guide**: when my review decides that a person must judge a PR, the review links a short visual guide — why a person is needed, a map of the project with the change marked, the dependency chain, the decisions, the problems met, where the churn landed and the impact. It runs beside the other review skills in a few minutes. I publish it to the DAM Artifact Library; anyone with its link can open it, and it shows code from the PR. Say "no guide" to drop the row.
+
+     The row is `| review-guide | <definition_repo> | always | Human Review Guide |`
+     (the skill ships in this definition repo), right after `issue-fit` so its
+     link line sits high in the review. "No guide" → drop the row.
    - **`artifact_skill`** — default `none`. Ask:
 
      > When someone assigns **<bot_login>** to a PR, I can make a visual artifact of the PR. I publish it to the DAM Artifact Library. The artifact is public: anyone with its link can open it, and it shows code from the PR. Turn it on? (Default: off. Suggested skill: `pr-artifact@dam-agents/dam`.)
@@ -633,6 +641,7 @@ Final shape:
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
 | issue-fit | acme/code-guardian | always | Issue Fit |
+| review-guide | acme/code-guardian | always | Human Review Guide |
 | doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
 | typescript-engineering | dam-agents/dam | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
 | react-ui-engineering | dam-agents/dam | .tsx,.jsx | React UI Engineering Review |
