@@ -21,11 +21,13 @@ cg_harness() {
 
 cg_harness_version() {
   local v=""
-  if [ "$(cg_harness)" = pi ]; then
-    v="$(pi --version 2>/dev/null | head -1)"; [ -n "$v" ] && v="pi $v"
-  else
-    v="$(claude --version 2>/dev/null | head -1)"
-  fi
+  case "$(cg_harness)" in
+    pi)          v="$(pi --version 2>/dev/null | head -1)"; [ -n "$v" ] && v="pi $v" ;;
+    claude-code) v="$(claude --version 2>/dev/null | head -1)" ;;
+    copilot)     v="${COPILOT_CLI_BINARY_VERSION:-}"; [ -n "$v" ] && v="copilot $v" ;;
+  esac
+  # a harness with no version source of its own prints nothing: the caller
+  # records null (ornull), never a version borrowed from another harness's CLI
   printf '%s' "$v"
 }
 
