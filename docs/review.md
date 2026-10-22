@@ -74,6 +74,11 @@ c. **Review the diff** — file by file in `files[]` order: classes `code`,
    Read what does not depend on an earlier result in one call: several
    slices, `context` and `sweep` lookups, `grep` and `sed -n` of the clone go
    into one Bash command or into parallel tool calls of one response.
+   Read every file from the security view too, with or without a security
+   skill: untrusted input that reaches a query, a shell, a path or a
+   template; a secret in code, a log or an error; an authorization check that
+   the change removes or skips; a permission or exposure that the change
+   widens.
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
 d. **Run every configured review skill** per [skills.md](skills.md):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with

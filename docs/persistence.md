@@ -150,8 +150,8 @@ head -1 /home/agent/work/VERSION 2>/dev/null                                # ad
 
 Checked-out < latest → **tell the operator the agent is not up to date**,
 stating both versions; update only when they ask, never silently, then migrate
-in the same session. Adopted ≠ checked-out → migrate now. All equal → report
-"up to date".
+in the same session. Adopted ≠ checked-out → migrate now. All equal → refresh
+the harness copies (**Migration** step 3), then report "up to date".
 
 Update a clean checkout by fast-forward, which reaches the same commit without
 discarding anything:
@@ -177,11 +177,28 @@ commit). It discards, so surface that it was needed. **Never `git clean`.**
    enables it. A yes writes that key; a no, or no answer, writes nothing — the
    missing key is the documented off default, and the migration continues
    either way. Never enable a feature the operator did not confirm.
-3. Only after every applicable step succeeded, write `to` into `work/VERSION`
+3. **Refresh the harness copies** — the parts the adapters install outside
+   the checkout (hooks, auto-mode rules and the deny list in
+   `~/.claude/settings.json`, the `review-skill` agent, the pi extension
+   link). Always, whatever the crossed entries say:
+
+   ```bash
+   for a in claude-code pi; do
+     s="/home/agent/scripts/harness/$a/install.sh"
+     bash "$s"
+     left="$(bash "$s" --check)"; [ -z "$left" ] || echo "not current: $a $left"
+   done
+   ```
+
+   Each `install.sh` is idempotent and only prints a notice on another
+   harness. A `not current` line is a failed step. The refreshed parts take
+   effect from the next session.
+4. Only after every applicable step succeeded, write `to` into `work/VERSION`
    and log `definition upgraded <from> → <to> (<n> step(s))`, naming the
    features offered and the answers. A failed step: log it, tell the operator,
    and leave `work/VERSION` unchanged — it is re-offered at the next check.
-4. Rollback (`to` < `from`) → apply nothing, offer nothing, just write `to`.
+5. Rollback (`to` < `from`) → apply nothing, offer nothing, refresh the
+   harness copies (step 3), then write `to`.
 
 Back up `work/` afterwards.
 
