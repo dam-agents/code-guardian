@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 10.8.0 — 2026-10-22
+
+**Upgrade:** Add the review guide row — now in the default set — to
+`## Review skills` in `work/CONFIG.md` when the table has no `review-guide`
+row: `| review-guide | <definition_repo> | always | Human Review Guide |`,
+right after the `issue-fit` row (else first). Tell the operator in one chat
+line that the guide is public by link and that removing the row turns it off.
+Idempotent — a table with the row is left as it is. `work/diagrams/` is
+created on the first stored map.
+
 ## 10.7.0 — 2026-10-22
 
 **Upgrade:** Nothing — docs are re-read per run, and the next survey pass
@@ -34,13 +44,13 @@ sessions of their own, several at once
 
 ## 10.4.0 — 2026-10-22
 
-**Upgrade:** Add the review guide row — now in the default set — to
-`## Review skills` in `work/CONFIG.md` when the table has no `review-guide`
-row: `| review-guide | <definition_repo> | always | Human Review Guide |`,
-right after the `issue-fit` row (else first). Tell the operator in one chat
-line that the guide is public by link and that removing the row turns it off.
-Idempotent — a table with the row is left as it is. `work/diagrams/` is
-created on the first stored map.
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 10.3.4 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run. A benchmark run recorded
+before this version on the Copilot harness carries a borrowed Claude Code
+`harness_version`; correct it by hand only with the operator's decision.
 
 ## 10.3.3 — 2026-10-22
 
