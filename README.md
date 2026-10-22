@@ -1,8 +1,8 @@
 # code-guardian
 
 PR code review agent for any GitHub repository. The target repo is named at
-onboarding and stored in `work/CONFIG.md`. It runs on the Claude Code, pi and
-Bob harnesses ([docs/logging.md](docs/logging.md) → **Harness adapters**),
+onboarding and stored in `work/CONFIG.md`. It runs on the Claude Code, pi,
+Bob and Copilot harnesses ([docs/logging.md](docs/logging.md) → **Harness adapters**),
 uses the GitHub CLI (`gh`) to fetch open pull requests and delivers a structured
 review to the chat UI and the GitHub PR thread. Optionally — opt-in at
 onboarding — it also nudges reviewers on Slack when PRs wait too long for human
