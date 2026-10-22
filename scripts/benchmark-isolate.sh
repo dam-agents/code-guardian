@@ -24,8 +24,9 @@
 # directory without manifest.json, work/MEMORY.md, LESSONS.md, CONFIG.md and
 # every repo-sourced skill with its cache SHA) and refuses a bundle that holds
 # a manifest, a result, or a defect summary of any manifest outside the fixture
-# inputs. `start` also refuses a seed commit that tracks work/ or holds such a
-# summary. A sub-agent gets no connection: the bundle travels in env chunks
+# inputs. `start` also refuses a definition history — every commit of every
+# local ref, since the sub-agent can fetch the public remote — that tracks a
+# benchmark path or holds such a summary. A sub-agent gets no connection: the bundle travels in env chunks
 # that `benchmark-child.sh unpack` joins in its install step.
 #
 # `wait` polls for at most CG_BENCH_WAIT_S (480) seconds: rc 0 when every task
@@ -154,15 +155,23 @@ bundle() { # <fixture-dir> <phase> <out.tgz>
   return 0
 }
 
-# the seeded commit: never work/, never a defect summary
+# the seeded repository: no commit of any local ref — the sub-agent clones
+# history and can fetch more from the public remote — tracks a benchmark path
+# or holds a defect summary
 seed_clean() { # <fixture-root>
-  local pats hits
-  git -C "$HOME_DIR" ls-tree -r --name-only HEAD 2>/dev/null | grep -q '^work/' \
-    && die "the seed commit tracks work/ — runtime state must never be in the definition repo"
+  local pats hits log line
+  git -C "$HOME_DIR" log --all --format= --name-only 2>/dev/null \
+    | grep -qE '^work/benchmark/|(^|/)manifest\.json$|(^|/)RESULTS\.md$' \
+    && die "the definition history tracks a benchmark fixture or result — it must never leave work/"
   pats="$(mktemp "${TMPDIR:-/tmp}/cg-bench-pats.XXXXXX")"; truth_patterns "$1" "$pats"
   if [ -s "$pats" ]; then
-    hits="$(git -C "$HOME_DIR" grep -I -l -F -i -f "$pats" HEAD -- 2>/dev/null | head -3 | sed 's/^HEAD://' | tr '\n' ' ')"
-    [ -z "$hits" ] || { rm -f "$pats"; die "ground truth (a manifest defect summary) in the seed commit: ${hits% }"; }
+    log="$pats.log"; git -C "$HOME_DIR" log --all --reverse -p --format='commit %h' > "$log" 2>/dev/null
+    line="$(grep -n -m1 -iF -f "$pats" "$log" | cut -d: -f1)"
+    if [ -n "$line" ]; then
+      hits="$(head -n "$line" "$log" | grep '^commit ' | tail -1 | cut -d' ' -f2)"
+      rm -f "$pats" "$log"; die "ground truth (a manifest defect summary) in the definition history: commit ${hits:-unknown}"
+    fi
+    rm -f "$log"
   fi
   rm -f "$pats"
 }

@@ -215,8 +215,8 @@ all at once, each a separate agent with its own volume and no connection. A
 sub-agent gets the definition at this checkout's commit (a seed of the public
 definition repo) and one bundle of its task's inputs; nothing of this volume —
 the manifests, past results, the work repo's credentials — reaches it.
-`benchmark-isolate.sh` refuses a bundle or a seed commit that holds ground
-truth, and a work repo that is public.
+`benchmark-isolate.sh` refuses a bundle or a definition history (every commit
+of every local ref) that holds ground truth, and a work repo that is public.
 
 1. `isolation_unavailable` is set, or
    `bash "$HOME/scripts/benchmark-isolate.sh" check` prints a reason →

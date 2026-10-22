@@ -153,8 +153,31 @@ HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
 printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
 iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a seed commit with a defect summary is refused'
-assert_out_contains 'ground truth .* in the seed commit: docs/x.md' 'the refusal names the file'
+assert_out_contains 'ground truth .* in the definition history: commit' 'the refusal names the commit'
 check_eq "$(grep -c '^POST' "$SANDBOX/rest.log")" 0 'nothing is spawned'
+
+iso_case start_refuses_truth_in_an_older_commit
+# removed at HEAD, still in the history the sub-agent can fetch
+printf '%s\n' "$SUMMARY" > "$FAKE_HOME/docs/x.md"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam leak
+LEAK="$(git -C "$FAKE_HOME" rev-parse --short HEAD)"
+printf 'definition\n' > "$FAKE_HOME/docs/x.md"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam clean
+HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
+iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a defect summary anywhere in the history is refused'
+assert_out_contains "commit $LEAK" 'the refusal names the leaking commit'
+
+iso_case start_refuses_a_tracked_benchmark_path
+mkdir -p "$FAKE_HOME/work/benchmark/fixture/x"; printf '{}' > "$FAKE_HOME/work/benchmark/fixture/x/manifest.json"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t add -f work && git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm oops
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t rm -rq work && git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm undo
+HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
+iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a benchmark path ever tracked in the definition is refused'
+assert_out_contains 'tracks a benchmark fixture or result' 'the refusal says what'
 
 iso_case start_only_matches_nothing
 iso start --only ts-api-second "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
