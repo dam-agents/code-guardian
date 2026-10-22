@@ -24,7 +24,8 @@ line alone.
 
 - 🔴 **Critical** — a reachable path gives a wrong result, a security hole, or
   data loss. Grade by the worst consequence on that path, not by how likely
-  its trigger is. Always 🔴, whatever condition the trigger needs: a secret
+  its trigger is. Once the trigger and the consequence are shown (below),
+  these are 🔴 whatever condition the trigger needs: a secret
   or credential written to a log or an output; a weakened authentication or
   cryptographic check; a permission wider than the task needs; untrusted
   input in a shell command, a query or a path without escaping; shared state
