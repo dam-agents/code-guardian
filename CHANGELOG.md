@@ -19,6 +19,10 @@ counts in their history. With `survey_report_findings: enabled`, the page now
 shows security findings: confirm that the artifact's audience may read them
 ([docs/config.md](docs/config.md) → `survey_report_findings`).
 
+## 10.3.1 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 10.3.0 — 2026-10-21
 
 **Upgrade:** Nothing — docs are re-read per run. The monitor sends only the
