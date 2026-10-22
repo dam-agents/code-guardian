@@ -23,9 +23,18 @@ line alone.
 **Severity:**
 
 - 🔴 **Critical** — a reachable path gives a wrong result, a security hole, or
-  data loss.
+  data loss. Grade by the worst consequence on that path, not by how likely
+  its trigger is. Once the trigger and the consequence are shown,
+  these are 🔴 whatever condition the trigger needs: a secret
+  or credential written to a log or an output; a weakened authentication or
+  cryptographic check; a permission wider than the task needs; untrusted
+  input in a shell command, a query or a path without escaping; shared state
+  written and read concurrently without synchronization; a release or deploy
+  gate that a failure can pass; unbounded concurrency or resource use.
 - 🟡 **Warning** — a real defect with a bounded blast radius: a conditional
-  path, degraded behavior, or changed logic with no test.
+  path, degraded behavior, or changed logic with no test. Usually 🟡: a UI
+  state or guard defect that loses no data, a stale cache or memoized value,
+  a bounded performance regression.
 - 🟢 **Suggestion** — an improvement with no defect behind it.
 
 **Blocking severity needs a demonstration, not a defensible reading.** A 🔴 or
