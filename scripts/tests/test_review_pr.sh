@@ -2227,6 +2227,16 @@ KH="$(printf '%s' "$OUT" | jq -r .html)"
 assert_file_contains "$KH" 'No blocking finding' 'no blocking finding says so'
 assert_file_lacks "$KH" 'stale block' 'the earlier block is replaced'
 assert_file_contains "$WORK/reviews/pr-artifacts/pr-1.guide.html" 'stale block' 'the stored copy changes only when the publish is recorded'
+# finding text that names a script URL or a remote CSS load is escaped text:
+# the rendered page passes, and the same words outside the block still refuse
+SP='<!doctype html><html><body><main><h1>x</h1>\n<!-- cg:findings -->\n<p class="overview">x</p>%s</main></body></html>\n'
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":3,"summary":"href takes javascript:alert(1) and url(https://evil.example.test/a.png) raw","fix":"refuse javascript: and url(https:"}]' > "$SANDBOX/fj.json"
+printf "$SP" '' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
+run_rp guide 1 --findings "$SANDBOX/fj.json" --kept
+assert_jq '.outcome == "rendered" and .blocking == 1' 'a finding that names javascript: or url(https:) does not refuse the page'
+printf "$SP" '<p>javascript:x</p>' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
+run_rp guide 1 --findings "$SANDBOX/fj.json" --kept
+assert_jq '.outcome == "error" and (.error | contains("does not pass the check"))' 'a script URL outside the findings block still refuses the page'
 # the whole page is checked again after the render: a page that fails is refused
 printf '<!doctype html><html><body><main><img src="https://evil.example.test/x.png"><p class="overview">x</p></main></body></html>\n' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept

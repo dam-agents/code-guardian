@@ -132,7 +132,9 @@ this PR's paths, id and line:
    page shows exactly what the review verified. The findings text is model
    output too, so the command then takes the vetted script out, redacts and
    checks the whole page again, and puts the script back; a page that fails
-   is refused. The block goes only at a mark on a line of its own.
+   is refused. The block is escaped text, so the raw search for a script URL
+   or a remote CSS load reads the page without it; the tag scan reads the
+   whole page. The block goes only at a mark on a line of its own.
 3. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction

@@ -396,7 +396,7 @@ MARKUP_JQ='
         end
     end'
 markup_refusal() { # <file> <max bytes> <html|svg>
-  local f="$1" size flat low styles rest why
+  local f="$1" size flat low raw rawlow fs fe pre post styles rest why
   [ -s "$f" ] || { printf 'no file'; return; }
   size="$(wc -c < "$f" | tr -d ' ')"
   [ "$size" -le "$2" ] || { printf 'the file is %s bytes, above %s' "$size" "$2"; return; }
@@ -414,18 +414,32 @@ markup_refusal() { # <file> <max bytes> <html|svg>
     gsub("(?<c><!--(?:>|->|(?:(?!--!?>).)*(?:--!?>|$)))|(?<d><!doctype[^>]*>?)|(?<b><[!?][^>]*>?|</(?![a-z])[^>]*>?)"
          + "|(?<r><(?<rn>style|textarea|title|xmp|noembed|noframes|noscript)(?=[\\s/>])" + $tail + ".*?(?:</\\k<rn>(?=[\\s/>])|$))"
          + "|(?<t></?[a-z][^\\s/>]*" + $tail + ")";
-         if .c or .b then " " elif .d then (.d | gsub("[\"\u0027]"; " ")) else (.r // .t) end; "i")' 2>/dev/null)" \
+         if .c then (if .c | test("^<!-- cg:findings:(start|end) -->$") then .c else " " end)
+         elif .b then " " elif .d then (.d | gsub("[\"\u0027]"; " ")) else (.r // .t) end; "i")' 2>/dev/null)" \
     || { printf 'the comment pass did not run'; return; }
-  case "$flat" in (*'<!--'*) printf 'a comment opener inside an attribute value or a raw-text element'; return;; esac
+  # the findings block that `guide --findings` renders is escaped review
+  # text: the raw forms below read the page without it, when it is there
+  # once; the tag scan reads the whole page
+  fs='<!-- cg:findings:start -->' fe='<!-- cg:findings:end -->'
+  raw="${flat//"$fs"/ }"; raw="${raw//"$fe"/ }"
+  case "$raw" in (*'<!--'*) printf 'a comment opener inside an attribute value or a raw-text element'; return;; esac
+  case "$flat" in
+    (*"$fs"*"$fe"*)
+      pre="${flat%%"$fs"*}"; post="${flat#*"$fe"}"
+      flat="$raw"
+      case "$pre$post" in (*"$fs"*|*"$fe"*) ;; (*) raw="$pre $post";; esac;;
+    (*) flat="$raw";;
+  esac
   low="$(printf '%s' "$flat" | tr 'A-Z' 'a-z')"
+  rawlow="$(printf '%s' "$raw" | tr 'A-Z' 'a-z')"
   case "$3" in
     (html) printf '%s' "$low" | grep -qE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;
     (svg)  printf '%s' "$flat" | grep -qE '<svg[^>]*data-cg-diagram="' || { printf 'not a project diagram'; return; };;
   esac
-  # the raw forms no page needs, wherever they sit
+  # the raw forms no page needs, wherever they sit outside the findings block
   printf '%s' "$low" | grep -qE '<[ /]*script' && { printf 'a script element'; return; }
-  printf '%s' "$low" | grep -qE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
-  printf '%s' "$low" | grep -qE '(url\( ?["'"'"']?|@import ?["'"'"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
+  printf '%s' "$rawlow" | grep -qE 'javascript:|vbscript:' && { printf 'a script URL'; return; }
+  printf '%s' "$rawlow" | grep -qE '(url\( ?["'"'"']?|@import ?["'"'"']?)(https?:|//|data:)' && { printf 'a remote or data load in CSS'; return; }
   # every <style> block, up to its own </style>: a "<" in a CSS string must
   # not end it early
   styles=""; rest="$low"
