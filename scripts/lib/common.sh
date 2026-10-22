@@ -232,6 +232,7 @@ with_state_lock() { # <file> <command…>
   return "$rc"
 }
 
+
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
 # leave. With an event name, a fixed-string grep keeps that event's lines

@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 10.6.0 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run. Trial benchmarks now run in
+sessions of their own, several at once
+([docs/benchmark.md](docs/benchmark.md) → **Trial runs**).
+
 ## 10.5.0 — 2026-10-22
 
 **Upgrade:** under `benchmark: enabled`, run
