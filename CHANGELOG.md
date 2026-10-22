@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 10.4.0 — 2026-10-21
+## 10.4.0 — 2026-10-22
 
 **Upgrade:** Add the review guide row — now in the default set — to
 `## Review skills` in `work/CONFIG.md` when the table has no `review-guide`
@@ -20,6 +20,10 @@ right after the `issue-fit` row (else first). Tell the operator in one chat
 line that the guide is public by link and that removing the row turns it off.
 Idempotent — a table with the row is left as it is. `work/diagrams/` is
 created on the first stored map.
+
+## 10.3.1 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 10.3.0 — 2026-10-21
 

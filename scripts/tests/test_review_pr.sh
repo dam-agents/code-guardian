@@ -153,6 +153,8 @@ grep -q '{{TOOL_PATHS}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
 assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🔴 \*\*Critical\*\* — a reachable path gives a wrong result' \
   'the brief quotes the severity rubric'
 assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^   - 🟢 \*\*Suggestion\*\* — an improvement' 'the rubric is quoted whole'
+assert_file_contains "$(PR_DIR).ctx/briefs/doc-drift.md" '^ *data loss\. Grade by the worst consequence' \
+  'the brief quotes the always-critical classes'
 grep -q 'Blocking severity\|{{SEVERITY}}' "$(PR_DIR).ctx/briefs/doc-drift.md" \
   && { printf 'FAIL %s: the rubric quote overran or stayed unrendered\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the rubric quote stops at the list\n' "$CASE"
