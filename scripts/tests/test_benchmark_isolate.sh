@@ -283,6 +283,16 @@ check_eq "$(printf '%s' "$R" | jq -r '[.review, (.measure.seconds | tostring), (
   "$(printf 'the review\n|12|2|claude-opus-5-5|skill out\n')" 'review, measurement, count, model and skill archive travel from files'
 check_eq "$(printf '%s' "$R" | jq -r '.provenance | has("memory_sha") and has("skill_sources")')" true 'the sub-agent provenance travels'
 
+iso_case child_unpack_fails_on_a_failed_adapter_install
+iso bundle "$F" first "$SANDBOX/b.tgz"
+CH="$SANDBOX/child"; mkdir -p "$CH"; cp -a "$REPO_ROOT/scripts" "$CH/"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$CH/scripts/harness/claude-code/install.sh"
+OUT="$(env HOME="$CH" TMPDIR="$SANDBOX" PATH="$T_DIR/bin:$PATH" CG_BENCHMARK_CHILD=1 CG_BENCH_HARNESS=claude-code \
+  CG_BENCH_B64_00="$(base64 < "$SANDBOX/b.tgz" | tr -d '\n')" CG_BENCH_SHA256="$(sha256sum < "$SANDBOX/b.tgz" | cut -d' ' -f1)" \
+  bash "$CH/scripts/benchmark-child.sh" unpack 2>&1)"; RC=$?
+check_eq "$RC" 1 'a failed adapter install fails the setup step, so the sub-agent never runs without its hooks'
+assert_out_contains 'harness adapter install failed' 'the failure is named'
+
 iso_case child_refuses_outside_a_sub_agent
 OUT="$(env -u CG_BENCHMARK_CHILD HOME="$FAKE_HOME" bash "$CHILD" unpack 2>&1)"; RC=$?
 check_eq "$RC" 2 'unpack runs only in a benchmark sub-agent'

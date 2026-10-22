@@ -39,8 +39,10 @@ case "${1:-}" in
     tar -xzf "$tgz" -C "$HOME_DIR" || { printf 'bundle does not extract\n' >&2; exit 1; }
     rm -f "$tgz"
     case "${CG_BENCH_HARNESS:-}" in
-      (claude-code) CLAUDECODE=1 bash "$SCRIPT_DIR/harness/claude-code/install.sh";;
-      (pi) PI_CODING_AGENT=true bash "$SCRIPT_DIR/harness/pi/install.sh";;
+      (claude-code) CLAUDECODE=1 bash "$SCRIPT_DIR/harness/claude-code/install.sh" \
+        || { printf 'harness adapter install failed\n' >&2; exit 1; };;
+      (pi) PI_CODING_AGENT=true bash "$SCRIPT_DIR/harness/pi/install.sh" \
+        || { printf 'harness adapter install failed\n' >&2; exit 1; };;
     esac
     printf 'benchmark bundle unpacked into %s\n' "$HOME_DIR"
     ;;
