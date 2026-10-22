@@ -215,10 +215,11 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
   # deltas compare against the previous run of the SAME harness, model,
   # effort and isolation — a cross-configuration delta would conflate that
   # change with the regression being watched; an "unknown" effort matches
-  # nothing. The harness is the first word of harness_version for pi
-  # (lib/harness.sh); every other run, the ones before pi included, is Claude
-  # Code. A run before isolation was recorded ran in-pod: none.
-  | def harness_of: (.harness_version // "" | if startswith("pi ") then "pi" else "claude-code" end);
+  # nothing. The harness is the first word of harness_version — pi, copilot —
+  # (lib/harness.sh); every other run, the ones before named lines included,
+  # is Claude Code. A run before isolation was recorded ran in-pod: none.
+  | def harness_of: (.harness_version // "" | if startswith("pi ") then "pi"
+                     elif startswith("copilot ") then "copilot" else "claude-code" end);
     def isolation_of: (.isolation // "none");
     (if $r.effort == "unknown" then null
      else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort

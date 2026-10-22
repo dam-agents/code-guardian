@@ -499,7 +499,7 @@ read from the harness (`scripts/lib/harness.sh`: `CLAUDE_EFFORT`
 on Claude Code, `PI_REASONING_LEVEL` on pi), else `unknown`; reviewer and
 skill subagents run without an effort override. Deltas compare runs of the
 same harness, model, effort **and** isolation; a run without `effort` matches
-only another run without it, a run without `isolation` (before 10.4.0) counts
+only another run without it, a run without `isolation` (before 10.5.0) counts
 as `none`, and a run at effort `unknown` gets no delta — report it as `effort
 unknown`.
 

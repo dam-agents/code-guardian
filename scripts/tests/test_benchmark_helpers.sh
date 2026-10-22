@@ -135,7 +135,7 @@ seed_results
 for ts in 20260901T060000Z 20261001T060000Z; do
   iso_ts="${ts:0:4}-${ts:4:2}-${ts:6:2}T06:00:00Z"
   jq -n --arg ts "$iso_ts" --argjson s "$([ "$ts" = 20260901T060000Z ] && echo 100 || echo 150)" \
-    '{ts:$ts, trigger:"scheduled", model:"model-a", definition_version:"10.4.0", isolation:"platform-subagent",
+    '{ts:$ts, trigger:"scheduled", model:"model-a", definition_version:"10.5.0", isolation:"platform-subagent",
       fixtures:{"ts-api":{first:{f1:0.5,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:$s,tokens:null},
         rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}}}}' \
     > "$SANDBOX/bench/results/$ts.json"
@@ -277,6 +277,23 @@ OUT="$(env -u CLAUDECODE -u CLAUDE_EFFORT PI_CODING_AGENT=true PI_REASONING_LEVE
        PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.harness_version == "pi 1.1.0" and .effort == "high"' 'pi version and thinking level recorded'
 
+new_case provenance_on_copilot
+# a copilot shell must not borrow the claude CLI's version: the pod installs
+# several harness CLIs side by side, and only copilot's own env names its version
+mkdir -p "$SANDBOX/bin" "$FAKE_HOME"
+printf '#!/bin/sh\necho "2.1.293 (Claude Code)"\n' > "$SANDBOX/bin/claude"; chmod +x "$SANDBOX/bin/claude"
+OUT="$(env -u CLAUDECODE -u PI_CODING_AGENT -u CLAUDE_EFFORT -u PI_REASONING_LEVEL \
+       PLATFORM_HARNESS=copilot COPILOT_CLI_BINARY_VERSION=1.0.96 \
+       PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.harness_version == "copilot 1.0.96"' 'copilot version from its own env, not the claude CLI'
+
+new_case provenance_unknown_harness_records_no_version
+mkdir -p "$SANDBOX/bin" "$FAKE_HOME"
+printf '#!/bin/sh\necho "2.1.293 (Claude Code)"\n' > "$SANDBOX/bin/claude"; chmod +x "$SANDBOX/bin/claude"
+OUT="$(env -u CLAUDECODE -u PI_CODING_AGENT -u PLATFORM_HARNESS -u COPILOT_CLI_BINARY_VERSION \
+       PATH="$SANDBOX/bin:$PATH" HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.harness_version == null' 'a harness without a version source records null, never a borrowed one'
+
 new_case report_delta_needs_same_harness
 # the same model and effort on another harness is no baseline
 mkdir -p "$SANDBOX/bench/results"
@@ -291,6 +308,11 @@ sed -e 's/2026-09-01T06/2026-10-01T06/' -e 's/2.1.284 (Claude Code)/pi 1.1.0/' -
   "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261001T060000Z.json"
 sed -e 's/2026-09-01T06/2026-10-02T06/' -e 's/9.0.0/9.0.2/' -e 's/"seconds":100/"seconds":300/g' \
   "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261002T060000Z.json"
+sed -e 's/2026-09-01T06/2026-11-01T06/' -e 's/2.1.284 (Claude Code)/copilot 1.0.96/' -e 's/9.0.0/9.0.3/' \
+    -e 's/"seconds":100/"seconds":300/g' \
+  "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261101T060000Z.json"
+sed -e 's/2026-09-01T06/2026-11-02T06/' -e 's/9.0.0/9.0.4/' -e 's/"seconds":100/"seconds":300/g' \
+  "$SANDBOX/bench/results/20260901T060000Z.json" > "$SANDBOX/bench/results/20261102T060000Z.json"
 OUT="$(bash "$REPORT" "$SANDBOX/bench")"
 row="$(printf '%s' "$OUT" | grep '<td>9.0.1</td>')"
 if [ -n "$row" ] && ! printf '%s' "$row" | grep -q 'class="d '; then
@@ -299,6 +321,14 @@ else printf 'FAIL %s: the pi run row must carry no delta: %.300s\n' "$CASE" "$ro
 row="$(printf '%s' "$OUT" | grep '<td>9.0.2</td>')"
 if printf '%s' "$row" | grep -q 'class="d '; then
   printf 'ok   %s: the next Claude Code run compares against the Claude Code run, past the pi one\n' "$CASE"
+else printf 'FAIL %s: the Claude Code run row must carry a delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+row="$(printf '%s' "$OUT" | grep '<td>9.0.3</td>')"
+if [ -n "$row" ] && ! printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: a copilot run carries no delta against Claude Code and pi runs\n' "$CASE"
+else printf 'FAIL %s: the copilot run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
+row="$(printf '%s' "$OUT" | grep '<td>9.0.4</td>')"
+if printf '%s' "$row" | grep -q 'class="d '; then
+  printf 'ok   %s: the next Claude Code run compares against the Claude Code run, past the copilot one\n' "$CASE"
 else printf 'FAIL %s: the Claude Code run row must carry a delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 
 new_case pi_subagents_run_every_prompt

@@ -197,13 +197,13 @@ check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 1 'a refused spa
 seed_state() {
   mkdir -p "$SANDBOX/st"; printf '20261101T060000Z\n' > "$SANDBOX/st/ts"
   printf 'inv-1\n' > "$SANDBOX/st/ts-api-first.id"; printf 'inv-2\n' > "$SANDBOX/st/ts-api-rereview.id"
-  jq -n '{definition_version:"10.4.0", memory_sha:"m1", skill_sources:{"sec-check":"abc123"},
+  jq -n '{definition_version:"10.5.0", memory_sha:"m1", skill_sources:{"sec-check":"abc123"},
           effort:"high", definition_ref:{branch:"main", sha:"abc"}, harness_version:"2.1.0 (Claude Code)"}' > "$SANDBOX/expect.json"
 }
 done_view() { # <memory_sha>
   jq -n --arg m "$1" '{status:"done", result:{review:"## Review\nbody\n", measure:{seconds:300, tokens:{input:1,output:2,cache_read:3,cache_creation:4,msgs:5}},
     suppressed:1, model:"claude-opus-5-5", skills:{"sec-check.md":"skill out\n"},
-    provenance:{definition_version:"10.4.0", memory_sha:$m, skill_sources:{"sec-check":"abc123"},
+    provenance:{definition_version:"10.5.0", memory_sha:$m, skill_sources:{"sec-check":"abc123"},
                 effort:"high", definition_ref:{branch:null, sha:"abc"}, harness_version:"2.1.1 (Claude Code)"}}}'
 }
 
