@@ -2125,7 +2125,11 @@ for bad in '<script>alert(1)</script>' '<img src="https://evil.example.test/x.pn
            '<a href="https://github.com/acme/widgets/../../evil/repo">x</a>' \
            "<p title='x' autofocus onfocus=alert(1) z=''>x</p>" \
            '<!-- a comment --!><img src="https://evil.example.test/x.png"> -->' \
-           '<!--><img src="https://evil.example.test/x.png">'; do
+           '<!--><img src="https://evil.example.test/x.png">' \
+           '<p data-tip="<!--"><img src="https://evil.example.test/x.png"> -->' \
+           '<p data-tip="<!--" onclick="x()">x</p> -->' \
+           '<style><!-- </style><img src="https://evil.example.test/x.png"> --></style>' \
+           '<img a"> <iframe srcdoc="x"></iframe> "x>'; do
   guide_page "$bad"
   run_rp collect 1
   assert_jq '.skills["review-guide"].guide == "refused" and (.form_warnings | any(contains("review-guide: guide not published")))' "refused: $bad"
@@ -2140,7 +2144,7 @@ for tpl in template.html project-diagram.svg; do
   sed -E 's#(href|data-paths)="\{\{[^}]*\}\}"#\1="\#x"#g; s#href="https://\{\{[^"]*"#href="\#x"#g; s#\{\{[^}]*\}\}#x#g' \
     "$REPO_ROOT/.agents/skills/review-guide/assets/$tpl" > "$SANDBOX/filled-$tpl"
   kind=html; case "$tpl" in (*.svg) kind=svg;; esac
-  why="$(cd "$REPO_ROOT" && REPO_HOST=github.com REPO=acme/widgets bash -c '. <(sed -n "/^MARKUP_JQ=/,/^    end'"'"'$/p;/^markup_refusal() {/,/^}/p" scripts/review-pr.sh); markup_refusal "$1" 200000 "$2"' _ "$SANDBOX/filled-$tpl" "$kind")"
+  why="$(cd "$REPO_ROOT" && REPO_HOST=github.com REPO=acme/widgets bash -c '. <(sed -n "/^MARKUP_TAIL=/,/^    end'"'"'$/p;/^markup_refusal() {/,/^}/p" scripts/review-pr.sh); markup_refusal "$1" 200000 "$2"' _ "$SANDBOX/filled-$tpl" "$kind")"
   [ -z "$why" ] && printf 'ok   %s: the filled %s passes the gate with its comments\n' "$CASE" "$tpl" \
     || { printf 'FAIL %s: the filled %s is refused: %s\n' "$CASE" "$tpl" "$why"; FAILED=1; }
 done
@@ -2337,6 +2341,11 @@ diagram_fx "$(PR_DIR).out/review-guide.diagrams/c-src.svg" c-src 'src/' 'src/alp
 printf '<script>x()</script>\n' >> "$(PR_DIR).out/review-guide.diagrams/c-src.svg"
 run_rp collect 1
 assert_jq '.skills["review-guide"].diagrams.refused == [{"id":"c-src","why":"a script element"}]' 'a map with a script is refused'
+rm -f "$(PR_DIR).out/review-guide.diagrams/"*.svg
+diagram_fx "$(PR_DIR).out/review-guide.diagrams/c-src.svg" c-src 'src/' 'src/alpha.ts' 'src/gamma.ts'
+printf '<text data-tip="<!--">x</text><image href="https://evil.example.test/x.png"/> -->\n' >> "$(PR_DIR).out/review-guide.diagrams/c-src.svg"
+run_rp collect 1
+assert_jq '.skills["review-guide"].diagrams.refused == [{"id":"c-src","why":"a comment opener inside an attribute value or a raw-text element"}]' 'a map with a comment opener in a quoted value is refused'
 run_rp abort 1 "reset"
 
 finish

@@ -197,10 +197,12 @@ sections.
   `srcset`, `background`, `ping` and the rest) either an `#anchor` or a URL
   under `https://<repo-host>/<owner>/<repo>/` with no space, comma, entity,
   escape or `..`. The check folds every run of whitespace, then scans the
-  tags as a browser reads them (a `>` in a quoted value does not end a tag;
-  text between tags, such as code in a mini diff, is not read as
-  attributes); `srcset`, `xml:base` and `http-equiv` are refused, and the
-  only CSS `url()` is `url(#id)`. A page that went through `collect` before
+  tags as a browser reads them (a quote opens a value only after `=`, and a
+  `>` in a quoted value does not end a tag; text between tags, such as code
+  in a mini diff, is not read as attributes). It drops each comment that
+  opens between tags, and refuses a `<!--` inside a quoted value or a
+  raw-text element such as `<style>`. `srcset`, `xml:base` and `http-equiv`
+  are refused, and the only CSS `url()` is `url(#id)`. A page that went through `collect` before
   has its vetted script taken out first, so a second `collect` reads the
   same page. A page that fails is
   `refused`, with the reason as a form warning; it does not publish. A page

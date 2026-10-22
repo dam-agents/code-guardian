@@ -359,13 +359,16 @@ guide_marker() {
 # may: one file, no script, no remote load, links only into this PR's
 # repository (docs/artifact.md → Review guide). Both are model output built from
 # untrusted PR content.
+# A tag after its name, as a browser reads it: a quote opens a value only
+# after an attribute name and "=", and a ">" inside a quoted value does not
+# end the tag.
+MARKUP_TAIL='(?:[\s/]+|[^\s/>][^\s/>=]*(?:\s*=\s*(?:"[^"]*"|\x27[^\x27]*\x27|[^\s>]*))?)*>?'
 # The tag scan of markup_refusal, in jq: every tag of the page as a browser
-# reads it — a ">" inside a quoted value does not end it, and text between
-# tags (code in a mini diff) is no tag — then each attribute name and value.
-# Prints the first reason to refuse, or nothing.
+# reads it — text between tags (code in a mini diff) is no tag — then each
+# attribute name and value. Prints the first reason to refuse, or nothing.
 MARKUP_JQ='
   def unq: if test("^\"") then .[1:-1] elif test("^\u0027") then .[1:-1] else . end;
-  [ scan("<[a-zA-Z!/?][^>\"\u0027]*(?:(?:\"[^\"]*\"|\u0027[^\u0027]*\u0027)[^>\"\u0027]*)*>?") ] as $tags
+  [ scan("</?[a-zA-Z][^\\s/>]*" + $tail) ] as $tags
   | [ $tags[] | ascii_downcase | (capture("^</?\\s*(?<n>[a-z][a-z0-9:-]*)") // empty) | .n ] as $names
   | [ $tags[] | [ scan("[\\s/\"\u0027]([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\\s*=\\s*(\"[^\"]*\"|\u0027[^\u0027]*\u0027|[^\\s\"\u0027>]+))?") ]
       | .[] | { n: (.[0] | ascii_downcase), v: ((.[1] // "") | unq) } ] as $attrs
@@ -401,11 +404,19 @@ markup_refusal() { # <file> <max bytes> <html|svg>
   # space, so each tag is one unit wherever its attributes sit
   flat="$(tr -s '\t\r\n\f\v ' '      ' < "$f")"
   # a comment holds no markup a browser acts on, so its words are no
-  # attributes: drop every comment span, ended the way a browser ends it —
-  # at "-->" or "--!>", "<!-->" and "<!--->" being whole comments — so no
-  # live tag can hide behind a comment the browser has already closed
-  flat="$(printf '%s' "$flat" | jq -Rrs 'gsub("<!--(?:>|->|(?:(?!--!?>).)*(?:--!?>|$))"; " ")' 2>/dev/null)" \
+  # attributes: read the page left to right as a browser does and drop each
+  # comment that opens between tags — ended at "-->" or "--!>", "<!-->" and
+  # "<!--->" being whole comments — and each "<!…>", "<?…>" or "</…>" that is
+  # no tag, ended at its first ">". A tag with its quoted values and a
+  # raw-text element up to its own end tag stay as they are, so a "<!--" in
+  # them opens no comment and is refused below.
+  flat="$(printf '%s' "$flat" | jq -Rrs --arg tail "$MARKUP_TAIL" '
+    gsub("(?<c><!--(?:>|->|(?:(?!--!?>).)*(?:--!?>|$)))|(?<d><!doctype[^>]*>?)|(?<b><[!?][^>]*>?|</(?![a-z])[^>]*>?)"
+         + "|(?<r><(?<rn>style|textarea|title|xmp|noembed|noframes|noscript)(?=[\\s/>])" + $tail + ".*?(?:</\\k<rn>(?=[\\s/>])|$))"
+         + "|(?<t></?[a-z][^\\s/>]*" + $tail + ")";
+         if .c or .b then " " elif .d then (.d | gsub("[\"\u0027]"; " ")) else (.r // .t) end; "i")' 2>/dev/null)" \
     || { printf 'the comment pass did not run'; return; }
+  case "$flat" in (*'<!--'*) printf 'a comment opener inside an attribute value or a raw-text element'; return;; esac
   low="$(printf '%s' "$flat" | tr 'A-Z' 'a-z')"
   case "$3" in
     (html) printf '%s' "$low" | grep -qE '<(!doctype html|html)' || { printf 'not an HTML page'; return; };;
@@ -424,7 +435,7 @@ markup_refusal() { # <file> <max bytes> <html|svg>
       (*) break;;
     esac
   done
-  why="$(printf '%s' "$flat" | jq -Rrs --arg prefix "https://$REPO_HOST/$REPO/" --arg styles "$styles" "$MARKUP_JQ" 2>/dev/null)" \
+  why="$(printf '%s' "$flat" | jq -Rrs --arg tail "$MARKUP_TAIL" --arg prefix "https://$REPO_HOST/$REPO/" --arg styles "$styles" "$MARKUP_JQ" 2>/dev/null)" \
     || { printf 'the tag scan did not run'; return; }
   printf '%s' "$why"
 }
