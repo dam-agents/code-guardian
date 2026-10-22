@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260" role="img" aria-label="{{AREA}}: its components and how they connect" data-cg-diagram="{{id}}" data-title="{{AREA title}}" data-paths="{{dir/}},{{dir/}}" data-base="{{base sha7}}" data-drawn="{{YYYY-MM-DD}}">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260" role="img" aria-label="{{AREA}}: its components and how they connect" data-cg-diagram="{{id}}" data-title="{{AREA title}}" data-paths="{{dir/}},{{dir/}}" data-base="{{the full 40-character base commit: git rev-parse origin/<base>}}" data-drawn="{{YYYY-MM-DD}}">
 <!-- A project diagram: a map of one area of the repository as it is on the
      base branch. 5–15 nodes on a fixed grid: column c at x = 20 + 170·c, row r
      at y = 50 + 80·r, every box 150 × 46, label ≤ 18 chars, sub-line ≤ 24. Every node opens on its own line as

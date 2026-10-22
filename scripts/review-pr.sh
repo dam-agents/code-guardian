@@ -898,7 +898,7 @@ emit_ready() { # <resumed-bool> — the prepare summary from the state files
 # the touched nodes marked, the stale ones, and the areas with no map. Needs
 # $CTX/files.json, the clone and $base from cmd_prepare.
 diagram_block() {
-  local chg f id title paths nodes hits drawn sha age stale="" have="" covered="" areas a out="" nmov
+  local chg f id title paths nodes hits drawn sha age de moved stale="" have="" covered="" areas a out="" nmov
   chg="$(jq -r '.[] | select(.class | IN("code","test","docs","config")) | .path' "$CTX/files.json" 2>/dev/null)"
   [ -n "$chg" ] || return 0
   mkdir -p "$CTX/diagrams"
@@ -915,16 +915,30 @@ diagram_block() {
     hits="$(diagram_highlight "$f" "$CTX/diagrams/$id.svg" "$chg")"
     have="$have"$'\n'"- \`$CTX/diagrams/$id.svg\` — ${title:-$id}: $hits of $nodes nodes marked"
     covered="$covered,$paths"
-    # stale: older than the window, or files added, deleted or renamed in its
-    # area on the base branch since the SHA it was drawn at
-    age=""; [ -n "$drawn" ] && age=$(( (NOW_EPOCH - $(iso2epoch "${drawn}T00:00:00Z" 2>/dev/null || echo "$NOW_EPOCH")) / 86400 ))
-    if [ -n "$age" ] && [ "$age" -gt "$DIAGRAM_STALE_DAYS" ]; then stale="$stale"$'\n'"- \`$id\` — drawn $age days ago"
+    # stale: older than the window, or DIAGRAM_STALE_FILES files added,
+    # deleted or renamed in its area since the commit it was drawn at. An
+    # input that cannot be read makes the map stale, never fresh
+    age=""; de=""
+    case "$drawn" in ([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) de="$(iso2epoch "${drawn}T00:00:00Z")";; esac
+    case "$de" in (''|0|*[!0-9]*) ;; (*) [ "$de" -le "$NOW_EPOCH" ] && age=$(( (NOW_EPOCH - de) / 86400 ));; esac
+    local -a pspec=(); IFS=, read -ra pspec <<< "$paths"
+    if [ -z "$age" ]; then stale="$stale"$'\n'"- \`$id\` — its drawing date is missing or unreadable"
+    elif [ "$age" -gt "$DIAGRAM_STALE_DAYS" ]; then stale="$stale"$'\n'"- \`$id\` — drawn $age days ago"
+    elif [ "${#sha}" -ne 40 ] || [ "${#pspec[@]}" -eq 0 ]; then
+      stale="$stale"$'\n'"- \`$id\` — its base commit or its paths are missing"
     else
-      local -a pspec=(); IFS=, read -ra pspec <<< "$paths"
-      if [ -n "$sha" ] && [ "${#pspec[@]}" -gt 0 ] && git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null; then
-        nmov="$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- "${pspec[@]}" 2>/dev/null | grep -c .)"
+      # the clone keeps 50 commits: fetch an older drawing commit's trees
+      # alone (no file contents) to compare the area against it
+      git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
+        || git -C "$PR_DIR" fetch -q --depth=1 --filter=blob:none origin "$sha" 2>/dev/null \
+        || git -C "$PR_DIR" fetch -q --depth=1 origin "$sha" 2>/dev/null
+      if ! git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
+         || ! moved="$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- "${pspec[@]}" 2>/dev/null)"; then
+        stale="$stale"$'\n'"- \`$id\` — its base commit \`${sha:0:7}\` cannot be compared"
+      else
+        nmov="$(printf '%s' "$moved" | grep -c .)"
         [ "${nmov:-0}" -ge "$DIAGRAM_STALE_FILES" ] \
-          && stale="$stale"$'\n'"- \`$id\` — $nmov files were added, deleted or renamed in its area since \`$sha\`"
+          && stale="$stale"$'\n'"- \`$id\` — $nmov files were added, deleted or renamed in its area since \`${sha:0:7}\`"
       fi
     fi
   done
@@ -946,7 +960,7 @@ diagram_block() {
     out="$out"$'\nAreas this PR touches with no map: '"$(printf '%s' "$areas" | head -5 | sed 's/^/`/; s/ (/` (/' | paste -sd, - | sed 's/,/, /g')"$'.'
   fi
   if [ -n "$stale" ] || [ -n "$areas" ]; then
-    out="$out"$'\nDraw or redraw at most '"$DIAGRAM_NEW_MAX"$' map in this run — the area with the most changes first —\nfrom the base branch, and save it as `'"$OUT"$'/<skill>.diagrams/<id>.svg`. It is a map of\nthe area as it is on the base branch, with no PR marks; mark the copy you put in\nthe page.'
+    out="$out"$'\nDraw or redraw at most '"$DIAGRAM_NEW_MAX"$' map in this run — the area with the most changes first —\nfrom the base branch, and save it as `'"$OUT"$'/<skill>.diagrams/<id>.svg`. It is a map of\nthe area as it is on the base branch, with no PR marks; its data-base is the full commit\n`git -C "'"$PR_DIR"'" rev-parse origin/'"$base"'`. Mark the copy you put in the page.'
   fi
   printf '%s' "$out"
 }
@@ -1498,6 +1512,11 @@ collect_guide() { # <skill> <out file>
          || ! diagram_attr "$df" data-paths | grep -qE '^[A-Za-z0-9._/,+-]{1,400}$' \
          || grep -o '<g class="node" data-paths="[^"]*"' "$df" | sed 's/.*data-paths="//; s/"$//' | grep -qvE '^[A-Za-z0-9._/,+-]{1,400}$'; then
       dwhy="a title or a path list with characters outside letters, digits and . _ / , ( ) + -"
+    elif ! diagram_attr "$df" data-base | grep -qE '^[0-9a-f]{40}$'; then dwhy="data-base is not the full 40-character base commit"
+    elif ! diagram_attr "$df" data-drawn | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+         || [ "$(iso2epoch "$(diagram_attr "$df" data-drawn)T00:00:00Z")" -le 0 ] \
+         || [ "$(iso2epoch "$(diagram_attr "$df" data-drawn)T00:00:00Z")" -gt "$NOW_EPOCH" ]; then
+      dwhy="data-drawn is not a past date in YYYY-MM-DD form"
     elif ! grep -q '<g class="node" data-paths="' "$df"; then dwhy="no node carries data-paths"
     elif [ "$nd" -ge "$DIAGRAM_NEW_MAX" ]; then dwhy="past the cap of $DIAGRAM_NEW_MAX per run"
     elif [ ! -f "$DIAGRAM_DIR/$did.svg" ] && [ "$(ls "$DIAGRAM_DIR"/*.svg 2>/dev/null | wc -l | tr -d ' ')" -ge "$DIAGRAM_STORE_MAX" ]; then

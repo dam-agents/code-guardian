@@ -301,8 +301,8 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 
 - The root `<svg>` carries `data-cg-diagram="<id>"` (lower-case letters,
   digits, hyphens; the file name), `data-title`, `data-paths` (the directory
-  prefixes the map covers, comma-separated), `data-base` (the base SHA, 7
-  characters) and `data-drawn` (`YYYY-MM-DD`).
+  prefixes the map covers, comma-separated), `data-base` (the full 40-character base commit,
+  `git rev-parse origin/<base>`) and `data-drawn` (`YYYY-MM-DD`).
 - Every node is `<g class="node" data-paths="<prefix>[,<prefix>…]">` **on its
   own line**, holding its box and its label; `data-paths` names the files or
   directories the node stands for, so a later PR's changes mark it.
