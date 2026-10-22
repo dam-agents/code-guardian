@@ -238,8 +238,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 1. Title the session (**Session titles**), then read [survey.md](survey.md)
    and read the area the entry names — never one of your own choosing —
    within the files `scripts/survey.sh prepare` lists.
-2. Write the findings in the review form ([finding-form.md](finding-form.md)),
-   record the pass, then regenerate and republish the accumulated artifact.
+2. Write only the dangerous findings — 🔴 and 🟡, security first — in the
+   review form ([finding-form.md](finding-form.md)), record the pass, then regenerate and republish the accumulated artifact.
    A survey posts nothing on GitHub and changes no code.
 3. Back up `work/` as the very last action.
 

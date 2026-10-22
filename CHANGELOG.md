@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 10.7.0 — 2026-10-22
+
+**Upgrade:** Nothing — docs are re-read per run, and the next survey pass
+republishes the artifact in the new layout. Earlier passes keep their 🟢
+counts in their history. With `survey_report_findings: enabled`, the page now
+shows security findings: confirm that the artifact's audience may read them
+([docs/config.md](docs/config.md) → `survey_report_findings`).
+
 ## 10.6.0 — 2026-10-22
 
 **Upgrade:** Nothing — docs are re-read per run. Trial benchmarks now run in
