@@ -200,7 +200,7 @@ assert_out_contains 'rc=2' 'missing input is a usage error'
 # results validator: judge scores need the pinned judge
 results() { # <judge> <judge_model_used|null> <first judge json>
   jq -n --arg j "$1" --argjson u "$2" --argjson fj "$3" '{ts:"2026-10-16T06:00:00Z", trigger:"manual",
-    model:"glm-5-3", effort:"medium", definition_version:"9.7.0", judge:$j, judge_model_used:$u,
+    model:"glm-5-3", effort:"medium", definition_version:"9.7.0", isolation:"platform-subagent", judge:$j, judge_model_used:$u,
     fixtures:{"ts-api":{first:{fp:[], seconds:1, tokens:null, judge:$fj},
                         rereview:{churn:0, seconds:1, tokens:null, judge:null}}}}'
 }

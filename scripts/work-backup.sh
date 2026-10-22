@@ -14,6 +14,8 @@
 set -u
 
 MODE="${1:-persist}"
+# a benchmark sub-agent's volume is thrown away with it (docs/benchmark.md)
+[ "${CG_BENCHMARK_CHILD:-}" = 1 ] && [ "$MODE" = persist ] && { echo "work-backup: benchmark sub-agent — nothing to back up"; exit 0; }
 WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 BRANCH="${WORK_BACKUP_BRANCH:-main}"
 RETRIES="${WORK_BACKUP_RETRIES:-3}"
@@ -46,8 +48,8 @@ fi
 
 # Never carried either way: pod-local transient state. Mirrored by SKIP_RE for
 # the restore verification, which walks git's file list instead of tar's.
-EXCLUDES=(--exclude='./.git' --exclude='.nfs*' --exclude='*.lock' --exclude='*.tmp' --exclude='./benchmark/.run-lock')
-SKIP_RE='(^|/)\.nfs|\.lock(/|$)|\.tmp$|^benchmark/\.run-lock$'
+EXCLUDES=(--exclude='./.git' --exclude='.nfs*' --exclude='*.lock' --exclude='*.tmp' --exclude='.run-lock')
+SKIP_RE='(^|/)\.nfs|\.lock(/|$)|\.tmp$|(^|/)\.run-lock$'
 # Append-only or unreconstructable records a persist may never delete
 PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl PR-EVENTS.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
 

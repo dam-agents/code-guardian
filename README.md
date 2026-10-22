@@ -119,7 +119,7 @@ with known seeded defects through its full pipeline, measures time and tokens
 per review, scores each output against the fixture's manifest, and republishes
 an accumulated report, kept with full provenance so review quality stays
 comparable across model, harness and definition versions. Unrecorded **trial
-runs** score a feature branch during development
+runs** score feature branches during development, several at once
 ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**
@@ -276,7 +276,9 @@ what it can and asking for the rest. Per-key semantics are in
   auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
   schedules, one-time review sessions, session titles and Slack. The monitor's
   opt-ins call that server from a script, at the `platform-outbound` URL of
-  `~/.mcp.json` (`scripts/lib/mcp.sh`). Running elsewhere requires
+  `~/.mcp.json` (`scripts/lib/mcp.sh`). The benchmark runs its reviews in
+  platform sub-agents through the platform's Driver REST routes beside that
+  URL (`docs/benchmark.md` → **Isolation**). Running elsewhere requires
   adapting those assumptions.
 - **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
   target repo, this definition, the skill sources and the `work_repo` backup may

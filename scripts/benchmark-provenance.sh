@@ -2,7 +2,7 @@
 # benchmark-provenance.sh — print the run-input provenance of a benchmark run
 # as one JSON object (docs/benchmark.md → Running the benchmark, phase 2):
 #
-#   benchmark-provenance.sh <work/benchmark dir>
+#   benchmark-provenance.sh [--commit <sha>] [--branch <name>] [--state-root <dir>] <work/benchmark dir>
 #
 #   {definition_version, prev_version, changes_since_prev[], harness_version,
 #    effort, memory_sha, skill_sources{}, definition_ref{branch,sha}}
@@ -25,6 +25,13 @@
 #   (short source SHA per installed repo-sourced skill).
 # - definition_ref: the checkout's branch + short sha — on a feature branch
 #   (trial runs) VERSION alone does not identify the code.
+#
+# --commit reads the definition fields (definition_version, changes, ref) from
+# that commit of the $HOME repository instead of the checkout, --branch names
+# its branch: the expected state of sub-agents seeded at another commit than
+# the checked-out one (benchmark-isolate.sh start). --state-root reads
+# work/MEMORY.md and the skill cache under <dir> instead of $HOME: a run's
+# snapshot of them.
 set -u
 export LC_ALL=C
 
@@ -32,11 +39,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
 . "$SCRIPT_DIR/lib/harness.sh"
 
-BDIR="${1:-}"
-[ -n "$BDIR" ] || { printf 'usage: benchmark-provenance.sh <work/benchmark dir>\n' >&2; exit 2; }
 HOME_DIR="${HOME:-/home/agent}"
+REV="" BRANCH="" STATE_ROOT="$HOME_DIR"
+while [ "$#" -gt 1 ]; do
+  case "$1" in
+    (--commit) REV="$2"; shift 2;;
+    (--branch) BRANCH="$2"; shift 2;;
+    (--state-root) STATE_ROOT="$2"; shift 2;;
+    (*) break;;
+  esac
+done
+BDIR="${1:-}"
+[ -n "$BDIR" ] || { printf 'usage: benchmark-provenance.sh [--commit sha] [--branch name] [--state-root dir] <work/benchmark dir>\n' >&2; exit 2; }
 
-CUR_VER="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null || true)"
+if [ -n "$REV" ]; then
+  CUR_VER="$(git -C "$HOME_DIR" show "$REV:VERSION" 2>/dev/null | head -1 || true)"
+else
+  CUR_VER="$(head -1 "$HOME_DIR/VERSION" 2>/dev/null || true)"
+fi
 
 PREV_VER=""
 if ls "$BDIR"/results/*.json >/dev/null 2>&1; then
@@ -47,7 +67,7 @@ fi
 
 CHANGES='[]'
 if [ -n "$PREV_VER" ] && [ -n "$CUR_VER" ] && [ "$PREV_VER" != "$CUR_VER" ]; then
-  CHANGES="$(git -C "$HOME_DIR" log --format='%H%x09%s' -- VERSION 2>/dev/null \
+  CHANGES="$(git -C "$HOME_DIR" log --format='%H%x09%s' "${REV:-HEAD}" -- VERSION 2>/dev/null \
     | while IFS="$(printf '\t')" read -r sha subj; do
         [ "$(git -C "$HOME_DIR" show "$sha:VERSION" 2>/dev/null | head -1)" = "$PREV_VER" ] && break
         printf '%s\n' "$subj"
@@ -56,10 +76,10 @@ fi
 
 HARNESS="$(cg_harness_version)"
 EFFORT="$(cg_harness_effort)"
-MEMORY_SHA="$(git hash-object "$HOME_DIR/work/MEMORY.md" 2>/dev/null || true)"
+MEMORY_SHA="$(git hash-object "$STATE_ROOT/work/MEMORY.md" 2>/dev/null || true)"
 
 SKILLS='{}'
-SKILL_CACHE="$HOME_DIR/.claude/skills/.cache"
+SKILL_CACHE="$STATE_ROOT/.claude/skills/.cache"
 if ls "$SKILL_CACHE"/*.sha >/dev/null 2>&1; then
   SKILLS="$(for f in "$SKILL_CACHE"/*.sha; do
               n="${f##*/}"; n="${n%.sha}"
@@ -67,8 +87,10 @@ if ls "$SKILL_CACHE"/*.sha >/dev/null 2>&1; then
             done | jq -R 'split("\t") | {(.[0]): .[1]}' | jq -s 'add // {}')"
 fi
 
-BRANCH="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-SHA="$(git -C "$HOME_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+if [ -z "$REV" ] && [ -z "$BRANCH" ]; then
+  BRANCH="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+fi
+SHA="$(git -C "$HOME_DIR" rev-parse --short=12 "${REV:-HEAD}" 2>/dev/null || true)"
 
 jq -n --arg cur "$CUR_VER" --arg prev "$PREV_VER" --argjson changes "$CHANGES" \
       --arg harness "$HARNESS" --arg effort "$EFFORT" --arg mem "$MEMORY_SHA" --argjson skills "$SKILLS" \

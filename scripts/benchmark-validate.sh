@@ -30,6 +30,8 @@
 #   json            parses as an object
 #   fields          ts / trigger / model / effort / definition_version present
 #   trigger         one of scheduled | manual | trial
+#   isolation       platform-subagent, or none with isolation_reason and
+#                   isolation_approved (docs/benchmark.md → Isolation)
 #   fixtures_shape  fixtures is an OBJECT keyed by slug, never an array
 #                   (an array renders its sections as 0,1,2… and breaks the
 #                   index submode)
@@ -183,6 +185,14 @@ validate_results() { # <file>
   bad="$(jq -r 'if (.trigger | IN("scheduled","manual","trial")) then "" else (.trigger // "null") end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail trigger "unknown trigger '$bad'; fix: use scheduled | manual | trial — the monthly gate reads scheduled only" \
                 || ok trigger "trigger is one of scheduled|manual|trial"
+
+  bad="$(jq -r 'if .isolation == "platform-subagent" then ""
+    elif .isolation == "none" then
+      ([["isolation_reason", .isolation_reason], ["isolation_approved", .isolation_approved]]
+       | [.[] | select((.[1] // "") == "") | .[0]] | if length == 0 then "" else "isolation none without " + join(", ") end)
+    else "isolation is \(.isolation // "missing")" end' "$f" 2>/dev/null)"
+  [ -n "$bad" ] && fail isolation "$bad; fix: platform-subagent for a run through benchmark-isolate.sh; none only with the operator's approval and its reason (docs/benchmark.md → Isolation unavailable)" \
+                || ok isolation "isolation recorded"
 
   bad="$(jq -r '.fixtures | type' "$f" 2>/dev/null)"
   if [ "$bad" = "object" ]; then
