@@ -57,6 +57,9 @@ GH_CALLS_LOG="$SANDBOX/calls.log" run_preflight review
 assert_jq '.skills.snap == "installed (1 files)"' 'the skill installs from the HEAD snapshot'
 assert_file_contains "$FAKE_HOME/.claude/skills/snap/SKILL.md" '^# snap at the snapshot$' 'every file is fetched at the snapshot SHA'
 assert_file_contains "$FAKE_HOME/.claude/skills/.cache/snap.sha" "^$SRC_SHA\$" 'the cache holds the snapshot SHA'
+[ -z "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | grep -v '\.sha$')" ] \
+  && printf 'ok   %s: the install swapped its stage in and released the skills lock\n' "$CASE" \
+  || { printf 'FAIL %s: leftovers in the cache: %s\n' "$CASE" "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | tr '\n' ' ')"; FAILED=1; }
 assert_file_contains "$SANDBOX/calls.log" "repos/acme/skills/git/trees/$SRC_SHA?recursive=1" 'the tree is listed at the snapshot SHA'
 grep -E 'repos/acme/skills/.*(/main|=main|trees/HEAD|ref=HEAD)' "$SANDBOX/calls.log" >/dev/null \
   && { printf 'FAIL %s: a source call named main or HEAD past commits/HEAD\n' "$CASE"; FAILED=1; } \
@@ -73,6 +76,26 @@ assert_jq '.skills.snap == "installed (1 files)"' 'an unreadable SHA installs fr
 [ -e "$FAKE_HOME/.claude/skills/.cache/snap.sha" ] \
   && { printf 'FAIL %s: a cache SHA was written without a snapshot SHA\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no cache SHA without a snapshot SHA\n' "$CASE"
+
+snap_case skill_install_failure_keeps_the_installed_copy
+# a fetch fails mid-install: the installed skill and its SHA stay as they were,
+# and no stage is left behind (docs/benchmark.md → Isolation snapshots skills)
+mkdir -p "$FAKE_HOME/.claude/skills/snap" "$FAKE_HOME/.claude/skills/.cache"
+printf '# snap before\n' > "$FAKE_HOME/.claude/skills/snap/SKILL.md"
+printf 'oldoldoldoldoldoldoldoldoldoldoldoldoldo' > "$FAKE_HOME/.claude/skills/.cache/snap.sha"
+printf '{"sha":"%s"}\n' "$SRC_SHA" | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
+printf '{"tree":[{"type":"blob","path":".agents/skills/snap/SKILL.md"},{"type":"blob","path":".agents/skills/snap/ref.md"}]}\n' \
+  | fx "api --hostname github.com repos/acme/skills/git/trees/$SRC_SHA?recursive=1"
+printf '# snap at the snapshot\n' \
+  | fx "api --hostname github.com repos/acme/skills/contents/.agents/skills/snap/SKILL.md?ref=$SRC_SHA -H Accept: application/vnd.github.raw"
+fx_fail "api --hostname github.com repos/acme/skills/contents/.agents/skills/snap/ref.md?ref=$SRC_SHA -H Accept: application/vnd.github.raw"
+run_preflight review
+assert_jq '.skills.snap == "install-failed"' 'the failed fetch is reported'
+assert_file_contains "$FAKE_HOME/.claude/skills/snap/SKILL.md" '^# snap before$' 'the installed copy stays whole'
+assert_file_contains "$FAKE_HOME/.claude/skills/.cache/snap.sha" '^oldold' 'its SHA stays with it'
+[ -z "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | grep -v '^snap.sha$')" ] \
+  && printf 'ok   %s: no stage or lock left in the cache\n' "$CASE" \
+  || { printf 'FAIL %s: leftovers in the cache: %s\n' "$CASE" "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | tr '\n' ' ')"; FAILED=1; }
 
 # --- the artifact publishes to DAM on any target host -----------------------
 new_case artifact_due_other_host

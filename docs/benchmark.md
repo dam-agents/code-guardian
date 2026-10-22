@@ -28,6 +28,7 @@ results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
 .run-notes-<ts>.md       # segmented-run ledger (Segmented run below); absent otherwise
 RESULTS.md               # append-only index — one row per run × fixture, newest last
 report.html              # the accumulated report, regenerated every run
+trials/<id>/             # one trial's .run-lock, results/ and report.html (Trial runs)
 ```
 
 `results/`, `results/raw/` and `RESULTS.md` are append-only: runs add files and
@@ -164,7 +165,8 @@ the operator's decision — **Retiring a fixture set**), log
 and end the run — no run lock is held yet.
 
 **Then take the run lock — one scored run at a time.** The lock file is
-`$HOME/work/benchmark/.run-lock`, first line `<ISO> <nonce>`:
+`$HOME/work/benchmark/.run-lock` (a trial's: **Trial runs**), first line
+`<ISO> <nonce>`:
 
 - Lock present, its ISO younger than **6 h** → a sibling run is live: **stand
   down**, report it, touch nothing of the sibling's (its lock, its
@@ -212,18 +214,19 @@ any configured extension skill that routes zero files across **all** fixtures
 
 Phase 1 runs in **isolated platform sub-agents**: one per fixture and phase,
 all at once, each a separate agent with its own volume and no connection. A
-sub-agent gets the definition at this checkout's commit (a seed of the public
-definition repo) and one bundle of its task's inputs; nothing of this volume —
-the manifests, past results, the work repo's credentials — reaches it.
-`benchmark-isolate.sh` refuses a bundle or a definition history (every commit
-of every local ref) that holds ground truth, and a work repo that is public.
+sub-agent gets the definition at the seeded commit — this checkout's HEAD, or
+a trial's `--commit` (a seed of the public definition repo) — and one bundle
+of its task's inputs; nothing of this volume — the manifests, past results,
+the work repo's credentials — reaches it. `start` snapshots the memory files
+and skills once per run and writes the sub-agents' expected provenance to
+`$PSTATE/expect.json`. `benchmark-isolate.sh` refuses a bundle or a
+definition history (every commit of every local ref and of the seeded commit)
+that holds ground truth, and a work repo that is public.
 
 1. `isolation_unavailable` is set, or
-   `bash "$HOME/scripts/benchmark-isolate.sh" check` prints a reason →
-   **Isolation unavailable**.
-2. The expected sub-agent state, this checkout's provenance:
-   `bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark" > "$PSTATE.expect.json"`.
-3. Spawn every task:
+   `bash "$HOME/scripts/benchmark-isolate.sh" check` (a trial: `check --commit
+   <SHA>`) prints a reason → **Isolation unavailable**.
+2. Spawn every task:
    ```bash
    bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] [--model <m>] \
      "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
@@ -231,19 +234,19 @@ of every local ref) that holds ground truth, and a work repo that is public.
    `--effort` = this session's effort when the harness exposes one
    (`effort` of the provenance). `--model` only on the operator's ask for
    another model, provider-qualified; without it the sub-agents run the
-   agent's default model, as the production reviews do. A refusal before the
-   first `spawned` line → **Isolation unavailable**; after it → abort.
-4. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
+   agent's default model, as the production reviews do. A trial adds
+   `--commit <SHA> --branch <branch>`. A refusal before the first `spawned`
+   line → **Isolation unavailable**; after it → abort.
+3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
    foreground until exit 0; exit 3 means call it again.
-5. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "$HOME/work/benchmark/results/raw" "$PSTATE.expect.json"`
-   writes every raw review and skill archive — only when nothing failed or
-   mismatched — and prints per task `seconds`,
-   `tokens`, `suppressed` and `spawn`, plus the run's `model`,
+4. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "<raw dir>"`
+   (`$HOME/work/benchmark/results/raw`) writes every raw review and skill
+   archive — only when nothing failed or mismatched — and prints per task
+   `seconds`, `tokens`, `suppressed` and `spawn`, plus the run's `model`,
    `harness_version` and `effort`. A `failed` task gets one retry — the same
    `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`
-   again; a second failure
-   or any `mismatches` entry (the sub-agent ran other inputs than this
-   checkout) → abort.
+   again; a second failure or any `mismatches` entry (the sub-agent ran other
+   inputs than `start` snapshotted) → abort.
 
 **Abort** = cleanup (step 11), nothing recorded, the reason in the chat UI.
 Sub-agents still running end at their deadline.
@@ -407,9 +410,10 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
    from one deterministic call — merge its object in verbatim and add what only
    the session knows (`model`, `trigger`, `judge`, and `judge_model_used` from
-   step 6). An isolated run adds `isolation: "platform-subagent"` and each
+   step 6). An isolated run merges `$PSTATE/expect.json` instead — the
+   seeded commit's provenance — adds `isolation: "platform-subagent"` and each
    phase's `spawn`, and takes `model`, `harness_version` and `effort` from
-   `collect`, the values its sub-agents ran:
+   `collect`, the values its sub-agents ran. In-pod:
 
    ```bash
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
@@ -458,7 +462,7 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
       1.0` in this and the previous run of the same model and effort —
       recommend a harder sibling), and the report URL when published.
 11. Clean up every `/tmp/benchmark-pr-*` directory (`rm -rf` with `.out` and
-    `.s-*` variants), your phase-state directory with `$PSTATE.expect.json`, your nonce cache
+    `.s-*` variants), your phase-state directory, your nonce cache
     (`${TMPDIR:-/tmp}/.bench-usage-$NONCE`) and temp payload files; **remove
     the run lock**; log `benchmark run scored (avg f1=<x> over <n> fixtures)`;
     back up `work/` last.
@@ -584,8 +588,9 @@ task 27) compares the table with the platform's attributed spend every week.
 
 A set that turns out invalid — validation fails, or it stopped representing
 the repo — is **retired and replaced**, never edited in place. Only the
-operator decides; the agent reports and waits. Check the run lock first: a live
-run finishes, or its lock expires, before anything moves.
+operator decides; the agent reports and waits. Check the run locks first
+(`.run-lock`, `trials/*/.run-lock`): a live run finishes, or its lock expires,
+before anything moves.
 
 1. `mkdir -p fixture/retired && mv fixture/<slug> fixture/retired/<slug>` per
    retired slug. Retired fixtures stay on disk forever — past results
@@ -602,23 +607,53 @@ run finishes, or its lock expires, before anything moves.
 
 ## Trial runs (PR development — scored, never recorded)
 
-A trial run scores the definition **as currently checked out**, typically a
-feature branch, without touching the permanent history: its results live only
-under the trial's own folder.
+A trial run scores one commit of the definition remote, typically a feature
+branch's head, without touching the permanent history or the `$HOME`
+checkout: its results live only under the trial's own folder. Trials of
+different branches run at the same time, beside a scored run.
 
-- **Trigger: operator only, in the direct session** — "run a trial benchmark",
-  optionally naming the PR/branch. Repeatable at will. A trial takes the
-  **same run lock** as a scored run.
-- **Procedure**: the run steps above, with these substitutions:
-  - `TRIAL="$HOME/work/benchmark/trials/<id>"`, `<id>` = `pr-<n>` or the branch
-    slug; results to `$TRIAL/results/<ts>.json`, raw reviews and skill archives
-    to `$TRIAL/results/raw/…` (`collect`'s raw dir).
-  - Push the branch first: the sub-agents seed the checked-out commit.
-  - `trigger: "trial"`; provenance from the same `benchmark-provenance.sh`
-    call, whose `definition_ref: {branch, sha}` is what identifies
-    feature-branch code (`VERSION` alone does not).
-  - **Skip entirely**: RESULTS.md rows, `report.html` regeneration, publishing,
-    and `prev_version`/`changes_since_prev`.
+- **Trigger: operator only, in the direct session** — "run a trial benchmark
+  of <branch>", one or more branches or PRs, repeatable at will. That session
+  **dispatches and never runs a trial itself**, so every trial runs in a
+  session that never read a `manifest.json`:
+  1. Per branch: `<SHA>` = `git ls-remote <definition repo URL>
+     refs/heads/<branch>` (not on the remote → the operator pushes it first),
+     `<id>` = `pr-<n>` or the branch slug.
+  2. One `mcp__platform-outbound__schedule_once` call per trial — no
+     `model` — with `name` `code-guardian-trial-<id>`, `sessionTitle`
+     `Run trial benchmark of <branch>` and this task, values filled in:
+
+     ```
+     Run trial benchmark of <branch> — dispatched by the operator's direct session.
+     trial: <id>, commit: <SHA>, branch: <branch>
+     Follow docs/benchmark.md → **Trial runs** → In the trial session, then back up work/ (`scripts/work-backup.sh persist`).
+     ```
+
+  3. Report each trial's id, commit and session. A refused call or a missing
+     tool → report it; that trial runs only when the operator opens a fresh
+     direct session with the same task.
+- **In the trial session**: the run steps above, with these substitutions:
+  - `TRIAL="$HOME/work/benchmark/trials/<id>"`; the run lock is
+    `$TRIAL/.run-lock` under the same rules — a live trial of the same `<id>`
+    makes this one stand down (repeat with another `<id>`, such as
+    `<branch>-r2`). Results to `$TRIAL/results/<ts>.json`, raw reviews and
+    skill archives to `$TRIAL/results/raw/…` (`collect`'s raw dir).
+  - `check --commit <SHA>` and `start --commit <SHA> --branch <branch>`
+    (**Isolation**); `trigger: "trial"`. The provenance in
+    `$PSTATE/expect.json` carries the commit's `definition_version` and
+    `definition_ref: {branch, sha}`, which identify feature-branch code
+    (`VERSION` alone does not).
+  - **Isolation unavailable** → stop as a scheduled run does. An approved
+    in-pod trial runs only in a fresh direct session, with `<SHA>` checked
+    out in `$HOME`, and takes the global `.run-lock` too: in-pod Phase 1
+    reads the checkout and shares the `/tmp` trees.
+  - **Skip entirely**: the skill install or refresh (the trial measures the
+    installed skills, which `start` snapshots), RESULTS.md rows,
+    `report.html` regeneration, publishing, and
+    `prev_version`/`changes_since_prev`.
+  - Phase 2 runs the `$HOME` checkout's scorer, judge and report, so a trial
+    scores the branch's reviews the production way; a change to those
+    scripts is not measured by its own trial.
   - The monthly gate and trials ignore each other: the gate reads only the
     official `results/*.json` (and only `trigger: scheduled` entries), and a
     trial writes only under `trials/<id>/`.
@@ -627,8 +662,6 @@ under the trial's own folder.
   (the script reads any directory holding `results/`) — and report the index
   delta against **(a)** the previous run of the same trial and **(b)** the
   latest official run, reading both from `benchmark-report.sh index`.
-- **Session separation applies unchanged**: a session that read any
-  `manifest.json` does not run the trial — score it from a fresh session.
 - **Cleanup**: a merged or abandoned PR's `trials/<id>/` is removed when the
   operator asks; the `work/` backup keeps its git history either way.
 

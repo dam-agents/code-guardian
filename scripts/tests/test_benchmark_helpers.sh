@@ -235,6 +235,30 @@ assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never n
 OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.effort == "medium"' 'harness effort recorded'
 
+new_case provenance_of_another_commit
+# a trial seeds a branch commit while $HOME stays on production
+# (docs/benchmark.md → Trial runs); the state comes from a run snapshot
+seed_results
+mkdir -p "$FAKE_HOME/work" "$SANDBOX/snap/work" "$SANDBOX/snap/.claude/skills/.cache"
+printf '10.0.0\n' > "$FAKE_HOME/VERSION"
+git -C "$FAKE_HOME" init -q
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t add VERSION
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm prod
+git -C "$FAKE_HOME" checkout -qb feature
+printf '10.1.0\n' > "$FAKE_HOME/VERSION"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam feature
+FEAT="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+git -C "$FAKE_HOME" checkout -q -
+printf '# mem\n' > "$FAKE_HOME/work/MEMORY.md"; printf '# snapped mem\n' > "$SANDBOX/snap/work/MEMORY.md"
+printf 'fedcba9876543210fedcba9876543210fedcba98' > "$SANDBOX/snap/.claude/skills/.cache/sec.sha"
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" --commit "$FEAT" --branch feature --state-root "$SANDBOX/snap" "$SANDBOX/bench")"
+assert_jq '.definition_version == "10.1.0"' 'VERSION read from the commit, not the checkout'
+assert_jq ".definition_ref == {branch: \"feature\", sha: \"${FEAT:0:12}\"}" 'definition_ref names the commit and the given branch'
+assert_jq ".memory_sha == \"$(git hash-object "$SANDBOX/snap/work/MEMORY.md")\"" 'memory hashed from the snapshot'
+assert_jq '.skill_sources == {"sec": "fedcba987654"}' 'skills read from the snapshot cache'
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.definition_version == "10.0.0" and .definition_ref.branch != "feature"' 'without --commit the checkout is described'
+
 new_case pi_usage_snapshot_sums_pi_transcripts
 # pi transcripts (docs/harness-pi.md): message entries carry message.usage with
 # pi's field names; an entry id is unique per file only, so a nested

@@ -118,7 +118,7 @@ with known seeded defects through its full pipeline, measures time and tokens
 per review, scores each output against the fixture's manifest, and republishes
 an accumulated report, kept with full provenance so review quality stays
 comparable across model, harness and definition versions. Unrecorded **trial
-runs** score a feature branch during development
+runs** score feature branches during development, several at once
 ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**

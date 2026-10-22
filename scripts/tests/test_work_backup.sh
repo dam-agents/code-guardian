@@ -38,6 +38,7 @@ seed_state() {
   mkdir -p "$WORK/.stall-alert.lock"
   printf 'x\n' > "$WORK/MENTIONS.md.tmp"
   printf '2026-09-20T00:00:00Z n\n' > "$WORK/benchmark/.run-lock"
+  mkdir -p "$WORK/benchmark/trials/pr-9"; printf '2026-09-20T00:00:00Z t\n' > "$WORK/benchmark/trials/pr-9/.run-lock"
 }
 
 new_case restore-round-trip
@@ -46,6 +47,7 @@ backup persist
 assert_true "persist pushed the audit week" remote_has audit/weeks/20260920T000000Z.json
 assert_true "persist pushed the logs" remote_has logs/events-2026-09-20.jsonl
 assert_true "persist left the benchmark run lock out" eval '! remote_has benchmark/.run-lock'
+assert_true "persist left a trial run lock out" eval '! remote_has benchmark/trials/pr-9/.run-lock'
 assert_true "persist left *.tmp out" eval '! remote_has MENTIONS.md.tmp'
 FRESH="$SANDBOX/fresh-work"; mkdir -p "$FRESH"
 printf -- '- work_repo: acme/widgets-state\n' > "$FRESH/CONFIG.md"   # ONBOARDING Step 3a

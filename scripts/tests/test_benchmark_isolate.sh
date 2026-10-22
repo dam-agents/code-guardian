@@ -146,6 +146,65 @@ check_eq "$(printf '%s' "$B1" | jq -r '.prompt | test("usage-nonce:bench-2026110
 JOINED="$(printf '%s' "$B1" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' | base64 -d | sha256sum | cut -d' ' -f1)"
 check_eq "$JOINED" "$(printf '%s' "$B1" | jq -r '.env[] | select(.name == "CG_BENCH_SHA256") | .value')" 'the chunks carry the bundle intact'
 
+check_eq "$(jq -r '[.definition_ref.sha, .skill_sources["sec-check"]] | join("|")' "$SANDBOX/st/expect.json")" "${HEAD_SHA:0:12}|abc123" 'start writes the expected provenance of the seeded commit and the snapshot'
+check_eq "$(cat "$SANDBOX/st/snapshot/.claude/skills/sec-check/SKILL.md")" skill 'the snapshot holds the skills the run bundles'
+
+iso_case start_bundles_every_task_from_one_snapshot
+iso start --only ts-api-first "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+# a skill install between the first spawn and a retry changes nothing of the run
+printf 'newer\n' > "$FAKE_HOME/.claude/skills/sec-check/SKILL.md"; printf 'def456' > "$FAKE_HOME/.claude/skills/.cache/sec-check.sha"
+iso start --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 0 'the retry spawns'
+B2="$(sed -n 2p "$SANDBOX/rest.log.body" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' | base64 -d | tar -xzOf - ./.claude/skills/.cache/sec-check.sha)"
+check_eq "$B2" abc123 'the retry bundles the run snapshot, not the newer install'
+check_eq "$(jq -r '.skill_sources["sec-check"]' "$SANDBOX/st/expect.json")" abc123 'the expected provenance stays the snapshot'
+printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "$SANDBOX/st/commit"
+iso start --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a retry never seeds another commit into the run'
+assert_out_contains 'a retry seeds the same commit' 'the refusal says so'
+
+iso_case start_seeds_another_commit
+# a trial seeds a branch commit that only the definition remote holds; it is
+# fetched without a checkout, and $HOME stays on its own commit. The remote is
+# a local bare repository the remote URL is rewritten to: the test stays offline.
+printf '10.4.0\n' > "$FAKE_HOME/VERSION"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t add VERSION
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm prod
+PROD="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+git clone -q --bare "$FAKE_HOME" "$SANDBOX/def.git"
+git clone -q "$SANDBOX/def.git" "$SANDBOX/dev"
+printf '10.5.0\n' > "$SANDBOX/dev/VERSION"
+git -C "$SANDBOX/dev" -c user.email=t@t -c user.name=t commit -qam feature
+git -C "$SANDBOX/dev" push -q origin HEAD:refs/heads/feature
+FEAT="$(git -C "$SANDBOX/dev" rev-parse HEAD)"
+git -C "$FAKE_HOME" config url."$SANDBOX/def.git".insteadOf https://github.com/acme/cg-def.git
+printf '{"sha":"%s"}' "$FEAT" | fx "api --hostname github.com repos/acme/cg-def/commits/$FEAT"
+check_eq "$(git -C "$FAKE_HOME" cat-file -t "$FEAT" 2>/dev/null)" "" 'the commit is not in the checkout before the run'
+iso start --commit "$FEAT" --branch feature "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 0 'start fetches and seeds a commit that is not checked out'
+check_eq "$(sed -n 1p "$SANDBOX/rest.log.body" | jq -r '.seed.commit')" "$FEAT" 'the seed is the given commit'
+check_eq "$(jq -r '[.definition_version, .definition_ref.branch, .definition_ref.sha] | join("|")' "$SANDBOX/st/expect.json")" "10.5.0|feature|${FEAT:0:12}" 'the expected provenance is the commit, not the checkout'
+check_eq "$(git -C "$FAKE_HOME" rev-parse HEAD):$(cat "$FAKE_HOME/VERSION"):$(git -C "$FAKE_HOME" status --porcelain -uno)" "$PROD:10.4.0:" 'the checkout stays where it was, clean'
+
+iso_case check_commit_unknown
+git init -q --bare "$SANDBOX/def.git"
+git -C "$FAKE_HOME" config url."$SANDBOX/def.git".insteadOf https://github.com/acme/cg-def.git
+iso check --commit 0123456789abcdef0123456789abcdef01234567
+check_eq "$RC" 1 'a commit on no remote cannot be seeded'
+assert_out_contains 'push it first' 'the reason gives the fix'
+
+iso_case start_refuses_truth_on_the_seeded_branch_only
+# the leak sits on a commit no local ref names; the seeded history holds it
+printf '%s\n' "$SUMMARY" > "$FAKE_HOME/docs/x.md"
+git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam leak
+LEAKED="$(git -C "$FAKE_HOME" rev-parse HEAD)"
+git -C "$FAKE_HOME" reset -q --hard HEAD~1
+git -C "$FAKE_HOME" config url."$SANDBOX/none.git".insteadOf https://github.com/acme/cg-def.git
+printf '{"sha":"%s"}' "$LEAKED" | fx "api --hostname github.com repos/acme/cg-def/commits/$LEAKED"
+iso start --commit "$LEAKED" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'the seeded commit history is checked too'
+assert_out_contains 'ground truth .* in the definition history' 'the refusal says so'
+
 iso_case start_refuses_truth_in_the_seed
 printf '%s\n' "$SUMMARY" > "$FAKE_HOME/docs/x.md"
 git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam leak
@@ -198,7 +257,7 @@ seed_state() {
   mkdir -p "$SANDBOX/st"; printf '20261101T060000Z\n' > "$SANDBOX/st/ts"
   printf 'inv-1\n' > "$SANDBOX/st/ts-api-first.id"; printf 'inv-2\n' > "$SANDBOX/st/ts-api-rereview.id"
   jq -n '{definition_version:"10.4.0", memory_sha:"m1", skill_sources:{"sec-check":"abc123"},
-          effort:"high", definition_ref:{branch:"main", sha:"abc"}, harness_version:"2.1.0 (Claude Code)"}' > "$SANDBOX/expect.json"
+          effort:"high", definition_ref:{branch:"main", sha:"abc"}, harness_version:"2.1.0 (Claude Code)"}' > "$SANDBOX/st/expect.json"
 }
 done_view() { # <memory_sha>
   jq -n --arg m "$1" '{status:"done", result:{review:"## Review\nbody\n", measure:{seconds:300, tokens:{input:1,output:2,cache_read:3,cache_creation:4,msgs:5}},
@@ -221,7 +280,7 @@ done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
 done_view m1 > "$SANDBOX/rest/GET_invocations_inv-2.json"
 iso wait "$SANDBOX/st"
 check_eq "$RC" 0 'every task ended'
-iso collect "$SANDBOX/st" "$SANDBOX/raw" "$SANDBOX/expect.json"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC" 0 'matching provenance collects clean'
 check_eq "$(cat "$SANDBOX/raw/20261101T060000Z-ts-api-first.md")" "$(printf '## Review\nbody')" 'the raw review is written'
 check_eq "$(cat "$SANDBOX/raw/20261101T060000Z-ts-api-rereview-skills/sec-check.md")" 'skill out' 'the skill archive is written'
@@ -233,7 +292,7 @@ seed_state
 done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
 done_view m-other > "$SANDBOX/rest/GET_invocations_inv-2.json"
 iso wait "$SANDBOX/st"
-iso collect "$SANDBOX/st" "$SANDBOX/raw" "$SANDBOX/expect.json"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC" 1 'a sub-agent with other inputs fails the collection'
 check_eq "$(printf '%s' "$OUT" | jq -c '.mismatches')" '[{"task":"ts-api-rereview","fields":["memory_sha"]}]' 'the drifted field is named'
 check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'an aborted collection writes no raw file into the append-only history'
@@ -243,7 +302,7 @@ seed_state
 printf 'high\n' > "$SANDBOX/st/effort"
 for i in 1 2; do done_view m1 | jq '.result.provenance.effort = "unknown"' > "$SANDBOX/rest/GET_invocations_inv-$i.json"; done
 iso wait "$SANDBOX/st"
-iso collect "$SANDBOX/st" "$SANDBOX/raw" "$SANDBOX/expect.json"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC:$(printf '%s' "$OUT" | jq -r '.effort')" '0:high' 'a harness that exposes no effort records the effort start asked for'
 
 iso_case collect_names_a_failed_task
@@ -252,7 +311,7 @@ done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
 printf '{"status":"failed","errorReason":"deadline"}' > "$SANDBOX/rest/GET_invocations_inv-2.json"
 iso wait "$SANDBOX/st"
 assert_out_contains '1 done, 1 failed' 'wait counts the failure'
-iso collect "$SANDBOX/st" "$SANDBOX/raw" "$SANDBOX/expect.json"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC" 1 'a failed task fails the collection'
 check_eq "$(printf '%s' "$OUT" | jq -c '.failed')" '[{"task":"ts-api-rereview","reason":"deadline"}]' 'the failure keeps its reason'
 

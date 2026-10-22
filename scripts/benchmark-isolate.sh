@@ -6,12 +6,12 @@
 # platform's driver SDK calls: a script spawn, never delivered as a turn),
 # polls them and writes their results where Phase 2 reads them.
 #
-#   benchmark-isolate.sh check [repos]
+#   benchmark-isolate.sh check [repos | --commit <sha>]
 #   benchmark-isolate.sh bundle <fixture-dir> <first|rereview> <out.tgz>
-#   benchmark-isolate.sh start [--model <m>] [--effort <e>] [--only <slug>-<phase>]… \
-#                              <state-dir> <ts> <fixture-root> <slug>…
+#   benchmark-isolate.sh start [--commit <sha> [--branch <name>]] [--model <m>] [--effort <e>] \
+#                              [--only <slug>-<phase>]… <state-dir> <ts> <fixture-root> <slug>…
 #   benchmark-isolate.sh wait <state-dir>
-#   benchmark-isolate.sh collect <state-dir> <raw-dir> <expect-provenance.json>
+#   benchmark-isolate.sh collect <state-dir> <raw-dir>
 #
 # `check` prints nothing and exits 0 when the run can be isolated, else one line
 # with the reason and exits 1. `repos` checks the repositories alone (preflight's
@@ -19,6 +19,16 @@
 # public, and the definition repo the sub-agent seeds needs no credentials. The
 # full check adds the seeded commit on that remote and the platform's sub-agent
 # route for this harness.
+#
+# The seeded commit is the $HOME checkout's HEAD, or --commit: any commit of the
+# definition remote, fetched into the $HOME repository without a checkout, so
+# runs of different branches (trial runs) seed side by side while $HOME stays
+# on the production commit. `start` snapshots work/MEMORY.md, LESSONS.md,
+# CONFIG.md and the repo-sourced skills once per run, under the skills lock
+# that a skill install swaps under (lib/common.sh → with_skills_lock), bundles
+# every task from that snapshot, and writes the expected provenance of the
+# sub-agents — the seeded commit's definition fields, the snapshot's memory and
+# skills — to <state-dir>/expect.json.
 #
 # `bundle` stages the task's inputs (paths relative to $HOME: the fixture
 # directory without manifest.json, work/MEMORY.md, LESSONS.md, CONFIG.md and
@@ -33,8 +43,8 @@
 # ended, rc 3 while some still run. `collect` writes each result's raw review
 # and skill archive, prints one JSON object (tasks, model, harness_version,
 # effort, failed[], mismatches[]) and exits 1 on a failed task, a malformed
-# result, or provenance that differs from the expected (the production
-# checkout's benchmark-provenance.sh output) — then it writes no raw file.
+# result, or provenance that differs from <state-dir>/expect.json — then it
+# writes no raw file.
 set -u
 export LC_ALL=C
 
@@ -93,13 +103,26 @@ check_repos() {
   return 0
 }
 
-check_full() {
+# SEED_SHA = the full SHA of the commit to seed: HEAD, or <sha> fetched from
+# the definition remote into the $HOME repository when it is not there yet
+seed_commit() { # [sha]
+  local want="${1:-HEAD}" d
+  git -C "$HOME_DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$HOME_DIR is not a git checkout"
+  if ! SEED_SHA="$(git -C "$HOME_DIR" rev-parse -q --verify "$want^{commit}" 2>/dev/null)"; then
+    d="$(def_ref)"
+    GIT_TERMINAL_PROMPT=0 git -C "$HOME_DIR" fetch -q "https://$(refhost "$d")/$(refslug "$d").git" "$want" >/dev/null 2>&1
+    SEED_SHA="$(git -C "$HOME_DIR" rev-parse -q --verify "$want^{commit}" 2>/dev/null)" \
+      || die "commit $want is not on $d — push it first and pass its full SHA"
+  fi
+}
+
+check_full() { # [sha]
   local d sha h
   check_repos || return 1
   d="$(def_ref)"
-  sha="$(git -C "$HOME_DIR" rev-parse HEAD 2>/dev/null)" || die "$HOME_DIR is not a git checkout"
+  seed_commit "${1:-}"; sha="$SEED_SHA"
   gh_get --hostname "$(refhost "$d")" "repos/$(refslug "$d")/commits/$sha" >/dev/null \
-    || die "HEAD ${sha:0:12} is not on $d — push it first; the sub-agents seed that commit"
+    || die "commit ${sha:0:12} is not on $d — push it first; the sub-agents seed that commit"
   ROOT="$(rest_root)" || die "no platform sub-agent route here (no platform MCP URL of the /api/agents/<id>/mcp shape)"
   h="$(cg_harness)"
   rest GET /images | jq -e --arg h "$h" '[.images[]? | .harness] | index($h) != null' >/dev/null 2>&1 \
@@ -115,12 +138,35 @@ truth_patterns() { # <fixture-root> <out-file>
   done | sort -u > "$2"
 }
 
-bundle() { # <fixture-dir> <phase> <out.tgz>
-  local b="${1%/}" ph="$2" out="$3" slug stage d f n pats hits
+# copies of the files a sub-agent gets besides its fixture, at their
+# $HOME-relative paths: work/MEMORY.md, LESSONS.md, CONFIG.md and every
+# repo-sourced skill with its cache SHA, the skills under the skills lock
+snapshot_skills() { # <dir>
+  local f n
+  for f in "$HOME_DIR"/.claude/skills/.cache/*.sha; do
+    [ -f "$f" ] || continue
+    n="${f##*/}"; n="${n%.sha}"
+    [ -d "$HOME_DIR/.claude/skills/$n" ] || continue
+    mkdir -p "$1/.claude/skills/.cache"
+    cp -a "$HOME_DIR/.claude/skills/$n" "$1/.claude/skills/" && cp "$f" "$1/.claude/skills/.cache/" || return 1
+  done
+  return 0
+}
+snapshot() { # <dir>
+  local f
+  mkdir -p "$1/work" || return 1
+  for f in MEMORY.md LESSONS.md CONFIG.md; do [ -f "$WORK/$f" ] && cp "$WORK/$f" "$1/work/"; done
+  with_skills_lock "$HOME_DIR" snapshot_skills "$1"
+}
+
+bundle() { # <fixture-dir> <phase> <out.tgz> [snapshot-dir]
+  local b="${1%/}" ph="$2" out="$3" snap="${4:-}" slug stage d f n pats hits
   slug="${b##*/}"
   case "$ph" in (first|rereview) ;; (*) die "phase must be first or rereview";; esac
   [ -d "$b" ] || die "no fixture directory $b"
   stage="$(mktemp -d "${TMPDIR:-/tmp}/cg-bench-stage.XXXXXX")" || die "no scratch dir"
+  if [ -n "$snap" ]; then cp -a "$snap/." "$stage/" || { rm -rf "$stage"; die "$slug: snapshot copy failed"; }
+  else snapshot "$stage" || { rm -rf "$stage"; die "$slug: snapshot failed"; }; fi
   d="$stage/work/benchmark/fixture/$slug"; mkdir -p "$d"
   for f in base head-v1 pr.json diff-v1.patch; do
     [ -e "$b/$f" ] || { rm -rf "$stage"; die "$slug: $f missing"; }; cp -a "$b/$f" "$d/"
@@ -130,15 +176,6 @@ bundle() { # <fixture-dir> <phase> <out.tgz>
       [ -e "$b/$f" ] || { rm -rf "$stage"; die "$slug: $f missing"; }; cp -a "$b/$f" "$d/"
     done
   fi
-  for f in MEMORY.md LESSONS.md CONFIG.md; do [ -f "$WORK/$f" ] && cp "$WORK/$f" "$stage/work/"; done
-  for f in "$HOME_DIR"/.claude/skills/.cache/*.sha; do
-    [ -f "$f" ] || continue
-    n="${f##*/}"; n="${n%.sha}"
-    [ -d "$HOME_DIR/.claude/skills/$n" ] || continue
-    mkdir -p "$stage/.claude/skills/.cache"
-    cp -a "$HOME_DIR/.claude/skills/$n" "$stage/.claude/skills/"
-    cp "$f" "$stage/.claude/skills/.cache/"
-  done
   if [ -n "$(find "$stage" -name manifest.json -o -name RESULTS.md -o -path '*/results/*' | head -1)" ]; then
     rm -rf "$stage"; die "$slug: the bundle holds a manifest or a result"
   fi
@@ -155,17 +192,17 @@ bundle() { # <fixture-dir> <phase> <out.tgz>
   return 0
 }
 
-# the seeded repository: no commit of any local ref — the sub-agent clones
-# history and can fetch more from the public remote — tracks a benchmark path
-# or holds a defect summary
-seed_clean() { # <fixture-root>
+# the seeded repository: no commit of any local ref or of the seeded commit's
+# history — the sub-agent clones history and can fetch more from the public
+# remote — tracks a benchmark path or holds a defect summary
+seed_clean() { # <fixture-root> <sha>
   local pats hits log line
-  git -C "$HOME_DIR" log --all --format= --name-only 2>/dev/null \
+  git -C "$HOME_DIR" log --all "$2" --format= --name-only 2>/dev/null \
     | grep -qE '^work/benchmark/|(^|/)manifest\.json$|(^|/)RESULTS\.md$' \
     && die "the definition history tracks a benchmark fixture or result — it must never leave work/"
   pats="$(mktemp "${TMPDIR:-/tmp}/cg-bench-pats.XXXXXX")"; truth_patterns "$1" "$pats"
   if [ -s "$pats" ]; then
-    log="$pats.log"; git -C "$HOME_DIR" log --all --reverse -p --format='commit %h' > "$log" 2>/dev/null
+    log="$pats.log"; git -C "$HOME_DIR" log --all "$2" --reverse -p --format='commit %h' > "$log" 2>/dev/null
     line="$(grep -n -m1 -iF -f "$pats" "$log" | cut -d: -f1)"
     if [ -n "$line" ]; then
       hits="$(head -n "$line" "$log" | grep '^commit ' | tail -1 | cut -d' ' -f2)"
@@ -184,22 +221,39 @@ RESULT_SCHEMA='{"type":"object","required":["review","measure","suppressed","mod
   "skills":{"type":"object"}}}'
 
 start() {
-  local model="" effort="" only="" st ts root slug ph task nonce tgz b64 sum d url sha h env prompt body id ans rc n
+  local model="" effort="" only="" commit="" branch="" st ts root slug ph task nonce tgz b64 sum d url sha h env prompt body id ans rc n
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      (--commit) commit="$2"; shift 2;;
+      (--branch) branch="$2"; shift 2;;
       (--model) model="$2"; shift 2;;
       (--effort) effort="$2"; shift 2;;
       (--only) only="$only $2"; shift 2;;
       (*) break;;
     esac
   done
-  [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--model m] [--effort e] [--only task]… <state-dir> <ts> <fixture-root> <slug>…"
+  [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--commit sha [--branch name]] [--model m] [--effort e] [--only task]… <state-dir> <ts> <fixture-root> <slug>…"
   st="$1" ts="$2" root="${3%/}"; shift 3
-  check_full || return 1
-  seed_clean "$root" || return 1
+  check_full "$commit" || return 1
+  sha="$SEED_SHA"
+  seed_clean "$root" "$sha" || return 1
   mkdir -p "$st" || die "cannot create $st"
-  printf '%s\n' "$ts" > "$st/ts"; printf '%s\n' "$effort" > "$st/effort"
-  d="$(def_ref)"; sha="$(git -C "$HOME_DIR" rev-parse HEAD)"
+  [ ! -f "$st/commit" ] || [ "$(cat "$st/commit")" = "$sha" ] \
+    || die "$st seeded commit $(head -c 12 "$st/commit") — a retry seeds the same commit"
+  printf '%s\n' "$ts" > "$st/ts"; printf '%s\n' "$effort" > "$st/effort"; printf '%s\n' "$sha" > "$st/commit"
+  # one snapshot per run, so every task — a retry included — gets the same
+  # memory and skills, and the expected provenance describes exactly them
+  if [ ! -d "$st/snapshot" ]; then
+    snapshot "$st/snapshot.tmp" && mv "$st/snapshot.tmp" "$st/snapshot" || { rm -rf "$st/snapshot.tmp"; die "the input snapshot failed"; }
+  fi
+  if [ -z "$commit" ]; then
+    bash "$SCRIPT_DIR/benchmark-provenance.sh" --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json"
+  else
+    bash "$SCRIPT_DIR/benchmark-provenance.sh" --commit "$sha" ${branch:+--branch "$branch"} \
+      --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json"
+  fi
+  jq -e 'type == "object"' "$st/expect.json" >/dev/null 2>&1 || die "the expected provenance could not be written"
+  d="$(def_ref)"
   url="https://$(refhost "$d")/$(refslug "$d").git"
   h="$(cg_harness)"
   n=0
@@ -210,7 +264,7 @@ start() {
       rm -f "$st/$task".*
       nonce="bench-$ts-$task"
       tgz="$st/$task.tgz"
-      bundle "$root/$slug" "$ph" "$tgz" || return 1
+      bundle "$root/$slug" "$ph" "$tgz" "$st/snapshot" || return 1
       b64="$st/$task.b64"; base64 < "$tgz" | tr -d '\n' > "$b64"
       sum="$(sha256 < "$tgz")"
       env="$(fold -w "$CHUNK" "$b64" | jq -R . | jq -s --arg sum "$sum" --arg h "$h" '
@@ -277,8 +331,8 @@ wait_all() { # <state-dir>
   done
 }
 
-collect() { # <state-dir> <raw-dir> <expect.json>
-  local st="$1" raw="$2" exp="$3" ts asked f task slug ph r out="[]" bad
+collect() { # <state-dir> <raw-dir>
+  local st="$1" raw="$2" exp="$1/expect.json" ts asked f task slug ph r out="[]" bad
   ts="$(cat "$st/ts" 2>/dev/null)"; [ -n "$ts" ] || die "no run timestamp in $st"
   # the effort start passed stands in where a sub-agent's harness exposes none
   asked="$(cat "$st/effort" 2>/dev/null)"
@@ -345,7 +399,11 @@ collect() { # <state-dir> <raw-dir> <expect.json>
 ACTION="${1:-}"; shift 2>/dev/null || true
 case "$ACTION" in
   (check)
-    if [ "${1:-}" = repos ]; then check_repos; else check_full; fi;;
+    case "${1:-}" in
+      (repos) check_repos;;
+      (--commit) [ -n "${2:-}" ] || die "usage: benchmark-isolate.sh check --commit <sha>"; check_full "$2";;
+      (*) check_full;;
+    esac;;
   (bundle)
     [ "$#" -eq 3 ] || die "usage: benchmark-isolate.sh bundle <fixture-dir> <first|rereview> <out.tgz>"
     bundle "$@";;
@@ -354,7 +412,7 @@ case "$ACTION" in
     [ "$#" -eq 1 ] || die "usage: benchmark-isolate.sh wait <state-dir>"
     wait_all "$1";;
   (collect)
-    [ "$#" -eq 3 ] || die "usage: benchmark-isolate.sh collect <state-dir> <raw-dir> <expect-provenance.json>"
+    [ "$#" -eq 2 ] || die "usage: benchmark-isolate.sh collect <state-dir> <raw-dir>"
     collect "$@";;
   (*) printf 'usage: benchmark-isolate.sh check [repos] | bundle | start | wait | collect (see the header)\n' >&2; exit 2;;
 esac
