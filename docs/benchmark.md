@@ -236,7 +236,8 @@ truth, and a work repo that is public.
 4. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
    foreground until exit 0; exit 3 means call it again.
 5. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "$HOME/work/benchmark/results/raw" "$PSTATE.expect.json"`
-   writes every raw review and skill archive and prints per task `seconds`,
+   writes every raw review and skill archive — only when nothing failed or
+   mismatched — and prints per task `seconds`,
    `tokens`, `suppressed` and `spawn`, plus the run's `model`,
    `harness_version` and `effort`. A `failed` task gets one retry — the same
    `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`

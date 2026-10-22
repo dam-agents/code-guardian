@@ -156,6 +156,11 @@ check_eq "$RC" 1 'a seed commit with a defect summary is refused'
 assert_out_contains 'ground truth .* in the seed commit: docs/x.md' 'the refusal names the file'
 check_eq "$(grep -c '^POST' "$SANDBOX/rest.log")" 0 'nothing is spawned'
 
+iso_case start_only_matches_nothing
+iso start --only ts-api-second "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'an --only that names no task fails'
+assert_out_contains 'no task matches --only ts-api-second' 'the refusal names it'
+
 iso_case start_refused_spawn
 printf '{"error":"spend limit reached"}' > "$SANDBOX/rest/POST_invocations.json"
 printf '402' > "$SANDBOX/rest/POST_invocations.code"
@@ -208,6 +213,7 @@ iso wait "$SANDBOX/st"
 iso collect "$SANDBOX/st" "$SANDBOX/raw" "$SANDBOX/expect.json"
 check_eq "$RC" 1 'a sub-agent with other inputs fails the collection'
 check_eq "$(printf '%s' "$OUT" | jq -c '.mismatches')" '[{"task":"ts-api-rereview","fields":["memory_sha"]}]' 'the drifted field is named'
+check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'an aborted collection writes no raw file into the append-only history'
 
 iso_case collect_takes_the_asked_effort
 seed_state

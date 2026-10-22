@@ -33,7 +33,7 @@
 # and skill archive, prints one JSON object (tasks, model, harness_version,
 # effort, failed[], mismatches[]) and exits 1 on a failed task, a malformed
 # result, or provenance that differs from the expected (the production
-# checkout's benchmark-provenance.sh output).
+# checkout's benchmark-provenance.sh output) — then it writes no raw file.
 set -u
 export LC_ALL=C
 
@@ -175,7 +175,7 @@ RESULT_SCHEMA='{"type":"object","required":["review","measure","suppressed","mod
   "skills":{"type":"object"}}}'
 
 start() {
-  local model="" effort="" only="" st ts root slug ph task nonce tgz b64 sum d url sha h env prompt body id ans rc
+  local model="" effort="" only="" st ts root slug ph task nonce tgz b64 sum d url sha h env prompt body id ans rc n
   while [ "$#" -gt 0 ]; do
     case "$1" in
       (--model) model="$2"; shift 2;;
@@ -193,6 +193,7 @@ start() {
   d="$(def_ref)"; sha="$(git -C "$HOME_DIR" rev-parse HEAD)"
   url="https://$(refhost "$d")/$(refslug "$d").git"
   h="$(cg_harness)"
+  n=0
   for slug in "$@"; do
     for ph in $PHASES; do
       task="$slug-$ph"
@@ -228,24 +229,25 @@ start() {
         || die "$task: spawn refused — $(printf '%s' "$ans" | jq -r '.error // empty' 2>/dev/null || true)"
       rm -f "$body"
       printf '%s\n' "$id" > "$st/$task.id"; printf '%s\n' "$nonce" > "$st/$task.nonce"
-      printf 'spawned %s -> %s\n' "$task" "$id"
+      printf 'spawned %s -> %s\n' "$task" "$id"; n=$((n + 1))
     done
   done
+  [ "$n" -gt 0 ] || die "no task matches${only:+ --only$only}"
 }
 
 wait_all() { # <state-dir>
-  local st="$1" deadline f task id view status running done_n failed_n total
+  local st="$1" deadline f task id view status running done_n failed_n total unanswered
   ROOT="$(rest_root)" || die "no platform sub-agent route here"
   deadline=$(( $(date -u +%s) + WAIT_S ))
   while :; do
-    running=0 done_n=0 failed_n=0 total=0
+    running=0 done_n=0 failed_n=0 total=0 unanswered=0
     for f in "$st"/*.id; do
       [ -f "$f" ] || continue
       total=$((total + 1)); task="${f##*/}"; task="${task%.id}"
       if [ -f "$st/$task.result.json" ]; then done_n=$((done_n + 1)); continue; fi
       if [ -f "$st/$task.failed" ]; then failed_n=$((failed_n + 1)); continue; fi
       id="$(cat "$f")"
-      view="$(rest GET "/invocations/$id" 2>/dev/null)" || { running=$((running + 1)); continue; }
+      view="$(rest GET "/invocations/$id" 2>/dev/null)" || { running=$((running + 1)); unanswered=$((unanswered + 1)); continue; }
       status="$(printf '%s' "$view" | jq -r '.status // empty' 2>/dev/null)"
       case "$status" in
         (done) printf '%s' "$view" | jq '.result' > "$st/$task.result.json"; done_n=$((done_n + 1));;
@@ -258,7 +260,8 @@ wait_all() { # <state-dir>
       printf 'all %s task(s) ended: %s done, %s failed\n' "$total" "$done_n" "$failed_n"; return 0
     fi
     if [ "$(date -u +%s)" -ge "$deadline" ]; then
-      printf '%s of %s task(s) still running (%s done, %s failed) — call wait again\n' "$running" "$total" "$done_n" "$failed_n"
+      printf '%s of %s task(s) still running (%s done, %s failed%s) — call wait again\n' "$running" "$total" "$done_n" "$failed_n" \
+        "$([ "$unanswered" -gt 0 ] && printf '; %s status read(s) got no answer' "$unanswered")"
       return 3
     fi
     sleep "$POLL_S"
@@ -289,13 +292,6 @@ collect() { # <state-dir> <raw-dir> <expect.json>
     if [ -n "$bad" ]; then
       out="$(printf '%s' "$out" | jq --arg t "$task" --arg why "$bad" '. + [{task: $t, failed: $why}]')"; continue
     fi
-    jq -r '.review' "$r" > "$raw/$ts-$task.md"
-    rm -rf "$raw/$ts-$task-skills"; mkdir -p "$raw/$ts-$task-skills"
-    jq -r '.skills | keys[]' "$r" | while IFS= read -r p; do
-      case "$p" in (/*|*..*|'') continue;; esac
-      mkdir -p "$raw/$ts-$task-skills/$(dirname "$p")"
-      jq -r --arg p "$p" '.skills[$p] | tostring' "$r" > "$raw/$ts-$task-skills/$p"
-    done
     out="$(printf '%s' "$out" | jq --arg t "$task" --arg s "$slug" --arg ph "$ph" --arg id "$(cat "$f")" \
       --arg asked "${asked:-}" --slurpfile res "$r" --slurpfile e "$exp" '
       $res[0] as $r | $e[0] as $x
@@ -322,7 +318,19 @@ collect() { # <state-dir> <raw-dir> <expect.json>
          + (if ([$ok[].model] | unique | length) > 1 then [{task: "all", fields: ["model"]}] else [] end)
          + (if ([$ok[].effort] | unique | length) > 1 then [{task: "all", fields: ["effort"]}] else [] end))}' \
     | tee "$st/collected.json"
-  jq -e '(.failed | length) == 0 and (.mismatches | length) == 0' "$st/collected.json" >/dev/null
+  jq -e '(.failed | length) == 0 and (.mismatches | length) == 0' "$st/collected.json" >/dev/null || return 1
+  # raw files only for a clean collection: results/raw is append-only, and an
+  # aborted run records nothing
+  for f in "$st"/*.result.json; do
+    task="${f##*/}"; task="${task%.result.json}"
+    jq -r '.review' "$f" > "$raw/$ts-$task.md"
+    rm -rf "$raw/$ts-$task-skills"; mkdir -p "$raw/$ts-$task-skills"
+    jq -r '.skills | keys[]' "$f" | while IFS= read -r p; do
+      case "$p" in (/*|*..*|'') continue;; esac
+      mkdir -p "$raw/$ts-$task-skills/$(dirname "$p")"
+      jq -r --arg p "$p" '.skills[$p] | tostring' "$f" > "$raw/$ts-$task-skills/$p"
+    done
+  done
 }
 
 ACTION="${1:-}"; shift 2>/dev/null || true
