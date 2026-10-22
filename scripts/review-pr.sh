@@ -928,12 +928,14 @@ diagram_block() {
       stale="$stale"$'\n'"- \`$id\` — its base commit or its paths are missing"
     else
       # the clone keeps 50 commits: fetch an older drawing commit's trees
-      # alone (no file contents) to compare the area against it
+      # alone (no file contents) to compare the area against it. No rename
+      # detection, which would fetch file contents: a rename counts as a
+      # delete and an add
       git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
         || git -C "$PR_DIR" fetch -q --depth=1 --filter=blob:none origin "$sha" 2>/dev/null \
         || git -C "$PR_DIR" fetch -q --depth=1 origin "$sha" 2>/dev/null
       if ! git -C "$PR_DIR" cat-file -e "$sha^{commit}" 2>/dev/null \
-         || ! moved="$(git -C "$PR_DIR" diff --name-only --diff-filter=ADR "$sha" "origin/$base" -- "${pspec[@]}" 2>/dev/null)"; then
+         || ! moved="$(git -C "$PR_DIR" diff --no-renames --name-only --diff-filter=AD "$sha" "origin/$base" -- "${pspec[@]}" 2>/dev/null)"; then
         stale="$stale"$'\n'"- \`$id\` — its base commit \`${sha:0:7}\` cannot be compared"
       else
         nmov="$(printf '%s' "$moved" | grep -c .)"

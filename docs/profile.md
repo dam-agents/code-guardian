@@ -157,7 +157,9 @@ are orientation, never evidence.
   (45) or when at least `DIAGRAM_STALE_FILES` (5) files were added, deleted or
   renamed under its `data-paths` on the base branch since `data-base`; the
   brief asks the guide to redraw it with the same id when it uses it. A
-  `data-base` older than the clone's 50 commits is fetched alone, trees only.
+  `data-base` older than the clone's 50 commits is fetched alone, trees only;
+  the comparison runs without rename detection, so it reads no file contents
+  (a rename counts as a delete and an add).
   An input that cannot be read — no date, an unreadable date, a commit that
   cannot be fetched or compared — makes the map stale, never fresh.
 - **Growth** — a guide run draws or redraws at most `DIAGRAM_NEW_MAX` (1) map,

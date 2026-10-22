@@ -2295,13 +2295,21 @@ assert_file_contains "$GB" '`gone` — its base commit `0123456` cannot be compa
 assert_file_lacks "$GB" '`short`' 'a map of an untouched area is not listed'
 run_rp abort 1 "reset"
 
-# a fresh map whose drawing commit is older than the clone's window is
-# compared after a trees-only fetch, not skipped
+# a fresh map whose drawing commit the clone does not hold is compared after
+# a fetch of that commit alone, not skipped: the commit sits on a branch the
+# single-branch clone never fetches
 guide_setup diagram_deep
+git -C "$FX" checkout -q -b side main
+mkdir -p "$FX/other"; printf 'x\n' > "$FX/other/x.txt"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm side
+SIDE_SHA="$(git -C "$FX" rev-parse HEAD)"; git -C "$FX" checkout -q main
 mkdir -p "$WORK/diagrams"
-diagram_fx "$WORK/diagrams/alpha.svg" alpha 'src/' 'src/alpha.ts' 'src/gamma.ts'
+diagram_fx "$WORK/diagrams/alpha.svg" alpha 'src/' 'src/alpha.ts' 'src/gamma.ts' '' "$SIDE_SHA"
 run_rp prepare 1
-assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'Stale' 'a map drawn at the base commit, with no change in its area, stays fresh'
+git -C "$(PR_DIR)" cat-file -e "$SIDE_SHA^{commit}" 2>/dev/null \
+  && printf 'ok   %s: the drawing commit was fetched on its own\n' "$CASE" \
+  || { printf 'FAIL %s: the drawing commit is not in the clone\n' "$CASE"; FAILED=1; }
+assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'Stale' 'a fetched drawing commit with no change in the area keeps the map fresh'
 run_rp abort 1 "reset"
 
 guide_setup diagram_collect
