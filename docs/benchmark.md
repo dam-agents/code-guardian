@@ -202,11 +202,11 @@ usage snapshots (skill fan-outs included), or `tokens: null` when the harness
 gives no snapshot. **Never derive a duration by hand** — from file mtimes,
 elapsed guesses or arithmetic.
 
-First, **install or refresh every configured repo-sourced skill** per
-[skills.md](skills.md) → **Installation** (benchmark preflight installs
-nothing), and write each skill's source SHA to
-`$HOME/.claude/skills/.cache/<skill>.sha` so `skill_sources` provenance stays
-complete — the sub-agents get exactly these installs. Name in the run summary
+First, **install or refresh every configured repo-sourced skill** —
+`bash "$HOME/scripts/skill-install.sh"` ([skills.md](skills.md) →
+**Installation**; benchmark preflight installs nothing). It keeps each
+skill's source SHA in the cache that `skill_sources` reads, and the
+sub-agents get exactly these installs. Name in the run summary
 any configured extension skill that routes zero files across **all** fixtures
 — that is missing fixture coverage.
 

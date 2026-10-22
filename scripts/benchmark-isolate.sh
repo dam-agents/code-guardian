@@ -25,7 +25,7 @@
 # runs of different branches (trial runs) seed side by side while $HOME stays
 # on the production commit. `start` snapshots work/MEMORY.md, LESSONS.md,
 # CONFIG.md and the repo-sourced skills once per run, under the skills lock
-# that a skill install swaps under (lib/common.sh → with_skills_lock), bundles
+# that a skill install swaps under (lib/skills.sh → with_skills_lock), bundles
 # every task from that snapshot, and writes the expected provenance of the
 # sub-agents — the seeded commit's definition fields, the snapshot's memory and
 # skills — to <state-dir>/expect.json.
@@ -51,6 +51,7 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
 . "$SCRIPT_DIR/lib/common.sh"
+. "$SCRIPT_DIR/lib/skills.sh"
 . "$SCRIPT_DIR/lib/harness.sh"
 . "$SCRIPT_DIR/lib/mcp.sh"
 

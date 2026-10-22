@@ -126,6 +126,7 @@ fi
 # cfg, cfg_table, trim, row_field, iso2epoch, refhost/refslug, gh_get —
 # sourced before GH_HOST is re-exported in the config section
 . "$SCRIPT_DIR/lib/common.sh"
+. "$SCRIPT_DIR/lib/skills.sh"
 . "$SCRIPT_DIR/lib/harness.sh"   # cg_harness — the audit's harness_adapter check
 # report surface keys (docs/config.md): `off` publishes nothing, anything else
 # publishes to the DAM Artifact Library — a legacy value is logged, not fatal
@@ -822,41 +823,7 @@ prefetch_files() { # <number…>
   wait
 }
 
-# ------------------------------------------------------------ skill install ----
-# One install is one snapshot of the source's default branch: its HEAD SHA is
-# the ref of the tree listing and of every file fetch.
-install_skill() { # name source -> status string (local writes only)
-  local name="$1" src="$2" h slug sha ref cached count=0 p rel stage
-  [ "$src" = "harness" ] && { printf 'harness'; return; }
-  h="$(refhost "$src")"; slug="$(refslug "$src")"
-  sha="$(gh api --hostname "$h" "repos/$slug/commits/HEAD" 2>/dev/null | jq -r '.sha // empty')"
-  ref="${sha:-HEAD}"
-  mkdir -p "$SKILL_CACHE"
-  cached="$(cat "$SKILL_CACHE/$name.sha" 2>/dev/null || true)"
-  if [ -n "$sha" ] && [ "$sha" = "$cached" ] && [ -d "$HOME_DIR/.claude/skills/$name" ]; then
-    printf 'cached'; return
-  fi
-  # fetched into a stage, swapped in under the skills lock: a reader never
-  # sees a half-installed skill beside its old cache SHA
-  stage="$SKILL_CACHE/.stage-$name.${BASHPID:-$$}"
-  rm -rf "$stage"
-  while IFS= read -r p; do
-    [ -z "$p" ] && continue
-    rel="${p#.agents/skills/$name/}"
-    mkdir -p "$stage/$(dirname "$rel")"
-    gh api --hostname "$h" "repos/$slug/contents/$p?ref=$ref" -H 'Accept: application/vnd.github.raw' \
-      > "$stage/$rel" 2>/dev/null \
-      || { rm -rf "$stage"; logev error skill_install "$name from $src: fetch of $p did not succeed"; printf 'install-failed'; return; }
-    count=$((count+1))
-  done < <(gh api --hostname "$h" "repos/$slug/git/trees/$ref?recursive=1" 2>/dev/null \
-           | jq -r --arg pre ".agents/skills/$name/" '.tree[] | select(.type=="blob") | select(.path | startswith($pre)) | .path')
-  [ "$count" -eq 0 ] && { rm -rf "$stage"; logev error skill_install "$name from $src: no files found (tree listing empty or unreachable)"; printf 'install-failed'; return; }
-  with_skills_lock "$HOME_DIR" skill_swap "$stage" "$HOME_DIR/.claude/skills/$name" "$sha" "$SKILL_CACHE/$name.sha"
-  printf 'installed (%s files)' "$count"
-}
-skill_swap() { # <stage> <dest> <sha> <sha-file>
-  rm -rf "$2" && mv "$1" "$2" && { [ -z "$3" ] || printf '%s' "$3" > "$4"; }
-}
+# skill install: lib/skills.sh → install_skill
 
 # The wait a pending housekeeping batch has already served. Review mode only:
 # a shepherd sweep carries no bookkeeping and must never consume the review

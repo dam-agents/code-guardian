@@ -232,14 +232,6 @@ with_state_lock() { # <file> <command…>
   return "$rc"
 }
 
-# Runs <command…> while no repo-sourced skill under <home>/.claude/skills
-# changes: a skill install swaps its staged copy in, and a benchmark snapshot
-# copies the skills out, only under this lock (docs/benchmark.md → Isolation).
-with_skills_lock() { # <home> <command…>
-  local h="$1"; shift
-  mkdir -p "$h/.claude/skills/.cache"
-  with_state_lock "$h/.claude/skills/.cache/install" "$@"
-}
 
 # every retained structured event (docs/logging.md) as one JSON object per
 # line; `fromjson?` drops the partial line a concurrently writing session may
