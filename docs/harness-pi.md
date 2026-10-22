@@ -87,7 +87,9 @@ links to `~/.agents/skills/`, a directory pi reads.
   the pod installs no packages.
 - `install.sh` — links `extension.ts` into `~/.pi/agent/extensions/`, which
   pi loads into every session; `--check` prints `pi-extension` when the link
-  is not current. Run at onboarding Step 1b; the monitor checks it on every
+  is not current. Run at onboarding Step 1b and by every definition
+  migration ([persistence.md](persistence.md) → **Definition version &
+  upgrade**); the monitor checks it on every
   tick (`harness_drift`) and the audit's `harness_adapter` check on pi.
 - `subagents.sh` — the subagent fan-out above.
 - `usage-snapshot.sh` — the benchmark's per-phase token snapshot over every
