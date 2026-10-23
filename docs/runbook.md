@@ -421,6 +421,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
 | [survey.md](survey.md) | `survey_due` present, or the operator asks about a codebase survey — area selection, the caps, the pass, the artifact |
+| [tailored-skill.md](tailored-skill.md) | Onboarding's last offer, the operator asks for a review skill made for the repository or a change to it, or the audit finds a `pending` tailored skill — areas, interview, template, delivery |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |
 | [persistence.md](persistence.md) | End-of-run persist; an update or version-check request; any request to change the definition |
 | [logging.md](logging.md) | Writing or reading structured log events, debugging a past run, harness adapters, the audit's log triage, retention |

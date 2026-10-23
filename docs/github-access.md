@@ -136,6 +136,7 @@ Rules:
 | `ci_triage` | `checks_read`, `actions_read` |
 | `auto_merge` | `checks_read`, `contents_write` |
 | `agent_fixes` | `contents_write` |
+| `tailored_skill` pull request ([tailored-skill.md](tailored-skill.md)) | `contents_write` |
 | `work_repo` backup | `work_repo_write` |
 | definition PRs | `definition_push`, `definition_prs` |
 | reviewer roster from teams | `org_teams_read` (onboarding only) |

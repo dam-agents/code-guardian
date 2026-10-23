@@ -99,7 +99,7 @@ if [ -n "$SHA" ]; then
 fi
 add issues_write "$REPO" write "$(http "$H" POST "repos/$REPO/issues" '{}')" "issues for findings of a closed pull request"
 add actions_read "$REPO" read "$(http "$H" GET "repos/$REPO/actions/runs?per_page=1")" "ci_triage job logs"
-add contents_write "$REPO" write "$(http "$H" POST "repos/$REPO/git/refs" '{}')" "auto_merge, agent_fixes"
+add contents_write "$REPO" write "$(http "$H" POST "repos/$REPO/git/refs" '{}')" "auto_merge, agent_fixes, tailored skill PR"
 add branch_protection_read "$REPO" read "$(http "$H" GET "repos/$REPO/branches/$DEFAULT/protection/required_status_checks")" "project profile (optional; rulesets are the fallback)"
 OWNER="${REPO%%/*}"
 if [ "$(gh api --hostname "$H" "users/$OWNER" --jq '.type // empty' 2>/dev/null)" = Organization ]; then
@@ -137,6 +137,7 @@ jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" -
       ci_triage: need(["checks_read","actions_read"]),
       auto_merge: need(["checks_read","contents_write"]),
       agent_fixes: need(["contents_write"]),
+      tailored_skill: need(["contents_write"]),
       work_backup: (if any($p[]; .id == "work_repo_write") then need(["work_repo_write"]) else "not_configured" end),
       definition_prs: (if any($p[]; .id == "definition_prs") then need(["definition_push","definition_prs"]) else "not_configured" end),
       roster_teams: (if any($p[]; .id == "org_teams_read") then need(["org_teams_read"]) else "not_applicable" end)
