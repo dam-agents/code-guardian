@@ -19,6 +19,9 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 - Inputs: `work/PROFILE.md` (`bash "$HOME/scripts/profile.sh" generate` when
   absent), the `## Review skills` table, and a shallow clone of the default
   branch in `/tmp/cg-tailor-<repo-name>`, removed by that exact name at the end.
+- A failed profile build → take the signals from the clone alone. A failed
+  clone → tell the operator, record nothing, and stop: the offer comes again
+  at the next ask.
 
 ## Asking
 
@@ -43,11 +46,10 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 ## Round 1 — areas
 
 One multi-select question per group that has at least one offered area, all
-in one form. An
-area is offered only when its signal is in the repository. An area that a
-`## Review skills` row already covers (for example a `doc-drift` row covers
-`docs`) shows `(covered by <skill>)` and is never recommended. Recommend at most
-4 areas over all groups: the ones with the strongest signal.
+in one form. An area is offered only when its signal is in the repository. An
+area that a `## Review skills` row already covers (for example a `doc-drift`
+row covers `docs`) shows `(covered by <skill>)` and is never recommended.
+Recommend at most 4 areas over all groups: the ones with the strongest signal.
 
 | Group | Area | Checks | Signal |
 | --- | --- | --- | --- |
@@ -194,7 +196,8 @@ The diff and the files a rule names; no walk of the tree.
   that says what the skill checks, its trigger, and that it adds one skill run
   per reviewed PR. Record the line `pending <PR url>`.
 - **Files in chat** — print each `SKILL.md` in a fenced block with its path,
-  and record `pending` without a URL.
+  ask in which repository the operator commits it (its `source`), and record
+  `pending` without a URL.
 - **Activation** — when the operator says the skill is on the default branch,
   validate it as ONBOARDING Step 4 item 7 validates a row, add the row from its
   `code-guardian-row` comment to `## Review skills`, and record `active`. A
