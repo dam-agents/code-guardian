@@ -468,7 +468,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      link line sits high in the review. "No guide" → drop the row.
    - With the review guide row, **`guide_label`** — optional. Ask:
 
-     > Do you want a label that asks for the review guide even when my review finds no need for a person? (Default: no label. Suggested name: `code-guardian-guide`.)
+     > Do you want a label that asks for the review guide even when my review finds no need for a person? (Default: no label. Suggested name: `code-guardian:guide`.)
 
      A yes → write the key, and validate or create the label like the
      re-review label (description `Request a code-guardian review guide`).
@@ -597,7 +597,7 @@ Final shape:
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
-- guide_label: code-guardian-guide    # optional; the review guide is built and published whatever the triage
+- guide_label: code-guardian:guide    # optional; the review guide is built and published whatever the triage
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
