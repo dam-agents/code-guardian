@@ -155,7 +155,7 @@ The monitor counts the stalled reviews of the last 24 h — one per dead lock
 `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it records
 `recorded.stall_alert: {count, threshold, prs, window_hours, per_day_7d}` and
 one incident — **once per UTC day** (`work/.stall-alert-day`, claimed under a
-`mkdir` lock at detection). History only; the weekly audit reports the
+lock file at detection). History only; the weekly audit reports the
 wasted reviews ([audit.md](audit.md) task 29).
 
 ## Review anomaly alert (`review_anomaly`)

@@ -30,13 +30,17 @@ export LOG_RUN_ID="$sid"
 
 tool="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)"
 
+# A marker is a file that bash's noclobber redirect creates O_EXCL: of
+# concurrent hook invocations, one creates it, so none double-logs. A marker
+# that exists, as a file or as an older version's directory, is claimed.
+claim() { ( set -C; : > "$1" ) 2>/dev/null; }
+
 # emit <pr> <step> — once per (run, pr, step); the marker dir is ephemeral, so
 # a fresh session re-emits legitimately
 emit() { # <pr> <step-for-msg> <marker-key>
   local pr="$1" step="$2" key="$3" d="/tmp/.cg-steps-$sid"
   mkdir -p "$d" 2>/dev/null || return 0
-  # mkdir is the atomic test-and-set: concurrent hook invocations can't double-log
-  mkdir "$d/$pr-$key" 2>/dev/null || return 0
+  claim "$d/$pr-$key" || return 0
   LOG_JOB=review logev info review_step "PR #$pr $step"
 }
 
@@ -72,11 +76,11 @@ cost_track() {
     | while read -r pr sha st ts; do
         case "$st" in
           (locked)
-            mkdir "$d/cost-$pr-$sha-s" 2>/dev/null || continue
+            claim "$d/cost-$pr-$sha-s" || continue
             usage_now | jq -c --arg ts "$ts" '{ts: $ts, u: .}' > "$d/cost-$pr-$sha.json" 2>/dev/null;;
           (done)
             [ -s "$d/cost-$pr-$sha.json" ] || continue
-            mkdir "$d/cost-$pr-$sha-e" 2>/dev/null || continue
+            claim "$d/cost-$pr-$sha-e" || continue
             end="$(usage_now)"; [ -n "$end" ] || continue
             t=(); while IFS= read -r f; do t+=("$f"); done < <(transcripts)
             win="$(jq -nR --arg since "$(jq -r '.ts' "$d/cost-$pr-$sha.json")" \
@@ -182,17 +186,17 @@ case "$tool" in
           st="$(printf '%s' "$row" | cut -d'|' -f6 | tr -d ' ')"
           case "$st" in
             (in_progress)
-              if [ -d "$d/$pr-locked" ]; then LOG_JOB=review logev info review_step "PR #$pr $sha7 locked (refresh)"
+              if [ -e "$d/$pr-locked" ]; then LOG_JOB=review logev info review_step "PR #$pr $sha7 locked (refresh)"
               else emit "$pr" "$sha7 locked" "locked"; fi;;
             (done) emit "$pr" "$sha7 done" "done";;
             (awaiting_label)
-              [ -d "$d/$pr-locked" ] && [ ! -d "$d/$pr-done" ] && emit "$pr" "$sha7 aborted (lock released)" "aborted";;
+              [ -e "$d/$pr-locked" ] && [ ! -e "$d/$pr-done" ] && emit "$pr" "$sha7 aborted (lock released)" "aborted";;
           esac
         else
           case "$cmd" in
             (*sed*/d\'*|*sed*/d\"*|*sed*/d\ *|*grep\ -v*|*grep\ -Ev*|*grep\ -vE*)   # a sed delete or an inverted grep
               pr="$(printf '%s' "$cmd" | grep -oE '\| *[0-9]{1,7} *\|' | grep -oE '[0-9]{1,7}' | head -1)"
-              [ -n "$pr" ] && [ -d "$d/$pr-locked" ] && [ ! -d "$d/$pr-done" ] \
+              [ -n "$pr" ] && [ -e "$d/$pr-locked" ] && [ ! -e "$d/$pr-done" ] \
                 && emit "$pr" "aborted (lock released)" "aborted";;
           esac
         fi

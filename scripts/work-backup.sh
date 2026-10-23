@@ -97,14 +97,14 @@ sync_in() {
 
 # Serialize access to the shared clone $LOCAL (concurrent sessions share it, and
 # two writers over one clone would race: checkout -B and the worktree wipe land
-# under each other's git add). mkdir is atomic on a local filesystem and on NFS;
-# the lock dir's mtime is the last-progress time, refreshed each attempt, so a
-# crashed run expires by TTL. HELD guards release so we only ever remove OUR lock (never a
+# under each other's git add). The lock is a lock_take file (lib/common.sh);
+# its mtime is the last-progress time, refreshed each attempt, so a crashed run
+# expires by TTL. HELD guards release so we only ever remove OUR lock (never a
 # lock another session acquired after we skipped/released).
 HELD=0
 acquire_lock() {
-  if mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
-  # Stale takeover must be atomic — a plain rm+mkdir lets two concurrent
+  if lock_take "$LOCK"; then HELD=1; return 0; fi
+  # Stale takeover must be atomic — a plain rm and retake lets two concurrent
   # stealers both "win" (each rm's the other's fresh lock). rename IS atomic:
   # of two `mv` on the same source, only the first succeeds (the source is gone
   # for the second), so exactly one stealer claims it.
@@ -112,7 +112,7 @@ acquire_lock() {
     local dead="$LOCK.stale.$$"
     if mv "$LOCK" "$dead" 2>/dev/null; then
       rm -rf "$dead" 2>/dev/null
-      if mkdir "$LOCK" 2>/dev/null; then
+      if lock_take "$LOCK"; then
         HELD=1
         say "stole a stale persist lock (>${LOCK_TTL_MIN}m — crashed persist)."
         logev warn work_backup "stale persist lock stolen"

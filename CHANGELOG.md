@@ -24,6 +24,10 @@ operator in one chat line that the suggested label names now follow
 `code-guardian:automerge`, `code-guardian:fix`, `code-guardian:guide`), and
 rename a label only on their word.
 
+## 11.1.1 — 2026-10-23
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 11.1.0 — 2026-10-23
 
 **Upgrade:** Off by default: the agent can build one review skill made for

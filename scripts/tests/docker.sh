@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # docker.sh [--rebuild] [--or-native] [test-file…] — run the stub tests
-# (run.sh, same arguments) in an ubuntu:24.04 container, close to the CI runner.
+# (run.sh, same arguments) in an ubuntu:26.04 container, the CI runner's image.
 # For a developer machine: run.sh on macOS comes here itself; CI and the pod run
 # run.sh directly.
 #
@@ -92,7 +92,7 @@ done
 
 # procps: ps for run.sh's lock. A non-root user: as root, the unwritable-dir
 # cases of the precheck tests can write the dir and fail.
-DOCKERFILE='FROM ubuntu:24.04
+DOCKERFILE='FROM ubuntu:26.04
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       git jq curl ca-certificates procps \

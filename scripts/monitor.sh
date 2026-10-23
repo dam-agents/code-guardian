@@ -406,10 +406,10 @@ if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
   [ -n "$STALL_WEEK" ] || STALL_WEEK='[]'
   STALL_MARKER="$WORK/.stall-alert-day"
   STALL_TODAY="$(date -u +%Y-%m-%d)"
-  find "$WORK/.stall-alert.lock" -maxdepth 0 -mmin +5 -exec rmdir {} \; 2>/dev/null || true
+  find "$WORK/.stall-alert.lock" -maxdepth 0 -mmin +5 -exec rm -rf {} \; 2>/dev/null || true
   if [ "$STALL_N" -ge "$STALL_ALERT_THRESHOLD" ] \
      && [ "$(cat "$STALL_MARKER" 2>/dev/null)" != "$STALL_TODAY" ] \
-     && mkdir "$WORK/.stall-alert.lock" 2>/dev/null; then
+     && lock_take "$WORK/.stall-alert.lock"; then
     if [ "$(cat "$STALL_MARKER" 2>/dev/null)" != "$STALL_TODAY" ]; then
       printf '%s\n' "$STALL_TODAY" > "$STALL_MARKER" 2>/dev/null
       STALL_ALERT="$(jq -n --argjson count "$STALL_N" \
@@ -420,7 +420,7 @@ if [ "$STALL_ALERT_THRESHOLD" -gt 0 ]; then
       log "stalled reviews: $STALL_N in the last 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS — recorded"
       logev warn stall_rate "$STALL_N stalled review(s) in 24h (threshold $STALL_ALERT_THRESHOLD) on PR(s) $STALL_PRS"
     fi
-    rmdir "$WORK/.stall-alert.lock" 2>/dev/null
+    rm -f "$WORK/.stall-alert.lock"
   fi
 fi
 
@@ -428,7 +428,7 @@ fi
 # docs/monitor.md → Review anomaly alert. Every `review_cost` event of the last
 # 24 h newer than the marker is judged once: each metric against max(floor,
 # factor × the median of the same model's previous reviews). The marker then
-# moves to the newest event, under a mkdir claim.
+# moves to the newest event, under a lock_take claim.
 ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
 case "$ANOMALY_FACTOR" in
   (off|none) ANOMALY_FACTOR=0;;
@@ -445,8 +445,8 @@ ANOMALY_FAILURES=5         # floor: tool_failure events in one review
 ANOMALY_OUTPUT=200000      # floor: characters of one tool result
 ANOMALY_ALERT=""
 if [ "$ANOMALY_FACTOR" != 0 ]; then
-  find "$WORK/.review-anomaly.lock" -maxdepth 0 -mmin +5 -exec rmdir {} \; 2>/dev/null || true
-  if mkdir "$WORK/.review-anomaly.lock" 2>/dev/null; then
+  find "$WORK/.review-anomaly.lock" -maxdepth 0 -mmin +5 -exec rm -rf {} \; 2>/dev/null || true
+  if lock_take "$WORK/.review-anomaly.lock"; then
     ANOMALY_MARKER="$WORK/.review-anomaly-seen"
     ANOMALY_CUT="$(epoch2iso $(( NOW_EPOCH - 86400 )))"
     ANOMALY_SEEN="$(cat "$ANOMALY_MARKER" 2>/dev/null)"
@@ -517,7 +517,7 @@ if [ "$ANOMALY_FACTOR" != 0 ]; then
         logev warn review_anomaly "$ANOMALY_LIST"
       fi
     fi
-    rmdir "$WORK/.review-anomaly.lock" 2>/dev/null
+    rm -f "$WORK/.review-anomaly.lock"
   fi
 fi
 

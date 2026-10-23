@@ -141,14 +141,14 @@ remote_sha() { # tip of $BRANCH at the remote; empty when unreachable
 }
 
 # The mirror is an accelerator, not state: absent → clone, present → fetch the
-# tip; both under a mkdir lock so concurrent heartbeats never clone twice (a
+# tip; both under a lock_take lock so concurrent heartbeats never clone twice (a
 # lock older than 15 min belongs to a dead run). Returns 0 iff the mirror holds
 # $REMOTE_SHA afterwards.
 mirror_ready() {
   command -v git >/dev/null 2>&1 || return 1
   mkdir -p "$(dirname "$MIRROR")" 2>/dev/null || return 1
   find "$MIRROR.lock" -maxdepth 0 -mmin +15 -exec rm -rf {} \; 2>/dev/null || true
-  mkdir "$MIRROR.lock" 2>/dev/null || return 1
+  lock_take "$MIRROR.lock" || return 1
   local rc=0
   if [ ! -d "$MIRROR" ]; then
     git clone -q --bare --filter=blob:none --depth 1 --single-branch --branch "$BRANCH" "$REMOTE" "$MIRROR" 2>/dev/null \
@@ -157,7 +157,7 @@ mirror_ready() {
   else
     git -C "$MIRROR" fetch -q --depth 1 origin "+refs/heads/$BRANCH:refs/heads/$BRANCH" 2>/dev/null || rc=1
   fi
-  rmdir "$MIRROR.lock" 2>/dev/null || true
+  rm -f "$MIRROR.lock"
   [ "$rc" -eq 0 ] || return 1
   git -C "$MIRROR" cat-file -e "$REMOTE_SHA^{commit}" 2>/dev/null
 }
@@ -644,9 +644,9 @@ refresh_history() { # verified + history (+ the branch name) only; the structure
 
 profile_lock() { # one writer at a time; a lock older than 15 min is a dead run's
   find "$PROFILE_JSON.lock" -maxdepth 0 -mmin +15 -exec rm -rf {} \; 2>/dev/null || true
-  mkdir "$PROFILE_JSON.lock" 2>/dev/null
+  lock_take "$PROFILE_JSON.lock"
 }
-profile_unlock() { rmdir "$PROFILE_JSON.lock" 2>/dev/null || true; }
+profile_unlock() { rm -f "$PROFILE_JSON.lock"; }
 
 run_check() { # <force>
   local force="$1" stored_fp stored_gen stored_ver stored_ts age_d fp live_branch
