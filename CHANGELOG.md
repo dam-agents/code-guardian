@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 11.1.0 — 2026-10-23
+
+**Upgrade:** Off by default: the agent can build one review skill made for
+the reviewed repository from a short interview, delivered as a pull request
+([docs/tailored-skill.md](docs/tailored-skill.md)). When `work/MEMORY.md` →
+`## Review Style` has no `Tailored skill:` line, offer it to the operator in
+one chat line; a no records `declined <YYYY-MM-DD>`.
+
 ## 11.0.0 — 2026-10-23
 
 **Upgrade:**

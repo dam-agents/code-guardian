@@ -28,7 +28,8 @@ onboarding:
     Read ONBOARDING.md in your home directory and follow it to the end. It asks
     for the state-backup repository (an existing one continues a previous
     agent) and the repository to review, writes the configuration, reconciles the
-    schedules this kit registered, and ends with a summary for the operator.
+    schedules this kit registered, gives a summary for the operator, and offers
+    a review skill made for the repository.
 connections:
   - accepts: [github, github-enterprise]
     required: true

@@ -875,4 +875,8 @@ with the verification result (the `PASS` line plus any warnings):
    - Any config value can be changed in chat later, except `review_marker`
      once reviews exist.
 
+Last, when `work/MEMORY.md` → `## Review Style` has no `Tailored skill:` line,
+or an `open` one, offer a review skill made for this repository and follow
+`docs/tailored-skill.md`.
+
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.

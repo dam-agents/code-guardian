@@ -38,7 +38,7 @@ code_fx 422 "$H -i -X POST repos/acme/widgets/check-runs --input -"
 run_access
 assert_jq '.identity == {login:"acme-app[bot]", kind:"app", token:"app", scopes:null}' 'an App identity'
 assert_jq '.progress_channel == "check_run"' 'an App writes check runs'
-assert_jq '.features.review == "ok" and .features.issues == "ok" and .features.ci_triage == "ok" and .features.agent_fixes == "ok"' 'the granted features'
+assert_jq '.features.review == "ok" and .features.issues == "ok" and .features.ci_triage == "ok" and .features.agent_fixes == "ok" and .features.tailored_skill == "ok"' 'the granted features'
 assert_jq '[.probes[] | select(.id == "statuses_write") | .state] == ["denied"]' 'a 403 probe is denied'
 assert_jq '.triggers.review_request == true and .triggers.mention_as == ["@test-bot"] and .triggers.missing == []' 'a user bot_login keeps every trigger'
 assert_jq '.unexpected == []' 'no probe wrote'
