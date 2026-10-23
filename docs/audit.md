@@ -165,11 +165,12 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
 
 20. `work/CONFIG.md` has every key [config.md](config.md) lists as required
     (`bot_login`, `review_marker`), each present key parses to a sane value,
-    and the `## Review skills` rows are well-formed. A `Tailored skill:` line
-    marked `pending` in `work/MEMORY.md` whose skill
+    and the `## Review skills` rows are well-formed. The `Tailored skill:` line
+    in `work/MEMORY.md` ([tailored-skill.md](tailored-skill.md) → **When**):
+    `open` → the report says in one line that the offer waits for the
+    operator; `pending` with a skill that
     `gh api "repos/<source>/contents/.agents/skills/<skill>"` now finds → the
-    report asks the operator in one line to activate it
-    ([tailored-skill.md](tailored-skill.md) → **Delivery**).
+    report asks the operator in one line to activate it.
 21. The definition checkout's `origin` matches `definition_repo`; note the
     current branch in the report.
 

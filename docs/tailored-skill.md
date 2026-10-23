@@ -2,7 +2,7 @@
 
 Read this file when onboarding offers the tailored skill (ONBOARDING Step 7),
 when the operator asks for a review skill made for the reviewed repository or
-asks to change one, or when the audit finds a `pending` tailored skill.
+asks to change one, or when the audit finds an `open` or `pending` tailored skill.
 
 The definition holds no opinion about how a repository is built. The tailored
 skill turns the rules the reviewed repository states about itself, and the
@@ -11,17 +11,19 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 
 ## When
 
-- Onboarding offers it once, after the profile is built. The outcome is the
-  `Tailored skill:` line in `work/MEMORY.md` → `## Review Style`:
+- Onboarding offers it once, after the profile is built. The state is the
+  `Tailored skill:` line in `work/MEMORY.md` → `## Review Style`: `open
+  <YYYY-MM-DD>` (written when the offer starts), then
   `<skill> (<source>) pending <PR url>`, `<skill> (<source>) active`, or
-  `declined <YYYY-MM-DD>`. A line present → no offer.
+  `declined <YYYY-MM-DD>`. No line → offer; `open` → offer again on the
+  operator's next ask; any other line → no offer.
 - The operator can ask for it, or for a change, in any direct session.
 - Inputs: `work/PROFILE.md` (`bash "$HOME/scripts/profile.sh" generate` when
   absent), the `## Review skills` table, and a shallow clone of the default
-  branch in `/tmp/cg-tailor-<repo-name>`, removed by that exact name at the end.
+  branch in a fresh `mktemp -d /tmp/cg-tailor.XXXXXX`, removed by that path at
+  the end.
 - A failed profile build → take the signals from the clone alone. A failed
-  clone → tell the operator, record nothing, and stop: the offer comes again
-  at the next ask.
+  clone → tell the operator and stop; the `open` line keeps the offer.
 
 ## Asking
 

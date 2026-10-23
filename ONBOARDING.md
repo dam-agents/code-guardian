@@ -876,7 +876,7 @@ with the verification result (the `PASS` line plus any warnings):
      once reviews exist.
 
 Last, when `work/MEMORY.md` → `## Review Style` has no `Tailored skill:` line,
-offer a review skill made for this repository and follow
+or an `open` one, offer a review skill made for this repository and follow
 `docs/tailored-skill.md`.
 
 From now on the guard short-circuits and normal runs follow `CLAUDE.md`.
