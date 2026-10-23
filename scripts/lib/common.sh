@@ -195,14 +195,23 @@ epoch2iso() { # <epoch> [date format]
   date -u -d "@$1" +"$f" 2>/dev/null || date -u -r "$1" +"$f" 2>/dev/null
 }
 
+# A lock is a file taken here: bash's noclobber redirect opens <path> O_EXCL,
+# so the kernel, not an external command, decides who holds it, and <owner> is
+# inside from the start. A lock <path> left as a directory by an older version
+# counts as held.
+lock_take() { # <path> [owner] → creates <path> holding <owner> (default: this pid); fails when <path> exists
+  local o="${2:-${BASHPID:-$$}}"
+  ( set -C; printf '%s\n' "$o" > "$1" ) 2>/dev/null
+}
+
 # Runs <command…> as the one writer of <file>, a state file several runs
-# rewrite in place (work/REVIEWS.md). `mkdir` of `<file>.lock` is atomic; the
-# holder writes its pid inside as `owner`, and only the owner gives the lock
-# back. A lock older than STATE_LOCK_DEAD_S is a dead writer's: one waiter at a
-# time removes it — the one that holds `<file>.break.lock`, and only while the
-# lock is still old. A waiter still waiting after STATE_LOCK_WAIT_S, longer than
-# a dead lock lives, runs the command anyway with a warn, so a review never
-# stalls on the lock. Tests shorten both.
+# rewrite in place (work/REVIEWS.md). The writer takes `<file>.lock` with its
+# pid inside, and only the owner gives the lock back. A lock older than
+# STATE_LOCK_DEAD_S is a dead writer's: one waiter at a time removes it — the
+# one that holds `<file>.break.lock`, and only while the lock is still old. A
+# waiter still waiting after STATE_LOCK_WAIT_S, longer than a dead lock lives,
+# runs the command anyway with a warn, so a review never stalls on the lock.
+# Tests shorten both.
 STATE_LOCK_DEAD_S="${STATE_LOCK_DEAD_S:-60}"
 STATE_LOCK_WAIT_S="${STATE_LOCK_WAIT_S:-120}"
 state_lock_age() { # <path> → seconds since its last change
@@ -213,22 +222,21 @@ state_lock_old() { local a; a="$(state_lock_age "$1")" && [ "$a" -ge "$STATE_LOC
 with_state_lock() { # <file> <command…>
   local f="$1" l="$1.lock" b="$1.break.lock" me="${BASHPID:-$$}" start rc; shift
   start=$(date +%s)
-  until mkdir "$l" 2>/dev/null; do
+  until lock_take "$l" "$me"; do
     if [ $(( $(date +%s) - start )) -ge "$STATE_LOCK_WAIT_S" ]; then
       command -v logev >/dev/null 2>&1 && logev warn state_lock "${f##*/}: lock held for $STATE_LOCK_WAIT_S s — written without it"
       "$@"; return
     fi
-    if state_lock_old "$l" && mkdir "$b" 2>/dev/null; then
+    if state_lock_old "$l" && lock_take "$b" "$me"; then
       state_lock_old "$l" && rm -rf "$l"
-      rmdir "$b" 2>/dev/null
+      rm -f "$b"
       continue
     fi
-    state_lock_old "$b" && rmdir "$b" 2>/dev/null
+    state_lock_old "$b" && rm -rf "$b"
     sleep 0.1
   done
-  printf '%s\n' "$me" > "$l/owner" 2>/dev/null
   "$@"; rc=$?
-  [ "$(cat "$l/owner" 2>/dev/null)" = "$me" ] && rm -rf "$l"
+  [ "$(cat "$l" 2>/dev/null)" = "$me" ] && rm -f "$l"
   return "$rc"
 }
 

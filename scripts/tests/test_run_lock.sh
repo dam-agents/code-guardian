@@ -17,7 +17,7 @@ dummy_test() { # <name> <exit-code>
 
 # hold the case's lock as <pid>
 hold_lock() { # <pid>
-  mkdir -p "$SANDBOX/lock"; printf '%s /checkouts/other\n' "$1" > "$SANDBOX/lock/owner"
+  printf '%s /checkouts/other\n' "$1" > "$SANDBOX/lock"
 }
 
 run_suite() { # <lock-wait-seconds> <run.sh args…>
@@ -48,7 +48,16 @@ run_suite 0 "$f"
 assert_rc 1 'a live holder with no wait budget fails the run'
 assert_out_contains "pid $$, checkout /checkouts/other" 'the failure names the holder'
 assert_path gone "$SANDBOX/ok.ran" 'no test ran under a held lock'
-assert_path kept "$SANDBOX/lock/owner" 'the holder keeps its lock'
+assert_path kept "$SANDBOX/lock" 'the holder keeps its lock'
+
+# an older checkout holds the lock as a directory with an owner file
+new_case lock_held_live_dir
+f="$(dummy_test ok 0)"
+mkdir -p "$SANDBOX/lock"; printf '%s /checkouts/other\n' "$$" > "$SANDBOX/lock/owner"
+run_suite 0 "$f"
+assert_rc 1 'a live holder of a lock directory fails the run too'
+assert_out_contains "pid $$, checkout /checkouts/other" 'the failure names that holder'
+assert_path kept "$SANDBOX/lock/owner" 'and the holder keeps its lock'
 
 new_case lock_waits_for_holder
 f="$(dummy_test ok 0)"
@@ -70,23 +79,23 @@ assert_path gone "$SANDBOX/lock" 'the reclaimed lock is released at exit'
 
 new_case lock_ownerless_stale
 f="$(dummy_test ok 0)"
-mkdir -p "$SANDBOX/lock"; touch -t 202001010000 "$SANDBOX/lock"
+: > "$SANDBOX/lock"; touch -t 202001010000 "$SANDBOX/lock"
 run_suite 0 "$f"
 assert_rc 0 'a lock with no owner line after a minute is reclaimed'
 
 new_case lock_dead_undeletable
 if [ "$(id -u)" -eq 0 ]; then
-  printf 'ok   %s: skipped as root (root can delete a mode-555 dir)\n' "$CASE"
+  printf 'ok   %s: skipped as root (root can delete in a mode-555 dir)\n' "$CASE"
 else
   f="$(dummy_test ok 0)"
   sleep 0 & dead=$!; wait "$dead"
-  hold_lock "$dead"; chmod 555 "$SANDBOX/lock"
+  mkdir "$SANDBOX/ro"; printf '%s /checkouts/other\n' "$dead" > "$SANDBOX/ro/lock"; chmod 555 "$SANDBOX/ro"
   # a watchdog ends a run that spins, so a regression fails instead of hanging
-  CG_TEST_LOCK="$SANDBOX/lock" CG_TEST_LOCK_WAIT=0 \
+  CG_TEST_LOCK="$SANDBOX/ro/lock" CG_TEST_LOCK_WAIT=0 \
     bash "$T_DIR/run.sh" "$f" > "$SANDBOX/out" 2>"$STDERR_LOG" & run=$!
   ( sleep 20; kill "$run" ) >/dev/null 2>&1 & dog=$!
   wait "$run"; RC=$?; kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
-  OUT="$(cat "$SANDBOX/out")"; chmod 755 "$SANDBOX/lock"
+  OUT="$(cat "$SANDBOX/out")"; chmod 755 "$SANDBOX/ro"
   assert_rc 1 'an undeletable dead lock is waited for up to the budget, then fails'
   assert_out_contains "pid $dead" 'the failure names the dead holder'
   assert_path gone "$SANDBOX/ok.ran" 'no test ran under the undeletable lock'
@@ -116,7 +125,7 @@ assert_out_contains 'path has whitespace' 'the failure names the cause'
 # host lock was held, drains the archive and reports a pass
 docker_stub() {
   mkdir -p "$SANDBOX/dbin"
-  printf '#!/usr/bin/env bash\ncase "$1" in (run)\n  [ -f "%s/lock/owner" ] && touch "%s/docker-locked"\n  touch "%s/docker-ran"; cat >/dev/null; echo "ALL TESTS PASSED";;\nesac\nexit 0\n' \
+  printf '#!/usr/bin/env bash\ncase "$1" in (run)\n  [ -f "%s/lock" ] && touch "%s/docker-locked"\n  touch "%s/docker-ran"; cat >/dev/null; echo "ALL TESTS PASSED";;\nesac\nexit 0\n' \
     "$SANDBOX" "$SANDBOX" "$SANDBOX" > "$SANDBOX/dbin/docker"
   chmod +x "$SANDBOX/dbin/docker"
 }
@@ -140,7 +149,7 @@ run_docker 0
 assert_rc 1 'docker.sh fails on a live holder with no wait budget'
 assert_out_contains "pid $$, checkout /checkouts/other" 'the failure names the holder'
 assert_path gone "$SANDBOX/docker-ran" 'no container starts under a held lock'
-assert_path kept "$SANDBOX/lock/owner" 'the holder keeps its lock'
+assert_path kept "$SANDBOX/lock" 'the holder keeps its lock'
 
 # A macOS host for run.sh: uname says Darwin, docker answers once
 # $SANDBOX/engine-up exists and records the args of a run, and rdctl reports

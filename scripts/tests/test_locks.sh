@@ -189,17 +189,21 @@ assert_jq '.error | contains("lib/holds.sh unreadable")' 'the error names the mi
 assert_jq '.reviews_due == null' 'and no lock is taken over'
 
 # --- REVIEWS.md has one writer at a time (lib/common.sh → with_state_lock) ----
-# concurrent runs rewrite the file in place; twenty read-modify-write writers
-# racing on it keep every row
+# twenty read-modify-write writers racing on $F; prints the rows they leave
+twenty_writers() {
+  (
+    . "$REPO_ROOT/scripts/lib/common.sh"
+    add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
+    for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
+    wait
+  )
+  grep -cE '^\| [0-9]+ \|' "$F"
+}
+
+# concurrent runs rewrite the file in place; every row stays
 new_case state_lock_concurrent_writers
 F="$WORK/REVIEWS.md"
-(
-  . "$REPO_ROOT/scripts/lib/common.sh"
-  add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
-  for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
-  wait
-)
-rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
+rows="$(twenty_writers)"
 if [ "$rows" = 20 ]; then printf 'ok   %s: twenty concurrent writers keep twenty rows\n' "$CASE"
 else printf 'FAIL %s: twenty concurrent writers left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
 if [ -e "$F.lock" ]; then printf 'FAIL %s: the lock is left behind\n' "$CASE"; FAILED=1
@@ -231,15 +235,19 @@ else printf 'FAIL %s: a stale lock file held the write\n' "$CASE"; FAILED=1; fi
 new_case state_lock_concurrent_takeover
 F="$WORK/REVIEWS.md"; mkdir "$F.lock"
 touch -t "$(date -d "@$s" +%Y%m%d%H%M 2>/dev/null || date -r "$s" +%Y%m%d%H%M)" "$F.lock"
-(
-  . "$REPO_ROOT/scripts/lib/common.sh"
-  add_row_held() { { cat "$F"; printf '| %s | sha | ts | - | done |\n' "$1"; } > "$F.$$.$1.tmp" && mv "$F.$$.$1.tmp" "$F"; }
-  for n in $(seq 1 20); do with_state_lock "$F" add_row_held "$n" & done
-  wait
-)
-rows="$(grep -cE '^\| [0-9]+ \|' "$F")"
+rows="$(twenty_writers)"
 if [ "$rows" = 20 ]; then printf 'ok   %s: twenty writers behind a dead lock keep twenty rows\n' "$CASE"
 else printf 'FAIL %s: twenty writers behind a dead lock left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
+
+# the lock never rests on mkdir refusing an existing directory: uutils
+# coreutils 0.10 (ubuntu 26.04) lets two concurrent mkdirs of one path succeed
+new_case state_lock_nonexclusive_mkdir
+F="$WORK/REVIEWS.md"; mkdir -p "$SANDBOX/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" > "$SANDBOX/bin/mkdir"
+chmod +x "$SANDBOX/bin/mkdir"
+rows="$(PATH="$SANDBOX/bin:$PATH" twenty_writers)"
+if [ "$rows" = 20 ]; then printf 'ok   %s: a mkdir that always succeeds lets one writer in at a time\n' "$CASE"
+else printf 'FAIL %s: with a mkdir that always succeeds, twenty writers left %s rows\n' "$CASE" "$rows"; FAILED=1; fi
 
 # a lock that is not yet dead is waited out and then broken, never bypassed:
 # the bypass comes later than a dead lock lives
@@ -260,9 +268,9 @@ else printf 'ok   %s: and no write went past the lock\n' "$CASE"; fi
 new_case state_lock_owner_guard
 F="$WORK/REVIEWS.md"
 ( . "$REPO_ROOT/scripts/lib/common.sh"
-  taken_over() { rm -rf "$F.lock"; mkdir "$F.lock"; printf '99999\n' > "$F.lock/owner"; }
+  taken_over() { rm -f "$F.lock"; printf '99999\n' > "$F.lock"; }
   with_state_lock "$F" taken_over )
-if [ "$(cat "$F.lock/owner" 2>/dev/null)" = 99999 ]; then printf 'ok   %s: only the owner gives a lock back\n' "$CASE"
+if [ "$(cat "$F.lock" 2>/dev/null)" = 99999 ]; then printf 'ok   %s: only the owner gives a lock back\n' "$CASE"
 else printf 'FAIL %s: the previous holder removed another holder'"'"'s lock\n' "$CASE"; FAILED=1; fi
 rm -rf "$F.lock"
 
@@ -273,6 +281,12 @@ F="$WORK/REVIEWS.md"; mkdir "$F.lock"
   with_state_lock "$F" true )
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"state_lock"' 'a write past a held lock is logged'
 rm -rf "$F.lock"
+
+# --- every lock is a lock_take file (lib/common.sh): none rests on mkdir -------
+new_case no_mkdir_locks
+left="$(cd "$REPO_ROOT" && grep -nE '(mkdir|rmdir) [^|;&]*lock' scripts/*.sh scripts/lib/*.sh scripts/tests/suite-lock.sh)"
+if [ -z "$left" ]; then printf 'ok   %s: no script takes or gives back a lock with mkdir\n' "$CASE"
+else printf 'FAIL %s: a lock rests on mkdir: %s\n' "$CASE" "$left"; FAILED=1; fi
 
 # --- review-pr.sh row: the bookkeeping rows under the same lock ---------------
 new_case review_pr_row

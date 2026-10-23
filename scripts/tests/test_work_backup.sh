@@ -35,7 +35,7 @@ seed_state() {
   printf '{"event":"x"}\n' > "$WORK/logs/events-2026-09-20.jsonl"
   printf '# PR 7\n' > "$WORK/reviews/pr-7.md"
   # transient: never carried
-  mkdir -p "$WORK/.stall-alert.lock"
+  printf '1\n' > "$WORK/.stall-alert.lock"
   printf 'x\n' > "$WORK/MENTIONS.md.tmp"
   printf '2026-09-20T00:00:00Z n\n' > "$WORK/benchmark/.run-lock"
   mkdir -p "$WORK/benchmark/trials/pr-9"; printf '2026-09-20T00:00:00Z t\n' > "$WORK/benchmark/trials/pr-9/.run-lock"

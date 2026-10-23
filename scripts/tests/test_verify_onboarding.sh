@@ -357,7 +357,7 @@ seed_home; seed_memory; seed_lessons
 verify_config '- review_anomaly_factor: 2.5'
 printf '{}\n' > "$WORK/REVIEW-USAGE.jsonl"
 printf '2026-10-07T10:00:00Z\n' > "$WORK/.review-anomaly-seen"
-mkdir "$WORK/.review-anomaly.lock"
+printf '1\n' > "$WORK/.review-anomaly.lock"
 run_verify
 assert_out 'ok   work-layout' 'the review anomaly baseline, marker and claim are part of the layout'
 assert_out "ok   config-review_anomaly_factor — '2.5'" 'a decimal factor is valid'
