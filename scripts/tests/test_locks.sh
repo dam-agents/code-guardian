@@ -282,11 +282,12 @@ F="$WORK/REVIEWS.md"; mkdir "$F.lock"
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" '"event":"state_lock"' 'a write past a held lock is logged'
 rm -rf "$F.lock"
 
-# --- every lock is a lock_take file (lib/common.sh): none rests on mkdir -------
+# --- every lock and marker is a noclobber file: none rests on mkdir -----------
+# a mkdir without -p is a test-and-set; the hook markers count too
 new_case no_mkdir_locks
-left="$(cd "$REPO_ROOT" && grep -nE '(mkdir|rmdir) [^|;&]*lock' scripts/*.sh scripts/lib/*.sh scripts/tests/suite-lock.sh)"
-if [ -z "$left" ]; then printf 'ok   %s: no script takes or gives back a lock with mkdir\n' "$CASE"
-else printf 'FAIL %s: a lock rests on mkdir: %s\n' "$CASE" "$left"; FAILED=1; fi
+left="$(cd "$REPO_ROOT" && grep -rnE --include='*.sh' --exclude-dir=tests '(^|[^a-z-])(mkdir|rmdir) +[^- ]' scripts scripts/tests/suite-lock.sh)"
+if [ -z "$left" ]; then printf 'ok   %s: no script takes a lock or a marker with mkdir\n' "$CASE"
+else printf 'FAIL %s: a lock or a marker rests on mkdir: %s\n' "$CASE" "$left"; FAILED=1; fi
 
 # --- review-pr.sh row: the bookkeeping rows under the same lock ---------------
 new_case review_pr_row
