@@ -42,7 +42,7 @@ assert_count() { # <pattern> <expected> <description>
 step_case() { # <case-name>
   new_case "$1"
   # the hook derives skill names from CONFIG.md, so the table is part of the fixture
-  base_config '- artifact_skill: pr-artifact@acme/skills' '' \
+  base_config '' \
     '## Review skills' '' \
     '| skill | source | trigger | section |' \
     '| --- | --- | --- | --- |' \
@@ -92,11 +92,6 @@ assert_count 'review_step' 0 'a Task with no PR number logs nothing'
 step_case task_not_a_skill
 run_task "$SID" "Investigate the flaky test in PR #42"
 assert_count 'review_step' 0 'an unrelated subagent logs nothing'
-
-# --- the artifact skill is recognised too ------------------------------------
-step_case skill_artifact
-run_task "$SID" "pr-artifact for PR #42"
-assert_count 'PR #42 skill:pr-artifact done' 1 'the artifact skill logs its step'
 
 # --- a skill this instance has NOT configured logs nothing -------------------
 step_case skill_unconfigured

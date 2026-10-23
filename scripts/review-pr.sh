@@ -175,6 +175,7 @@ case "$TRIG" in (label|review-request|both) ;; (*) TRIG=label;; esac
 { [ -n "$BOT_LOGIN" ] && [ "$(login_kind "$BOT_LOGIN")" = user ]; } || TRIG=label
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
+GUIDE_LABEL="$(cfg guide_label)"   # a person asks for the review guide (docs/artifact.md)
 # lib/paths.sh is optional: unreadable, no path forces a triage
 . "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || path_glob_match() { return 1; }
 DEF_REF="$(cfg definition_repo)"
@@ -1257,11 +1258,14 @@ cmd_prepare() {
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   # a guide skill's brief: its own inputs, output and budget (docs/skills.md →
-  # Guide skills); the forced path and the guide already published feed its gate
-  local gtpl gforced="" gprior="" gm fh
+  # Guide skills); the forced path, the guide label and the guide already
+  # published feed its gate
+  local gtpl gforced="" gprior="" gm fh gl
   gtpl="$(cat "$SCRIPT_DIR/templates/guide-brief.md" 2>/dev/null)"
   fh="$(forced_human_path)"
   [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
+  gl="$(guide_label_on)"
+  [ -n "$gl" ] && gforced="$gforced"$'\n- forced: the `'"$gl"$'` label is on the PR — a person asked for the guide, so the gate is passed.'
   gm="$(guide_marker)"
   local gdiag=""
   printf '%s' "$skills" | jq -r '.[].skill' | while IFS= read -r s; do [ "$(skill_kind "$s")" = guide ] && echo y; done | grep -q y \
@@ -1882,7 +1886,8 @@ cmd_compose_brief() {
   printf '%s' "$ran" | while IFS= read -r sec; do
     [ -n "$sec" ] || continue
     if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
-      printf '### %s\n<only when your triage is `needs-human` and the guide link is in hand: the one 📊 line of **Review guide** below — else drop this section>\n\n' "$sec"
+      printf '### %s\n<only when %sthe guide link is in hand: the one 📊 line of **Review guide** below — else drop this section>\n\n' "$sec" \
+        "$([ -n "$(guide_label_on)" ] || printf 'your triage is `needs-human` and ')"
     else printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"; fi
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
@@ -1937,7 +1942,8 @@ cmd_compose_brief() {
 
 # The publish steps of a built or kept guide, between `meta.json` and `post`
 # (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
-# tools, and only the triage it wrote decides whether a person is needed.
+# tools, and the triage it wrote decides whether a person is needed, unless
+# the `guide_label` asks for the guide.
 guide_brief() { # <skill> <section> <built|kept> <line> <html>
   local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge ff store n=1
   gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
@@ -1947,7 +1953,11 @@ guide_brief() { # <skill> <section> <built|kept> <line> <html>
   printf '\n## Review guide — `%s` %s — docs/artifact.md → Review guide\n\n' "$s" \
     "$([ "$g" = built ] && printf 'built a page for the human reviewer' || printf 'says the guide at %s still holds' "$gsha")"
   printf 'Its line: %s\n\n' "$line"
-  printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
+  if [ -n "$(guide_label_on)" ]; then
+    printf 'The `%s` label on the PR asks for the guide: publish it whatever your `meta.json` triage —\n' "$(guide_label_on)"
+  else
+    printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
+  fi
   if [ "$g" = kept ] && [ ! -s "$store" ]; then
     printf '1. The section is the single line: `📊 [Visual guide for the human reviewer](%s) — at %s: %s`\n' "$gurl" "$gsha" "$judge"
     printf '2. Nothing to publish or record: no stored copy to refresh.\n'
@@ -2358,6 +2368,15 @@ forced_human_path() {
     g="$(path_glob_match "$p" "$HUMAN_PATHS")" && { printf '%s (%s)' "$p" "$g"; return 0; }
   done <<< "$(jq -r '.[].path // empty' "$CTX/files.json" 2>/dev/null
               sed -n 's#^diff --git a/\(.*\) b/.*$#\1#p' "$DIFF" 2>/dev/null)"
+  return 0
+}
+
+# The `guide_label` when the PR carried it at `prepare` (docs/artifact.md →
+# Review guide); nothing when the key is unset or the label is absent.
+guide_label_on() {
+  [ -n "$GUIDE_LABEL" ] || return 0
+  jq -e --arg l "$GUIDE_LABEL" '(.labels // []) | index($l) != null' "$CTX/pr.json" >/dev/null 2>&1 \
+    && printf '%s' "$GUIDE_LABEL"
   return 0
 }
 

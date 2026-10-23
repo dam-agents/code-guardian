@@ -349,7 +349,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 3. **`bot_login`** — the login from Step 0.1. Confirm with the operator,
    stating the consequence:
 
-   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account, and with the artifact feature on (item 7), assigning it to a PR requests a visual artifact. If this is a personal account, consider a dedicated machine/bot account instead.
+   > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account. If this is a personal account, consider a dedicated machine/bot account instead.
 
    A login ending in `[bot]` is a GitHub App, which a person cannot assign or
    request. Ask which user account people use for that; it becomes
@@ -443,22 +443,21 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      every review and skill subagent starts from, kept current by a structural
      fingerprint (`docs/profile.md`). Default `enabled`; write the key only for
      `disabled`.
-7. **Review skills + `artifact_skill`** — fully config-driven
+7. **Review skills + `guide_label`** — fully config-driven
    (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or
-   the `[host/]owner/repo` it installs from; artifact format
-   `<skill>@<[host/]owner/repo>` or `none`). Present the default public set —
+   the `[host/]owner/repo` it installs from). Present the default public set —
    the example below, where `issue-fit` and `review-guide` ship in this
    definition repo, so their `source` is the instance's `definition_repo` — and
    let the operator adjust rows, triggers and sources. A skill kept in the
    reviewed repository gets `github_repo` as its `source`, and it must be on
    that repository's default branch (`docs/skills.md` → **Where a skill lives**).
    **Validate every row before writing:**
-   - Repo-sourced rows and the artifact skill:
+   - Repo-sourced rows:
      `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed;
      otherwise let the operator fix or drop the row.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
-   - An empty table plus `artifact_skill: none` is valid — plain reviews only.
+   - An empty table is valid — plain reviews only.
    - **The review guide row** — in the default set, **on**. Say it once with
      the table, because the guide is public by link:
 
@@ -467,19 +466,12 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      The row is `| review-guide | <definition_repo> | always | Human Review Guide |`
      (the skill ships in this definition repo), right after `issue-fit` so its
      link line sits high in the review. "No guide" → drop the row.
-   - **`artifact_skill`** — default `none`. Ask:
+   - With the review guide row, **`guide_label`** — optional. Ask:
 
-     > When someone assigns **<bot_login>** to a PR, I can make a visual artifact of the PR. I publish it to the DAM Artifact Library. The artifact is public: anyone with its link can open it, and it shows code from the PR. Turn it on? (Default: off. Suggested skill: `pr-artifact@dam-agents/dam`.)
-
-     **Yes** → validate the skill as above and write it; **no, or no reply** →
-     `artifact_skill: none`.
-   - With an artifact skill, **`artifact_label`** — optional; recommend it for a
-     GitHub App `bot_login`, which a person cannot assign. Ask:
-
-     > Besides assigning **<bot_login>** to a PR, do you want a label that requests the visual artifact? (Default: no label. Suggested name: `code-guardian-artifact`.)
+     > Do you want a label that asks for the review guide even when my review finds no need for a person? (Default: no label. Suggested name: `code-guardian:guide`.)
 
      A yes → write the key, and validate or create the label like the
-     re-review label (description `Request a code-guardian review artifact`).
+     re-review label (description `Request a code-guardian review guide`).
 8. **`slack_notifications`** — strictly opt-in; it gates the shepherd nudging.
    Ask:
 
@@ -605,8 +597,7 @@ Final shape:
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled
-- artifact_skill: none                 # default; or: pr-artifact@dam-agents/dam (publishes publicly)
-- artifact_label: code-guardian-artifact   # optional, with an artifact skill; requests the artifact beside the assignment
+- guide_label: code-guardian:guide    # optional; the review guide is built and published whatever the triage
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
@@ -762,7 +753,7 @@ defaults (`00-23` + `Mon-Sun`) produce the active schedule alone. Each carries
 `precheck: bash "$HOME/scripts/precheck.sh" review`,
 `sessionTitle: Review open PRs` and this `task`:
 
-> Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read exactly the worklist's read_set, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), handle artifacts_due per docs/artifact.md, and back up work/ at the end (`scripts/work-backup.sh persist`).
+> Review heartbeat. The precheck already ran preflight and found work: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" review` yourself. Then follow CLAUDE.md → "Review run": read exactly the worklist's read_set, apply the bookkeeping arrays (self-heals, label cleanups, prunes), review every PR in reviews_due (chat UI + GitHub review with the marker; honour the HEAD-freshness checks, locks, and the re-review label gate, removing the label after posting), and back up work/ at the end (`scripts/work-backup.sh persist`).
 
 **6b — Shepherd sweep** (only when Slack is enabled; enable or create it later
 if Slack is enabled in chat). Ask: *During which hours and days should I nudge
@@ -872,8 +863,8 @@ with the verification result (the `PASS` line plus any warnings):
    - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
      jump the queue, rapid-preliminary-first: without a critical finding the
      rapid pass approves, and the full review can cancel that approval.
-   - Assigning **`<bot_login>`** to a PR, or the **`<artifact_label>`** label
-     when configured, requests a visual artifact, when configured.
+   - Labeling a PR **`<guide_label>`**, when configured, gets the visual
+     review guide at its next review, also when no person must judge it.
    - Feedback and dismissals are given by saying so in chat (global →
      `MEMORY.md`, PR-specific → that PR's overrides), and @-mentioning
      **`<bot_login>`** in any PR or issue comment, or in a PR description, gets

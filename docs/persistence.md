@@ -82,8 +82,8 @@ this, in order:
    health dashboard, the whole `health/state.json` — so its publish step
    creates the artifact and writes the new marker. Log each as
    `restore: republished <report> → DAM <id>`, or its failure; a failed publish
-   never stops the onboarding. PR artifacts are not republished — the links
-   already in PR comments stay valid.
+   never stops the onboarding. Review guides are not republished — the links
+   already in the reviews stay valid.
 3. **Back up** `work/` (the new markers).
 
 Outside `work/`, nothing needs a copy — each part comes back by itself:

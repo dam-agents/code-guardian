@@ -101,36 +101,21 @@ assert_file_contains "$FAKE_HOME/.claude/skills/.cache/snap.sha" '^oldold' 'its 
 # --- skill-install.sh: the install outside preflight (benchmark refresh,
 # on-demand review) is preflight's own, under the same lock -------------------
 snap_case skill_install_cli
-printf -- '- artifact_skill: pr-artifact@acme/skills\n' >> "$WORK/CONFIG.md"
 printf '{"sha":"%s"}\n' "$SRC_SHA" | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
-printf '{"tree":[{"type":"blob","path":".agents/skills/snap/SKILL.md"},{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' \
+printf '{"tree":[{"type":"blob","path":".agents/skills/snap/SKILL.md"}]}\n' \
   | fx "api --hostname github.com repos/acme/skills/git/trees/$SRC_SHA?recursive=1"
 printf '# snap at the snapshot\n' \
   | fx "api --hostname github.com repos/acme/skills/contents/.agents/skills/snap/SKILL.md?ref=$SRC_SHA -H Accept: application/vnd.github.raw"
-printf '# artifact\n' \
-  | fx "api --hostname github.com repos/acme/skills/contents/.agents/skills/pr-artifact/SKILL.md?ref=$SRC_SHA -H Accept: application/vnd.github.raw"
 inst() { OUT="$(GH_HOST="" WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/skill-install.sh" "$@")"; }
 inst
 assert_jq '. == {"snap": "installed (1 files)"}' 'no argument installs every skill of the Review skills table'
 assert_file_contains "$FAKE_HOME/.claude/skills/.cache/snap.sha" "^$SRC_SHA\$" 'the cache SHA is written, as preflight writes it'
 inst
 assert_jq '. == {"snap": "cached"}' 'an unchanged source SHA is cached'
-inst pr-artifact nope
-assert_jq '. == {"pr-artifact": "installed (1 files)", "nope": "not-configured"}' 'named skills include the artifact skill; an unknown name is reported'
-assert_file_contains "$FAKE_HOME/.claude/skills/pr-artifact/SKILL.md" '^# artifact$' 'the named skill is installed'
+inst snap nope
+assert_jq '. == {"snap": "cached", "nope": "not-configured"}' 'a named skill installs from its row; an unknown name is reported'
 [ -z "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | grep -v '\.sha$')" ] \
   && printf 'ok   %s: no stage or lock left in the cache\n' "$CASE" \
   || { printf 'FAIL %s: leftovers in the cache: %s\n' "$CASE" "$(ls -A "$FAKE_HOME/.claude/skills/.cache" | tr '\n' ' ')"; FAILED=1; }
-
-# --- the artifact publishes to DAM on any target host -----------------------
-new_case artifact_due_other_host
-TEST_REF="github.example.com/acme/widgets"
-base_config '- artifact_skill: pr-artifact@acme/skills'
-pr_json 1 "assigned PR" '[]' "$SHA1" | jq '.assignees = [{"login":"test-bot"}]' | open_prs_fx
-printf '{"sha":"feedfacefeedfacefeedfacefeedfacefeedface"}\n' | fx 'api --hostname github.com repos/acme/skills/commits/HEAD'
-printf '{"tree":[{"type":"blob","path":".agents/skills/pr-artifact/SKILL.md"}]}\n' | fx 'api --hostname github.com repos/acme/skills/git/trees/feedfacefeedfacefeedfacefeedfacefeedface?recursive=1'
-run_preflight review
-assert_jq '.artifacts_due | length == 1' 'the artifact is due off github.com'
-assert_jq '.config | has("artifact_targets") | not' 'the worklist carries no artifact surface key'
 
 finish

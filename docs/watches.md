@@ -61,7 +61,7 @@ review sequence** step f), never for a skipped or aborted review:
    `PR #<n>: watch <id> uncertain match — not notified`.
 2. On a match, deliver to the listed targets in order and **write the marker
    immediately after the first delivery succeeds** (own line, after the
-   artifact markers), then attempt the remaining targets. No delivery succeeded
+   guide marker), then attempt the remaining targets. No delivery succeeded
    → no marker, so the PR's next review retries; a failed remaining target is
    logged, not retried for this PR.
 3. Message, shared by all targets — **never @-mentions anyone**, links the PR,

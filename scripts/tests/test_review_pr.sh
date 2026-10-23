@@ -2102,6 +2102,34 @@ run_rp compose-brief 1
 assert_out_contains 'update_artifact {id: "art_9"' 'a recorded guide is updated in place'
 run_rp abort 1 "reset"
 
+# the guide label passes the gate and publishes whatever the triage
+guide_setup guide_label '- guide_label: code-guardian:guide'
+pr_fx open '["code-guardian:guide"]'
+run_rp prepare 1
+GB="$(PR_DIR).ctx/briefs/review-guide.md"
+assert_file_contains "$GB" 'forced: the `code-guardian:guide` label is on the PR' 'the guide label passes the gate'
+mkdir -p "$(PR_DIR).out"
+printf '📊 Guide — the new query() contract (about 5 min)\n' > "$(PR_DIR).out/review-guide.txt"
+guide_page
+run_rp collect 1
+run_rp compose-brief 1
+assert_out_contains 'only when the guide link is in hand' 'with the label the section does not wait for the triage'
+assert_out_contains 'The `code-guardian:guide` label on the PR asks for the guide: publish it whatever your `meta.json` triage' 'the label publishes whatever the triage'
+assert_out_absent 'triage decides' 'with the label the triage does not decide'
+run_rp abort 1 "reset"
+
+# a configured guide label that is not on the PR changes nothing
+guide_setup guide_label_absent '- guide_label: code-guardian:guide'
+run_rp prepare 1
+assert_file_lacks "$(PR_DIR).ctx/briefs/review-guide.md" 'label is on the PR' 'no label on the PR, no forced gate'
+mkdir -p "$(PR_DIR).out"
+printf '📊 Guide — x (about 5 min)\n' > "$(PR_DIR).out/review-guide.txt"
+guide_page
+run_rp collect 1
+run_rp compose-brief 1
+assert_out_contains 'Your `meta.json` triage decides' 'without the label the triage decides'
+run_rp abort 1 "reset"
+
 # a page that may not publish: refused with the reason, no section
 guide_setup guide_refused
 run_rp prepare 1

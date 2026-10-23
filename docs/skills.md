@@ -22,8 +22,7 @@ skill installs from its default branch (below).
 ## Installation — done by preflight
 
 `scripts/preflight.sh review` installs or refreshes every repo-sourced skill
-(and the artifact skill when a generation is due) **only when a review or
-artifact is actually due**, mirroring `.agents/skills/<skill>/` from one
+**only when a review is actually due**, mirroring `.agents/skills/<skill>/` from one
 snapshot of the source repo's default branch — its HEAD SHA — and caching by
 that SHA. The worklist's `skills` object reports per-skill status:
 `installed (N files)` / `cached` / `harness` / `install-failed`.
@@ -157,7 +156,7 @@ Missing lines mean the skill step is not done: do not proceed to posting.
   not run ([review.md](review.md) → **Output format (first reviews)**), are its
   trace.
 - A **guide skill** posts its section only with a page to link: a
-  `needs-human` triage and a guide published or kept. Any other outcome omits
+  `needs-human` triage or the `guide_label`, and a guide published or kept. Any other outcome omits
   the section, and the audit line is its whole trace — not a `_Limits:_` entry,
   because the skill ran.
 
@@ -179,7 +178,8 @@ sections.
 - **Brief.** `prepare` reads the frontmatter of the installed skill and renders
   [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
   instead of the review brief: the diff, the PR context, the context pack, the
-  risk prescan, a `human_review_paths` match (which passes the skill's gate),
+  risk prescan, a `human_review_paths` match or the `guide_label` on the PR
+  (either passes the skill's gate),
   the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`,
   links pinned to the head SHA, and the project diagrams of the touched areas
   marked for this PR, with the areas that have none ([profile.md](profile.md) →
@@ -224,8 +224,8 @@ sections.
   and is stored in `work/diagrams/`, whatever the page's fate.
 - **Publish.** The review agent renders the review's open findings into the
   page (`review-pr.sh guide <n> --findings`), then publishes a built page, or
-  refreshes a kept one, only when its own triage is `needs-human` — the step between `meta.json` and
-  `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
+  refreshes a kept one, only when its own triage is `needs-human` or the PR
+  carries the `guide_label` — the step between `meta.json` and `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
   guide**).
 
 ## Verdict integration

@@ -33,8 +33,9 @@ Execute exactly this list — never from list absence, never a bulk delete of
 `<!-- artifact-dam: … -->` and `<!-- artifact-guide: … -->` markers from
 `work/reviews/pr-<n>.md` before step 2 deletes it.
 
-1. Artifacts, a failure logged and never blocking: `dam_id` and `guide_id`
-   (the review guide, [artifact.md](artifact.md) → **Review guide**) → one
+1. Artifacts, a failure logged and never blocking: `guide_id` (the review
+   guide, [artifact.md](artifact.md) → **Review guide**) and `dam_id` (a PR
+   artifact published before 11.0.0) → one
    `delete_artifact {id: <id>}` each, skipped silently when the MCP tool is
    absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json

@@ -56,7 +56,7 @@ reason, never dropped.
    scopes, CLI deps, state consistency, logs, hygiene, disk space and inodes
    of every volume a run writes to (work/, the review clones, the backup's
    clone), skills, roster, definition currency, benchmark fixture and results
-   integrity, the work repo's visibility, the memory budget, artifact outcome logging, the profile's
+   integrity, the work repo's visibility, the memory budget, the profile's
    currency, the definition repo's open-issue backlog
    ([preflight.sh](../scripts/preflight.sh) audit mode). Triage per task 1,
    do not recompute. Two special cases:
@@ -114,9 +114,9 @@ reason, never dropped.
      `missed` or `failed` → **warn** naming its PR.
 6. Slack connectivity — no separate probe: sending the report *is* the test (a
    send failure is a fail plus a fall back to the chat UI).
-7. Artifact feature (when `artifact_skill` is configured): are the DAM MCP
+7. Review guide (when a guide skill is in `## Review skills`): are the DAM MCP
    tools (`create_artifact*`) registered this session? Absent → **warn**: no
-   artifact can publish until the owner's experimental flag is on.
+   guide can publish until the owner's experimental flag is on.
 
 ### C. Review pipeline correctness (sample up to 3 reviews posted this week)
 
@@ -154,14 +154,12 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     (`^U[A-Z0-9]{6,}$`); count roster members without one (they can never be
     mentioned).
 
-### E. Artifact pipeline (when `artifact_skill` is configured)
+### E. Review guide (when a guide skill is in `## Review skills`)
 
-18. PRs with an artifact trigger right now — `$BOT_LOGIN` assigned or
-    `artifact_label` on the PR — that are **not** in this run's
-    `artifacts_due`-equivalent state (a trigger older than a few heartbeats
-    with neither markers nor a fresh artifact) → pipeline stuck, **warn**.
-19. Repeated `artifact trigger release retried` lines across the week for the
-    same PR → the release keeps failing (permissions?), **warn**.
+18. `stats.guides.skipped` > 0 → name the PRs and the reason of their `guide`
+    warn events; the same `skill-errored` reason on several PRs → **warn**.
+19. PRs with `guide_label` that got a review this week but no `guide` event
+    for it → the label was not followed, **warn**.
 
 ### F. Configuration & definition integrity
 
@@ -413,7 +411,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)
 • Wake-ups: <wakeups.runs> — <kind> <runs>, … per by_work kind with runs > 0 (+<unlabelled> unlabelled — omit when 0; `not measured this week` when wakeups is null)
-• Heartbeats: <total> (<idle> idle) · Artifacts: <stats.artifacts.generated> published (+<skipped> skipped, +<unreported> unlogged — omit each zero; when artifacts is null: `not configured` without an `artifact_skill`, else `not measured this week`) · Guides: <stats.guides.published> published (+<stats.guides.skipped> skipped — omit when zero; omit the Guides part when no guide skill is in `## Review skills`; `not measured this week` when guides is null)
+• Heartbeats: <total> (<idle> idle) · Guides: <stats.guides.published> published (+<stats.guides.skipped> skipped — omit when zero; omit the Guides part when no guide skill is in `## Review skills`; `not measured this week` when guides is null)
 • Log: <stats.log_events.errors> errors / <stats.log_events.warns> warns (recurring: <event×N, … or "none">)
 • Tokens: <stats.tokens.output> out / <stats.tokens.cache_read> cache-read / <stats.tokens.cache_creation> cache-write across <stats.tokens.runs> runs (omit when runs = 0; `not measured on this harness` when tokens is null) — token counts only; the *Spend* line prices them
 • Spend: $<actual> actual (est $<cost_usd>) · per review $<actual/review> (est $<cost_usd/review>) · model: <top byModel id> ×<calls> — or `est $<cost_usd> · per review est $<cost_usd/review> · actual not measured on this deployment` (task 27); `not measured on this harness` when tokens is null and no actual was measured

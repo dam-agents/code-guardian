@@ -26,8 +26,7 @@ it). `GH_HOST` is exported to the **target** host, and cross-host calls pass
 ## In the worklist
 
 `config` — one object per review or shepherd run with work: every key below
-with its default applied (`null` for a missing key without one),
-`artifact_skill` as effective (`none` when off), `skills_table`
+with its default applied (`null` for a missing key without one), `skills_table`
 (`[{skill, source, trigger, section}]`) and `watch_rules`
 (`[{id, watch_for, notify, note}]`). Runs read their values from it; the reader
 below is for the manual fallback and the direct session.
@@ -58,11 +57,10 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 - **`definition_branch`** — the branch of `definition_repo` this instance runs
   from ([persistence.md](persistence.md) → **Tracked branch**). **Missing =
   `main`.** Operator-only to change.
-- **`bot_login`** — the GitHub account people mention, assign and request for
+- **`bot_login`** — the GitHub account people mention and request for
   this agent; the token may post as another login, such as a GitHub App
   ([github-access.md](github-access.md)). **Required.** Missing → the
-  artifact's assignee trigger, the `review-request` trigger and mention
-  handling are off.
+  `review-request` trigger and mention handling are off.
 - **`bot_display_name`** — signature name (default `Code Guardian`). Cosmetic
   only, never used for dedup.
 - **`review_marker`** — prefix of the hidden dedup marker
@@ -127,24 +125,19 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   mentions the set admits and logs the count it left out
   ([mentions.md](mentions.md)).
 
-### Skills, artifacts, watches
+### Skills, review guide, watches
 
 - **`## Review skills` table** — the per-PR review skills; semantics in
   [skills.md](skills.md). Missing or empty → no review skills run (log once).
   A row whose skill is a guide skill — the bundled `review-guide`, in the
   default set — builds a visual page for the human reviewer of a
-  `needs-human` PR and links it from the review; it publishes to the DAM Artifact Library like `artifact_skill`
-  ([skills.md](skills.md) → **Guide skills**, [artifact.md](artifact.md) →
-  **Review guide**).
-- **`artifact_skill`** — `<skill>@<[host/]owner/repo>`, or `none`/missing = the
-  artifact feature is off entirely. The artifact publishes to the DAM Artifact
-  Library, best-effort behind the owner's experimental flag
-  ([artifact.md](artifact.md)).
-- **`artifact_label`** — a GitHub label a human adds to request the artifact of
-  a PR, beside the assignment of `bot_login`. **Missing = the assignment
-  alone.** A GitHub App cannot be assigned, so the label is the artifact
-  trigger of a GitHub App `bot_login`. The agent removes it once the artifact
-  is published.
+  `needs-human` PR and links it from the review; it publishes to the DAM
+  Artifact Library ([skills.md](skills.md) → **Guide skills**,
+  [artifact.md](artifact.md) → **Review guide**).
+- **`guide_label`** — a GitHub label a human adds to ask for the review guide
+  of a PR whatever the review's triage. **Missing = the triage alone
+  decides.** The label stays on the PR and acts at each review round; it
+  starts no review ([artifact.md](artifact.md) → **Review guide**).
 - **`## Watch rules` table** — instance-local "when a PR does X, give a
   heads-up in Y" rules, evaluated during reviews and delivered to a closed set
   of vetted targets (`chat`, `slack[:<chat-id>]`, `pr-comment`) —
@@ -313,8 +306,7 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   `review_interval_active` minutes (**missing = `5`**), in quiet hours every
   `review_interval_quiet` minutes (**missing = `15`**); both are divisors of
   60. An interval bounds how long a new PR or a trigger waits for its run; a
-  tick with no work costs no model call. An artifact trigger release retry
-  waits as bookkeeping ([worklist.md](worklist.md) → **The schedule gate**).
+  tick with no work costs no model call.
   These four keys are the **source of truth for the registered cron
   schedules** (ONBOARDING Step 6a) and for the audit's cadence check.
 - **`log_level`** — `info` (default) | `debug`. Verbosity of
@@ -333,7 +325,7 @@ BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BO
 REVIEW_MARKER="$(cfg review_marker)"
 DEF_REF="$(cfg definition_repo)"; DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
-REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"; ARTIFACT_LABEL="$(cfg artifact_label)"
+REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"; GUIDE_LABEL="$(cfg guide_label)"
 ```
 
 All `gh` commands use `--repo "$REPO"`. `REPO` resolving empty → stop and ask
@@ -350,5 +342,5 @@ the operator for the slug, never guess.
 - An edited cadence key takes effect once the schedules are reconciled per
   ONBOARDING Step 6.
 - **Missing `work/CONFIG.md`** = not onboarded, or state lost: apply per-key
-  defaults (Slack disabled, skills disabled, artifact and shepherd off), log it
+  defaults (Slack disabled, skills disabled, shepherd off), log it
   once, and continue with what still works.

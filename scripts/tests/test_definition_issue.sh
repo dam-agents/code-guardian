@@ -149,14 +149,14 @@ no_calls 'fenced block: nothing reaches GitHub'
 
 # the configured repositories and watch rules beyond the target
 new_case blocks_config_tables
-instance '- definition_issues: enabled' '- artifact_skill: pr-artifact@initech/review-tools' '' \
+instance '- definition_issues: enabled' '' \
   '## Review skills' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
   '| license-check | initech/skills | always | License Check |' '' \
   '## Watch rules' '| id | watch for | notify | note |' '| --- | --- | --- | --- |' \
   '| ledger-schema | adds a migration | slack:C0123ABCD | asked by hpatel |'
-body "${CLEAN[@]}" 'The ledger-schema watch fired; see initech/skills and initech/review-tools.'
+body "${CLEAN[@]}" 'The ledger-schema watch fired; see initech/skills.'
 run_issue file '[audit] Skipped tick counted as an error'
-assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "watch_rule") and any(.hits[]; .rule == "skill_source") and any(.hits[]; .rule == "artifact_skill")' 'watch-rule ids and the skill and artifact repositories block'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "watch_rule") and any(.hits[]; .rule == "skill_source")' 'watch-rule ids and the skill repositories block'
 no_calls 'config tables: nothing reaches GitHub'
 
 new_case title_prefix

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# lib/redact.sh — the redaction pass a PR artifact goes through before it is
+# lib/redact.sh — the redaction pass a review guide goes through before it is
 # published to a public surface. Two halves matter equally: every credential
 # shape the redactor knows is masked, and the material an artifact is made of —
 # commit SHAs, base64 payloads, content hashes — survives it. The second half
 # is why the pass names shapes instead of measuring entropy. Contract:
-# docs/artifact.md → **Procedure**.
+# docs/artifact.md → **Review guide**.
 . "$(dirname "$0")/helpers.sh"
 
 . "$REPO_ROOT/scripts/lib/redact.sh"

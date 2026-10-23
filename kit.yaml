@@ -76,8 +76,7 @@ schedules:
       arrays (self-heals, label cleanups, prunes), review every PR in reviews_due
       (chat UI + GitHub review with the marker; honour the HEAD-freshness checks,
       locks, and the re-review label gate, removing the label after posting),
-      handle artifacts_due per docs/artifact.md, and back up work/ at the end
-      (`scripts/work-backup.sh persist`).
+      and back up work/ at the end (`scripts/work-backup.sh persist`).
   # Shepherd sweep (Step 6b) — Slack only.
   - name: code-guardian-shepherd-1h-workdays
     cron: "0 7-18 * * 1-5"

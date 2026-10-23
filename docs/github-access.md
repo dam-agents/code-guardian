@@ -20,21 +20,19 @@ connection.
   `{previous, changed_at}` and logs a `github_identity` warn; the audit's
   `github_identity` check warns for 7 days after it.
 - The worklist `config.github_identity` carries `{login, kind}`.
-- `bot_login` is the account people mention, assign and request
+- `bot_login` is the account people mention and request
   ([config.md](config.md)). It can differ from the token's login: an App
   token posts as the App while `bot_login` stays a user account.
 
 ## Triggers by identity
 
-People start the agent's work with a label, a review request, an assignment or
-a mention. A GitHub App cannot be requested or assigned, so each of those has
-a label beside it:
+People start the agent's work with a label, a review request or a mention. A
+GitHub App cannot be requested, so the review request has a label beside it:
 
 | Request | User `bot_login` | GitHub App `bot_login` |
 | --- | --- | --- |
 | complete re-review | `rereview_label` | `rereview_label` |
 | delta re-review | review request (`rereview_trigger`), `rereview_delta_label` | `rereview_delta_label` |
-| visual artifact | assignment of `bot_login`, `artifact_label` | `artifact_label` |
 | reply, feedback, on-demand review | `@<bot_login>` | `@<slug>` or `@<slug>[bot]` |
 
 - Under a GitHub App `bot_login`, preflight and `review-pr.sh` read

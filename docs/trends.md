@@ -42,8 +42,8 @@ of the same week in both views; both files stay on disk.
 4. **Publish** per `audit_trend` ([config.md](config.md)), updated in place so
    the URL stays stable:
    - `dam` — the DAM Artifact Library through its MCP tools, title
-     `<bot_display_name> weekly trends`, exactly the sub-steps of
-     [artifact.md](artifact.md) → **Procedure** step 2; the id lives in the
+     `<bot_display_name> weekly trends`, the upload and publish of
+     [artifact.md](artifact.md) → **Steps** 3–4; the id lives in the
      TRENDS.md marker `<!-- audit-trend-dam: <id> -->`. Best-effort: tools not
      registered or any sub-step failing → log and continue.
    - `off` — regenerate locally and publish nothing.
@@ -58,10 +58,10 @@ write, and it never touches state outside `work/audit/`.
 
 | Group | Metrics | Source |
 | --- | --- | --- |
-| Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog, artifacts published | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label`, `stats.artifacts` |
+| Volume | reviews (first / re-review), open PRs, `awaiting_label` backlog, review guides published | `stats.reviews`, `stats.open_prs`, `stats.awaiting_label`, `stats.guides` |
 | Quality | verdict split, APPROVE and REQUEST_CHANGES shares (all and first reviews), APPROVE overruled by a person, findings raised by severity, findings per review and per 100 changed lines, missed-earlier share, acceptance ratio, 👍/👎 | `stats.reviews`, `stats.overruled`, `stats.findings`, `stats.reactions` |
 | Speed | time-to-first-review, review duration, slowest phase | extras, `stats.reviews.duration` / `.phases` |
-| Cost | heartbeats and idle share, wake-ups by work (reviews / mention replies / artifacts), tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.wakeups`, `stats.tokens`, the price table, extras |
+| Cost | heartbeats and idle share, wake-ups by work (reviews / mention replies), tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.wakeups`, `stats.tokens`, the price table, extras |
 | Runs | finished sessions, run length (median, mean, p90; review runs apart), cost per run (median, mean), cache hit ratio — per week and per day | `stats.sessions` (below) |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts, the fullest volume (space, inodes), the size of `work/` | `stats.stalls`, `stats.log_events`, `checks[]`, `stats.disk` |
 | Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |

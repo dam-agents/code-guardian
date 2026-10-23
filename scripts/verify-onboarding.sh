@@ -220,7 +220,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch mention_replies mention_authors project_profile artifact_skill artifact_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch mention_replies mention_authors project_profile guide_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -309,15 +309,6 @@ EOF
       else
         fail config-active_hours "invalid value '$AH'" \
           "use an ascending 'HH-HH' range of platform-timezone hours, both ends inclusive (e.g. 08-21)"
-      fi
-    fi
-
-    AS="$(cfg artifact_skill)"
-    if [ -n "$AS" ] && [ "$AS" != "none" ]; then
-      if printf '%s' "$AS" | grep -Eq '^[A-Za-z0-9._-]+@([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
-        ok config-artifact_skill "'$AS'"
-      else
-        fail config-artifact_skill "invalid value '$AS'" "use '<skill>@<[host/]owner/repo>' or 'none'"
       fi
     fi
 
@@ -479,7 +470,7 @@ EOF
       [ -e "$f" ] || continue
       b="$(basename "$f")"
       [ "$b" = ".gitkeep" ] && continue
-      # pr-artifacts/ is the documented artifact home (docs/artifact.md)
+      # pr-artifacts/ holds the stored review guide pages (docs/artifact.md)
       [ "$b" = "pr-artifacts" ] && [ -d "$f" ] && continue
       printf '%s' "$b" | grep -Eq '^pr-[0-9]+\.md$' || STRAY="$STRAY $b"
     done
@@ -556,7 +547,7 @@ if [ "$LIVE" = 1 ]; then
           ok live-target-write "a GitHub App token shows no repository permissions here — scripts/github-access.sh probes them"
         else
           [ "$(ghq "$T_HOST" "repos/$T_REPO" .permissions.push)" = "true" ] \
-            || warn live-target-write "no push permission — label writes and assignee handling will fail; reviews still post"
+            || warn live-target-write "no push permission — label writes will fail; reviews still post"
         fi
       else
         fail live-target "target repo not readable on $T_HOST" \
@@ -576,22 +567,16 @@ if [ "$LIVE" = 1 ]; then
       if [ -n "$URG" ] && ! has_label "$URG"; then
         warn live-urgent-label "the configured urgent label '$URG' does not exist — urgent handling can never trigger (create it, or drop the key)"
       fi
-      DRL="$(cfg rereview_delta_label)"; ARL="$(cfg artifact_label)"
+      DRL="$(cfg rereview_delta_label)"; GL="$(cfg guide_label)"
       if [ -n "$DRL" ] && ! has_label "$DRL"; then
         warn live-delta-label "the configured delta re-review label '$DRL' does not exist — no one can request a delta re-review with it (create it, or drop the key)"
       fi
-      if [ -n "$ARL" ] && ! has_label "$ARL"; then
-        warn live-artifact-label "the configured artifact label '$ARL' does not exist — no one can request an artifact with it (create it, or drop the key)"
+      if [ -n "$GL" ] && ! has_label "$GL"; then
+        warn live-guide-label "the configured guide label '$GL' does not exist — no one can ask for a review guide with it (create it, or drop the key)"
       fi
 
       # skill sources: every configured skill must exist where it installs from
       SK_ROWS="$(cfg_table 'Review skills' | grep -v '^|[ :-]*|' | tail -n +2)"
-      ART="$(cfg artifact_skill)"
-      case "$ART" in
-        (''|none) ;;
-        (*) SK_ROWS="$SK_ROWS
-| ${ART%%@*} | ${ART##*@} | artifact | — |";;
-      esac
       SK_BAD=""; SK_OK=0
       while IFS= read -r row; do
         [ -z "$row" ] && continue

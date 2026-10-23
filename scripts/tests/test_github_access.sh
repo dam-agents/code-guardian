@@ -40,7 +40,7 @@ assert_jq '.identity == {login:"acme-app[bot]", kind:"app", token:"app", scopes:
 assert_jq '.progress_channel == "check_run"' 'an App writes check runs'
 assert_jq '.features.review == "ok" and .features.issues == "ok" and .features.ci_triage == "ok" and .features.agent_fixes == "ok"' 'the granted features'
 assert_jq '[.probes[] | select(.id == "statuses_write") | .state] == ["denied"]' 'a 403 probe is denied'
-assert_jq '.triggers.review_request == true and .triggers.artifact_assignee == true and .triggers.mention_as == ["@test-bot"] and .triggers.missing == []' 'a user bot_login keeps every trigger'
+assert_jq '.triggers.review_request == true and .triggers.mention_as == ["@test-bot"] and .triggers.missing == []' 'a user bot_login keeps every trigger'
 assert_jq '.unexpected == []' 'no probe wrote'
 jq -e '.login == "acme-app[bot]" and .kind == "app"' "$WORK/GITHUB.json" >/dev/null \
   && printf 'ok   %s: the identity cache is refreshed\n' "$CASE" \
@@ -77,17 +77,17 @@ base_config
 sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
 target_fx 'acme-app[bot]'
 run_access
-assert_jq '.triggers.review_request == false and .triggers.artifact_assignee == false and .triggers.label == true' 'a bot cannot be requested or assigned'
+assert_jq '.triggers.review_request == false and .triggers.label == true' 'a bot cannot be requested'
 assert_jq '.triggers.mention_as == ["@acme-app", "@acme-app[bot]"]' 'people mention the App by its slug'
-assert_jq '.triggers.missing == ["rereview_delta_label", "artifact_label"]' 'the label keys an App bot_login needs are named'
+assert_jq '.triggers.missing == ["rereview_delta_label"]' 'the label key an App bot_login needs is named'
 
-# --- an App bot_login with both labels has a trigger for every request -----------
+# --- an App bot_login with the delta label has a trigger for every request -------
 new_case access_bot_login_labels
-base_config '- rereview_delta_label: cg-delta' '- artifact_label: cg-artifact'
+base_config '- rereview_delta_label: cg-delta'
 sed -i.bak 's/^- bot_login: test-bot$/- bot_login: acme-app[bot]/' "$WORK/CONFIG.md"
 target_fx 'acme-app[bot]'
 run_access
-assert_jq '.triggers.delta_label == true and .triggers.artifact_label == true and .triggers.missing == []' 'the labels stand in for the request and the assignment'
+assert_jq '.triggers.delta_label == true and .triggers.missing == [] and (.triggers | has("artifact_label") | not)' 'the label stands in for the request'
 
 # --- a refused issue probe is a missing feature, the review still works ----------
 new_case access_issues_denied

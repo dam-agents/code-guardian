@@ -20,12 +20,12 @@
 #     mode's own worklist at work/audit/last-worklist.json (docs/trends.md).
 #
 #   preflight.sh review    -> reviews_due / label_cleanups_due / selfheals_due
-#                             / prunes_due / status_resets_due / artifacts_due
+#                             / prunes_due / status_resets_due
 #                             / urgent_alerts_due / mentions_due / ci_failures_due
 #                             / merges_due / fixes_due, the read_set, config (resolved keys) and memory
 #                             (budget) whenever there is work, plus the skill
-#                             install and the per-PR inventory when a review or
-#                             artifact is due. Bookkeeping alone is deferred
+#                             install and the per-PR inventory when a review is
+#                             due. Bookkeeping alone is deferred
 #                             (`housekeeping_only` — docs/worklist.md -> The
 #                             schedule gate)
 #   preflight.sh shepherd  -> nudges_due (classification + age gate + cooldown
@@ -428,11 +428,7 @@ own_review() { # <pr-number> <review-id>
 REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
 REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"   # empty/missing = no delta label
 URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
-ARTIFACT="$(cfg artifact_skill)"
-ARTIFACT_LABEL="$(cfg artifact_label)"   # empty/missing = the assignee gate alone
-ARTIFACT_SKILL="${ARTIFACT%%@*}"; ARTIFACT_SRC="${ARTIFACT##*@}"
-{ [ "$ARTIFACT" = "none" ] || [ -z "$ARTIFACT" ]; } && ARTIFACT_SKILL=""
-ARTIFACT_RETRY_H=24   # generate backoff after a dam-unavailable skip (docs/artifact.md)
+GUIDE_LABEL="$(cfg guide_label)"   # empty/missing = the review guide follows the triage alone
 SLACK="$(cfg slack_notifications)"
 ESCALATION_OWNER="$(cfg escalation_owner)"
 MONITOR_OWNER="$(cfg monitor_owner)"
@@ -521,7 +517,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg art "${ARTIFACT_SKILL:+$ARTIFACT}" --arg artl "$ARTIFACT_LABEL" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg gl "$GUIDE_LABEL" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --arg mo "$MONITOR_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
@@ -544,7 +540,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
-   artifact_skill:(if $art=="" then "none" else $art end), artifact_label:(if $artl=="" then null else $artl end),
+   guide_label:(if $gl=="" then null else $gl end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), monitor_owner:(if $mo=="" then null else $mo end),
@@ -650,7 +646,7 @@ fi
 OPEN_NONDRAFT="$(printf '%s' "$OPEN_JSON" | jq '[.[] | select(.draft==false) | {
     number, title, author: .user.login, head_sha: .head.sha, head_ref: .head.ref,
     base_ref: .base.ref, created_at,
-    labels: [.labels[]?.name], assignees: [.assignees[]?.login],
+    labels: [.labels[]?.name],
     requested: [.requested_reviewers[]?.login], url: .html_url }]')"
 OPEN_COUNT="$(printf '%s' "$OPEN_NONDRAFT" | jq length)"
 open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. drafts (never pruned)
@@ -693,7 +689,7 @@ last_review_section() { # <pr-number> <head-sha>
   printf '%s\n' "$sec"
 }
 # the PR numbers that own a file in reviews/ — the history file, the carry
-# record, the review artifact (the files a prune deletes)
+# record, the stored review guide page (the files a prune deletes)
 pr_file_numbers() {
   local f
   for f in "$WORK"/reviews/pr-*.md "$WORK"/reviews/pr-*.carry.json "$WORK"/reviews/pr-artifacts/pr-*.html; do
@@ -840,24 +836,19 @@ hk_batch_since() { # <pending count>
   printf '%s' "$since"
 }
 
-emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts mentions skills
+emit() { # reviews label_cleanups selfheals prunes nudges alerts mentions skills
   local nothing=true a resets="${STATUS_RESETS_DUE:-[]}" cifail="${CI_FAILURES_DUE:-[]}" merges="${MERGES_DUE:-[]}" fixes="${FIXES_DUE:-[]}"
-  local hk_only=false hk_n=0 hk_new=0 hk_keys hk_since hk_age=0 art_rel
+  local hk_only=false hk_n=0 hk_new=0 hk_keys hk_since hk_age=0
   # Tier 1 — a person is waiting for it, so it starts a session on its own.
   # A label cleanup answers a person who put a trigger on a reviewed SHA.
-  for a in "$1" "$2" "$6" "$7" "$8" "$cifail" "$merges" "$fixes"; do
+  for a in "$1" "$2" "$5" "$6" "$7" "$cifail" "$merges" "$fixes"; do
     [ "$(printf '%s' "$a" | jq length)" -gt 0 ] && nothing=false
   done
-  # an artifact `retry_release` only releases the trigger of a published
-  # artifact (docs/artifact.md): tier 2, unlike a `generate`
-  art_rel="$(printf '%s' "$5" | jq '[.[] | select(.action == "retry_release")] | length')"
-  [ "$(printf '%s' "$5" | jq length)" -gt "$art_rel" ] && nothing=false
   # Tier 2 — bookkeeping nobody waits on, deferrable (HOUSEKEEPING_DEFER_H).
   # One key per item; below its timestamp the wait marker keeps the keys the
   # last run that took the batch carried.
-  hk_keys="$(printf '%s\n' "$3" "$4" "$resets" "$5" | jq -rs '
-    (.[0][] | "selfheal:\(.number)"), (.[1][] | "prune:\(.number)"), (.[2][] | "reset:\(.number)"),
-    (.[3][] | select(.action == "retry_release") | "release:\(.number)")')"
+  hk_keys="$(printf '%s\n' "$3" "$4" "$resets" | jq -rs '
+    (.[0][] | "selfheal:\(.number)"), (.[1][] | "prune:\(.number)"), (.[2][] | "reset:\(.number)")')"
   hk_n="$(printf '%s' "$hk_keys" | grep -c . || true)"
   hk_since="$(hk_batch_since "$hk_n")"
   if [ "$hk_n" -gt 0 ] && [ -n "$hk_since" ]; then
@@ -881,19 +872,19 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
-  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$6" | jq length) mentions=$(printf '%s' "$8" | jq length) artifacts=$(printf '%s' "$5" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$7" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
+  logev info heartbeat "mode=$MODE nothing_to_do=$nothing reviews=$(printf '%s' "$1" | jq length) nudges=$(printf '%s' "$5" | jq length) mentions=$(printf '%s' "$7" | jq length) cleanups=$(printf '%s' "$2" | jq length) alerts=$(printf '%s' "$6" | jq length) ci=$(printf '%s' "$cifail" | jq length) merges=$(printf '%s' "$merges" | jq length) fixes=$(printf '%s' "$fixes" | jq length) housekeeping=$([ "$hk_only" = "true" ] && echo 1 || echo 0)"
   # every list reaches jq on stdin, never in argv: a due review carries its
   # slice, and one argument is capped at MAX_ARG_STRLEN (128 KiB). The order of
   # the printf list is the order of the binding list.
-  printf '%s\n' "${1:-null}" "${2:-null}" "${3:-null}" "${4:-null}" "${5:-null}" "${6:-null}" "${7:-null}" "${8:-null}" "${9:-null}" \
+  printf '%s\n' "${1:-null}" "${2:-null}" "${3:-null}" "${4:-null}" "${5:-null}" "${6:-null}" "${7:-null}" "${8:-null}" \
       "$resets" "$cifail" "$merges" "$fixes" \
       "${PROFILE_JSON_OUT:-null}" "${CONFIG_JSON:-null}" "${MEMORY_JSON:-null}" \
       "$(logs_json)" \
     | jq -s --arg mode "$MODE" --argjson nothing "$nothing" --argjson hkonly "$hk_only" \
-    "$READ_SET_JQ"'. as [$reviews, $cleanups, $selfheals, $prunes, $artifacts, $nudges, $alerts, $mentions, $skills,
+    "$READ_SET_JQ"'. as [$reviews, $cleanups, $selfheals, $prunes, $nudges, $alerts, $mentions, $skills,
                          $resets, $cifail, $merges, $fixes, $profile, $config, $memory, $logs]
     | {mode:$mode, nothing_to_do:$nothing, reviews_due:$reviews, label_cleanups_due:$cleanups,
-      selfheals_due:$selfheals, prunes_due:$prunes, artifacts_due:$artifacts,
+      selfheals_due:$selfheals, prunes_due:$prunes,
       nudges_due:$nudges, urgent_alerts_due:$alerts, mentions_due:$mentions,
       status_resets_due:$resets, ci_failures_due:$cifail, merges_due:$merges, fixes_due:$fixes, skills:$skills, logs:$logs}
      + (if $hkonly then {housekeeping_only:true} else {} end)
@@ -904,7 +895,7 @@ emit() { # reviews label_cleanups selfheals prunes artifacts nudges alerts menti
 
 # =========================================================== REVIEW MODE ====
 if [ "$MODE" = "review" ]; then
-  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ARTIFACTS_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
+  REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
   CI_FAILURES_DUE='[]'
   STATUS_RESETS_DUE='[]'
 
@@ -998,6 +989,7 @@ if [ "$MODE" = "review" ]; then
             "$kind" false "$prior" true true "$full"
           log "PR #$n: $state with rapid review posted but full review owed — closed-PR review due"
         else
+          # an `artifact-dam` marker: a PR artifact published before 11.0.0
           did="$(grep -o '<!-- artifact-dam: [A-Za-z0-9_-]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null | head -1 | cut -d' ' -f3)"
           gid="$(grep -o '<!-- artifact-guide: [A-Za-z0-9_-]* ' "$WORK/reviews/pr-$n.md" 2>/dev/null | tail -1 | cut -d' ' -f3)"
           PRUNES_DUE="$(printf '%s' "$PRUNES_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg s "$state" --arg d "${did:-}" --arg g "${gid:-}" \
@@ -1011,7 +1003,7 @@ if [ "$MODE" = "review" ]; then
   [ "$PRUNES_DUE" != "[]" ] && record_nudge_facts
 
   # --- per-open-PR decision ---
-  while IFS=$'\t' read -r n sha ref title author labels assignees requested url; do
+  while IFS=$'\t' read -r n sha ref title author labels requested url; do
     has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_LABEL" && has_label=1
     has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && has_request=1
     # the delta label asks what a review request asks: the changes since the last review
@@ -1138,31 +1130,8 @@ if [ "$MODE" = "review" ]; then
         fi
       fi
     fi
-
-    # artifact gate (independent of the review decision): $BOT_LOGIN assigned,
-    # or the artifact label on the PR — a GitHub App cannot be assigned
-    art_trig='[]'
-    [ -n "$BOT_LOGIN" ] && printf '%s' "$assignees" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && art_trig='["assignee"]'
-    [ -n "$ARTIFACT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$ARTIFACT_LABEL" \
-      && art_trig="$(printf '%s' "$art_trig" | jq -c '. + ["label"]')"
-    if [ -n "$ARTIFACT_SKILL" ] && [ "$art_trig" != '[]' ]; then
-      action="generate"
-      if grep -q '<!-- artifact-dam:' "$WORK/reviews/pr-$n.md" 2>/dev/null; then action="retry_release"
-      else
-        # a session without the DAM tools recorded when it tried (docs/artifact.md
-        # step 0): the next attempt waits ARTIFACT_RETRY_H, not one heartbeat
-        skip_ts="$(sed -n 's/^<!-- artifact-skip: dam-unavailable \([0-9TZ:-]*\) -->$/\1/p' "$WORK/reviews/pr-$n.md" 2>/dev/null | tail -1)"
-        [ -n "$skip_ts" ] && [ $(( NOW_EPOCH - $(iso2epoch "$skip_ts") )) -lt $(( ARTIFACT_RETRY_H * 3600 )) ] && action=""
-      fi
-      if [ -n "$action" ]; then
-        ARTIFACTS_DUE="$(printf '%s' "$ARTIFACTS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" --arg a "$action" --argjson t "$art_trig" \
-          '{number:$n, action:$a, triggers:$t}')" '. + [$e]')"
-        log "PR #$n: artifact $action due"
-      fi
-    fi
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
-             ((.assignees|join(","))|if .=="" then "-" else . end),
              ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
 
   # urgent entries first (stable sort — non-urgent keep their order)
@@ -1194,9 +1163,8 @@ if [ "$MODE" = "review" ]; then
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson eta "$ETA" 'map(. + {eta_seconds: $eta})')"
   fi
 
-  # install skills only when the agent will actually review / generate
-  if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ] \
-     || [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
+  # install skills only when the agent will actually review
+  if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
     # git credential helper for every authenticated host, before the agent clones.
     # stdout goes to /dev/null like every other command here: this script's own
     # stdout IS the worklist, and a second document on it breaks the gate.
@@ -1204,11 +1172,9 @@ if [ "$MODE" = "review" ]; then
     # The profile check, the changed-file lists and the skill installs are
     # independent reads: they run side by side, and their answers are collected
     # below in the order the sequential version produced them.
-    if [ "$(printf '%s' "$REVIEWS_DUE" | jq length)" -gt 0 ]; then
-      [ "$PROJECT_PROFILE" = "enabled" ] \
-        && { LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check > "$PF_TMP/profile-status" 2>/dev/null & PROFILE_PID=$!; }
-      prefetch_files $(printf '%s' "$REVIEWS_DUE" | jq -r '.[].number') & FILES_PID=$!
-    fi
+    [ "$PROJECT_PROFILE" = "enabled" ] \
+      && { LOG_JOB=review bash "$SCRIPT_DIR/profile.sh" check > "$PF_TMP/profile-status" 2>/dev/null & PROFILE_PID=$!; }
+    prefetch_files $(printf '%s' "$REVIEWS_DUE" | jq -r '.[].number') & FILES_PID=$!
     # a skill listed twice keeps its first position and its last source — the
     # key order and the installed files of back-to-back installs
     SK_NAMES=(); SK_SRCS=()
@@ -1223,9 +1189,6 @@ if [ "$MODE" = "review" ]; then
     while IFS=$'\t' read -r skill src; do
       sk_add "$skill" "$src"
     done < <(printf '%s' "$SKILLS_TABLE" | jq -r '.[] | [.skill, .source] | @tsv')
-    if [ -n "$ARTIFACT_SKILL" ] && [ "$(printf '%s' "$ARTIFACTS_DUE" | jq '[.[] | select(.action=="generate")] | length')" -gt 0 ]; then
-      sk_add "$ARTIFACT_SKILL" "$ARTIFACT_SRC"
-    fi
     SK_PIDS=(); sk_i=0
     while [ "$sk_i" -lt "${#SK_NAMES[@]}" ]; do
       install_skill "${SK_NAMES[sk_i]}" "${SK_SRCS[sk_i]}" > "$PF_TMP/skill-$sk_i" & SK_PIDS+=($!)
@@ -1666,14 +1629,14 @@ if [ "$MODE" = "review" ]; then
   fi
 
   apply_holds mentions
-  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" "$ARTIFACTS_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
+  emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
 fi
 
 # ========================================================= SHEPHERD MODE ====
 if [ "$MODE" = "shepherd" ]; then
-  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
-  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ "$SLACK" = "enabled" ] || { log "slack notifications disabled — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
+  [ -f "$DEVELOPERS" ] || { log "work/DEVELOPERS.md missing — shepherd skipped"; emit '[]' '[]' '[]' '[]' '[]' '[]' '[]' '{}'; exit 0; }
 
   # Merge readiness: an approved, green, conflict-free PR is silent today, and
   # silence reads the same as "still waiting" (docs/shepherd.md → Ready to
@@ -1962,7 +1925,7 @@ if [ "$MODE" = "shepherd" ]; then
   } > "$SHEPHERD"
   printf '%s shepherd sweep: %s open PRs, %s nudges due\n' "$NOW_ISO" "$OPEN_COUNT" "$(printf '%s' "$NUDGES_DUE" | jq length)" >> "$WORK/SHEPHERD.log"
 
-  emit '[]' '[]' '[]' '[]' '[]' "$NUDGES_DUE" '[]' '[]' '{}'
+  emit '[]' '[]' '[]' '[]' "$NUDGES_DUE" '[]' '[]' '{}'
   exit 0
 fi
 
@@ -2568,7 +2531,7 @@ if [ "$MODE" = "audit" ]; then
     [ .[] | select(.ts >= $s and .event=="heartbeat") | .msg
       | [ scan("([a-z_]+)=([^ ]+)") | {key: .[0], value: .[1]} ] | from_entries
       | select(.nothing_to_do == "false") ] as $w
-    | ["reviews","mentions","artifacts","nudges","cleanups","alerts","ci","merges","fixes","monitor",
+    | ["reviews","mentions","nudges","cleanups","alerts","ci","merges","fixes","monitor",
        "housekeeping","survey","benchmark"] as $k
     | { runs: ($w | length),
         by_mode: ($w | group_by(.mode) | map({key: (.[0].mode // "unknown"), value: length}) | from_entries),
@@ -2580,42 +2543,6 @@ if [ "$MODE" = "audit" ]; then
         unlabelled: ([ $w[] | select(all($k[] as $x | (.[$x] // "0") | tonumber; . == 0)) ] | length) }' 2>/dev/null)"
   [ -n "$WAKEUPS_WEEK" ] || WAKEUPS_WEEK='null'
 
-  # Artifacts published this week, from the `artifact` outcome events the
-  # artifact step writes (docs/artifact.md step 6). Counted per PR, so a
-  # repeated log line cannot inflate the figure. The events survive a prune,
-  # which the on-disk HTML and the history markers do not — that is why the
-  # count reads the log and not `reviews/pr-artifacts/`.
-  # The outcome word is read at its documented position, after the skill name:
-  # "… published → DAM X, 0 redacted" is one publish, and counts in
-  # `generated` alone.
-  # `unreported` is the guard: preflight's own `artifact generate due` lines
-  # name every PR that entered the step, so a due PR with no outcome event
-  # means the step ran without logging its audit line, and the count below it
-  # would silently read as zero. Due lines from the last hour are excluded —
-  # that PR is handled by the next heartbeat, not missing.
-  ARTIFACTS_WEEK='null'
-  if [ -n "$ARTIFACT_SKILL" ]; then
-    ART_CUTOFF="$(epoch2iso "$(( NOW_EPOCH - 3600 ))")"
-    ARTIFACTS_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" --arg cut "$ART_CUTOFF" '
-      def prs(f): [ .[] | select(.ts >= $s) | select(f) | .msg
-                    | capture("^PR #(?<n>[0-9]+)") | .n ] | unique;
-      [ .[] | select(.ts >= $s) | select(.event=="artifact") | .msg
-        | capture("^PR #(?<n>[0-9]+): +[^ ]+ +(?<o>published|skipped)") ] as $out
-      | def outcome(w): [ $out[] | select(.o == w) | .n ] | unique;
-        { generated: (outcome("published") | length),
-          skipped:   (outcome("skipped")   | length),
-          unreported: ((prs(.event=="preflight" and (.msg|test("artifact generate due")) and .ts <= $cut)
-                        - (outcome("published") + outcome("skipped"))) | length) }' 2>/dev/null)"
-    [ -n "$ARTIFACTS_WEEK" ] || ARTIFACTS_WEEK='null'
-    art_unrep="$(printf '%s' "$ARTIFACTS_WEEK" | jq -r '.unreported // 0' 2>/dev/null)"
-    # a broken pass reports unmeasured, never an all-zero literal, which reads
-    # as "no artifact was due" and is exactly what this metric must not invent
-    if [ "$ARTIFACTS_WEEK" = "null" ]; then
-      check artifacts warn "artifact outcomes could not be counted this week — treat stats.artifacts as unmeasured, not zero"
-    elif [ "${art_unrep:-0}" -gt 0 ]; then
-      check artifacts warn "${art_unrep} artifact generation(s) with no outcome event — the step skipped its audit line, so stats.artifacts.generated is a floor (docs/artifact.md step 6)"
-    else check artifacts ok "artifact outcomes logged: $(printf '%s' "$ARTIFACTS_WEEK" | jq -r '"\(.generated) published, \(.skipped) skipped"')"; fi
-  fi
   # Review guides published this week, from the `guide` events that
   # `review-pr.sh guide` writes (docs/artifact.md → Review guide), per PR.
   GUIDES_WEEK="$(week_events | jq -rs --arg s "$SINCE_ISO" '
@@ -3264,16 +3191,16 @@ if [ "$MODE" = "audit" ]; then
   # too-long argument kills jq with no output — the audit then printed nothing.
   STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
       "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
-      "${REACTIONS:-null}" "${ARTIFACTS_WEEK:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
+      "${REACTIONS:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
       "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" \
     | jq -cs --arg since "$SINCE_ISO" '
     . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
-          $rx, $art, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd]
+          $rx, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd]
     | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
       heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
-      artifacts:$art, guides:$gd,
+      guides:$gd,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
       classifier:$guard.classifier, api_failures:$guard.api_failures}')"
