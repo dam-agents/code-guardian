@@ -22,20 +22,28 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 
 ## Asking
 
-- Ask with the harness's structured question tool where the session has one
-  (Claude Code: `AskUserQuestion` — at most 4 questions per call, 2–4 options
-  each, multi-select, a `preview` per option). Else ask in one chat message:
-  numbered questions, lettered options, the operator answers `1a,c 2b`.
-- Every option carries a label, one line on what gets checked, and an example
-  finding **from this repository** — a real path of the clone, phrased as the
-  review would print it. Put it in `preview`, else on the option's next line.
-- The recommended option comes first, labeled `(Recommended)`. Each question
-  keeps the free-text answer the tool offers.
-- At most 4 questions per round. Ask only what the signals support.
+- Each round is one native platform chat form: follow the platform's
+  `platform-chat-forms` skill — its capabilities gate, the operator's
+  preferences (pacing, recommendation), the check before sending and its
+  plain-text fallback. Without the skill, or in a conversation with no form
+  capabilities, ask the same round in plain text: numbered questions,
+  lettered options with the same line and example, the operator answers
+  `1a,c 2b`.
+- One `ChoicePicker` per question (`multipleSelection` for a multi-select),
+  with a free-text `TextField` for "Other" where the round allows own rules.
+  Directly under each picker, a caption `Text` with one bullet per option, in
+  option order: what it checks, and an example finding **from this
+  repository** — a real path of the clone, phrased as the review would print
+  it.
+- The recommended options follow the skill's recommendation rules; the
+  caption under the picker says why.
+- Ask only what the signals support. A round's `event` action returns every
+  answer of the round in its `context`.
 
 ## Round 1 — areas
 
-One multi-select question per group that has at least one offered area. An
+One multi-select question per group that has at least one offered area, all
+in one form. An
 area is offered only when its signal is in the repository. An area that a
 `## Review skills` row already covers (for example a `doc-drift` row covers
 `docs`) shows `(covered by <skill>)` and is never recommended. Recommend at most
@@ -59,8 +67,8 @@ area is offered only when its signal is in the repository. An area that a
 
 ## Round 2 — details
 
-One question per chosen area (two for `contract` and `tests`), in rounds of at
-most 4. Options derived from the tree list only what the clone has. Each
+One question per chosen area (two for `contract` and `tests`), at most 4
+questions per form. Options derived from the tree list only what the clone has. Each
 chosen option becomes one rule; the rule names the paths it applies to.
 
 - **`docs`** (multi) — a document mapped to the changed code states the old
@@ -122,7 +130,7 @@ chosen option becomes one rule; the rule names the paths it applies to.
 
 - **Shape** (single) — one combined skill *(Recommended)*: one run per reviewed
   PR, one review section · one skill per chosen group, at most 4: one run each
-  per reviewed PR, each with its own section. The preview states the runs per
+  per reviewed PR, each with its own section. The caption states the runs per
   PR of each option.
 - **Home** (single) — the reviewed repository, through a pull request
   *(Recommended)*: the team keeps it beside the code · a skills repository the
@@ -131,10 +139,11 @@ chosen option becomes one rule; the rule names the paths it applies to.
   `scripts/github-access.sh` reports `features.tailored_skill` `ok`
   ([github-access.md](github-access.md) → **Feature map**); a refused push or
   PR falls back to the files in chat.
-- Then show the draft: per area its rules with their sources, the name (default
-  `<repo-name>-checks`, per group `<repo-name>-<group>-checks`), the trigger
-  and the section. Write the skill only on the operator's yes; apply a
-  correction and show the draft again.
+- Then show the draft in one form: the name (default `<repo-name>-checks`, per
+  group `<repo-name>-<group>-checks`), the trigger and the section, each
+  generated `SKILL.md` in a `CodeBlock`, a `TextField` for corrections, and the
+  buttons to write it (primary) or to apply the corrections. Write the skill
+  only on the operator's yes; apply a correction and show the draft again.
 
 ## The generated skill
 
