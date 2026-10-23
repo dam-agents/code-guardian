@@ -554,7 +554,7 @@ if [ "$LIVE" = 1 ]; then
           "grant the account access to the repo, or correct the '- github_repo:' reference"
       fi
 
-      RRL="$(cfg rereview_label)"; RRL="${RRL:-code-guardian-review}"
+      RRL="$(cfg rereview_label)"; RRL="${RRL:-code-guardian:rereview}"
       URG="$(cfg urgent_label)"
       LABELS="$(gh api --hostname "$T_HOST" "repos/$T_REPO/labels?per_page=100" --paginate --jq '.[].name' 2>/dev/null)"
       has_label() { printf '%s\n' "$LABELS" | grep -Fxq "$1"; }

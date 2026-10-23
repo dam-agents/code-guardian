@@ -185,7 +185,7 @@ ref_terms "$(cfg work_repo)" work_repo
 term "$(cfg bot_login)" bot_login
 v="$(cfg bot_display_name)"; [ "$v" = "Code Guardian" ] || term "$v" bot_display_name
 v="$(cfg review_marker)"; [ "$v" = "code-guardian:review" ] || term "$v" review_marker
-v="$(cfg rereview_label)"; [ "$v" = "code-guardian-review" ] || term "$v" label
+v="$(cfg rereview_label)"; [ "$v" = "code-guardian:rereview" ] || term "$v" label
 for k in urgent_label guide_label auto_merge_label agent_fix_label; do term "$(cfg "$k")" label; done
 term "$(cfg escalation_owner)" escalation_owner
 term "$(cfg monitor_owner)" monitor_owner

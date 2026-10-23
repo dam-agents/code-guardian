@@ -370,9 +370,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    posted**: changing it later would make every past review invisible to
    dedup.
 6. **Labels and per-review delivery**, each asked in turn:
-   - **`rereview_label`** — default `code-guardian-review`. Ask:
+   - **`rereview_label`** — default `code-guardian:rereview`. Ask:
 
-     > First reviews are automatic, but re-reviews after new commits run **only** on request — mainly a label someone adds to the PR, which requests a complete review of the whole PR; I remove it once the review is posted. Which label name should I watch for? (Default: `code-guardian-review`.)
+     > First reviews are automatic, but re-reviews after new commits run **only** on request — mainly a label someone adds to the PR, which requests a complete review of the whole PR; I remove it once the review is posted. Which label name should I watch for? (Default: `code-guardian:rereview`.)
 
      Label missing on the target repo → create it:
      `gh label create "<label>" --repo "$REPO" --description "Request a code-guardian re-review" --color FBCA04`.
@@ -384,7 +384,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - **`rereview_delta_label`** — optional. Ask, and recommend it for a GitHub
      App `bot_login`, which has no review request:
 
-     > Do you want a second label that requests a review of only the changes since my last review? It is smaller and faster than the full re-review. (Default: no label. Suggested name: `code-guardian-delta`.)
+     > Do you want a second label that requests a review of only the changes since my last review? It is smaller and faster than the full re-review. (Default: no label. Suggested name: `code-guardian:delta`.)
 
      A yes → write the key, and validate or create the label like the
      re-review label (description `Request a code-guardian delta re-review`).
@@ -392,16 +392,16 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      due reviews jump the queue and arrive rapid-first — a rapid pass without a
      critical finding approves the PR — plus one Slack alert
      under `slack_notifications: enabled` (`docs/review-urgent.md` → **Urgent
-     PRs**). Default off (omit the key). A named label is validated or created
-     like the re-review label.
+     PRs**). Default off (omit the key); suggested name `code-guardian:urgent`.
+     A named label is validated or created like the re-review label.
    - **`auto_merge`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
      > I can merge a small PR myself when a person adds a label to it, my review of its current commit approved it as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no path you mark as sensitive (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that?
 
      **Yes from the admin** → `auto_merge: enabled`, then ask in turn, one
-     question each: the label → `auto_merge_label` (validated or created like
-     the re-review label); the most changed lines (default 100) →
+     question each: the label (suggested `code-guardian:automerge`) →
+     `auto_merge_label` (validated or created like the re-review label); the most changed lines (default 100) →
      `auto_merge_max_lines`; the merge method (default squash) →
      `auto_merge_method`; the sensitive paths (for example
      `migrations/*, src/auth/*`) → `human_review_paths: <globs>`. Write a
@@ -412,8 +412,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
      > When a person adds a label to a PR, I can fix the blocking findings of my own last review and push one commit to the PR branch — never to a fork, never past a commit someone else pushed meanwhile (`docs/agent-fixes.md`). I remove the label when I start, and a person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that?
 
-     **Yes from the admin** → `agent_fixes: enabled`, then ask for the label →
-     `agent_fix_label` (validated or created like the re-review label).
+     **Yes from the admin** → `agent_fixes: enabled`, then ask for the label
+     (suggested `code-guardian:fix`) → `agent_fix_label` (validated or created
+     like the re-review label).
      Anyone else, or no reply → omit the keys.
    - **`review_progress`** — whether a review's progress shows on the PR as a
      check run or a commit status, per `progress_channel`
@@ -581,16 +582,16 @@ Final shape:
 - bot_login: acme-review-bot
 - bot_display_name: Code Guardian
 - review_marker: code-guardian:review
-- rereview_label: code-guardian-review # PR label that requests a re-review
+- rereview_label: code-guardian:rereview # PR label that requests a re-review
 - rereview_trigger: label              # label (default) | review-request | both
-- rereview_delta_label: code-guardian-delta   # optional; requests a delta re-review
-- urgent_label: urgent                 # optional; omit = off — rapid-first reviews for labeled PRs
+- rereview_delta_label: code-guardian:delta   # optional; requests a delta re-review
+- urgent_label: code-guardian:urgent  # optional; omit = off — rapid-first reviews for labeled PRs
 - auto_merge: enabled                  # admin opt-in only; omit = disabled (docs/auto-merge.md)
-- auto_merge_label: automerge          # human-managed consent label; required with auto_merge
+- auto_merge_label: code-guardian:automerge # human-managed consent label; required with auto_merge
 - auto_merge_max_lines: 100            # largest additions + deletions that merges; omit = 100
 - auto_merge_method: squash            # squash (default) | merge | rebase
 - agent_fixes: enabled                 # admin opt-in only; omit = disabled (docs/agent-fixes.md)
-- agent_fix_label: cg-fix              # human-managed label that asks for one fix round
+- agent_fix_label: code-guardian:fix  # human-managed label that asks for one fix round
 - review_progress: enabled             # progress check on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled

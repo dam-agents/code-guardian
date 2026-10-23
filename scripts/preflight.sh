@@ -425,7 +425,7 @@ own_review() { # <pr-number> <review-id>
   fi
   OTHER_REVIEWS="$OTHER_REVIEWS$2|"; return 1
 }
-REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian:rereview}"
 REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"   # empty/missing = no delta label
 URGENT_LABEL="$(cfg urgent_label)"   # empty/missing = urgent handling off
 GUIDE_LABEL="$(cfg guide_label)"   # empty/missing = the review guide follows the triage alone
