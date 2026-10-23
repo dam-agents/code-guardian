@@ -187,7 +187,7 @@ assert_jq '.recorded.review_anomaly.factor == 4 and .config.review_anomaly_facto
 
 # --- a fresh claim lock (live concurrent run) leaves the judgment to it --------
 anomaly_case anomaly_fresh_lock
-mkdir "$WORK/.review-anomaly.lock"
+: > "$WORK/.review-anomaly.lock"
 cost_event 600 42 5000 '' repeats=50
 run_monitor
 assert_jq '.recorded.review_anomaly == null' 'a live concurrent claim suppresses this run'

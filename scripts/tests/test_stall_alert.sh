@@ -44,7 +44,7 @@ assert_jq '.recorded.stall_alert.count == 4 and .recorded.stall_alert.threshold 
 assert_jq '.recorded.stall_alert.prs | sort == [10,11,12]' 'distinct PRs listed, deduped'
 assert_jq '.recorded.stall_alert.per_day_7d | type == "array" and length >= 1 and (.[-1].stalls == 4)' 'per-day trend included'
 assert_file_contains "$WORK/.stall-alert-day" "$(date -u +%Y-%m-%d)" 'marker records the alert day'
-if [ ! -d "$WORK/.stall-alert.lock" ]; then
+if [ ! -e "$WORK/.stall-alert.lock" ]; then
   printf 'ok   %s: %s\n' "$CASE" 'dedup lock released'
 else
   printf 'FAIL %s: dedup lock left behind\n' "$CASE"; FAILED=1
@@ -137,7 +137,7 @@ assert_jq '.recorded.stall_alert.threshold == 4' 'garbage threshold falls back t
 
 # --- a stale claim lock (killed run) is removed, the alert still fires --------
 stall_case stall_stale_lock
-mkdir "$WORK/.stall-alert.lock"
+printf '1\n' > "$WORK/.stall-alert.lock"
 touch -t 202001010000 "$WORK/.stall-alert.lock"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
 run_monitor
@@ -145,7 +145,7 @@ assert_jq '.recorded.stall_alert.count == 4' 'a lock left by a killed run does n
 
 # --- a fresh claim lock (live concurrent run) still dedups ---------------------
 stall_case stall_fresh_lock
-mkdir "$WORK/.stall-alert.lock"
+printf '1\n' > "$WORK/.stall-alert.lock"
 for s in 3600 7200 10800 14400; do stall_event "$s" 10; done
 run_monitor
 assert_jq '.recorded.stall_alert == null' 'a live concurrent claim suppresses this run'

@@ -2,12 +2,14 @@
 # docker.sh. One suite per host at a time: concurrent suites on one machine
 # slow each other down until none finishes.
 #
-# The lock dir is CG_TEST_LOCK (default /tmp/cg-test-suite.lock — /tmp, not
-# $TMPDIR, because $TMPDIR can differ per session on one host). A second run
-# waits for it up to CG_TEST_LOCK_WAIT seconds (default 3600; 0 = fail at once)
-# and names the holder on stderr. A lock whose holder PID is dead, or that has
-# no owner line a minute after its mkdir, is reclaimed; a lock this run cannot
-# delete is waited for like a live one.
+# The lock file is CG_TEST_LOCK (default /tmp/cg-test-suite.lock — /tmp, not
+# $TMPDIR, because $TMPDIR can differ per session on one host), created with
+# bash's noclobber redirect (O_EXCL) and holding the owner line; a lock
+# directory with an `owner` file inside, an older checkout's, counts as held
+# too. A second run waits for it up to CG_TEST_LOCK_WAIT seconds (default 3600;
+# 0 = fail at once) and names the holder on stderr. A lock whose holder PID is
+# dead, or that has no owner line a minute after its creation, is reclaimed; a
+# lock this run cannot delete is waited for like a live one.
 #
 # The caller sets CHECKOUT, calls take_lock, and releases at exit:
 #   trap 'release_lock' EXIT; take_lock || exit 1
@@ -18,7 +20,7 @@ case "$LOCK_WAIT" in (''|*[!0-9]*) LOCK_WAIT=3600;; esac
 OWNED=0
 
 # the holder's "<pid> <checkout>" line, or empty while it is being written
-lock_owner() { cat "$LOCK/owner" 2>/dev/null; }
+lock_owner() { { cat "$LOCK" || cat "$LOCK/owner"; } 2>/dev/null; }
 
 # `ps -p` sees a holder of another user too; `kill -0` where ps is missing
 pid_alive() { # <pid>
@@ -30,11 +32,10 @@ pid_alive() { # <pid>
 take_lock() {
   local waited=0 owner pid told=0
   while :; do
-    if mkdir "$LOCK" 2>/dev/null; then
-      printf '%s %s\n' "$$" "$CHECKOUT" > "$LOCK/owner"
+    if ( set -C; printf '%s %s\n' "$$" "$CHECKOUT" > "$LOCK" ) 2>/dev/null; then
       OWNED=1; return 0
     fi
-    if [ ! -d "$LOCK" ]; then
+    if [ ! -e "$LOCK" ] && [ ! -w "$(dirname "$LOCK")" ]; then
       echo "warning: cannot create $LOCK; this run is not locked" >&2
       return 0
     fi
@@ -45,7 +46,7 @@ take_lock() {
       [ "$(lock_owner)" = "$owner" ] || continue
       rm -rf "$LOCK" 2>/dev/null && continue
     fi
-    # no owner line a minute after the mkdir: the holder died in between
+    # no owner line a minute after the creation: the holder died in between
     if [ -z "$pid" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
       rm -rf "$LOCK" 2>/dev/null && continue
     fi
