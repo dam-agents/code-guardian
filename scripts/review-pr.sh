@@ -165,7 +165,7 @@ BOT_LOGIN="$(cfg bot_login)"
 BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"
 CI_OWN_CHECK="$REVIEW_MARKER"   # lib/ci-rollup.sh skips the own progress signal
-REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian:rereview}"
 REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"   # a delta re-review, like a review request
 URGENT_LABEL="$(cfg urgent_label)"
 # preflight's trigger gate: an unknown value, or a review request without

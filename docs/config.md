@@ -71,7 +71,7 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
 ### Review triggers & delivery
 
 - **`rereview_label`** — the GitHub label a human adds to request a **complete**
-  re-review of the whole PR (default `code-guardian-review`). The other triggers
+  re-review of the whole PR (default `code-guardian:rereview`). The other triggers
   get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
   output**). First reviews never need it; the agent removes it once the request
   is served. New commits without a trigger flip the tracking row to
@@ -324,7 +324,7 @@ REPO_HOST="$(refhost "$TARGET")"; REPO="$(refslug "$TARGET")"; export GH_HOST="$
 BOT_LOGIN="$(cfg bot_login)"; BOT_NAME="$(cfg bot_display_name)"; BOT_NAME="${BOT_NAME:-Code Guardian}"
 REVIEW_MARKER="$(cfg review_marker)"
 DEF_REF="$(cfg definition_repo)"; DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
-REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian-review}"
+REREVIEW_LABEL="$(cfg rereview_label)"; REREVIEW_LABEL="${REREVIEW_LABEL:-code-guardian:rereview}"
 REREVIEW_DELTA_LABEL="$(cfg rereview_delta_label)"; GUIDE_LABEL="$(cfg guide_label)"
 ```
 

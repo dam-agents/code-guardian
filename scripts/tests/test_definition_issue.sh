@@ -209,6 +209,18 @@ body "${CLEAN[@]}" 'Seen on globex/docs.'
 run_issue check '[audit] Skipped tick counted as an error'
 assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "target_repo" and .match == "globex/docs")' 'the slug globex/docs still blocks'
 
+# a suggested `code-guardian:<name>` label is definition text; a part the
+# definition never uses still names the instance
+new_case suggested_label_as_value
+URGENT=code-guardian:urgent instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'The `code-guardian:urgent` label was ignored.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "clean"' 'the suggested label code-guardian:urgent passes'
+URGENT=code-guardian:hotfix-now instance '- definition_issues: enabled'
+body "${CLEAN[@]}" 'The code-guardian:hotfix-now label was ignored.'
+run_issue check '[audit] Skipped tick counted as an error'
+assert_jq '.outcome == "blocked" and any(.hits[]; .rule == "label" and .match == "code-guardian:hotfix-now")' 'code-guardian:hotfix-now still blocks as a label'
+
 # the vocabulary is the tracked definition: an untracked file adds no word
 new_case vocabulary_tracked_only
 instance '- definition_issues: enabled'
