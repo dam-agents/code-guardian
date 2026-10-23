@@ -40,8 +40,9 @@
 # an instance whose definition repo shares the target's owner can still link
 # to it; a reference that extends it (acme/guardian-web) stays. A one-word
 # instance value that is also a word of the definition (a target repo named
-# `docs`, a label named `urgent`) is left to the foreign-term scan; its slug,
-# host and owner still block. A value of the documentation placeholders
+# `docs`, a label named `urgent`), or `:`-joined words of the definition (a
+# label named `code-guardian:urgent`), is left to the foreign-term scan; its
+# slug, host and owner still block. A value of the documentation placeholders
 # (docs/self-modification.md §1) never matches a shape and is part of the
 # definition's text.
 #
@@ -218,13 +219,20 @@ if [ -f "$DEVELOPERS" ]; then
   done
 fi
 
-# a one-word value that is also a word of the definition (`docs`, `urgent`)
-# is left to the foreign-term scan; slugs, hosts and multi-word values stay
+# a one-word value that is also a word of the definition (`docs`, `urgent`),
+# or `:`-joined words of it (`code-guardian:urgent`), is left to the
+# foreign-term scan; slugs, hosts and multi-word values stay
+def_words() { # <value> — true when every `:`-separated part is in the vocabulary
+  local p
+  for p in $(printf '%s' "$1" | tr 'A-Z:' 'a-z '); do
+    grep -qxF -- "$p" "$VOCAB" || return 1
+  done
+}
 while IFS="$(printf '\t')" read -r rule val; do
   [ -n "$val" ] || continue
   case "$val" in
-    (*[!A-Za-z0-9_-]*) ;;
-    (*) grep -qxF -- "$(printf '%s' "$val" | tr 'A-Z' 'a-z')" "$VOCAB" && continue;;
+    (*[!A-Za-z0-9_:-]*|:*|*:|*::*) ;;
+    (*) def_words "$val" && continue;;
   esac
   grep -qiF -- "$val" "$SCAN" && hit "$rule" "$val"
 done < "$TERMS"

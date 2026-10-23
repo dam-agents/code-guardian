@@ -14,11 +14,12 @@ they are released history and stay as written.
 ## 12.0.0 — 2026-10-23
 
 **Upgrade:** The default `rereview_label` is now `code-guardian:rereview`.
-When `work/CONFIG.md` has no `rereview_label` line, write
-`- rereview_label: code-guardian-review` so the instance keeps the label it
-watches. Idempotent — a present line is left as it is. Every other label key
-keeps its configured value: tell the operator in one chat line that the
-suggested label names now follow `code-guardian:<name>`
+When `work/CONFIG.md` has no `rereview_label` value — no line, or a line with
+an empty value — write `- rereview_label: code-guardian-review` in its place
+so the instance keeps the label it watches. Idempotent — a line with a value
+is left as it is. Every other label key keeps its configured value: tell the
+operator in one chat line that the suggested label names now follow
+`code-guardian:<name>`
 (`code-guardian:rereview`, `code-guardian:delta`, `code-guardian:urgent`,
 `code-guardian:automerge`, `code-guardian:fix`, `code-guardian:guide`), and
 rename a label only on their word.
