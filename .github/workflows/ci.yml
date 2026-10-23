@@ -81,9 +81,10 @@ jobs:
           done
           exit $rc
 
-      # Cross-file section references ("<file>.md → **Label**"). They are prose,
-      # not anchors, so a renamed section breaks them silently — this is the
-      # grep that docs/self-modification.md §11 asks a human to remember.
+      # Cross-file section references ("<file>.md → **Label**", the file also
+      # as a link or in backticks). They are prose, not anchors, so a renamed
+      # section breaks them silently — this is the grep that
+      # docs/self-modification.md §11 asks a human to remember.
       - name: Cross-file section references resolve
         run: |
           set -u
@@ -95,13 +96,14 @@ jobs:
             base="$(dirname "$f")"
             # join lines first: a reference may wrap mid-sentence
             tr '\n' ' ' < "$f" | tr -s ' ' \
-              | grep -oE '\[?[A-Za-z0-9_./-]+\.md\)? → \*\*[^*]+\*\*' > "$tmp/refs" || true
+              | grep -oE '\[?[A-Za-z0-9_./-]+\.md[`)]? → \*\*[^*]+\*\*' > "$tmp/refs" || true
             while read -r ref; do
               [ -n "$ref" ] || continue
-              t="${ref%% → *}"; t="${t#[}"; t="${t%)}"
+              t="${ref%% → *}"; t="${t#[}"; t="${t%[)\`]}"
               label="${ref#* → \*\*}"; label="${label%\*\*}"
               path=
-              for cand in "$base/$t" "$t" "docs/$t"; do
+              # an absolute pod path (`/home/agent/docs/…`) names the checkout
+              for cand in "$base/$t" "$t" "docs/$t" "${t#/home/agent/}"; do
                 [ -f "$cand" ] && { path="$cand"; break; }
               done
               [ -n "$path" ] || { echo "$f: unresolvable file in '$ref'"; rc=1; continue; }
