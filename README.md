@@ -22,7 +22,7 @@ audit runs its script as its platform **`precheck`**
 ([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
 whether the model is woken, so idle ticks cost nothing, and a started run
 receives the worklist the gate already computed. Bookkeeping that nobody waits
-on — prunes, self-heals, status resets, artifact trigger release retries —
+on — prunes, self-heals, status resets —
 rides along with the next run that has real work
 ([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
 scheduled session carries a title that says what it does — `Review PR #1457`,
@@ -223,7 +223,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `work_repo` | Step 0 answer (optional) | Repo backing `work/` up (`[host/]owner/repo`); omitted = local-only persistence (`docs/persistence.md`). |
 | `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
 | `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
-| `bot_login` | auto-detected via GraphQL `viewer` (else `gh api user`), confirmed | GitHub account people mention, assign and request — artifact assignee gate, "independent reviewer" classification. A GitHub App token can post beside a user `bot_login`; an App `bot_login` uses the labels (`docs/github-access.md` → **Triggers by identity**). |
+| `bot_login` | auto-detected via GraphQL `viewer` (else `gh api user`), confirmed | GitHub account people mention and request — "independent reviewer" classification. A GitHub App token can post beside a user `bot_login`; an App `bot_login` uses the labels (`docs/github-access.md` → **Triggers by identity**). |
 | `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
 | `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
 | `rereview_label` | asked (default `code-guardian-review`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
@@ -236,8 +236,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `mention_replies` | asked (default `enabled`) | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
 | `mention_authors` | asked (default `collaborators`) | Whose GitHub mentions are handled: repository owners, members and collaborators, or `anyone` (`docs/config.md`). |
 | `project_profile` | asked (default `enabled`) | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
-| `artifact_skill` | asked (default `none`; suggested `pr-artifact@dam-agents/dam`) | Visual-artifact skill with its own source (`<skill>@<[host/]owner/repo>`), published publicly to the DAM Artifact Library (best-effort behind the owner's experimental flag); `none` disables the feature. |
-| `artifact_label` | asked with the artifact skill (default off) | PR label that requests the visual artifact, beside the assignment of `bot_login` — the artifact trigger of a GitHub App `bot_login`. The agent removes it once the artifact is published. |
+| `guide_label` | asked with the review guide row (default off) | PR label that asks for the review guide whatever the review's triage; it stays on the PR (`docs/artifact.md` → **Review guide**). |
 | `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. |
 | `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |

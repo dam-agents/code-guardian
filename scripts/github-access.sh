@@ -39,7 +39,7 @@ export GH_HOST="$REPO_HOST"
 WORK_REF="${A_WORK:-$(cfg work_repo)}"
 DEF_REF="${A_DEF:-$(cfg definition_repo)}"; [ -z "$DEF_REF" ] && DEF_REF="$(origin_ref "$HOME_DIR")"
 BOT_LOGIN="$(cfg bot_login)"
-DELTA_LABEL="$(cfg rereview_delta_label)"; ARTIFACT_LABEL="$(cfg artifact_label)"
+DELTA_LABEL="$(cfg rereview_delta_label)"
 
 [ -n "$REPO" ] || { printf '{"error":"target repository unresolved — set github_repo"}\n'; exit 0; }
 
@@ -119,7 +119,7 @@ fi
 
 # --- what follows for the features (docs/github-access.md → Feature map) ----
 jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" --arg b "$BOT_LOGIN" \
-      --arg dl "$DELTA_LABEL" --arg al "$ARTIFACT_LABEL" --arg repo "$REPO" --argjson p "$PROBES" '
+      --arg dl "$DELTA_LABEL" --arg repo "$REPO" --argjson p "$PROBES" '
   def st($i): ([ $p[] | select(.id == $i) | .state ][0] // "unknown");
   def need($ids): if all($ids[]; st(.) == "granted") then "ok"
                   elif any($ids[]; st(.) == "denied") then "missing" else "unknown" end;
@@ -144,8 +144,5 @@ jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" -
     triggers: (($b != "" and ($b | endswith("[bot]") | not)) as $user
                | {label: true, delta_label: ($dl != ""), review_request: $user,
                   mention: ($b != ""),
-                  mention_as: (if $b == "" then [] elif $user then ["@" + $b] else ["@" + ($b | rtrimstr("[bot]")), "@" + $b] end),
-                  artifact_assignee: $user, artifact_label: ($al != "")}
-               | . + {missing: ([ if $user then empty else
-                                    (if $dl == "" then "rereview_delta_label" else empty end),
-                                    (if $al == "" then "artifact_label" else empty end) end ])}) }'
+                  mention_as: (if $b == "" then [] elif $user then ["@" + $b] else ["@" + ($b | rtrimstr("[bot]")), "@" + $b] end)}
+               | . + {missing: ([ if $user or $dl != "" then empty else "rereview_delta_label" end ])}) }'

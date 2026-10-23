@@ -5,7 +5,7 @@
 # on-demand review's missing skill.
 #
 #   skill-install.sh                 # every skill of the `## Review skills` table
-#   skill-install.sh <skill>…        # the named ones; the artifact_skill counts
+#   skill-install.sh <skill>…        # the named ones
 #
 # Prints one JSON object, skill → status: `installed (N files)` | `cached` |
 # `harness` | `install-failed` | `not-configured`. Exits 0 — a failed skill is
@@ -23,12 +23,9 @@ HOME_DIR="${HOME:-/home/agent}"
 WORK="${WORK_DIR:-$HOME_DIR/work}"
 CONFIG="$WORK/CONFIG.md"
 
-# skill<TAB>source per configured skill; the artifact skill (`<skill>@<source>`) last
+# skill<TAB>source per configured skill
 configured() {
-  local a
   skills_table_json | jq -r '.[] | [.skill, .source] | @tsv'
-  a="$(cfg artifact_skill)"
-  case "$a" in (''|none) ;; (*@*) printf '%s\t%s\n' "${a%%@*}" "${a##*@}";; esac
 }
 
 CONF="$(configured)"

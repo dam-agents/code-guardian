@@ -127,7 +127,7 @@ missing or failing `rename_session` leaves the title as it is.
 
 Fires when any of `reviews_due` / `label_cleanups_due` / `urgent_alerts_due` /
 `mentions_due` / `ci_failures_due` / `merges_due` / `fixes_due` is non-empty,
-`artifacts_due` holds a `generate`, or a housekeeping batch came due
+or a housekeeping batch came due
 ([worklist.md](worklist.md) → **The schedule gate**). Output channels: the
 chat UI **and** a GitHub PR review — every reviewed PR produces both. Trust
 the worklist for *what to do*; keep your own safety re-checks — HEAD
@@ -161,10 +161,9 @@ freshness, trigger still present, pre-post dedup, the mention ledger — for
    `carry`, [review-urgent.md](review-urgent.md) when `post` returns a
    `closed_*` outcome, [review-on-demand.md](review-on-demand.md) when a
    mention asks for a review. **With `housekeeping_only`** the set holds
-   [review-bookkeeping.md](review-bookkeeping.md) for the bookkeeping arrays
-   and [artifact.md](artifact.md) for `artifacts_due`: go straight to step 4,
-   step 7, then steps 11 and 12. No `read_set` (the manual fallback) → read the
-   **Where** file of every due key in [worklist.md](worklist.md) → **The
+   [review-bookkeeping.md](review-bookkeeping.md) for the bookkeeping arrays:
+   go straight to step 4, then steps 10 and 11. No `read_set` (the manual
+   fallback) → read the **Where** file of every due key in [worklist.md](worklist.md) → **The
    pre-flight contract**. Configuration comes from the worklist's `config`
    object, the repository map from each entry's `profile_slice` and
    `work/PROFILE.md` ([profile.md](profile.md)).
@@ -183,19 +182,18 @@ freshness, trigger still present, pre-post dedup, the mention ledger — for
    sequence of [review.md](review.md): `scripts/review-pr.sh` performs the
    mechanical steps, you review the diff, run the skills and compose the
    review.
-7. For each `artifacts_due` entry, follow [artifact.md](artifact.md).
-8. For each `ci_failures_due` entry, follow [ci-triage.md](ci-triage.md): one
+7. For each `ci_failures_due` entry, follow [ci-triage.md](ci-triage.md): one
    comment per PR and SHA, the marker written immediately after the post.
-9. For each `merges_due` entry, follow [auto-merge.md](auto-merge.md) inside
+8. For each `merges_due` entry, follow [auto-merge.md](auto-merge.md) inside
    the PR's hold: `review-pr.sh merge`, one comment on a refusal.
-10. For each `fixes_due` entry, follow [agent-fixes.md](agent-fixes.md) inside
-    the PR's hold: `fix-start`, the fix, `fix-push`, one comment.
-11. Walk the self-check of every file this run read that has one — the
+9. For each `fixes_due` entry, follow [agent-fixes.md](agent-fixes.md) inside
+   the PR's hold: `fix-start`, the fix, `fix-push`, one comment.
+10. Walk the self-check of every file this run read that has one — the
     review-run self-check at the end of [review.md](review.md), and the
     **Self-check** section of each other file in `read_set` — then confirm
     every error logged and no unexpanded repo placeholder in any output
     (**Hard invariants**).
-12. **Back up `work/`** as the very last action —
+11. **Back up `work/`** as the very last action —
     `bash "$HOME/scripts/work-backup.sh" persist`, a no-op without `work_repo`
     ([persistence.md](persistence.md)). This also persists preflight's
     bookkeeping.
@@ -329,7 +327,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   from `work/` ever reaches definition commits, PRs, issues, artifacts, or any
   other external surface. A published artifact passes `scripts/lib/redact.sh`
   first, so no credential shape reaches a public surface
-  ([artifact.md](artifact.md) → **Procedure**).
+  ([artifact.md](artifact.md) → **Review guide**).
 - Target-repo content stays on the target repo's host: reviews, comments,
   issues and artifacts are created on `$REPO_HOST` or the DAM Artifact Library
   only.
@@ -414,7 +412,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [config.md](config.md) | No preflight `config` object (manual fallback), a config change in the direct session, or a new key |
 | [mentions.md](mentions.md) | `mentions_due` non-empty — thread fetch, classification, dedup ledger, reply mechanics |
 | [watches.md](watches.md) | `read_set` names it (`reviews_due` or `mentions_due` with watch rules in `work/CONFIG.md`) — table format, evaluation, dedup, sending |
-| [artifact.md](artifact.md) | `artifacts_due` non-empty — DAM publishing, the trigger release and its `retry_release`; a `## Review guide` block in the compose brief — the review guide's publish steps |
+| [artifact.md](artifact.md) | A `## Review guide` block in the compose brief — the review guide's gate, its `guide_label` and its publish steps |
 | [ci-triage.md](ci-triage.md) | `ci_failures_due` non-empty, or a review ends with a failing check — rollup read, evidence, the one comment, dedup |
 | [agent-fixes.md](agent-fixes.md) | `fixes_due` non-empty — the fix round, its limits, the push, the comment |
 | [auto-merge.md](auto-merge.md) | `merges_due` non-empty — the gates, the merge call, the refusal comment |

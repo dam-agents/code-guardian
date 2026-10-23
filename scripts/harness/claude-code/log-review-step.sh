@@ -110,15 +110,13 @@ case "$tool" in
     pr="$(printf '%s' "$txt" | grep -oE '(PR #|pulls/|review-pr-)[0-9]{1,7}' \
           | grep -oE '[0-9]{1,7}' | head -1)"
     [ -n "$pr" ] || exit 0
-    # Skill names come from work/CONFIG.md — the `## Review skills` table plus
-    # the artifact skill — never a hard-coded list: each instance configures its
+    # Skill names come from work/CONFIG.md — the `## Review skills` table —
+    # never a hard-coded list: each instance configures its
     # own set, and a name missing here silently loses that skill's step.
     CONFIG="$LOG_WORK/CONFIG.md"
     . "$(cd "$(dirname "$0")/../.." && pwd)/lib/common.sh" 2>/dev/null || exit 0
     skills="$(cfg_table 'Review skills' | cut -d'|' -f2 | tr -d '[:blank:]' | grep -vE '^(skill|[-:]*)$')"
-    art="$(cfg artifact_skill)"; art="${art%%@*}"
-    case "$art" in (none) art="";; esac
-    for s in $skills $art; do        # unquoted: empty values expand to no word
+    for s in $skills; do             # unquoted: an empty table expands to no word
       case "$txt" in (*"$s"*) emit "$pr" "skill:$s done" "skill-$s"; exit 0;; esac
     done
     ;;

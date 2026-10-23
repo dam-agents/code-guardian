@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # redact.sh — mask credential shapes in a file before it is published to a
-# public surface (docs/artifact.md → **Procedure**, step 1).
+# public surface (docs/artifact.md → **Review guide**).
 #
 #   . scripts/lib/redact.sh
-#   N="$(redact_file work/reviews/pr-artifacts/pr-42.html)"
+#   N="$(redact_file work/reviews/pr-artifacts/pr-42.guide.html)"
 #
 # The file is rewritten in place, one `[redacted]` per masked value, and the
 # count goes to stdout. A file with nothing to mask keeps its bytes and prints
@@ -31,7 +31,7 @@
 # a whole file and reports a count, so the two stay separate.
 #
 # Fails closed: an unreadable file or a failed pass prints 0 and returns 1, and
-# the caller publishes nothing (docs/artifact.md → **Procedure**). Needs sed
+# the caller publishes nothing (docs/artifact.md → **Review guide**). Needs sed
 # and grep.
 
 REDACT_MASK='[redacted]'

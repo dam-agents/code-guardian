@@ -35,9 +35,8 @@ takes the operator.
   configuration never crashes a run: degrade per key, log once, continue with
   what still works.
 - Safe defaults: anything that contacts people or publishes content defaults to
-  **off** (`slack_notifications: disabled`, `artifact_skill: none`,
-  `definition_issues: disabled`); the weekly trend artifact
-  (`audit_trend: dam`) is the one exception. Slack stays strictly opt-in and
+  **off** (`slack_notifications: disabled`, `definition_issues: disabled`);
+  the weekly trend artifact (`audit_trend: dam`) is the one exception. Slack stays strictly opt-in and
   never runs without the recorded `enabled`.
 - `review_marker` semantics are immutable once used. No change may alter how
   the dedup marker is written or matched in a way that orphans past reviews.

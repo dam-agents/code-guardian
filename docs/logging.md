@@ -39,7 +39,7 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `artifact`, `guide`, `diagram`, `stall_rate`, `review_cost`,
+  `guide`, `diagram`, `stall_rate`, `review_cost`,
   `review_anomaly`, `classifier_block`, `api_failure`,
   `adapter_failure`,
   `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,
@@ -63,11 +63,6 @@ hand-rolled line matches exactly:
   `msg` are strings; `run` is this run's id (**run** above).
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
-- **`artifact` `msg`** — `PR #<n>: <skill> <outcome> …`, where the audit counts
-  `published` and `skipped` in that third position; the release retry
-  (`retry_release`) carries neither ([artifact.md](artifact.md) step 6). A
-  missing event makes `stats.artifacts.generated` a floor, which the
-  `artifacts` check reports.
 - **`guide` `msg`** — the same shape for the review guide,
   `PR #<n>: <skill> published → DAM <id>, <R> redacted` or
   `PR #<n>: <skill> skipped (<reason>)`, written by `review-pr.sh guide`;

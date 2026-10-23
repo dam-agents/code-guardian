@@ -101,7 +101,8 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract: t
    findings, `comments.json` (`[{path, line, side, body[, start_line]}]`, each
    `body` the full text). A guide skill that built or kept a page makes
    `compose-brief` print a `## Review guide` block: under a `needs-human`
-   triage, publish or link the guide as it says and write its one-line section;
+   triage or the `guide_label`, publish or link the guide as it says and write
+   its one-line section;
    on any other outcome drop the section ([artifact.md](artifact.md) → **Review
    guide**). Then `review-pr.sh step <n> composed`, and output the review to the
    chat UI.
@@ -469,7 +470,7 @@ Before you declare the run done:
   `findings-json`, with its sweep command in `review-meta.checks` and every
   dropped 🟢 in `review-meta.deferred` · `meta.json` carrying a `triage` call
   ([review-mechanics.md](review-mechanics.md)) · a built or kept review guide
-  linked only under a `needs-human` triage, and recorded with `review-pr.sh
+  linked only under a `needs-human` triage or the `guide_label`, and recorded with `review-pr.sh
   guide` before the post ([artifact.md](artifact.md) → **Review guide**) · every delta `ambiguous` pair
   settled before the post · every phase guard run and every `head_moved`
   honoured — restarted once, else left to the heartbeat · a compose-time

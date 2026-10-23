@@ -20,9 +20,8 @@ echo.
   monitor's claims (alert claims, the once-per-UTC-day stall-record claim, the
   anomaly marker) are already spent, so a second pass answers with less
   than the first.
-- **Bookkeeping alone waits.** `selfheals_due`, `prunes_due`,
-  `status_resets_due` and an `artifacts_due` entry with
-  `action: retry_release` never open the gate by themselves: they ride along
+- **Bookkeeping alone waits.** `selfheals_due`, `prunes_due` and
+  `status_resets_due` never open the gate by themselves: they ride along
   with the next run that has work of its own, and start a run of their own only
   after 6 hours of waiting or 10 pending items that no run took yet. That run's
   worklist carries `housekeeping_only: true` and reads the short set
@@ -66,13 +65,13 @@ decision:
   `rereview_trigger`, and `rereview_delta_label`), urgent-label flagging and
   ordering;
 - remote marker dedup (anchored + unanchored), verified prune candidates, the
-  artifact gate (assignee or `artifact_label`), the ledger-deduped mention scan;
+  ledger-deduped mention scan;
 - shepherd classifications with the full nudge ladder and merge-conflict
   flagging.
 
-It also installs the configured skills (SHA-cached) when a review or artifact
-is due, and, with a review due, refreshes the project profile and attaches each
-entry's inventory ([profile.md](profile.md)). Its local writes are bookkeeping
+With a review due, it also installs the configured skills (SHA-cached),
+refreshes the project profile and attaches each entry's inventory
+([profile.md](profile.md)). Its local writes are bookkeeping
 alone, listed in the script's header — [preflight.sh](../scripts/preflight.sh),
 and [monitor.sh](../scripts/monitor.sh) for the monitor's pass.
 
@@ -97,12 +96,11 @@ changes", then end the run the same way.
 | `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md); plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
 | `label_cleanups_due` | `{number, label, request, delta_label}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review-bookkeeping.md → **Label bookkeeping** |
 | `selfheals_due` | a remote marker with no local row → write the REVIEWS.md row | review-bookkeeping.md → **Label bookkeeping** |
-| `prunes_due` | PRs verified CLOSED/MERGED → delete their state, artifact included | review-bookkeeping.md → **Pruning** |
+| `prunes_due` | PRs verified CLOSED/MERGED → delete their state, review guide included | review-bookkeeping.md → **Pruning** |
 | `ci_failures_due` | `{number, sha, url, checks[]}` — a reviewed PR whose checks failed on the reviewed SHA → one triage comment | [ci-triage.md](ci-triage.md) + [review.md](review.md) |
 | `merges_due` | `{number, sha, method}` — a labeled PR that passed every auto-merge gate (only under `auto_merge: enabled`) → `review-pr.sh merge` | [auto-merge.md](auto-merge.md) |
 | `fixes_due` | `{number, sha, findings}` — a labeled PR whose current review left blocking findings with a fix (only under `agent_fixes: enabled`) → one fix round | [agent-fixes.md](agent-fixes.md) + [review.md](review.md) |
 | `status_resets_due` | a progress status left `pending` by an abandoned review (only under `review_progress: enabled`) → close it out, delete the row | review-bookkeeping.md → **Progress signal on GitHub** |
-| `artifacts_due` | `{number, action, triggers}` — `action: generate` \| `retry_release`; `triggers` ⊆ `assignee`, `label` | [artifact.md](artifact.md) |
 | `urgent_alerts_due` | urgent PRs not yet announced (only under `slack_notifications: enabled`) → mention-free Slack channel alert, **before any PR work** | review-urgent.md → **Urgent PRs** |
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
@@ -132,7 +130,7 @@ hook releases the holds a finished run still owns
 
 **Dispatch** — under `review_dispatch: enabled` (the default), the run that
 receives a worklist with several PRs keeps its first PR, in the order of
-[runbook.md](runbook.md) → **Review run** steps 5 to 10, and starts every other
+[runbook.md](runbook.md) → **Review run** steps 5 to 9, and starts every other
 PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
 worklist per PR next to the gate's file — that PR's entries from every per-PR
 key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
@@ -150,7 +148,7 @@ session never starts is the next heartbeat's
 dispatched session's `sessionTitle` and the `title` of `rest`
 ([runbook.md](runbook.md) → **Session titles**): `Review PR #<n>`
 (`Re-review PR #<n>`, `Review urgent PR #<n>`), `Answer mention on #<n>`,
-`Publish artifact for PR #<n>`, `Triage CI on PR #<n>`, `Merge PR #<n>`,
+`Triage CI on PR #<n>`, `Merge PR #<n>`,
 `Fix findings on PR #<n>`; `Review PRs #<n>, #<m>` for several kept PRs;
 with none, `Report review alerts` when `urgent_alerts_due` is due, else
 `Tidy review state`.

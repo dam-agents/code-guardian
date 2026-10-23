@@ -23,8 +23,7 @@
 #     repos (reference, host, owner, name), hosts other than github.com, bot
 #     login and display name, marker and labels other than their defaults,
 #     escalation owner, human_review_paths, watch-rule ids and Slack ids, the
-#     skill-source and artifact-skill repositories other than the definition
-#     repo's own;
+#     skill-source repositories other than the definition repo's own;
 #   - every roster login, Slack id and name of work/DEVELOPERS.md;
 #   - shapes: any URL outside the definition repo, issue and PR numbers, commit
 #     SHAs, dates and times of day, e-mail addresses, @-mentions, Slack ids,
@@ -187,13 +186,13 @@ term "$(cfg bot_login)" bot_login
 v="$(cfg bot_display_name)"; [ "$v" = "Code Guardian" ] || term "$v" bot_display_name
 v="$(cfg review_marker)"; [ "$v" = "code-guardian:review" ] || term "$v" review_marker
 v="$(cfg rereview_label)"; [ "$v" = "code-guardian-review" ] || term "$v" label
-for k in urgent_label auto_merge_label agent_fix_label; do term "$(cfg "$k")" label; done
+for k in urgent_label guide_label auto_merge_label agent_fix_label; do term "$(cfg "$k")" label; done
 term "$(cfg escalation_owner)" escalation_owner
 term "$(cfg monitor_owner)" monitor_owner
 cfg human_review_paths | tr -d '`' | tr ',' '\n' | tr -d '*' | while IFS= read -r p; do
   term "$p" human_review_paths
 done
-# a skill-source or artifact-skill repository other than the definition repo's
+# a skill-source repository other than the definition repo's
 # own: its reference and its owner (the repo name alone can be a common word)
 foreign_repo_terms() { # <[host/]owner/repo> <rule>
   local slug; slug="$(refslug "$1")"
@@ -203,7 +202,6 @@ foreign_repo_terms() { # <[host/]owner/repo> <rule>
 }
 skills_table_json 2>/dev/null | jq -r '.[] | select(.source != "harness") | .source' 2>/dev/null \
   | while IFS= read -r src; do foreign_repo_terms "$src" skill_source; done
-v="$(cfg artifact_skill)"; case "$v" in (*@?*) foreign_repo_terms "${v#*@}" artifact_skill;; esac
 cfg_table 'Watch rules' | while IFS= read -r row; do
   id="$(row_field "$row" 2)"
   case "$id" in (''|id|-*|:*) continue;; esac

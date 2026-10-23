@@ -159,15 +159,15 @@ mkdir -p "$WORK/audit"
 worklist 4 8 2 2 > "$WORK/audit/last-worklist.json"
 jq '.stats.wakeups = {runs:20, by_mode:{review:18, shepherd:2},
       by_work:{reviews:{runs:4, items:4}, mentions:{runs:6, items:7}, artifacts:{runs:3, items:3}},
-      unlabelled:0}' "$WORK/audit/last-worklist.json" > "$WORK/audit/wl.json" \
+      unlabelled:0} | .stats.guides = {published:5, skipped:1}' "$WORK/audit/last-worklist.json" > "$WORK/audit/wl.json" \
   && mv "$WORK/audit/wl.json" "$WORK/audit/last-worklist.json"
 run_trend append "$WORK/audit"
 run_trend index "$WORK/audit"
 printf '%s' "$OUT" | jq -e '.[0].wakeups == 20 and .[0].wake_reviews == 4
-  and .[0].wake_mentions == 6 and .[0].wake_artifacts == 3' >/dev/null 2>&1 \
-  && printf 'ok   %s: the derived row carries the wake-ups by work\n' "$CASE" \
+  and .[0].wake_mentions == 6 and (.[0] | has("wake_artifacts") | not) and .[0].guides == 5' >/dev/null 2>&1 \
+  && printf 'ok   %s: the derived row carries the wake-ups by work and the guides\n' "$CASE" \
   || { printf 'FAIL %s: wake-ups not derived: %s\n' "$CASE" "$OUT"; FAILED=1; }
-assert_file_contains "$WORK/audit/TRENDS.md" '| 20 (4/6/3) |' 'the week row carries the wake-ups'
+assert_file_contains "$WORK/audit/TRENDS.md" '| 20 (4/6) |' 'the week row carries the wake-ups'
 OUT="$(TREND_CONFIG="$WORK/CONFIG.md" HOME="$FAKE_HOME" bash "$TREND" report "$WORK/audit")"
 assert_out_contains 'Wake-ups by work' 'the report carries the wake-ups chart'
 assert_out_contains '<th class="n" title="Count of runs that found work' 'the report table explains the wake-ups column'

@@ -640,11 +640,11 @@ new_case audit_wakeups
 base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 mkdir -p "$WORK/logs"
-ev g1 heartbeat "mode=review nothing_to_do=true reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
-ev g2 heartbeat "mode=review nothing_to_do=false reviews=2 nudges=0 mentions=1 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
-ev g3 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=1 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
-ev g4 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=1"
-ev g5 heartbeat "mode=shepherd nothing_to_do=false reviews=0 nudges=3 mentions=0 artifacts=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g1 heartbeat "mode=review nothing_to_do=true reviews=0 nudges=0 mentions=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g2 heartbeat "mode=review nothing_to_do=false reviews=2 nudges=0 mentions=1 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
+ev g3 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 cleanups=0 alerts=0 ci=1 stall=0 housekeeping=0"
+ev g4 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=1"
+ev g5 heartbeat "mode=shepherd nothing_to_do=false reviews=0 nudges=3 mentions=0 cleanups=0 alerts=0 ci=0 stall=0 housekeeping=0"
 # written before the kind keys existed: counted, but names no kind
 ev g6 heartbeat "mode=review nothing_to_do=false reviews=0 nudges=0 mentions=0"
 # outside the 7-day window
@@ -653,8 +653,8 @@ run_preflight audit
 assert_jq '.stats.wakeups.runs == 5' 'woken runs in the window only, idle ticks excluded'
 assert_jq '.stats.wakeups.by_mode == {review: 4, shepherd: 1}' 'wake-ups split by mode'
 assert_jq '.stats.wakeups.by_work.reviews == {runs: 1, items: 2}' 'review runs and items'
-assert_jq '.stats.wakeups.by_work.mentions.runs == 1 and .stats.wakeups.by_work.artifacts.runs == 1' \
-  'a mention reply and an artifact each count as a run'
+assert_jq '.stats.wakeups.by_work.mentions.runs == 1 and .stats.wakeups.by_work.ci.runs == 1' \
+  'a mention reply and a CI triage each count as a run'
 assert_jq '.stats.wakeups.by_work.nudges.items == 3 and .stats.wakeups.by_work.housekeeping.runs == 1' \
   'nudges and bookkeeping-only runs counted'
 assert_jq '.stats.wakeups.unlabelled == 1' 'a legacy event is counted but unlabelled'
@@ -980,12 +980,10 @@ run_preflight audit
 assert_jq '.stats.ste.reviews == 0 and .stats.ste.avg_sentence_words == null' 'an old row carries no style measurement'
 assert_jq '[.checks[] | select(.id == "review_style")] | .[0].detail | test("no posted review")' 'the check says unmeasured'
 
-# --- artifacts published (stats.artifacts) ------------------------------------
-# counted from the `artifact` outcome events of docs/artifact.md step 6, per PR,
-# with preflight's own `generate due` lines as the guard against a generation
-# that never logged one
-new_case audit_artifacts
-base_config '- artifact_skill: pr-artifact@acme/skills'
+# --- review guides (stats.guides) ---------------------------------------------
+# the `guide` events of docs/artifact.md → Review guide, per PR, in the window
+new_case audit_guides
+base_config
 pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
 mkdir -p "$WORK/logs"
 eva() { # <event> <level> <msg> <secs-ago>
@@ -993,30 +991,6 @@ eva() { # <event> <level> <msg> <secs-ago>
     '{ts:$t, run:"r1", job:"review", level:$l, event:$e, msg:$m}' \
     >> "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
 }
-eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172800
-eva artifact  info "PR #10: pr-artifact published → DAM aaa"          172700  # same PR twice
-eva artifact  info "PR #11: pr-artifact published → DAM bbb"          86400
-eva artifact  warn "PR #12: pr-artifact skipped (skill-errored)"      86400
-eva preflight info "PR #12: artifact generate due"                    86500
-eva artifact  info "PR #13: pr-artifact published → DAM ccc"          1814400 # outside the window
-eva preflight info "PR #14: artifact generate due"                    43200   # never reported an outcome
-eva preflight info "PR #15: artifact generate due"                    600     # still due, next heartbeat takes it
-eva artifact  info "PR #16: artifact trigger release retried (ok)"    86400   # neither a publish nor a skip
-eva preflight info "PR #17: artifact generate due"                    86500
-eva artifact  info "PR #17: pr-artifact published → DAM ddd, 2 redacted" 86400 # outcome word after the skill name
-run_preflight audit
-assert_jq '.stats.artifacts.generated == 3' 'published events counted once per PR, in-window only'
-assert_jq '.stats.artifacts.skipped == 1' 'only the skipped outcome counts as a skip'
-assert_jq '.stats.artifacts.unreported == 1' 'a due PR with no outcome event is the only unreported one'
-assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "warn"' 'an unlogged generation warns'
-assert_jq '.stats.guides == {published: 0, skipped: 0}' 'a trigger artifact is no review guide'
-
-# review guides (stats.guides): the `guide` events of docs/artifact.md → Review
-# guide, per PR, in the window
-new_case audit_guides
-base_config
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-mkdir -p "$WORK/logs"
 eva guide info "PR #20: review-guide published → DAM g1, 0 redacted" 172800
 eva guide info "PR #20: review-guide published → DAM g1, 0 redacted" 86400   # a re-review updates the same PR
 eva guide info "PR #21: review-guide published → DAM g2, 1 redacted" 86400
@@ -1024,20 +998,7 @@ eva guide warn "PR #22: review-guide skipped (dam-unavailable)"      86400
 eva guide info "PR #23: review-guide published → DAM g3, 0 redacted" 1814400 # outside the window
 run_preflight audit
 assert_jq '.stats.guides == {published: 2, skipped: 1}' 'guides counted once per PR, in-window only'
-
-new_case audit_artifacts_zero
-base_config '- artifact_skill: pr-artifact@acme/skills'
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-run_preflight audit
-assert_jq '.stats.artifacts == {generated: 0, skipped: 0, unreported: 0}' 'nothing due is a measured zero'
-assert_jq '[.checks[] | select(.id == "artifacts")] | .[0].status == "ok"' 'a quiet week passes the check'
-
-new_case audit_artifacts_off
-base_config
-pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
-run_preflight audit
-assert_jq '.stats.artifacts == null' 'the feature off is unmeasured, never a zero'
-assert_jq '[.checks[] | select(.id == "artifacts")] | length == 0' 'no check for a feature that is off'
+assert_jq '.stats | has("artifacts") | not' 'the stats carry no PR artifact count'
 
 # --- disk: every volume a run writes to (docs/audit.md task 4) -----------------
 # work/ and the review clones share one filesystem here, so they report once;

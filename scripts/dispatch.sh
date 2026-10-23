@@ -51,10 +51,9 @@ die() { printf 'dispatch: %s\n' "$1" >&2; exit 2; }
 # The entries that belong to one PR travel with it — its urgent alert, so the
 # session that reviews the PR announces it first, and its bookkeeping rows, so
 # one session writes that PR's REVIEWS.md row. Run order is docs/runbook.md → Review run
-# steps 5 to 10: urgent reviews, mentions, reviews, artifacts, CI failures,
-# merges, fixes. An artifact `retry_release` is bookkeeping: it makes no unit.
+# steps 5 to 9: urgent reviews, mentions, reviews, CI failures, merges, fixes.
 UNIT_JQ='
-  def per_pr: ["reviews_due","mentions_due","ci_failures_due","merges_due","fixes_due","artifacts_due","urgent_alerts_due",
+  def per_pr: ["reviews_due","mentions_due","ci_failures_due","merges_due","fixes_due","urgent_alerts_due",
                "selfheals_due","label_cleanups_due","prunes_due","status_resets_due"];
   def only_prs($ns): reduce per_pr[] as $k (.;
     .[$k] = [(.[$k] // [])[] | select(.number as $x | any($ns[]; . == $x))]);
@@ -63,7 +62,7 @@ UNIT_JQ='
   def units:
     ([(.reviews_due // [])[] | select(.urgent == true) | .number]
      + [(.mentions_due // [])[].number] + [(.reviews_due // [])[].number]
-     + [(.artifacts_due // [])[] | select(.action != "retry_release") | .number] + [(.ci_failures_due // [])[].number]
+     + [(.ci_failures_due // [])[].number]
      + [(.merges_due // [])[].number] + [(.fixes_due // [])[].number])
     | map(select(type == "number"))
     | reduce .[] as $n ([]; if any(.[]; . == $n) then . else . + [$n] end);
@@ -80,7 +79,6 @@ TITLE_JQ='
          elif $r.urgent == true then "Review urgent PR #\($n)"
          else "Review PR #\($n)" end)
       elif has_pr("mentions_due"; $n) then "Answer mention on #\($n)"
-      elif any((.artifacts_due // [])[]; .number == $n and .action != "retry_release") then "Publish artifact for PR #\($n)"
       elif has_pr("ci_failures_due"; $n) then "Triage CI on PR #\($n)"
       elif has_pr("merges_due"; $n) then "Merge PR #\($n)"
       elif has_pr("fixes_due"; $n) then "Fix findings on PR #\($n)"

@@ -11,6 +11,24 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 11.0.0 — 2026-10-23
+
+**Upgrade:**
+1. In `work/CONFIG.md`, delete the `artifact_skill` and `artifact_label`
+   lines when present; `verify-onboarding.sh` reports both as unknown keys.
+   When `artifact_label` was set, offer the operator `guide_label` with the
+   same label: a PR with it gets the review guide whatever the triage
+   ([docs/config.md](docs/config.md) → `guide_label`). Tell the operator in one
+   chat line that assigning `bot_login` to a PR no longer does anything.
+2. Re-register each review heartbeat (`code-guardian-review-active`,
+   `code-guardian-review-quiet`, `code-guardian-review-offdays`) whose task
+   text still says "handle artifacts_due", per ONBOARDING Step 6a (create the
+   corrected schedule, then `delete_schedule` the old id; keep its name, cron,
+   `precheck` and `sessionTitle`). Idempotent — skip a schedule that already
+   carries the Step 6a text. A schedule left as it is stays correct.
+3. `<!-- artifact-dam: … -->` markers stay in the history files: the prune
+   deletes that DAM artifact when its PR closes.
+
 ## 10.8.1 — 2026-10-23
 
 **Upgrade:** Nothing — docs are re-read per run.

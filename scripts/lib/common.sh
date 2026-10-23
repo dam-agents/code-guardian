@@ -333,7 +333,7 @@ READ_SET_JQ='def read_set:
   (if ([.selfheals_due, .label_cleanups_due, .prunes_due, .status_resets_due] | map(length) | add) > 0
    then ["docs/review-bookkeeping.md"] else [] end) as $bookkeeping
   | if .housekeeping_only then
-    $bookkeeping + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
+    $bookkeeping
   else
     (if [.reviews_due, .mentions_due, .ci_failures_due, .fixes_due] | any(length > 0) then ["docs/review.md"] else [] end)
     + (if (.reviews_due | length) > 0 then ["docs/finding-form.md", "docs/skills.md"] else [] end)
@@ -346,7 +346,6 @@ READ_SET_JQ='def read_set:
        then ["docs/watches.md"] else [] end)
     + (if (.mentions_due | length) > 0 then ["docs/mentions.md"] else [] end)
     + (if (.ci_failures_due | length) > 0 then ["docs/ci-triage.md"] else [] end)
-    + (if (.artifacts_due | length) > 0 then ["docs/artifact.md"] else [] end)
     + (if (.merges_due | length) > 0 then ["docs/auto-merge.md"] else [] end)
     + (if (.fixes_due | length) > 0 then ["docs/agent-fixes.md"] else [] end)
     + ["work/MEMORY.md", "work/LESSONS.md"]
