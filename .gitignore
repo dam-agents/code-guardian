@@ -25,6 +25,7 @@
 !/.agents/skills/review-remediation
 !/.agents/skills/review-guide
 !/.agents/skills/code-guardian-checks
+!/.agents/skills/agent-engineering
 !/CLAUDE.md
 !/AGENTS.md
 !/README.md

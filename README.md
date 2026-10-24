@@ -414,7 +414,13 @@ only via this backup or the configured output surfaces (`docs/runbook.md` →
   `author-decisions` block, which the reviewer reads.
   [`code-guardian-checks`](.agents/skills/code-guardian-checks/SKILL.md) is
   the tailored review skill ([docs/tailored-skill.md](docs/tailored-skill.md))
-  for this repository itself. Every other skill here is a protocol skill; a
+  for this repository itself.
+  [`agent-engineering`](.agents/skills/agent-engineering/SKILL.md) reviews
+  the definition of any autonomous agent — its Markdown instructions,
+  scripts, manifest, `VERSION` and `CHANGELOG.md` — with a deterministic
+  check script and a catalogue of defect classes; add it as a review skill
+  for a repository of agent instructions, this one included. Every other
+  skill here is a protocol skill; a
   domain skill (language, framework, OWASP or WCAG checklist) lives in its
   team's skills repository or in the reviewed repository
   ([`docs/skills.md`](docs/skills.md) → **Where a skill lives**).

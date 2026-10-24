@@ -11,6 +11,17 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 12.2.0 — 2026-10-24
+
+**Upgrade:** Off by default: the bundled `agent-engineering` review skill
+checks the definition of an autonomous agent — its instructions, scripts,
+manifest and releases. When the reviewed repository holds agent instructions
+(a `CLAUDE.md` or `AGENTS.md`) and `work/CONFIG.md` → `## Review skills` has
+no `agent-engineering` row, offer the operator the row
+`| agent-engineering | <definition_repo> | .md,.sh,.yaml,.yml | Agent Engineering |`
+in one chat line, and add it only on their word. Idempotent — an existing row
+is left as it is.
+
 ## 12.1.0 — 2026-10-23
 
 **Upgrade:** Nothing — docs are re-read per run.
