@@ -110,6 +110,10 @@ and it sets only the model of the benchmark judge call (`benchmark_judge`,
   `schedule_once` ([runbook.md](runbook.md) → **Review run** step 1,
   [worklist.md](worklist.md) → **Dispatch**). `disabled` keeps every PR in the
   run that found it, one after another.
+- **`session_awareness`** — `enabled` | `disabled`. **Missing = `enabled`.**
+  The scripts read the platform's list of this agent's sessions and signal a
+  review session whose PR got a new HEAD ([sessions.md](sessions.md)).
+  `disabled`, or a platform without the tools, keeps the event-based rules.
 - **`mention_replies`** — `enabled` | `disabled`. **Missing = `enabled`.**
   GitHub comments addressed to the bot are answered, their review feedback
   recorded, and review requests in them served

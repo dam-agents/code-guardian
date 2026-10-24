@@ -156,6 +156,8 @@ if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
 . "$SCRIPT_DIR/lib/common.sh"
+# a foreign hold is judged by the platform's session list first (docs/sessions.md)
+. "$SCRIPT_DIR/lib/sessions.sh" 2>/dev/null && { [ "$(cfg session_awareness)" = disabled ] || SESS_ON=1; }
 . "$SCRIPT_DIR/lib/harness.sh"
 
 TARGET_REF="$(cfg github_repo)"

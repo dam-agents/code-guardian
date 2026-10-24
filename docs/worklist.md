@@ -124,7 +124,8 @@ one PR — plus the PR of an on-demand review, whose hold `prepare` takes and
 [review-on-demand.md](review-on-demand.md) gives back. Preflight drops the
 `reviews_due` and `mentions_due` entries of a PR another live run holds, and
 logs why; the first run after the release serves them. A hold whose run is quiet by the **Live holder** windows
-([review-mechanics.md](review-mechanics.md)) is dead and removed; the `Stop`
+([review-mechanics.md](review-mechanics.md)), or whose session has ended
+([sessions.md](sessions.md) → **Uses**), is dead and removed; the `Stop`
 hook releases the holds a finished run still owns
 ([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
 
@@ -142,7 +143,8 @@ the unit's path and the session's run id alone. `dispatch.sh rest` then writes
 the run's own worklist without the PRs the platform accepted and prints its
 session title; a PR it refused stays in the run. The new session takes its PR's hold first; a PR whose
 session never starts is the next heartbeat's
-([scripts/dispatch.sh](../scripts/dispatch.sh)).
+([scripts/dispatch.sh](../scripts/dispatch.sh)). `plan` leaves out a PR that
+a running session already serves ([sessions.md](sessions.md) → **Uses**).
 
 `dispatch.sh` derives the titles from PR numbers and work alone, for a
 dispatched session's `sessionTitle` and the `title` of `rest`

@@ -7,7 +7,7 @@
 #   $HOLDER_JQ                 jq definitions: tkey, stepof, pr_steps, locked_step,
 #                              ended, alive_last, live_holders
 #   hold_live <n>              0 + why = held by a live run; 1 = no hold;
-#                              2 + its timestamp = a dead hold, removed here
+#                              2 + its timestamp and why = a dead hold, removed here
 #   hold_acquire <n> <run>     0 = this run holds it; 1 + why = another live run does
 #   hold_release <n> <run>     0 = removed the hold <run> owns; 1 = it owns none
 #   hold_release_others <n> <run>
@@ -76,20 +76,27 @@ hold_run_alive() { # <run-id> <since-ts> -> "last event <ts>" when alive
 }
 
 hold_live() { # <n>
-  local f="$HOLD_DIR/$1" held ts run alive
+  local f="$HOLD_DIR/$1" held ts run alive st="" why="its run is quiet"
   held="$(cat "$f" 2>/dev/null)" || return 1
   ts="$(printf '%s\n' "$held" | sed -n 1p)"; run="$(printf '%s\n' "$held" | sed -n 2p)"
   # a hold younger than a minute may not have its owner's first event yet
   if [ $(( NOW_EPOCH - $(iso2epoch "$ts") )) -lt 60 ]; then
     echo "held by run $(run_short "$run"), taken at $ts"; return 0
   fi
-  if [ -n "$run" ] && alive="$(hold_run_alive "$run" "$ts")" && [ -n "$alive" ]; then
-    echo "held by run $(run_short "$run"), $alive"; return 0
-  fi
+  # the run id is the harness session id: the platform's session list answers
+  # first when it knows the session (lib/sessions.sh), the events otherwise
+  declare -F session_state >/dev/null 2>&1 && st="$(session_state "$run")"
+  case "$st" in
+    (running) echo "held by run $(run_short "$run"), its session is running"; return 0;;
+    (idle) why="its session has ended";;
+    (*) if [ -n "$run" ] && alive="$(hold_run_alive "$run" "$ts")" && [ -n "$alive" ]; then
+          echo "held by run $(run_short "$run"), $alive"; return 0
+        fi;;
+  esac
   # remove only the hold judged dead: a run that took it over meanwhile wrote a
   # new one, which is judged again
   [ "$(cat "$f" 2>/dev/null)" = "$held" ] || { hold_live "$1"; return; }
-  rm -f "$f"; echo "$ts"; return 2
+  rm -f "$f"; echo "$ts — $why"; return 2
 }
 
 hold_acquire() { # <n> <run>

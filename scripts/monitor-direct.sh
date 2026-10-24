@@ -81,6 +81,10 @@ render() { # <alerts.json>
         "**Work backup failing:** \(.failures | int) failed pushes since \(.first | ts). Do this: examine the access to the work repository."
       elif .kind == "dispatch_refused" then
         "**Review dispatch refused** since \(.first | ts): the platform refused \(.count | int) dispatches in \(.runs | int) runs (\(.prs | int) PRs). Each run keeps its PRs and reviews them one after another. Do this: read the reason in the events log (event dispatch_refused) and correct the platform setting."
+      elif .kind == "session_overrun" then
+        "**Review session runs too long:** session \(.session | if test("^[0-9a-f]{8}$") then . else error("session") end) runs since \(.started | ts). Its PR stays held while it runs. Do this: open the session and stop it when it does not progress."
+      elif .kind == "dispatch_lost" then
+        "**Dispatched review did not start:** PR \(.prs | map("#\(. | int)") | join(", ")) went to a session of its own at \(.ts | ts), and no session took it. The next heartbeat reviews it again. Do this: examine the one-time tasks of the platform."
       elif .kind == "judge_unavailable" then
         "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI and no pi CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in, and the host has no pi CLI" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
       else error("kind") end;
