@@ -15,12 +15,13 @@ they are released history and stay as written.
 
 **Upgrade:** Off by default: the bundled `agent-engineering` review skill
 checks the definition of an autonomous agent — its instructions, scripts,
-manifest and releases. When the reviewed repository holds agent instructions
-(a `CLAUDE.md` or `AGENTS.md`) and `work/CONFIG.md` → `## Review skills` has
-no `agent-engineering` row, offer the operator the row
+manifest and releases. The `## Review skills` row
 `| agent-engineering | <definition_repo> | .md,.sh,.yaml,.yml | Agent Engineering |`
-in one chat line, and add it only on their word. Idempotent — an existing row
-is left as it is.
+in `work/CONFIG.md` enables it; offer it with the other optional features
+([docs/persistence.md](docs/persistence.md) → **Definition version &
+upgrade**), and only when the reviewed repository holds agent instructions
+(a `CLAUDE.md` or `AGENTS.md`) and the table has no `agent-engineering` row.
+A yes writes the row.
 
 ## 12.1.0 — 2026-10-23
 
