@@ -11,9 +11,11 @@
 #           the version bump. Without --base: every finding of the tree.
 # Output: one finding per line, tab-separated:
 #           <FAIL|WARN|NOTE>  <check-id>  <path[:line]>  <message>
-#         then one summary line. Exit 0 = no FAIL, 1 = a FAIL, 2 = usage error.
-# Read-only. Needs bash 3.2+, git, jq, grep, sed and coreutils — no awk, no
-# python, BSD or GNU flavors.
+#         then one summary line. Exit 0 = no FAIL, 1 = a FAIL, 2 = usage error
+#         or a missing command.
+# Read-only. Needs bash 3.2+, git, jq, grep, sed, xargs, find, cmp, coreutils
+# (sort uniq cut tr head tail wc mktemp basename dirname) and, with --base,
+# tar — no awk, no python; BSD or GNU flavors. A missing one exits 2.
 
 set -u
 export LC_ALL=C
@@ -24,15 +26,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE="${2:?--base needs a ref}"; shift 2 ;;
     --list-checks) sed -n 's/^[[:space:]]*# check: //p' "$0"; exit 0 ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) REPO="$1"; shift ;;
   esac
 done
 
-for c in git jq grep sed; do
+for c in git jq grep sed xargs find sort uniq cut tr head tail wc cmp mktemp basename dirname; do
   command -v "$c" >/dev/null 2>&1 || { echo "missing command: $c" >&2; exit 2; }
 done
+[ -z "$BASE" ] || command -v tar >/dev/null 2>&1 || { echo "missing command: tar" >&2; exit 2; }
 cd "$REPO" 2>/dev/null || { echo "no such directory: $REPO" >&2; exit 2; }
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repository: $REPO" >&2; exit 2; }
 cd "$ROOT" || exit 2

@@ -42,6 +42,17 @@ assert_rc 0 "a clean definition passes"
 has '0 fail, 0 warn' "a clean definition has no finding"
 lacks 'awk is not on this runtime' "the script never calls awk"
 
+new_def missing_tool
+# every tool the script runs on PATH except xargs, which a runtime without
+# findutils lacks
+mkdir -p "$SANDBOX/bin"
+for c in git jq grep sed find sort uniq cut tr head tail wc cmp mktemp basename dirname tar; do
+  ln -s "$(command -v "$c")" "$SANDBOX/bin/$c"
+done
+OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" "$DEF" 2>&1)"; RC=$?
+assert_rc 2 "a missing tool stops the run before any check"
+has 'missing command: xargs' "the missing tool is named"
+
 new_def broken_references
 printf '\nSee [gone](docs/gone.md), [here](docs/runbook.md#no-such) and docs/runbook.md → **Audit run**.\nRun `scripts/missing.sh`.\n' >> "$DEF/CLAUDE.md"
 check

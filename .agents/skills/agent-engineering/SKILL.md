@@ -50,7 +50,8 @@ bash scripts/check-definition.sh --base <base-ref> <checkout>   # a change, norm
 bash scripts/check-definition.sh <checkout>                     # the whole tree
 ```
 
-It needs `bash`, `git`, `jq`, `grep`, `sed` and coreutils, takes under a
+It needs `bash`, `git`, `jq`, `grep`, `sed`, `xargs`, `find`, `cmp`,
+coreutils and, with `--base`, `tar` (a missing one exits 2), takes under a
 minute, and prints `<FAIL|WARN|NOTE>  <check-id>  <path[:line]>  <message>`
 lines and one summary line. `--list-checks` prints what each check holds.
 With `--base` it reports only what the change adds: the diff starts at the
