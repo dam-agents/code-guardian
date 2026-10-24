@@ -42,16 +42,52 @@ assert_rc 0 "a clean definition passes"
 has '0 fail, 0 warn' "a clean definition has no finding"
 lacks 'awk is not on this runtime' "the script never calls awk"
 
-new_def missing_tool
-# every tool the script runs on PATH except xargs, which a runtime without
-# findutils lacks
-mkdir -p "$SANDBOX/bin"
-for c in git jq grep sed find sort uniq cut tr head tail wc cmp mktemp basename dirname tar; do
-  ln -s "$(command -v "$c")" "$SANDBOX/bin/$c"
-done
+# The tools the script guards, read from its own guard loop.
+GUARDED="$(sed -n 's/^for c in \(.*\); do$/\1/p' "$CHECK" | head -1)"
+
+guarded_bin() { # [tool to leave out] — a PATH holding only the guarded tools and tar
+  rm -rf "$SANDBOX/bin"; mkdir -p "$SANDBOX/bin"
+  local c
+  for c in $GUARDED tar; do
+    [ "$c" = "${1:-}" ] || ln -s "$(command -v "$c")" "$SANDBOX/bin/$c"
+  done
+}
+
+new_def only_guarded_tools
+# a change that reaches every check: a new doc, a changed script and its test,
+# a kit, a skill, a version bump with its changelog entry
+mkdir -p "$DEF/scripts/tests" "$DEF/.agents/skills/demo"
+printf '#!/usr/bin/env bash\nbash ../gate.sh check\n' > "$DEF/scripts/tests/test_gate.sh"
+printf 'id: agent\nschedules:\n  - name: agent-review\n    task: Run the review run of docs/runbook.md.\n' > "$DEF/kit.yaml"
+g add -A >/dev/null && g commit -qm kit
+g checkout -qb change
+printf '\necho more\n' >> "$DEF/scripts/gate.sh"
+printf '# New\n\nRun `scripts/gate.sh audit`. Never skip `review_marker`.\n' > "$DEF/docs/new.md"
+printf -- '---\nname: demo\ndescription: d\n---\n' > "$DEF/.agents/skills/demo/SKILL.md"
+printf '1.1.0\n' > "$DEF/VERSION"
+printf '# Changelog\n\n## 1.1.0 — 2026-01-02\n\n**Upgrade:** Nothing.\n\n## 1.0.0 — 2026-01-01\n\n**Upgrade:** Nothing.\n' > "$DEF/CHANGELOG.md"
+g add -A >/dev/null && g commit -qm change
+guarded_bin
+OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" --base main "$DEF" 2>&1)"; RC=$?
+lacks 'not found' "a change review runs no tool outside the guard"
+has 'check-definition: [0-9]* fail' "a change review reaches its summary"
 OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" "$DEF" 2>&1)"; RC=$?
-assert_rc 2 "a missing tool stops the run before any check"
-has 'missing command: xargs' "the missing tool is named"
+lacks 'not found' "a tree run runs no tool outside the guard"
+has 'check-definition: [0-9]* fail' "a tree run reaches its summary"
+
+new_def missing_tool
+for c in $GUARDED; do
+  guarded_bin "$c"
+  OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" "$DEF" 2>&1)"; RC=$?
+  assert_rc 2 "without $c the run stops before any check"
+  has "missing command: $c" "the missing $c is named"
+done
+guarded_bin tar
+OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" "$DEF" 2>&1)"; RC=$?
+assert_rc 0 "a tree run needs no tar"
+OUT="$(PATH="$SANDBOX/bin" "$BASH" "$CHECK" --base main "$DEF" 2>&1)"; RC=$?
+assert_rc 2 "a change review without tar stops"
+has 'missing command: tar' "the missing tar is named"
 
 new_def broken_references
 printf '\nSee [gone](docs/gone.md), [here](docs/runbook.md#no-such) and docs/runbook.md → **Audit run**.\nRun `scripts/missing.sh`.\n' >> "$DEF/CLAUDE.md"
