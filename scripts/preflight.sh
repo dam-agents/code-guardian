@@ -394,12 +394,18 @@ signal_holder() { # <n> <reviewed sha> <head sha>
   key="$1 $run $3"
   grep -qxF "$key" "$SIGNALS" 2>/dev/null && return 0
   [ "$(session_state "$run")" = running ] || return 0
-  if session_signal "$run" "code-guardian signal: PR #$1 has a new head commit ${3:0:7}. Your review of PR #$1 is at ${2:0:7}. Read docs/sessions.md → **Signals** before your next step."; then
-    { tail -n 199 "$SIGNALS" 2>/dev/null; printf '%s\n' "$key"; } > "$SIGNALS.$$.tmp" && mv -f "$SIGNALS.$$.tmp" "$SIGNALS"
-    log "PR #$1: head moved to ${3:0:7} — signal sent to the session of run $(run_short "$run")"
-  else
-    log "PR #$1: head moved to ${3:0:7} — no signal queued for run $(run_short "$run"); its guard at post time stays"
-  fi
+  session_signal "$run" "code-guardian signal: PR #$1 has a new head commit ${3:0:7}. Your review of PR #$1 is at ${2:0:7}. Read docs/sessions.md → **Signals** before your next step."
+  case $? in
+    (0) log "PR #$1: head moved to ${3:0:7} — signal sent to the session of run $(run_short "$run")";;
+    # the call went out and no answer came: a resend could wake the session twice
+    (4) log "PR #$1: head moved to ${3:0:7} — signal to run $(run_short "$run") sent, its outcome unknown; its guard at post time stays";;
+    (*) log "PR #$1: head moved to ${3:0:7} — no signal queued for run $(run_short "$run"); its guard at post time stays"
+        return 0;;
+  esac
+  with_state_lock "$SIGNALS" signal_record "$key"
+}
+signal_record() { # <key>
+  { tail -n 199 "$SIGNALS" 2>/dev/null; printf '%s\n' "$1"; } > "$SIGNALS.$$.tmp" && mv -f "$SIGNALS.$$.tmp" "$SIGNALS"
 }
 
 # Drop the entries of every PR another live run holds (lib/holds.sh); the first

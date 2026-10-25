@@ -7,11 +7,15 @@
 # that keeps the one read for its subshells.
 #
 #   session_state <id>      `running` = a turn runs in it now, started inside
-#                           SESSION_RUN_MAX_MIN; `idle` = listed, no turn runs.
-#                           rc 1 and nothing printed = unknown: no read, not
-#                           listed, or running for longer than the window
-#   sessions_running        one `<id>\t<runStartedAt>\t<title>` line per session
-#                           with a running turn; rc 1 = no read
+#                           SESSION_RUN_MAX_MIN or at an unknown time; `idle` =
+#                           listed, no turn runs. rc 1 and nothing printed =
+#                           unknown: no read, not listed, or running for longer
+#                           than the window
+#   sessions_running        one `<id>\t<start>\t<title>` line per session with a
+#                           running turn; rc 1 = no read
+#   session_start <id> <runStartedAt>
+#                           the turn's start: runStartedAt, else the first event
+#                           of the run with that id; empty when neither is known
 #   session_signal <id> <text>
 #                           queues one message into that session; rc 0 = queued
 #
@@ -45,26 +49,42 @@ sessions_read() {
   return 1
 }
 
+# The platform leaves runStartedAt null for a turn it did not stamp; the run
+# id is the session id, so the run's first logged event stands in for it.
+session_start() { # <id> <runStartedAt>
+  [ -n "${2:-}" ] && { printf '%s\n' "$2"; return 0; }
+  declare -F events_jsonl >/dev/null 2>&1 || return 0
+  grep -hF "\"run\":\"$1\"" "${LOG_DIR:-${WORK:-}/logs}"/events-*.jsonl 2>/dev/null | head -1 \
+    | jq -r '.ts // empty' 2>/dev/null
+}
+
 session_state() { # <id>
-  local list cut st
+  local list row cut start
   [ -n "${1:-}" ] || return 1
   list="$(sessions_read)" || return 1
-  cut="$(epoch2iso $(( $(date -u +%s) - SESSION_RUN_MAX_MIN * 60 )))"
-  st="$(printf '%s' "$list" | jq -r --arg id "$1" --arg cut "$cut" '
+  row="$(printf '%s' "$list" | jq -r --arg id "$1" '
     [ .sessions[] | select(.sessionId == $id) ] | first
-    | if . == null then empty
-      elif .running != true then "idle"
-      elif ((.runStartedAt // "") | .[0:19]) >= ($cut | .[0:19]) then "running"
-      else empty end' 2>/dev/null)"
-  [ -n "$st" ] || return 1
-  printf '%s\n' "$st"
+    | if . == null then empty elif .running != true then "idle" else "running \(.runStartedAt // "")" end' 2>/dev/null)"
+  case "$row" in
+    (idle) echo idle; return 0;;
+    (running*) ;;
+    (*) return 1;;
+  esac
+  start="$(session_start "$1" "$(printf '%s' "${row#running}" | tr -d ' ')")"
+  cut="$(epoch2iso $(( $(date -u +%s) - SESSION_RUN_MAX_MIN * 60 )))"
+  [ -z "$start" ] || [ "${start:0:19}" \> "${cut:0:19}" ] || [ "${start:0:19}" = "${cut:0:19}" ] || return 1
+  echo running
 }
 
 sessions_running() {
-  local list
+  local list id st title
   list="$(sessions_read)" || return 1
   printf '%s' "$list" | jq -r '.sessions[] | select(.running == true)
-    | [.sessionId, (.runStartedAt // ""), ((.title // "") | gsub("[\t\n]"; " "))] | @tsv' 2>/dev/null
+    | [.sessionId, (.runStartedAt // "-"), ((.title // "") | gsub("[\t\n]"; " "))] | @tsv' 2>/dev/null \
+    | while IFS=$'\t' read -r id st title; do
+        # `-` holds the place of a null start: read joins two tabs into one
+        printf '%s\t%s\t%s\n' "$id" "$(session_start "$id" "${st#-}")" "$title"
+      done
 }
 
 session_signal() { # <id> <text>

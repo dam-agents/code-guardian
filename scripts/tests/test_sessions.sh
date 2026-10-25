@@ -16,13 +16,14 @@ mcp_setup() {
   : > "$SANDBOX/mcp.log"
   export CURL_MCP_URL="$MCP_URL" CURL_MCP_LOG="$SANDBOX/mcp.log" CURL_MCP_DIR="$SANDBOX/mcp"
 }
-# the list_sessions answer: one `<id> <running> <started-secs-ago> <title>` per argument
+# the list_sessions answer: one `<id> <running> <started-secs-ago|-> <title>` per
+# argument; `-` is the null start the platform reports for an unstamped turn
 sessions_fx() {
   local a id run ago title out='[]'
   for a in "$@"; do
     read -r id run ago title <<< "$a"
-    out="$(printf '%s' "$out" | jq -c --arg id "$id" --argjson r "$run" --arg st "$(iso_ago "$ago")" --arg t "$title" \
-      '. + [{sessionId:$id, title:$t, type:"schedule", running:$r, runStartedAt:(if $r then $st else null end), lastActivityAt:$st}]')"
+    out="$(printf '%s' "$out" | jq -c --arg id "$id" --argjson r "$run" --arg st "$([ "$ago" = - ] || iso_ago "$ago")" --arg t "$title" \
+      '. + [{sessionId:$id, title:$t, type:"schedule", running:$r, runStartedAt:(if $r and $st != "" then $st else null end), lastActivityAt:$st}]')"
   done
   jq -nc --arg t "$(jq -nc --argjson s "$out" '{sessions:$s}')" '{content:[{type:"text", text:$t}]}' \
     > "$SANDBOX/mcp/list_sessions.json"
@@ -59,6 +60,25 @@ run_preflight review
 assert_jq '.logs | any(contains("#7: held by run aaaa1111, its session is running"))' 'the running session keeps the hold'
 assert_jq '(.mentions_due // []) | length == 0' 'the held PR is left to its session'
 check_eq "$(calls list_sessions)" 1 'one list read for the pass'
+
+# --- 1. holds: a running turn with no start from the platform still runs ---
+new_case hold_session_running_no_start
+base_config; mcp_setup
+ic_mention 7
+hold 7 7200 aaaa1111
+sessions_fx "aaaa1111 true - Review PR #7"
+run_preflight review
+assert_jq '.logs | any(contains("#7: held by run aaaa1111, its session is running"))' 'a null runStartedAt counts as running'
+
+# --- 1. holds: a null start past the window, from the run's first event ------
+new_case hold_session_event_start_overlong
+base_config; mcp_setup
+ic_mention 7
+hold 7 7200 aaaa1111
+ev 14400 aaaa1111 tool_use "Bash [gh api]" debug
+sessions_fx "aaaa1111 true - Review PR #7"
+run_preflight review
+assert_jq '.logs | any(contains("its run is quiet — released"))' 'the first event dates the turn; past 180 min the event rule decides'
 
 # --- 1. holds: an ended session frees the hold at once ---------------------
 new_case hold_session_idle
@@ -162,6 +182,19 @@ assert_jq '.logs | any(contains("PR #1: head moved to 2222222 — signal sent"))
 run_preflight review
 check_eq "$(calls send_session_message)" 1 'no second signal for the same head'
 
+# --- 4. signals: a call with no answer is recorded, not sent again -----------
+new_case signal_unknown_outcome
+base_config; mcp_setup
+pr_json 1 "locked PR" '[]' "$SHA2" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 600)" - in_progress
+hold 1 600 aaaa1111
+sessions_fx "aaaa1111 true 600 Review PR #1"
+touch "$SANDBOX/mcp/hang-send_session_message"
+run_preflight review
+assert_jq '.logs | any(contains("PR #1: head moved to 2222222 — signal to run aaaa1111 sent, its outcome unknown"))' 'the unknown outcome is logged as such'
+run_preflight review
+check_eq "$(calls send_session_message)" 1 'no second signal after an unknown outcome'
+
 # --- 4. signals: same HEAD, or an ended session → no signal ----------------
 new_case signal_none
 base_config; mcp_setup
@@ -209,6 +242,16 @@ ev 60 review-x info precheck "review gate: nothing to do"
 sessions_fx "ffff6666 true 14400 Review PR #3"
 OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" 2>>"$STDERR_LOG")"
 check_eq "$(calls list_sessions)" 0 'no hold and no lost dispatch: no list read'
+
+# --- 3. monitor: a null start is dated by the run's first event --------------
+new_case monitor_overrun_event_start
+base_config; mcp_setup
+ev 60 review-x info precheck "review gate: nothing to do"
+ev 14400 ffff6666 tool_use "Bash [gh api]" debug
+sessions_fx "ffff6666 true - Review PR #3"
+hold 3 14400 ffff6666
+OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" 2>>"$STDERR_LOG")"
+assert_jq '[.alerts_due[] | select(.kind == "session_overrun") | .session] == ["ffff6666"]' 'the overrun alerts from the event start'
 
 # --- 3. monitor: an overlong review turn and a lost dispatch ---------------
 new_case monitor_session_alerts

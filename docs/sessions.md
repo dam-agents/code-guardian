@@ -23,7 +23,9 @@ platform's `sessionId`; a run id the list does not show is unknown.
 Each use falls back to its rule from before the tools when the list is
 unknown: no `platform-outbound` endpoint, a platform without the tools, a
 refusal, a timeout, a session the list does not show, or a turn that runs
-longer than `SESSION_RUN_MAX_MIN` (180).
+longer than `SESSION_RUN_MAX_MIN` (180). A turn starts at its `runStartedAt`;
+the platform leaves it null for a turn it did not stamp, and then the run's
+first event dates it. A running turn with no date counts as running.
 
 | Use | With the list | Unknown |
 | --- | --- | --- |
@@ -37,7 +39,8 @@ longer than `SESSION_RUN_MAX_MIN` (180).
 When the review gate finds a PR whose `in_progress` lock is at another SHA
 than the live HEAD, and the session of the PR's hold runs, it sends that
 session one message per PR, holder run and HEAD (`work/.session-signals`,
-the last 200):
+the last 200, written under the state lock). A call with no answer counts as
+sent: a second message could wake the session twice.
 
 ```
 code-guardian signal: PR #<n> has a new head commit <sha7>. Your review of PR #<n> is at <sha7>. Read docs/sessions.md → **Signals** before your next step.
