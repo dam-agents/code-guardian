@@ -37,9 +37,11 @@ below is for the manual fallback and the direct session.
 DAM the agent's model settings and each schedule's `model`, which the operator
 sets there. The agent never chooses a session's model: it carries a registered
 schedule's `model` unchanged when ONBOARDING Step 6 re-creates that schedule,
-and it chooses only the model of the benchmark judge call, under
-`benchmark_judge: auto` ([benchmark.md](benchmark.md) → **Choosing the
-judge**).
+gives the benchmark's sub-agents and trial sessions its own session's model
+unless the operator names another ([benchmark.md](benchmark.md) →
+**Isolation**, **Trial runs**), and chooses the model of the benchmark judge
+call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
+**Choosing the judge**).
 
 ### Identity & repositories
 

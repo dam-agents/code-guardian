@@ -22,6 +22,10 @@ from this host's models and every later run uses that pick
 writes the value; the first judged run after it starts a new comparability
 window for the judge columns. A model id the host serves stays as it is.
 
+## 12.2.1 — 2026-10-25
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 12.2.0 — 2026-10-24
 
 **Upgrade:** Off by default: the bundled `agent-engineering` review skill

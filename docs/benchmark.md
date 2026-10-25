@@ -232,13 +232,15 @@ that holds ground truth, and a work repo that is public.
    <SHA>`) prints a reason → **Isolation unavailable**.
 2. Spawn every task:
    ```bash
-   bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] [--model <m>] \
+   bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] --model <m> \
      "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
    ```
    `--effort` = this session's effort when the harness exposes one
-   (`effort` of the provenance). `--model` only on the operator's ask for
-   another model, provider-qualified; without it the sub-agents run the
-   agent's default model, as the production reviews do. A trial adds
+   (`effort` of the provenance). `--model` = this session's exact model id,
+   provider-qualified (Claude Code names it `claude/<provider>/<id>`; on pi
+   `start` reads `PI_MODEL` when `--model` is absent), or the model the
+   operator names for this run. The sub-agents run on that model only:
+   `collect` reports any other as a `model` mismatch. A trial adds
    `--commit <SHA> --branch <branch>`. A refusal before the first `spawned`
    line → **Isolation unavailable**; after it → abort.
 3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
@@ -250,7 +252,7 @@ that holds ground truth, and a work repo that is public.
    `harness_version` and `effort`. A `failed` task gets one retry — the same
    `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`
    again; a second failure or any `mismatches` entry (the sub-agent ran other
-   inputs than `start` snapshotted) → abort.
+   inputs than `start` snapshotted, or another model) → abort.
 
 **Abort** = cleanup (step 11), nothing recorded, the reason in the chat UI.
 Sub-agents still running end at their deadline.
@@ -667,8 +669,9 @@ different branches run at the same time, beside a scored run.
   1. Per branch: `<SHA>` = `git ls-remote <definition repo URL>
      refs/heads/<branch>` (not on the remote → the operator pushes it first),
      `<id>` = `pr-<n>` or the branch slug.
-  2. One `mcp__platform-outbound__schedule_once` call per trial — no
-     `model` — with `name` `code-guardian-trial-<id>`, `sessionTitle`
+  2. One `mcp__platform-outbound__schedule_once` call per trial — `model`
+     = this session's exact model id, or the model the operator names — with
+     `name` `code-guardian-trial-<id>`, `sessionTitle`
      `Run trial benchmark of <branch>` and this task, values filled in:
 
      ```
@@ -719,9 +722,9 @@ different branches run at the same time, beside a scored run.
   full set).
 - "Run the benchmark" → the run steps with `trigger: manual`. A manual run is
   never gated, and only `trigger: scheduled` results feed the gate, so a
-  scheduled run still lands on the 1st after a mid-month manual run. To
-  benchmark a specific model, pass it to `start` as `--model` (**Isolation**);
-  a run measures the model its reviews ran on. An approved in-pod run measures
+  scheduled run still lands on the 1st after a mid-month manual run. The
+  reviews run on this session's model; to benchmark another model, pass it to
+  `start` as `--model` (**Isolation**). An approved in-pod run measures
   the session it runs in, and on request splits one fixture per session
   (**Segmented run**).
 - "Show benchmark results" → read `RESULTS.md` / `report.html` (and
