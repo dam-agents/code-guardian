@@ -9,6 +9,7 @@ JUDGE="$REPO_ROOT/scripts/benchmark-judge.sh"
 VALIDATE="$REPO_ROOT/scripts/benchmark-validate.sh"
 REPORT="$REPO_ROOT/scripts/benchmark-report.sh"
 export BENCH_CONFIG=/dev/null
+export WORK_DIR=/nonexistent   # no CONFIG.md unless a case seeds one
 
 # fake claude: records its argv and stdin, prints $FAKE_REPLY
 seed_cli() { # <reply json>
@@ -213,13 +214,69 @@ assert_out_contains 'rc=1' 'and stops the run'
 results claude-opus-5 null "$SIX" > "$SANDBOX/r/nouse.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/nouse.json")"
 assert_out_contains 'FAIL judge_pinned: .*judge_model_used is missing' 'scores without judge_model_used are rejected'
-results claude-opus-5 '"claude-opus-5-20260401"' "$SIX" > "$SANDBOX/r/ok.json"
+results claude-opus-5 '"claude-opus-5-20260401"' "$SIX" | jq '.judge_reason = "judge reply is not the score object"' > "$SANDBOX/r/ok.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/ok.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'ok   judge_pinned' 'the pinned judge passes'
 assert_out_contains 'rc=0' 'clean'
 results off null null > "$SANDBOX/r/off.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/off.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'rc=0' 'no judge, no scores: clean'
+
+new_case validate_judge_reason
+mkdir -p "$SANDBOX/r"
+results claude-opus-5 null null > "$SANDBOX/r/silent.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/silent.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_reason: a fixture judge is null, but judge_reason is missing' 'a judge that never answered needs its reason'
+assert_out_contains 'rc=1' 'and stops the run'
+jq '.judge_reason = "judge claude CLI error: unknown model"' "$SANDBOX/r/silent.json" > "$SANDBOX/r/why.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/why.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   judge_reason' 'a recorded reason passes'
+assert_out_contains 'rc=0' 'clean'
+results auto null null | jq '.judge_reason = "x"' > "$SANDBOX/r/auto.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/auto.json")"
+assert_out_contains 'FAIL judge_reason: judge is auto' 'auto is never the recorded judge'
+
+new_case validate_judge_resolved
+mkdir -p "$SANDBOX/r" "$WORK"
+printf -- '- benchmark_judge: claude-opus-5\n' > "$WORK/CONFIG.md"
+results off null null > "$SANDBOX/r/dropped.json"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/dropped.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_resolved: judge is "off", but benchmark-judge.sh resolve prints "claude-opus-5"' 'a run that dropped the configured judge is rejected'
+assert_out_contains 'rc=1' 'and stops the run'
+results claude-opus-5 '"claude-opus-5"' "$SIX" | jq '.judge_reason = "judge reply is not the score object"' > "$SANDBOX/r/same.json"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   judge_resolved' 'the resolved judge passes'
+assert_out_contains 'rc=0' 'clean'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=0' 'an unpicked auto accepts the candidate the run tried'
+
+# resolve and pin: the one judge every run uses
+new_case judge_resolve_and_pin
+seed_cli "$(reply claude-opus-5 "$SIX")"
+mkdir -p "$WORK"
+resolve() { OUT="$(WORK_DIR="$WORK" bash "$JUDGE" resolve)"; }
+resolve
+assert_jq '.judge == "off" and .source == "off" and .judge_unavailable == null' 'no CONFIG.md key is off'
+printf -- '- benchmark_judge: acme/judge-model  # the operator pick\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "acme/judge-model" and .source == "config" and .judge_unavailable == null' 'an operator id is the judge'
+OUT="$(WORK_DIR="$WORK" bash "$JUDGE" pin acme/other "why" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'not auto: the operator chose the judge' 'pin never overrides the operator'
+assert_out_contains 'rc=1' 'and fails'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "auto" and .source == "unpicked"' 'auto without a pick asks for one'
+run_first auto
+assert_jq '.status == "failed" and .judge == null and (.reason | test("no judge is pinned"))' 'auto is never a model to call'
+OUT="$(WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-a "the strongest model on the host")"
+resolve
+assert_jq '.judge == "acme/opus-a" and .source == "picked"' 'the pick is the judge of every later run'
+WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-b "acme/opus-a left the host" >/dev/null
+OUT="$(cat "$WORK/benchmark/judge.json")"
+assert_jq '.model == "acme/opus-b" and (.replaced | length) == 1 and .replaced[0].model == "acme/opus-a" and (.replaced[0].until | type) == "string"' 'a re-pick keeps the old judge on record'
+CG_JUDGE_CLI="$SANDBOX/nope" resolve
+assert_jq '.judge == "acme/opus-b" and (.judge_unavailable | test("no .* CLI"))' 'resolve carries the check reason'
 
 # report: judge cells only from a pinned judge
 new_case report_hides_self_judged_scores

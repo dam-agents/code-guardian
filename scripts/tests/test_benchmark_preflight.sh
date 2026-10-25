@@ -106,6 +106,17 @@ cp "$SANDBOX/cli/claude" "$SANDBOX/cli/pi"
 CG_JUDGE_PI="$SANDBOX/cli/pi" run_preflight benchmark
 assert_jq '.benchmark_due.judge_unavailable == null' 'a pi CLI to fall back to makes the judge ready'
 
+new_case benchmark_judge_auto
+base_config '- benchmark: enabled' '- benchmark_judge: auto'
+seed_full_set
+seed_judge_cli true
+run_preflight benchmark
+assert_jq '.benchmark_due.judge == "auto" and .benchmark_due.judge_unavailable == null' 'auto without a pick asks the run to pick one'
+mkdir -p "$WORK/benchmark"
+printf '{"model":"acme/judge-a","chosen":"2026-10-01T00:00:00Z","why":"x","replaced":[]}\n' > "$WORK/benchmark/judge.json"
+run_preflight benchmark
+assert_jq '.benchmark_due.judge == "acme/judge-a"' 'the pinned pick is the judge of the run'
+
 new_case benchmark_defaults
 base_config '- benchmark: enabled'
 seed_full_set

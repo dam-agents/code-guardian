@@ -26,6 +26,7 @@ fixture/<slug>/          # one benchmark project (immutable once created); the s
 results/<ts>.json        # one scored run, all fixtures (ts = YYYYMMDDTHHMMSSZ, UTC)
 results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
 .run-notes-<ts>.md       # segmented-run ledger (Segmented run below); absent otherwise
+judge.json               # the judge the agent pinned under benchmark_judge: auto (Choosing the judge)
 RESULTS.md               # append-only index — one row per run × fixture, newest last
 report.html              # the accumulated report, regenerated every run
 trials/<id>/             # one trial's .run-lock, results/ and report.html (Trial runs)
@@ -150,7 +151,10 @@ catches a labelled defect.
 
 The entry carries `fixtures`, `fixture_root`, `judge`, `judge_unavailable`
 (null, or why this host cannot run the judge), `isolation_unavailable` (null,
-or why the run cannot be isolated), `report` and `last_run`.
+or why the run cannot be isolated), `report` and `last_run`. An operator-asked
+run has no entry: it takes `judge` and `judge_unavailable` from
+`bash "$HOME/scripts/benchmark-judge.sh" resolve`, the same object preflight
+reads, so every run gets the same judge.
 
 **Gate first — never score an unvalidated set:**
 
@@ -383,9 +387,12 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    bash "$HOME/scripts/benchmark-score.sh" rereview "<raw rereview>" "$B/manifest.json"
    ```
 
-6. **Judge** (when `judge` is a model id and `judge_unavailable` is null —
-   preflight's `benchmark-judge.sh check`; when it carries a reason, make no
-   judge call, keep every phase's `judge` null and report that reason once):
+6. **Judge** (when `judge` is not `off` and `judge_unavailable` is null —
+   `benchmark-judge.sh resolve`; when it carries a reason, make no judge call,
+   keep every phase's `judge` null and make that reason the run's
+   `judge_reason`). `judge` is `auto` while the agent has pinned no judge yet:
+   pick one first (**Choosing the judge**) and use it for every call of this
+   run:
    one call per raw review, never a subagent — the judge model and rubric stay
    the same whatever model and harness ran the reviews. The call is
    `claude -p`; where that CLI is missing or not signed in, it is `pi` on the
@@ -398,9 +405,11 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 
    Write the scorer output to a file first. Copy the printed `judge` into the
    phase's `judge` field verbatim, and its `judge_model_used` and
-   `judge_harness` into the run level. Any status other than `ok` keeps that phase's `judge` null: report
-   the `reason` once in the chat summary and never score in its place. After
-   an `unavailable` reply, make no further judge call in this run. The
+   `judge_harness` into the run level. Any status other than `ok` keeps that
+   phase's `judge` null: the first such `reason` becomes the run's
+   `judge_reason`, reported once in the chat summary, and nothing scores in
+   its place. After an `unavailable` reply, or a reason that the host does not
+   serve the model, make no further judge call in this run. The
    rubric lives in
    [`scripts/templates/judge-brief.md`](../scripts/templates/judge-brief.md).
    **Judge scores stay beside the deterministic metrics, never inside them**:
@@ -411,8 +420,8 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `effort`, `memory_sha`, `skill_sources`, `definition_ref`) come
    from one deterministic call — merge its object in verbatim and add what only
-   the session knows (`model`, `trigger`, `judge`, and `judge_model_used` from
-   step 6). An isolated run merges `$PSTATE/expect.json` instead — the
+   the session knows (`model`, `trigger`, `judge`, `judge_model_used` and
+   `judge_reason` from step 6). An isolated run merges `$PSTATE/expect.json` instead — the
    seeded commit's provenance — adds `isolation: "platform-subagent"` and each
    phase's `spawn`, and takes `model`, `harness_version` and `effort` from
    `collect`, the values its sub-agents ran. In-pod:
@@ -473,8 +482,8 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 
 ```json
 {"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
- "judge": "<benchmark_judge value>", "judge_model_used": "<model or null>",
- "judge_harness": "<claude|pi or null>",
+ "judge": "<resolved judge or off>", "judge_model_used": "<model or null>",
+ "judge_harness": "<claude|pi or null>", "judge_reason": "<first non-ok reason or null>",
  "definition_version": "...", "prev_version": "...", "changes_since_prev": [],
  "harness_version": "...", "effort": "<low|medium|high|xhigh|max|unknown>",
  "memory_sha": "...", "skill_sources": {},
@@ -555,6 +564,30 @@ scheduled run is never segmented.
   run — the tick is emitted over it and the ledger is reported, not deleted.
 - Session separation holds unchanged: `manifest.json` is read only in the final
   segment, after that segment's raw reviews are written.
+
+## Choosing the judge (`benchmark_judge: auto`)
+
+Under `auto` the agent picks the judge, once, and every later run uses that
+pick. The judge is the yardstick, so it changes only when the host stops
+serving it.
+
+- **Recommendation**: the most capable reasoning model on this host's model
+  list — the newest top tier of the Claude family (Opus) where the host serves
+  one. Name it by the exact id the host lists, provider prefix included.
+- **Pin it** after its first `ok` reply, before step 7:
+
+  ```bash
+  bash "$HOME/scripts/benchmark-judge.sh" pin "<model id>" "<one line: why this model>"
+  ```
+
+  The pick lives in `work/benchmark/judge.json`. A candidate without an `ok`
+  reply stays unpinned: the run keeps every phase's `judge` null with its
+  `judge_reason`, and the next run picks again.
+- **Re-pick** only when the host's model list no longer names the pinned
+  model. `pin` keeps the old pick under `replaced`; the new judge starts a new
+  comparability window for the judge columns, and the chat summary says so.
+- An operator's model id in `benchmark_judge` always wins: `pin` refuses, and
+  the agent never changes that id.
 
 ## Model prices (cost column)
 

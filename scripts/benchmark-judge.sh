@@ -5,6 +5,20 @@
 #   benchmark-judge.sh <first|rereview> <judge-model> <raw-review> <manifest.json> \
 #                      <scorer.json> [<prior-review.md>]
 #   benchmark-judge.sh check <judge-model>
+#   benchmark-judge.sh resolve
+#   benchmark-judge.sh pin <judge-model> <why>
+#
+# `resolve` prints the judge every run uses, as one JSON object
+# {judge, source, judge_unavailable}: `benchmark_judge` from work/CONFIG.md
+# when it is a model id (source `config`) or off (`off`); under `auto`, the
+# model the agent pinned in work/benchmark/judge.json (`picked`), or `auto`
+# while none is pinned yet (`unpicked`). `judge_unavailable` is `check`'s
+# reason or null. Preflight's benchmark pass, the monitor and an operator-asked
+# run read the same object, so every run gets the same judge.
+#
+# `pin` records the agent's pick under `auto` (docs/benchmark.md → **Choosing
+# the judge**) and moves the previous pick into `replaced`. It refuses while
+# `benchmark_judge` is off or a model id: the operator's id wins.
 #
 # `check` makes no model call: it prints nothing and exits 0 when this host
 # can run the judge, else one line with the reason and exits 1. Preflight's
@@ -44,7 +58,7 @@
 #
 # Exit 2 only on a usage error. Overrides (tests): CG_JUDGE_CLI (the claude
 # binary), CG_JUDGE_PI (the pi binary), CG_JUDGE_TIMEOUT (seconds, default
-# 600).
+# 600), WORK_DIR (the work/ directory).
 set -u
 export LC_ALL=C
 
@@ -54,7 +68,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRIEF="$SCRIPT_DIR/templates/judge-brief.md"
 
 KIND="${1:-}"; MODEL="${2:-}"; REVIEW="${3:-}"; MANIFEST="${4:-}"; SCORER="${5:-}"; PRIOR="${6:-}"
-usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n       benchmark-judge.sh check <judge-model>\n' >&2; exit 2; }
+usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n       benchmark-judge.sh check <judge-model>\n       benchmark-judge.sh resolve\n       benchmark-judge.sh pin <judge-model> <why>\n' >&2; exit 2; }
+WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
+CONFIG="$WORK/CONFIG.md"
+PICK="$WORK/benchmark/judge.json"
 CLI="${CG_JUDGE_CLI:-claude}"
 PI="${CG_JUDGE_PI:-pi}"
 NOT_SIGNED_IN="the '$CLI' CLI on this host is not signed in: run \`claude auth login\` on the host once, or set ANTHROPIC_API_KEY"
@@ -70,12 +87,48 @@ claude_why() {
 }
 pi_ready() { command -v "$PI" >/dev/null 2>&1; }
 
+check_why() { # <model> → nothing and 0 when this host can run the judge, else the reason and 1
+  case "$1" in (off|none|null) return 0;; esac
+  local why; why="$(claude_why)" && return 0
+  pi_ready && return 0
+  printf '%s; %s' "$why" "$NO_FALLBACK"; return 1
+}
 if [ "$KIND" = check ]; then
   [ -n "$MODEL" ] || usage
-  case "$MODEL" in (off|none|null) exit 0;; esac
-  WHY="$(claude_why)" && exit 0
-  pi_ready && exit 0
-  printf '%s; %s\n' "$WHY" "$NO_FALLBACK"; exit 1
+  WHY="$(check_why "$MODEL")" && exit 0
+  printf '%s\n' "$WHY"; exit 1
+fi
+
+CONF="$(cfg benchmark_judge)"
+case "$CONF" in ("" |none|null) CONF=off;; esac
+if [ "$KIND" = resolve ]; then
+  case "$CONF" in
+    (off)  J=off; SRC=off;;
+    (auto) J="$(jq -r '.model // empty | strings' "$PICK" 2>/dev/null)"
+           if [ -n "$J" ]; then SRC=picked; else J=auto; SRC=unpicked; fi;;
+    (*)    J="$CONF"; SRC=config;;
+  esac
+  WHY="$(check_why "$J")" || true
+  jq -cn --arg j "$J" --arg s "$SRC" --arg w "$WHY" \
+    '{judge: $j, source: $s, judge_unavailable: (if $w == "" then null else $w end)}'
+  exit 0
+fi
+if [ "$KIND" = pin ]; then
+  WHY_PIN="${3:-}"
+  [ -n "$MODEL" ] && [ -n "$WHY_PIN" ] || usage
+  case "$MODEL" in (off|none|null|auto) usage;; esac
+  [ "$CONF" = auto ] || { printf 'benchmark_judge is %s, not auto: the operator chose the judge\n' "$CONF" >&2; exit 1; }
+  mkdir -p "${PICK%/*}" || exit 1
+  OLD="$(jq -c 'if type == "object" then . else {} end' "$PICK" 2>/dev/null | head -1)"
+  [ -n "$OLD" ] || OLD='{}'
+  printf '%s\n' "$OLD" \
+    | jq --arg m "$MODEL" --arg w "$WHY_PIN" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+        (if (.model // "") != "" and .model != $m
+         then [{model, chosen, why, until: $t}] else [] end) as $old
+        | {model: $m, chosen: (if .model == $m then .chosen else $t end), why: $w,
+           replaced: ((.replaced // []) + $old)}' > "$PICK.tmp" \
+    && mv "$PICK.tmp" "$PICK" || { rm -f "$PICK.tmp"; exit 1; }
+  cat "$PICK"; exit 0
 fi
 
 case "$KIND" in (first|rereview) ;; (*) usage;; esac
@@ -91,7 +144,10 @@ out() { # <status> <judge json> <model or empty> <tokens json> <reason or empty>
   exit 0
 }
 
-case "$MODEL" in (off|none|null) out off null "" null "benchmark_judge is off";; esac
+case "$MODEL" in
+  (off|none|null) out off null "" null "benchmark_judge is off";;
+  (auto) out failed null "" null "benchmark_judge is auto and no judge is pinned yet: pick one (docs/benchmark.md → Choosing the judge)";;
+esac
 if WHY="$(claude_why)"; then JH=claude
 elif pi_ready; then JH=pi
 else out unavailable null "" null "$WHY; $NO_FALLBACK"

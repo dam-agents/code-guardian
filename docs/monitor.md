@@ -33,7 +33,7 @@ anomalies and the classifier refusals ([audit.md](audit.md)).
 | `classifier_spike` | `classifier_alert_threshold` (missing = `20`; `0`/`off` disables both classifier alerts) `classifier_block` events in 24 h | — (once per UTC day) |
 | `review_post_blocked` | the classifier refused a `review-pr.sh post` in the last 24 h, and no later `posted` step of that PR exists | — (once per run and PR) |
 | `harness_drift` | an adapter's `install.sh --check` names a part that is not current (Claude Code: `hooks`, `automode-rules`, `tool-deny`, `skill-agent`; pi: `pi-extension`) | the checks print nothing |
-| `judge_unavailable` | `benchmark: enabled`, `benchmark_judge` a model id, and `scripts/benchmark-judge.sh check` fails — no signed-in `claude` CLI and no `pi` CLI to fall back to: `cause: no_cli` (no claude CLI) or `not_signed_in` | the check passes |
+| `judge_unavailable` | `benchmark: enabled`, `benchmark_judge` not `off`, and `scripts/benchmark-judge.sh resolve` prints a `judge_unavailable` — no signed-in `claude` CLI and no `pi` CLI to fall back to: `cause: no_cli` (no claude CLI) or `not_signed_in` | the check passes |
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
 | `dispatch_refused` | `dispatch_refused` events ([runbook.md](runbook.md) → **Review run** step 1) since the last accepted dispatch: the first 60 min old, the newest under 24 h old | the next accepted dispatch, or 24 h without a refusal |
