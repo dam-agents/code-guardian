@@ -29,7 +29,7 @@ longer than `SESSION_RUN_MAX_MIN` (180).
 | --- | --- | --- |
 | **Hold and lock liveness** (`lib/holds.sh` → `hold_live`, `preflight.sh` → `holder_alive`) | the holder's session runs → alive, whatever its quiet time; every holder's session is idle → dead, released or taken over at once | the event windows of [review-mechanics.md](review-mechanics.md) → **Live holder** |
 | **Dispatch** (`dispatch.sh plan`) | a PR that a running session names alone in its title is not dispatched; the run keeps it, and its hold decides who serves it | every PR after the first is dispatched ([worklist.md](worklist.md) → **Dispatch**) |
-| **Monitor** (`monitor.sh`) | `session_overrun`: a review session's turn runs past 180 min | `dispatch_lost` from the events alone ([monitor.md](monitor.md) → **The alerts**) |
+| **Monitor** (`monitor.sh`), read only while a PR hold exists or a dispatch looks lost | `session_overrun`: a review session's turn runs past 180 min | `dispatch_lost` from the events alone ([monitor.md](monitor.md) → **The alerts**) |
 | **Signals** (`preflight.sh` → `signal_holder`) | below | no signal; the guard at post time stays |
 
 ## Signals

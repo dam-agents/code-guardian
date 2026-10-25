@@ -202,11 +202,20 @@ OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" LOG_RUN_ID=run-leader1 PATH="$T_DIR/bi
 assert_jq '[.dispatch[].number] == [7, 8]' 'disabled dispatches every PR after the first'
 check_eq "$(calls list_sessions)" 0 'disabled reads no list'
 
+# --- 3. monitor: an idle tick reads no list ------------------------------------
+new_case monitor_idle_no_call
+base_config; mcp_setup
+ev 60 review-x info precheck "review gate: nothing to do"
+sessions_fx "ffff6666 true 14400 Review PR #3"
+OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" 2>>"$STDERR_LOG")"
+check_eq "$(calls list_sessions)" 0 'no hold and no lost dispatch: no list read'
+
 # --- 3. monitor: an overlong review turn and a lost dispatch ---------------
 new_case monitor_session_alerts
 base_config; mcp_setup
 ev 60 review-x info precheck "review gate: nothing to do"
 sessions_fx "ffff6666 true 14400 Review PR #3" "abcd1234 true 14400 Audit agent health 2026-10-24" "aaaa1111 true 600 Review PR #4"
+hold 3 14400 ffff6666
 ev 3600 run-leader1 dispatch "#5, #6 dispatched to sessions of their own; this run keeps #4"
 ev 3000 aaaa2222 hold "PR #5: held by this run"
 OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" 2>>"$STDERR_LOG")"
