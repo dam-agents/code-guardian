@@ -248,7 +248,7 @@ that holds ground truth, and a work repo that is public.
    `harness_version` and `effort`. A `failed` task gets one retry — the same
    `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`
    again; a second failure or any `mismatches` entry (the sub-agent ran other
-   inputs than `start` snapshotted) → abort.
+   inputs than `start` snapshotted, or another model) → abort.
 
 **Abort** = cleanup (step 11), nothing recorded, the reason in the chat UI.
 Sub-agents still running end at their deadline.
