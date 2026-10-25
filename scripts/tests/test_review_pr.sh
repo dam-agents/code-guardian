@@ -848,6 +848,43 @@ run_rp delta 1 "$SANDBOX/cur-late.json" --fresh x
 assert_jq '.outcome == "error" and (.error | contains("--fresh takes a finding index"))' 'a --fresh value that is not an index is refused'
 run_rp abort 1 "reset"
 
+# a delta re-review grades a late 🟡 as 🟢; a complete one keeps it (above)
+setup delta_late_demote
+PRIOR="1111111111111111111111111111111111111111"
+late_history "$PRIOR"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'
+jq -n '{status:"ahead", files:[{filename:"src/alpha.ts", patch:"@@ -4,3 +4,4 @@\n a\n+b"}]}' \
+  | fx "api repos/acme/widgets/compare/$PRIOR...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.outcome == "ready"' 'the on-demand delta round is prepared'
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"warning","file":"src/beta.ts","line":1,"inline":true,"summary":"capability outside the policy","fix":"drop the capability"},{"status":"new","severity":"critical","file":"src/beta.ts","line":3,"inline":true,"summary":"secret in log","fix":"redact it"}]' > "$SANDBOX/cur-dem.json"
+run_rp delta 1 "$SANDBOX/cur-dem.json"
+assert_jq '(.late | map({index, demote: (.demote // false)})) == [{index:1,demote:true},{index:2,demote:false}]' 'a late warning is demoted on a delta round, a late critical is not'
+A="$(PR_DIR).ctx/findings.annotated.json"
+jq -e '.[0].severity == "warning" and .[1].severity == "suggestion" and .[1].fix == null and .[1].late == true and .[2].severity == "critical"' "$A" >/dev/null \
+  && printf 'ok   %s: annotated carries the late warning as a suggestion\n' "$CASE" \
+  || { printf 'FAIL %s: annotated wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
+{ printf '### Summary\nx\n%s\n\n### Findings\n- 🔴 **Critical:** secret in log (`src/beta.ts:3`)\n- 🟡 **Warning:** capability outside the policy (`src/beta.ts:1`)\n\n### Verdict\nREQUEST_CHANGES\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)"; } > "$SANDBOX/body.md"
+jq '.[1].severity = "warning"' "$A" > "$SANDBOX/kept-late.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-late.json"
+assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post refuses a delta round that keeps a late warning blocking'
+run_rp abort 1 "reset"
+
+# a finding merged into ### Findings is printed once: a skill-section copy is refused
+setup post_merged_twice
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n  **Fix:** guard it\n\n### Documentation Check\n- 🟡 **Warning:** missing guard — merged into `### Findings` (`src/alpha.ts:6`).\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+printf '{"id":93,"html_url":"https://example.test/r/93","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "error" and (.error | contains("print each merged finding once"))' 'post refuses a body that prints a merged finding twice'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: nothing was posted\n' "$CASE"
+run_rp abort 1 "reset"
+
 # a range that is not whole (force-pushed away) cannot age a finding: nothing is late
 setup delta_late_unknown
 PRIOR="1111111111111111111111111111111111111111"
