@@ -250,8 +250,8 @@ check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log" 2>/dev/null)" 0 't
 iso start --model claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a bare model name is refused before a spawn'
 assert_out_contains 'not provider-qualified' 'the refusal names the form'
-check_eq "$(env -u CLAUDECODE PLATFORM_HARNESS=pi PI_MODEL=ibm/aws/claude-sonnet-5-5 bash -c '. "$1"; cg_harness_model' _ "$REPO_ROOT/scripts/lib/harness.sh")" \
-  ibm/aws/claude-sonnet-5-5 'a pi session names its own model'
+check_eq "$(env -u CLAUDECODE PLATFORM_HARNESS=pi PI_PROVIDER=platform PI_MODEL=cb/rits/deepseek-v4 bash -c '. "$1"; cg_harness_model' _ "$REPO_ROOT/scripts/lib/harness.sh")" \
+  cb/rits/deepseek-v4 'a pi session names its own model, without the router provider name'
 
 iso_case start_only_matches_nothing
 iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-second "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api

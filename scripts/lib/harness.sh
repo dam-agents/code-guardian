@@ -37,8 +37,10 @@ cg_harness_effort() {
   printf '%s' "${CLAUDE_EFFORT:-${PI_REASONING_LEVEL:-unknown}}"
 }
 
-# pi's PI_MODEL is the session's own (`ibm/aws/claude-opus-5-5`); Claude Code's
-# env holds the agent's default only, so the session names its model itself
+# pi's PI_MODEL is the session's own, already `<provider>/<id>` as the platform
+# router names it (`cb/rits/…`); PI_PROVIDER is pi's name for that router
+# (`platform`), not part of the id. Claude Code's env holds the agent's
+# default only, so the session names its model itself
 cg_harness_model() {
   case "$(cg_harness)" in
     pi) printf '%s' "${PI_MODEL:-}" ;;
