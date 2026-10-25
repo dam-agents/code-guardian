@@ -224,7 +224,10 @@ assert_out_contains 'rc=0' 'no judge, no scores: clean'
 
 new_case validate_judge_reason
 mkdir -p "$SANDBOX/r"
-results claude-opus-5 null null > "$SANDBOX/r/silent.json"
+results claude-opus-5 null null > "$SANDBOX/r/old.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/old.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=0' 'a file from before 12.3.0 needs no judge_reason'
+results claude-opus-5 null null | jq '.definition_version = "12.3.0"' > "$SANDBOX/r/silent.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/silent.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'FAIL judge_reason: a fixture judge is null, but judge_reason is missing' 'a judge that never answered needs its reason'
 assert_out_contains 'rc=1' 'and stops the run'
@@ -232,7 +235,7 @@ jq '.judge_reason = "judge claude CLI error: unknown model"' "$SANDBOX/r/silent.
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/why.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'ok   judge_reason' 'a recorded reason passes'
 assert_out_contains 'rc=0' 'clean'
-results auto null null | jq '.judge_reason = "x"' > "$SANDBOX/r/auto.json"
+results auto null null | jq '.judge_reason = "x" | .definition_version = "12.10.0"' > "$SANDBOX/r/auto.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/auto.json")"
 assert_out_contains 'FAIL judge_reason: judge is auto' 'auto is never the recorded judge'
 
@@ -250,6 +253,12 @@ assert_out_contains 'rc=0' 'clean'
 printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
 OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'rc=0' 'an unpicked auto accepts the candidate the run tried'
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/dropped.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_resolved: judge is "off" under an unpicked auto' 'an unpicked auto needs the candidate on record'
+printf -- '- benchmark_judge: acme/new-judge\n' > "$WORK/CONFIG.md"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results --stored "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_absent 'judge_resolved' 'a kept file is not compared with the live config'
+assert_out_contains 'rc=0' 'the audit keeps an older judge as it was'
 
 # resolve and pin: the one judge every run uses
 new_case judge_resolve_and_pin

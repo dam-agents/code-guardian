@@ -391,8 +391,8 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    `benchmark-judge.sh resolve`; when it carries a reason, make no judge call,
    keep every phase's `judge` null and make that reason the run's
    `judge_reason`). `judge` is `auto` while the agent has pinned no judge yet:
-   pick one first (**Choosing the judge**) and use it for every call of this
-   run:
+   pick one first (**Choosing the judge**), use it for every call of this
+   run, and record it as the run's `judge`, also when no call runs:
    one call per raw review, never a subagent — the judge model and rubric stay
    the same whatever model and harness ran the reviews. The call is
    `claude -p`; where that CLI is missing or not signed in, it is `pi` on the
@@ -581,8 +581,8 @@ serving it.
   ```
 
   The pick lives in `work/benchmark/judge.json`. A candidate without an `ok`
-  reply stays unpinned: the run keeps every phase's `judge` null with its
-  `judge_reason`, and the next run picks again.
+  reply stays unpinned: the run records it as `judge`, keeps every phase's
+  `judge` null with its `judge_reason`, and the next run picks again.
 - **Re-pick** only when the host's model list no longer names the pinned
   model. `pin` keeps the old pick under `replaced`; the new judge starts a new
   comparability window for the judge columns, and the chat summary says so.

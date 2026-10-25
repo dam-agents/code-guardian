@@ -2208,7 +2208,7 @@ if [ "$MODE" = "audit" ]; then
     fi
     newest_res="$(ls "$WORK/benchmark/results"/*.json 2>/dev/null | sort | tail -1)"
     if [ -n "$newest_res" ]; then
-      bv_bad="$(bash "$SCRIPT_DIR/benchmark-validate.sh" results "$newest_res" 2>/dev/null \
+      bv_bad="$(bash "$SCRIPT_DIR/benchmark-validate.sh" results --stored "$newest_res" 2>/dev/null \
                 | grep '^FAIL ' | cut -d' ' -f2 | head -4 | tr '\n' ' ')"
       if [ -n "${bv_bad// /}" ]; then
         check benchmark_results warn "newest results file (${newest_res##*/}) fails: ${bv_bad% } — the report tolerates it, later runs must not repeat the shape"

@@ -501,9 +501,10 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
     then ask in turn, one question each, for **`benchmark_judge`** (the judge
     of the LLM-judged quality scores, the same for every run, run through the
-    `claude` CLI whatever model the reviews use; default `auto` = I pick it
-    once from this host's models, `docs/benchmark.md` → **Choosing the
-    judge**; a model id = the operator's pick; `off` = deterministic scoring
+    `claude` CLI whatever model the reviews use; recommended answer `auto` =
+    I pick it once from this host's models, `docs/benchmark.md` →
+    **Choosing the judge**; a model id = the operator's pick; `off`, or no
+    answer, omits the key: a missing key is `off`, deterministic scoring
     only; run `bash "$HOME/scripts/benchmark-judge.sh" check <id or auto>` and
     give the operator the reason it prints, if any — signing the claude CLI in
     is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
