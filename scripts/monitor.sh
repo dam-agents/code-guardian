@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # monitor.sh — the monitor's detector: the agent's health alerts, apart from
-# the review heartbeat (docs/monitor.md). Local files and the platform's
-# session list only (lib/sessions.sh), no GitHub call; its writes are bookkeeping and the technical history (health.sh), its only
+# the review heartbeat (docs/monitor.md). Local files, the platform's session
+# list (lib/sessions.sh) and, under `benchmark: enabled`, the judge's model
+# list (benchmark-judge.sh resolve) only, no GitHub call; its writes are
+# bookkeeping and the technical history (health.sh), its only
 # outward calls the two opt-ins (monitor-direct.sh, health.sh publish).
 #
 #   monitor.sh            -> worklist JSON: alerts_due[] (each with an `id`),
@@ -222,15 +224,20 @@ if { [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ]; } || [ -d "$
 fi
 
 # --------------------------------------------------- benchmark judge ----
-# a configured judge this host cannot run (benchmark-judge.sh check — local,
-# no model call): every benchmark run until the fix scores without the judge.
-# `cause` is one word for the fixed templates; signing the CLI in clears it.
-JUDGE_MODEL="$(cfg benchmark_judge)"
-if [ "$(cfg benchmark)" = enabled ] && [ -n "$JUDGE_MODEL" ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
-  if JUDGE_WHY="$(bash "$SCRIPT_DIR/benchmark-judge.sh" check "$JUDGE_MODEL" 2>/dev/null)"; then
+# the judge every run uses, when this host cannot run it (benchmark-judge.sh
+# resolve — reads the served model list, no model call): every benchmark run until the fix scores
+# without the judge. `cause` (resolve's) is one word for the fixed templates;
+# signing the CLI in, or a judge name the host serves, clears it. A resolve without JSON leaves the alert state as it is.
+if [ "$(cfg benchmark)" = enabled ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
+  JUDGE_JSON="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-judge.sh" resolve 2>/dev/null)"
+  JUDGE_MODEL="$(printf '%s' "$JUDGE_JSON" | jq -r '.judge // empty' 2>/dev/null)"
+  JUDGE_WHY="$(printf '%s' "$JUDGE_JSON" | jq -r '.judge_unavailable // empty' 2>/dev/null)"
+  if [ -z "$JUDGE_MODEL" ]; then
+    log "benchmark judge resolve printed no judge — judge_unavailable not evaluated"
+  elif [ -z "$JUDGE_WHY" ]; then
     CLEARED="$CLEARED judge_unavailable"
   else
-    case "$JUDGE_WHY" in ("no '"*) JUDGE_CAUSE=no_cli;; (*) JUDGE_CAUSE=not_signed_in;; esac
+    JUDGE_CAUSE="$(printf '%s' "$JUDGE_JSON" | jq -r '.cause // "not_signed_in"' 2>/dev/null)"
     cand "$(jq -nc --arg m "$JUDGE_MODEL" --arg c "$JUDGE_CAUSE" --arg r "$JUDGE_WHY" \
       '{id: "judge:\($m)", kind: "judge_unavailable", model: $m, cause: $c, reason: $r}')"
   fi

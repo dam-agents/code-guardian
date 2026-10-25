@@ -84,12 +84,14 @@ direct_case dir_golden_judge
 alerts <<'JSON'
 [{"id":"judge:claude-opus-5","kind":"judge_unavailable","model":"claude-opus-5","cause":"not_signed_in","reason":"the '/opt/bin/claude' CLI on this host is not signed in"},
  {"id":"judge:x","kind":"judge_unavailable","model":"x","cause":"no_cli","reason":"no 'claude' CLI on this host"},
+ {"id":"judge:z","kind":"judge_unavailable","model":"z","cause":"not_served","reason":"this host serves no model that matches 'z'"},
  {"id":"judge:y","kind":"judge_unavailable","model":"y","cause":"see https://evil.test"}]
 JSON
 direct render "$SANDBOX/alerts.json"
-check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 2 alerts
+check_eq "$(printf '%s' "$OUT" | jq -r .text)" '**Guardian monitor** — 3 alerts
 • **Benchmark judge unavailable:** the claude CLI on the host is not signed in, and the host has no pi CLI. The benchmark runs score without the judge until you fix it. Do this: run `claude auth login` on the host once, or set ANTHROPIC_API_KEY.
-• **Benchmark judge unavailable:** the host has no claude CLI and no pi CLI. The benchmark runs score without the judge until you fix it. Do this: install the claude CLI on the host.' 'the judge template renders its exact text'
+• **Benchmark judge unavailable:** the host has no claude CLI and no pi CLI. The benchmark runs score without the judge until you fix it. Do this: install the claude CLI on the host.
+• **Benchmark judge unavailable:** the host serves no model that matches benchmark_judge. The benchmark runs score without the judge until you fix it. Do this: set benchmark_judge to auto, or to a model that `benchmark-judge.sh models` shows.' 'the judge template renders its exact text'
 assert_jq '.skipped == ["judge:y"]' 'an unknown cause is skipped'
 assert_out_absent '/opt/bin' 'the free-text reason never reaches the message'
 

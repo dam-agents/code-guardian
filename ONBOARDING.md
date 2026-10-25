@@ -499,12 +499,15 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
-    then ask in turn, one question each, for **`benchmark_judge`** (a pinned
-    model id for the LLM-judged quality scores, run through the `claude` CLI
-    whatever model the reviews use; default `off` = deterministic scoring
-    only; for a model id, run `bash "$HOME/scripts/benchmark-judge.sh" check
-    <id>` and give the operator the reason it prints, if any — signing the
-    claude CLI in is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
+    then ask in turn, one question each, for **`benchmark_judge`** (the judge
+    of the LLM-judged quality scores, the same for every run, run through the
+    `claude` CLI whatever model the reviews use; recommended answer `auto` =
+    I pick it once from this host's models, `docs/benchmark.md` →
+    **Choosing the judge**; a model id = the operator's pick; `off`, or no
+    answer, omits the key: a missing key is `off`, deterministic scoring
+    only; run `bash "$HOME/scripts/benchmark-judge.sh" check <id or auto>` and
+    give the operator the reason it prints, if any — signing the claude CLI in
+    is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
     `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
     **Model prices**), and register the schedule in Step 6d. The first
@@ -612,7 +615,7 @@ Final shape:
 - survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled
 - survey_interval_days: 7              # floor between two passes; omit = 7
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
-- benchmark_judge: <pinned-model-id>   # pinned judge model; omit/off = deterministic scoring only
+- benchmark_judge: auto   # auto = the agent picks the judge once | <model-id> | off = deterministic scoring only
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - monitor_owner: dana                  # monitor alert DMs go here; omit = escalation_owner

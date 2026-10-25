@@ -9,6 +9,7 @@
 . "$(dirname "$0")/helpers.sh"
 
 VALIDATE="$REPO_ROOT/scripts/benchmark-validate.sh"
+export WORK_DIR=/nonexistent   # no CONFIG.md: the validator skips judge_resolved
 SCORE="$REPO_ROOT/scripts/benchmark-score.sh"
 REPORT="$REPO_ROOT/scripts/benchmark-report.sh"
 PHASE="$REPO_ROOT/scripts/benchmark-phase.sh"

@@ -86,7 +86,7 @@ render() { # <alerts.json>
       elif .kind == "dispatch_lost" then
         "**Dispatched review did not start:** PR \(.prs | map("#\(. | int)") | join(", ")) went to a session of its own at \(.ts | ts), and no session took it. The next heartbeat reviews it again. Do this: examine the one-time tasks of the platform."
       elif .kind == "judge_unavailable" then
-        "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI and no pi CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in, and the host has no pi CLI" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
+        "**Benchmark judge unavailable:** \(if .cause == "no_cli" then "the host has no claude CLI and no pi CLI" elif .cause == "not_signed_in" then "the claude CLI on the host is not signed in, and the host has no pi CLI" elif .cause == "not_served" then "the host serves no model that matches benchmark_judge" else error("cause") end). The benchmark runs score without the judge until you fix it. Do this: \(if .cause == "no_cli" then "install the claude CLI on the host" elif .cause == "not_served" then "set benchmark_judge to auto, or to a model that `benchmark-judge.sh models` shows" else "run `claude auth login` on the host once, or set ANTHROPIC_API_KEY" end)."
       else error("kind") end;
     [ .[] | select(.kind as $k | $kinds | index($k)) | {id, l: (try line catch null)} ] as $r
     | [ $r[] | select(.l != null and (.id | type) == "string") ][0:$max] as $ok

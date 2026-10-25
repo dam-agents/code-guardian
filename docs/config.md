@@ -39,8 +39,9 @@ sets there. The agent never chooses a session's model: it carries a registered
 schedule's `model` unchanged when ONBOARDING Step 6 re-creates that schedule,
 gives the benchmark's sub-agents and trial sessions its own session's model
 unless the operator names another ([benchmark.md](benchmark.md) →
-**Isolation**, **Trial runs**), and sets the model of the benchmark judge call
-(`benchmark_judge`, [benchmark.md](benchmark.md) → step 6).
+**Isolation**, **Trial runs**), and chooses the model of the benchmark judge
+call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
+**Choosing the judge**).
 
 ### Identity & repositories
 
@@ -242,15 +243,20 @@ unless the operator names another ([benchmark.md](benchmark.md) →
   accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)). A run needs
   a non-public `work_repo` and a public definition repo
   ([benchmark.md](benchmark.md) → **Isolation**).
-- **`benchmark_judge`** — pinned model id for the benchmark's LLM-judged
-  quality scores; `off`/missing = deterministic scoring only. The judge runs as
-  its own `claude -p` call on this model, whatever model the reviews ran on
-  ([benchmark.md](benchmark.md) → step 6), so the host needs the `claude` CLI,
-  signed in (`claude auth login` once, or `ANTHROPIC_API_KEY`), or a `pi` CLI
-  as the fallback on the same model, and access to this model; without them
-  the run keeps deterministic scores only, and the monitor alerts
-  `judge_unavailable`. A changed judge starts a new
-  comparability window.
+- **`benchmark_judge`** — the judge of the benchmark's LLM-judged quality
+  scores: `auto` | a model id | `off`. **Missing = `off`** (deterministic
+  scoring only). `auto` = the agent picks the judge once from the models this
+  host serves and every later run uses that pick
+  ([benchmark.md](benchmark.md) → **Choosing the judge**); a model id pins the
+  operator's choice, by any name the host's model list matches (`opus-5`,
+  another provider prefix; [benchmark.md](benchmark.md) → **Choosing the
+  judge**). A name the host does not serve fails before the run. The judge
+  runs as its own `claude -p` call, whatever model the reviews ran on ([benchmark.md](benchmark.md) → step 6), so the host needs
+  the `claude` CLI, signed in (`claude auth login` once, or
+  `ANTHROPIC_API_KEY`), or a `pi` CLI as the fallback on the same model;
+  without them the run keeps deterministic scores only, and the monitor
+  alerts `judge_unavailable`. A changed judge starts a new comparability
+  window.
 - **`benchmark_report`** — publish surface for the accumulated report
   artifact, updated in place so its URL stays stable: `dam` (default) | `off`,
   as `audit_trend`.

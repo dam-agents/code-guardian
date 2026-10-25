@@ -3,8 +3,10 @@
 Read on every **monitor run** (the `code-guardian-monitor-15m` schedule,
 ONBOARDING Step 6f). The review heartbeat decides review work only; every
 health alert is the monitor's. `scripts/precheck.sh monitor` runs
-`scripts/monitor.sh` once per fire: local files and the platform's session
-list ([sessions.md](sessions.md)) only — the events log, the
+`scripts/monitor.sh` once per fire: local files, the platform's session list
+([sessions.md](sessions.md)) and, under `benchmark: enabled`, the judge's
+model list (`benchmark-judge.sh resolve`: a `GET /v1/models` of the model
+endpoint, or `pi --list-models`) only — the events log, the
 review usage baseline, the review ledger, the harness settings, the judge
 CLIs' readiness (`claude auth status`, no model call) — no GitHub call, no write beyond its own bookkeeping and the technical history
 ([health.md](health.md)). Its only outward calls are the opt-in **Direct
@@ -35,7 +37,7 @@ anomalies and the classifier refusals ([audit.md](audit.md)).
 | `classifier_spike` | `classifier_alert_threshold` (missing = `20`; `0`/`off` disables both classifier alerts) `classifier_block` events in 24 h | — (once per UTC day) |
 | `review_post_blocked` | the classifier refused a `review-pr.sh post` in the last 24 h, and no later `posted` step of that PR exists | — (once per run and PR) |
 | `harness_drift` | an adapter's `install.sh --check` names a part that is not current (Claude Code: `hooks`, `automode-rules`, `tool-deny`, `skill-agent`; pi: `pi-extension`) | the checks print nothing |
-| `judge_unavailable` | `benchmark: enabled`, `benchmark_judge` a model id, and `scripts/benchmark-judge.sh check` fails — no signed-in `claude` CLI and no `pi` CLI to fall back to: `cause: no_cli` (no claude CLI) or `not_signed_in` | the check passes |
+| `judge_unavailable` | `benchmark: enabled`, `benchmark_judge` not `off`, and `scripts/benchmark-judge.sh resolve` prints a `judge_unavailable` — `cause: no_cli` (no claude CLI and no `pi` CLI), `not_signed_in` (a signed-out claude CLI and no `pi` CLI) or `not_served` (the host's model list has no model the judge name matches) | the check passes |
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
 | `dispatch_refused` | `dispatch_refused` events ([runbook.md](runbook.md) → **Review run** step 1) since the last accepted dispatch: the first 60 min old, the newest under 24 h old | the next accepted dispatch, or 24 h without a refusal |
@@ -96,7 +98,8 @@ their own detection-time claims (below), not the ledger.
    - `judge_unavailable` — the benchmark scores without its judge until the
      operator fixes the host: `claude auth login` once in a shell on the host,
      or `ANTHROPIC_API_KEY` in its environment (`no_cli`: install the CLI),
-     or a `pi` CLI on the host.
+     or a `pi` CLI on the host; `not_served`: `benchmark_judge` set to `auto`
+     or to a model that `benchmark-judge.sh models` lists.
      Operator-only; the agent never signs in.
    - `heartbeat_gap` — the review schedule is disabled, deleted or its gate
      cannot start (`list_schedules`; [worklist.md](worklist.md) → **The

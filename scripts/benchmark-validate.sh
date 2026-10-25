@@ -5,6 +5,7 @@
 #
 #   benchmark-validate.sh fixture <fixture-dir>...   # before a set is used
 #   benchmark-validate.sh results <results.json>     # before results are kept
+#   benchmark-validate.sh results --stored <results.json>  # a kept file (audit)
 #
 # Why this is a script and not a doc rule: both failures it catches are
 # invisible at run time. A fixture that names its own defects still scores
@@ -45,6 +46,16 @@
 #                   fixture `judge` needs a model-id `judge` and a
 #                   `judge_model_used` that model matches (MODEL_JQ) — a
 #                   judge that falls back to the tested model scores itself
+#   judge_resolved  before a file is kept (not with --stored: the live
+#                   config moves on after a run) and with a work/CONFIG.md on
+#                   this host, `judge` is what `benchmark-judge.sh resolve`
+#                   prints (off = null or off; under an unpicked auto, the
+#                   model id of the candidate the run tried) — an
+#                   operator-asked run has no worklist entry to copy it from
+#   judge_reason    from definition_version 12.3.0: `judge` is never `auto`,
+#                   and a model-id judge with any fixture `judge` null carries
+#                   the first non-ok `reason` as `judge_reason` — else a judge
+#                   that never answered leaves no trace of why
 set -u
 export LC_ALL=C
 
@@ -233,6 +244,33 @@ validate_results() { # <file>
       else "judge is \($j), but \($u) scored" end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail judge_pinned "$bad; fix: take judge scores and judge_model_used from benchmark-judge.sh only — set every fixture judge to null when it did not answer ok" \
                 || ok judge_pinned "judge scores, if any, come from the pinned judge"
+
+  RESOLVED=""
+  [ "$STORED" = 0 ] && [ -f "${WORK_DIR:-${HOME:-/home/agent}/work}/CONFIG.md" ] \
+    && RESOLVED="$(bash "$SCRIPT_DIR/benchmark-judge.sh" resolve 2>/dev/null | jq -r '.judge // empty' 2>/dev/null)"
+  if [ -n "$RESOLVED" ]; then
+    bad="$(jq -r --arg r "$RESOLVED" '(.judge // "off" | tostring) as $j
+      | if $r == "auto" then
+          (if $j == "auto" or $j == "off" then "judge is \"\($j)\" under an unpicked auto, not the candidate the run tried" else "" end)
+        elif $j == $r then ""
+        else "judge is \"\($j)\", but benchmark-judge.sh resolve prints \"\($r)\"" end' "$f" 2>/dev/null)"
+    [ -n "$bad" ] && fail judge_resolved "$bad; fix: take judge from benchmark-judge.sh resolve and run phase 2 step 6 with it" \
+                  || ok judge_resolved "the run used the judge every run uses"
+  fi
+
+  bad="$(jq -r '
+    [.fixtures // {} | if type == "object" then .[] else empty end
+     | (.first, .rereview) | select(type == "object") | .judge] as $phases
+    | (.judge // "" | tostring) as $j
+    | ((.definition_version // "0") | tostring | [splits("[.]") | tonumber? // 0]) as $v
+    | if $v < [12, 3, 0] then ""
+      elif $j == "auto" then "judge is auto, not the resolved judge"
+      elif $j == "" or $j == "off" then ""
+      elif ($phases | any(. == null)) and ((.judge_reason // "") | tostring) == ""
+      then "a fixture judge is null, but judge_reason is missing"
+      else "" end' "$f" 2>/dev/null)"
+  [ -n "$bad" ] && fail judge_reason "$bad; fix: judge is the judge from benchmark-judge.sh resolve or the call that pinned it; judge_reason is the first reason benchmark-judge.sh printed with a status other than ok" \
+                || ok judge_reason "the judge is resolved, and a missing judge score has its reason"
 }
 
 MODE="${1:-}"; shift 2>/dev/null || true
@@ -241,7 +279,8 @@ case "$MODE" in
     [ "$#" -gt 0 ] || { printf 'usage: benchmark-validate.sh fixture <fixture-dir>...\n' >&2; exit 2; }
     for d in "$@"; do validate_fixture "$d"; done;;
   (results)
-    [ "$#" -gt 0 ] || { printf 'usage: benchmark-validate.sh results <results.json>\n' >&2; exit 2; }
+    STORED=0; [ "${1:-}" = --stored ] && { STORED=1; shift; }
+    [ "$#" -gt 0 ] || { printf 'usage: benchmark-validate.sh results [--stored] <results.json>\n' >&2; exit 2; }
     for f in "$@"; do validate_results "$f"; done;;
   (*) printf 'usage: benchmark-validate.sh fixture <dir>... | results <file>...\n' >&2; exit 2;;
 esac
