@@ -222,14 +222,17 @@ if { [ -f "$HOME_DIR/.claude/settings.json" ] && [ -f "$INSTALL" ]; } || [ -d "$
 fi
 
 # --------------------------------------------------- benchmark judge ----
-# a configured judge this host cannot run (benchmark-judge.sh check — local,
-# no model call): every benchmark run until the fix scores without the judge.
-# `cause` is one word for the fixed templates; signing the CLI in clears it.
+# the judge every run uses, when this host cannot run it (benchmark-judge.sh
+# resolve — local, no model call): every benchmark run until the fix scores
+# without the judge. `cause` is one word for the fixed templates; signing the
+# CLI in clears it. A resolve without JSON leaves the alert state as it is.
 if [ "$(cfg benchmark)" = enabled ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
   JUDGE_JSON="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-judge.sh" resolve 2>/dev/null)"
   JUDGE_MODEL="$(printf '%s' "$JUDGE_JSON" | jq -r '.judge // empty' 2>/dev/null)"
   JUDGE_WHY="$(printf '%s' "$JUDGE_JSON" | jq -r '.judge_unavailable // empty' 2>/dev/null)"
-  if [ -z "$JUDGE_WHY" ]; then
+  if [ -z "$JUDGE_MODEL" ]; then
+    log "benchmark judge resolve printed no judge — judge_unavailable not evaluated"
+  elif [ -z "$JUDGE_WHY" ]; then
     CLEARED="$CLEARED judge_unavailable"
   else
     case "$JUDGE_WHY" in ("no '"*) JUDGE_CAUSE=no_cli;; (*) JUDGE_CAUSE=not_signed_in;; esac

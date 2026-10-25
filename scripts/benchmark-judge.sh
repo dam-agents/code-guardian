@@ -21,9 +21,9 @@
 # `benchmark_judge` is off or a model id: the operator's id wins.
 #
 # `check` makes no model call: it prints nothing and exits 0 when this host
-# can run the judge, else one line with the reason and exits 1. Preflight's
-# benchmark pass and the monitor run it (docs/benchmark.md, docs/monitor.md →
-# `judge_unavailable`). The claude CLI counts as signed in when `claude auth
+# can run the judge, else one line with the reason and exits 1. `resolve`
+# runs it, and onboarding runs it for the operator (docs/benchmark.md,
+# docs/monitor.md → `judge_unavailable`). The claude CLI counts as signed in when `claude auth
 # status` says so, or when the environment carries its credentials — `auth
 # status` reports a gateway token (ANTHROPIC_AUTH_TOKEN) as signed out. A pi
 # CLI on the host is enough too: it is the fallback below.
