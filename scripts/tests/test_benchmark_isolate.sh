@@ -129,7 +129,7 @@ assert_out_contains 'over 10' 'the refusal names the cap'
 
 # --- start -----------------------------------------------------------------------
 iso_case start_spawns_both_phases
-iso start --effort high "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --effort high "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 0 'start spawns'
 check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 2 'one spawn per phase'
 check_eq "$(cat "$SANDBOX/st/ts-api-first.id"):$(cat "$SANDBOX/st/ts-api-rereview.id")" "inv-1:inv-2" 'ids kept per task'
@@ -137,7 +137,7 @@ B1="$(sed -n 1p "$SANDBOX/rest.log.body")"
 check_eq "$(printf '%s' "$B1" | jq -c '.seed')" "{\"url\":\"https://github.com/acme/cg-def.git\",\"commit\":\"$HEAD_SHA\",\"into\":\"home\"}" 'the seed is the definition at this commit, into home'
 check_eq "$(printf '%s' "$B1" | jq -c '.connections')" '[]' 'no connection reaches a sub-agent'
 check_eq "$(printf '%s' "$B1" | jq -r '.harness')" claude-code 'the production harness'
-check_eq "$(printf '%s' "$B1" | jq -c '.harnessConfig')" '{"configOptions":{"effort":"high"}}' 'the effort passes, the model stays the default'
+check_eq "$(printf '%s' "$B1" | jq -c '.harnessConfig')" '{"model":"claude/ibm/aws/claude-sonnet-5-5","configOptions":{"effort":"high"}}' 'the model and the effort pass'
 check_eq "$(printf '%s' "$B1" | jq -r '[.env[] | select(.name == "CG_BENCHMARK_CHILD")][0].value')" 1 'the sub-agent knows its role'
 check_eq "$(printf '%s' "$B1" | jq -r '.install.command')" 'bash "$HOME/scripts/benchmark-child.sh" unpack' 'the install step unpacks the bundle'
 check_eq "$(printf '%s' "$B1" | jq -r '.prompt | test("fixture `ts-api`, phase `first`, run timestamp `20261101T060000Z`")')" true 'the prompt names the task'
@@ -150,18 +150,22 @@ check_eq "$(jq -r '[.definition_ref.sha, .skill_sources["sec-check"]] | join("|"
 check_eq "$(cat "$SANDBOX/st/snapshot/.claude/skills/sec-check/SKILL.md")" skill 'the snapshot holds the skills the run bundles'
 
 iso_case start_bundles_every_task_from_one_snapshot
-iso start --only ts-api-first "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-first "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 # a skill install between the first spawn and a retry changes nothing of the run
 printf 'newer\n' > "$FAKE_HOME/.claude/skills/sec-check/SKILL.md"; printf 'def456' > "$FAKE_HOME/.claude/skills/.cache/sec-check.sha"
-iso start --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 0 'the retry spawns'
 B2="$(sed -n 2p "$SANDBOX/rest.log.body" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' | base64 -d | tar -xzOf - ./.claude/skills/.cache/sec-check.sha)"
 check_eq "$B2" abc123 'the retry bundles the run snapshot, not the newer install'
 check_eq "$(jq -r '.skill_sources["sec-check"]' "$SANDBOX/st/expect.json")" abc123 'the expected provenance stays the snapshot'
 printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "$SANDBOX/st/commit"
-iso start --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a retry never seeds another commit into the run'
 assert_out_contains 'a retry seeds the same commit' 'the refusal says so'
+printf '%s\n' "$HEAD_SHA" > "$SANDBOX/st/commit"
+iso start --model ibm/aws/claude-opus-5-5 --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a retry never spawns on another model'
+assert_out_contains 'a retry spawns on the same model' 'the refusal says so'
 
 iso_case start_seeds_another_commit
 # a trial seeds a branch commit that only the definition remote holds; it is
@@ -180,7 +184,7 @@ FEAT="$(git -C "$SANDBOX/dev" rev-parse HEAD)"
 git -C "$FAKE_HOME" config url."$SANDBOX/def.git".insteadOf https://github.com/acme/cg-def.git
 printf '{"sha":"%s"}' "$FEAT" | fx "api --hostname github.com repos/acme/cg-def/commits/$FEAT"
 check_eq "$(git -C "$FAKE_HOME" cat-file -t "$FEAT" 2>/dev/null)" "" 'the commit is not in the checkout before the run'
-iso start --commit "$FEAT" --branch feature "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --commit "$FEAT" --branch feature "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 0 'start fetches and seeds a commit that is not checked out'
 check_eq "$(sed -n 1p "$SANDBOX/rest.log.body" | jq -r '.seed.commit')" "$FEAT" 'the seed is the given commit'
 check_eq "$(jq -r '[.definition_version, .definition_ref.branch, .definition_ref.sha] | join("|")' "$SANDBOX/st/expect.json")" "10.5.0|feature|${FEAT:0:12}" 'the expected provenance is the commit, not the checkout'
@@ -201,7 +205,7 @@ LEAKED="$(git -C "$FAKE_HOME" rev-parse HEAD)"
 git -C "$FAKE_HOME" reset -q --hard HEAD~1
 git -C "$FAKE_HOME" config url."$SANDBOX/none.git".insteadOf https://github.com/acme/cg-def.git
 printf '{"sha":"%s"}' "$LEAKED" | fx "api --hostname github.com repos/acme/cg-def/commits/$LEAKED"
-iso start --commit "$LEAKED" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --commit "$LEAKED" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'the seeded commit history is checked too'
 assert_out_contains 'ground truth .* in the definition history' 'the refusal says so'
 
@@ -210,7 +214,7 @@ printf '%s\n' "$SUMMARY" > "$FAKE_HOME/docs/x.md"
 git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam leak
 HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
 printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
-iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a seed commit with a defect summary is refused'
 assert_out_contains 'ground truth .* in the definition history: commit' 'the refusal names the commit'
 check_eq "$(grep -c '^POST' "$SANDBOX/rest.log")" 0 'nothing is spawned'
@@ -224,7 +228,7 @@ printf 'definition\n' > "$FAKE_HOME/docs/x.md"
 git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qam clean
 HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
 printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
-iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a defect summary anywhere in the history is refused'
 assert_out_contains "commit $LEAK" 'the refusal names the leaking commit'
 
@@ -234,19 +238,30 @@ git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t add -f work && git -C "$FAK
 git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t rm -rq work && git -C "$FAKE_HOME" -c user.email=t@t -c user.name=t commit -qm undo
 HEAD_SHA="$(git -C "$FAKE_HOME" rev-parse HEAD)"
 printf '{"sha":"%s"}' "$HEAD_SHA" | fx "api --hostname github.com repos/acme/cg-def/commits/$HEAD_SHA"
-iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a benchmark path ever tracked in the definition is refused'
 assert_out_contains 'tracks a benchmark fixture or result' 'the refusal says what'
 
+iso_case start_refuses_without_a_model
+iso_env bash "$ISO" start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api > "$SANDBOX/out" 2>&1; RC=$?; OUT="$(cat "$SANDBOX/out")"
+check_eq "$RC" 1 'a Claude Code session that names no model spawns nothing'
+assert_out_contains 'no model for the sub-agents' 'the refusal says what is missing'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log" 2>/dev/null)" 0 'the agent default never runs a sub-agent'
+iso start --model claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a bare model name is refused before a spawn'
+assert_out_contains 'not provider-qualified' 'the refusal names the form'
+check_eq "$(env -u CLAUDECODE PLATFORM_HARNESS=pi PI_PROVIDER=platform PI_MODEL=cb/rits/deepseek-v4 bash -c '. "$1"; cg_harness_model' _ "$REPO_ROOT/scripts/lib/harness.sh")" \
+  cb/rits/deepseek-v4 'a pi session names its own model, without the router provider name'
+
 iso_case start_only_matches_nothing
-iso start --only ts-api-second "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-second "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'an --only that names no task fails'
 assert_out_contains 'no task matches --only ts-api-second' 'the refusal names it'
 
 iso_case start_refused_spawn
 printf '{"error":"spend limit reached"}' > "$SANDBOX/rest/POST_invocations.json"
 printf '402' > "$SANDBOX/rest/POST_invocations.code"
-iso start "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+iso start --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
 check_eq "$RC" 1 'a refused spawn stops start'
 assert_out_contains 'ts-api-first: spawn refused — spend limit reached' 'the platform reason is relayed'
 check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 1 'a refused spawn is never repeated'
@@ -256,6 +271,7 @@ check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 1 'a refused spa
 seed_state() {
   mkdir -p "$SANDBOX/st"; printf '20261101T060000Z\n' > "$SANDBOX/st/ts"
   printf 'inv-1\n' > "$SANDBOX/st/ts-api-first.id"; printf 'inv-2\n' > "$SANDBOX/st/ts-api-rereview.id"
+  printf 'claude/ibm/aws/claude-opus-5-5\n' > "$SANDBOX/st/model"
   jq -n '{definition_version:"10.4.0", memory_sha:"m1", skill_sources:{"sec-check":"abc123"},
           effort:"high", definition_ref:{branch:"main", sha:"abc"}, harness_version:"2.1.0 (Claude Code)"}' > "$SANDBOX/st/expect.json"
 }
@@ -296,6 +312,36 @@ iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC" 1 'a sub-agent with other inputs fails the collection'
 check_eq "$(printf '%s' "$OUT" | jq -c '.mismatches')" '[{"task":"ts-api-rereview","fields":["memory_sha"]}]' 'the drifted field is named'
 check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'an aborted collection writes no raw file into the append-only history'
+
+iso_case collect_flags_another_model
+seed_state
+printf 'claude/ibm/aws/claude-sonnet-5-5\n' > "$SANDBOX/st/model"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-2.json"
+iso wait "$SANDBOX/st"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
+check_eq "$RC" 1 'a sub-agent on another model than start asked for fails the collection'
+check_eq "$(printf '%s' "$OUT" | jq -c '[.mismatches[].fields[]] | unique')" '["model"]' 'the model is named'
+check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'nothing is recorded'
+
+iso_case collect_flags_a_sibling_model
+seed_state
+for i in 1 2; do done_view m1 | jq '.result.model = "claude-opus-5-5-mini"' > "$SANDBOX/rest/GET_invocations_inv-$i.json"; done
+iso wait "$SANDBOX/st"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
+check_eq "$RC" 1 'a sibling of the asked model fails the collection'
+check_eq "$(printf '%s' "$OUT" | jq -c '[.mismatches[].fields[]] | unique')" '["model"]' 'the model is named'
+
+iso_case collect_refuses_without_a_model
+seed_state
+rm -f "$SANDBOX/st/model"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-2.json"
+iso wait "$SANDBOX/st"
+iso_env bash "$ISO" collect "$SANDBOX/st" "$SANDBOX/raw" > "$SANDBOX/out" 2>&1; RC=$?; OUT="$(cat "$SANDBOX/out")"
+check_eq "$RC" 1 'a state dir with no spawn model collects nothing'
+assert_out_contains 'no spawn model' 'the refusal says what is missing'
+check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'nothing is recorded'
 
 iso_case collect_takes_the_asked_effort
 seed_state

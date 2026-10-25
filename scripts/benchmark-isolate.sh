@@ -43,8 +43,13 @@
 # ended, rc 3 while some still run. `collect` writes each result's raw review
 # and skill archive, prints one JSON object (tasks, model, harness_version,
 # effort, failed[], mismatches[]) and exits 1 on a failed task, a malformed
-# result, or provenance that differs from <state-dir>/expect.json — then it
-# writes no raw file.
+# result, provenance that differs from <state-dir>/expect.json, or a model
+# other than the one `start` spawned on (the id after the provider path, equal
+# in any letter case) — then it writes no raw file. With no model recorded in
+# <state-dir> it refuses.
+#
+# Every spawn names its model: --model, else the session's own
+# (lib/harness.sh → cg_harness_model); with neither, `start` refuses.
 set -u
 export LC_ALL=C
 
@@ -235,13 +240,21 @@ start() {
   done
   [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--commit sha [--branch name]] [--model m] [--effort e] [--only task]… <state-dir> <ts> <fixture-root> <slug>…"
   st="$1" ts="$2" root="${3%/}"; shift 3
+  # a script spawn naming no model runs on the agent's saved default, not on
+  # this session's model, so every spawn names one
+  [ -n "$model" ] || model="$(cg_harness_model)"
+  [ -n "$model" ] || die "no model for the sub-agents: pass --model <this session's provider-qualified model>"
+  case "$model" in (*?/?*) ;; (*) die "--model $model is not provider-qualified (<provider>/<id>)";; esac
   check_full "$commit" || return 1
   sha="$SEED_SHA"
   seed_clean "$root" "$sha" || return 1
   mkdir -p "$st" || die "cannot create $st"
   [ ! -f "$st/commit" ] || [ "$(cat "$st/commit")" = "$sha" ] \
     || die "$st seeded commit $(head -c 12 "$st/commit") — a retry seeds the same commit"
+  [ ! -f "$st/model" ] || [ "$(cat "$st/model")" = "$model" ] \
+    || die "$st spawned on $(cat "$st/model") — a retry spawns on the same model"
   printf '%s\n' "$ts" > "$st/ts"; printf '%s\n' "$effort" > "$st/effort"; printf '%s\n' "$sha" > "$st/commit"
+  printf '%s\n' "$model" > "$st/model"
   # one snapshot per run, so every task — a retry included — gets the same
   # memory and skills, and the expected provenance describes exactly them
   if [ ! -d "$st/snapshot" ]; then
@@ -281,9 +294,8 @@ start() {
         {harness: $h, prompt: $p, schema: $schema, label: $l, ttlMs: $ttl, connections: [],
          seed: {url: $url, commit: $sha, into: "home"},
          install: {command: "bash \"$HOME/scripts/benchmark-child.sh\" unpack"}, env: $env}
-        + (if $model == "" and ($effort == "" or $h != "claude-code") then {}
-           else {harnessConfig: ((if $model == "" then {} else {model: $model} end)
-             + (if $effort == "" or $h != "claude-code" then {} else {configOptions: {effort: $effort}} end))} end)' \
+        + {harnessConfig: ({model: $model}
+             + (if $effort == "" or $h != "claude-code" then {} else {configOptions: {effort: $effort}} end))}' \
         > "$body" || die "$task: request not built"
       rm -f "$b64"
       # one POST per task: a repeated call is a second sub-agent
@@ -333,10 +345,12 @@ wait_all() { # <state-dir>
 }
 
 collect() { # <state-dir> <raw-dir>
-  local st="$1" raw="$2" exp="$1/expect.json" ts asked f task slug ph r out="[]" bad
+  local st="$1" raw="$2" exp="$1/expect.json" ts asked want f task slug ph r out="[]" bad
   ts="$(cat "$st/ts" 2>/dev/null)"; [ -n "$ts" ] || die "no run timestamp in $st"
   # the effort start passed stands in where a sub-agent's harness exposes none
   asked="$(cat "$st/effort" 2>/dev/null)"
+  # start records the spawn model before any spawn: without it, nothing proves the sub-agents' model
+  want="$(cat "$st/model" 2>/dev/null)"; [ -n "$want" ] || die "no spawn model in $st"
   jq -e 'type == "object"' "$exp" >/dev/null 2>&1 || die "expected provenance unreadable: $exp"
   mkdir -p "$raw"
   for f in "$st"/*.id; do
@@ -357,14 +371,15 @@ collect() { # <state-dir> <raw-dir>
       out="$(printf '%s' "$out" | jq --arg t "$task" --arg why "$bad" '. + [{task: $t, failed: $why}]')"; continue
     fi
     out="$(printf '%s' "$out" | jq --arg t "$task" --arg s "$slug" --arg ph "$ph" --arg id "$(cat "$f")" \
-      --arg asked "${asked:-}" --slurpfile res "$r" --slurpfile e "$exp" '
+      --arg asked "${asked:-}" --arg want "${want:-}" --slurpfile res "$r" --slurpfile e "$exp" "$MODEL_JQ"'
       $res[0] as $r | $e[0] as $x
       | ($r.provenance | if (.effort // "unknown") == "unknown" and $asked != "" then .effort = $asked else . end) as $p
       | ([ ("definition_version", "memory_sha", "skill_sources")
            | select(($p[.] // null) != ($x[.] // null)) ]
          + (if ($p.definition_ref.sha // null) != ($x.definition_ref.sha // null) then ["definition_ref.sha"] else [] end)
          + (if ($p.effort // "unknown") != "unknown" and ($x.effort // "unknown") != "unknown"
-               and $p.effort != $x.effort then ["effort"] else [] end)) as $diff
+               and $p.effort != $x.effort then ["effort"] else [] end)
+         + (if ($r.model | model_key) != ($want | model_key) then ["model"] else [] end)) as $diff
       | . + [{task: $t, slug: $s, phase: $ph, spawn: $id,
               seconds: $r.measure.seconds, tokens: $r.measure.tokens, suppressed: $r.suppressed,
               model: $r.model, harness_version: ($p.harness_version // null), effort: ($p.effort // "unknown"),

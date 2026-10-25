@@ -15,6 +15,10 @@ they are released history and stay as written.
 
 **Upgrade:** Nothing — docs are re-read per run.
 
+## 12.2.1 — 2026-10-25
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 12.2.0 — 2026-10-24
 
 **Upgrade:** Off by default: the bundled `agent-engineering` review skill
