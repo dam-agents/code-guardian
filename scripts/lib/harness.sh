@@ -5,6 +5,7 @@
 #   cg_harness           # prints claude-code | pi | bob | <PLATFORM_HARNESS> | unknown
 #   cg_harness_version   # prints the harness version line, empty when unknown
 #   cg_harness_effort    # prints the session's reasoning effort, else "unknown"
+#   cg_harness_model     # prints the session's provider-qualified model, empty when the env names none
 #
 # The env is the harness process's own, so a pod that offers several harnesses
 # answers per session. Sourced by the scripts that differ per harness:
@@ -34,4 +35,12 @@ cg_harness_version() {
 # CLAUDE_EFFORT is Claude Code's, PI_REASONING_LEVEL pi's thinking level
 cg_harness_effort() {
   printf '%s' "${CLAUDE_EFFORT:-${PI_REASONING_LEVEL:-unknown}}"
+}
+
+# pi's PI_MODEL is the session's own (`ibm/aws/claude-opus-5-5`); Claude Code's
+# env holds the agent's default only, so the session names its model itself
+cg_harness_model() {
+  case "$(cg_harness)" in
+    pi) printf '%s' "${PI_MODEL:-}" ;;
+  esac
 }
