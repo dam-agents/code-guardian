@@ -3,7 +3,10 @@
 Read on every **monitor run** (the `code-guardian-monitor-15m` schedule,
 ONBOARDING Step 6f). The review heartbeat decides review work only; every
 health alert is the monitor's. `scripts/precheck.sh monitor` runs
-`scripts/monitor.sh` once per fire: local files only — the events log, the
+`scripts/monitor.sh` once per fire: local files, the platform's session list
+([sessions.md](sessions.md)) and, under `benchmark: enabled`, the judge's
+model list (`benchmark-judge.sh resolve`: a `GET /v1/models` of the model
+endpoint, or `pi --list-models`) only — the events log, the
 review usage baseline, the review ledger, the harness settings, the judge
 CLIs' readiness (`claude auth status`, no model call) — no GitHub call, no write beyond its own bookkeeping and the technical history
 ([health.md](health.md)). Its only outward calls are the opt-in **Direct
@@ -16,7 +19,8 @@ The monitor reports only what stops the agent's own operation: the model or
 its provider, the platform, GitHub reachability, the review schedule, the
 harness, the backup. These **page kinds** go to the operator:
 `model_unavailable`, `model_recovered`, `github_unavailable`,
-`github_recovered`, `dispatch_refused`, `heartbeat_gap`, `judge_unavailable`,
+`github_recovered`, `dispatch_refused`, `dispatch_lost`, `session_overrun`,
+`heartbeat_gap`, `judge_unavailable`,
 `harness_drift`, `backup_failing`. Every other kind is **history only**: the
 pass records it in the technical history and the dashboard
 ([health.md](health.md)), and the worklist carries it under `recorded`
@@ -37,6 +41,8 @@ anomalies and the classifier refusals ([audit.md](audit.md)).
 | `heartbeat_gap` | no review-gate `precheck` or `heartbeat` event for 1.5 × `review_interval_quiet` (at least 60 min) | the gate ticks again |
 | `backup_failing` | under a `work_repo`, a `work_backup` error no later push cleared for 6 h | the next push |
 | `dispatch_refused` | `dispatch_refused` events ([runbook.md](runbook.md) → **Review run** step 1) since the last accepted dispatch: the first 60 min old, the newest under 24 h old | the next accepted dispatch, or 24 h without a refusal |
+| `dispatch_lost` | a PR that a `dispatch` event handed to a session of its own 30 min to 24 h ago, that no later `hold` event names and no running session names in its title | the hold event or the session comes |
+| `session_overrun` | a running review session (title `Review…`, `Re-review…`, `Answer mention…`, `Triage CI…`, `Merge PR…`, `Fix findings…`, `Report review alerts`, `Tidy review state`) whose turn started more than 180 min ago ([sessions.md](sessions.md)) | the turn ends |
 | `github_write_denied` | a script's warn or error line in 24 h that quotes a GitHub `HTTP 403` — a rate limit, the gate's list failure, a failed dismissal and the harness hooks' events aside | — (once per UTC day) |
 | `approval_not_revoked` | a `dismiss` warn of `review-pr.sh` in 24 h: a review below `APPROVE` could not dismiss a standing approval of the agent, or could not list the PR's reviews ([review-rereview.md](review-rereview.md) → **Revoking a stale approval**) | a later dismissal of that approval; else once per approval (per run for a failed list) |
 | `github_identity_changed` | `work/GITHUB.json` → `changed_at` in the last 7 days ([github-access.md](github-access.md) → **Identity**) | — (once per change) |

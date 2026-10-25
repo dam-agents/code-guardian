@@ -43,7 +43,7 @@ file per UTC day), one JSON object per line:
   `review_anomaly`, `classifier_block`, `api_failure`,
   `adapter_failure`,
   `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,
-  `log_cleanup`, `profile`, `dispatch`, `dispatch_refused`, `state_lock`, …).
+  `log_cleanup`, `profile`, `dispatch`, `dispatch_refused`, `dispatch_skipped`, `state_lock`, …).
   The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # monitor.sh — the monitor's detector: the agent's health alerts, apart from
-# the review heartbeat (docs/monitor.md). Local files only, no GitHub call;
-# its writes are bookkeeping and the technical history (health.sh), its only
+# the review heartbeat (docs/monitor.md). Local files, the platform's session
+# list (lib/sessions.sh) and, under `benchmark: enabled`, the judge's model
+# list (benchmark-judge.sh resolve) only, no GitHub call; its writes are
+# bookkeeping and the technical history (health.sh), its only
 # outward calls the two opt-ins (monitor-direct.sh, health.sh publish).
 #
 #   monitor.sh            -> worklist JSON: alerts_due[] (each with an `id`),
@@ -223,7 +225,7 @@ fi
 
 # --------------------------------------------------- benchmark judge ----
 # the judge every run uses, when this host cannot run it (benchmark-judge.sh
-# resolve — local, no model call): every benchmark run until the fix scores
+# resolve — reads the served model list, no model call): every benchmark run until the fix scores
 # without the judge. `cause` (resolve's) is one word for the fixed templates;
 # signing the CLI in, or a judge name the host serves, clears it. A resolve without JSON leaves the alert state as it is.
 if [ "$(cfg benchmark)" = enabled ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
@@ -292,6 +294,53 @@ if [ -n "$DP" ] && [ "$DP" != null ] \
    && [ $(( NOW_EPOCH - $(iso2epoch "$(printf '%s' "$DP" | jq -r .first)") )) -ge 3600 ]; then
   cand "$(printf '%s' "$DP" | jq -c '{id: "dispatch:\(.first)", kind: "dispatch_refused"} + .')"
 else CLEARED="$CLEARED dispatch_refused"; fi
+
+# ------------------------------------------------- platform sessions ----
+# A PR that `dispatch.sh rest` handed to a session of its own, 30 min to 24 h
+# ago, that no `hold` event names since — the session never took it — and no
+# running session names in its title (<busy>: their PR numbers).
+dispatch_lost() { # [busy]
+  events_jsonl dispatch | jq -sc --arg lo "$(epoch2iso $(( NOW_EPOCH - 86400 )))" --arg hi "$(epoch2iso $(( NOW_EPOCH - 1800 )))" \
+    --slurpfile h <(events_jsonl hold | jq -c 'select(.event == "hold") | {ts, pr: ((.msg | capture("^PR #(?<n>[0-9]+):") | .n) // null)}
+                    | select(.pr != null)' 2>/dev/null) --arg busy "${1:-}" '
+  ($busy | split(" ") | map(select(length > 0))) as $busy
+  | [ .[] | select(.event == "dispatch" and .level == "info" and .ts >= $lo and .ts <= $hi)
+      | select(.msg | test("dispatched to sessions of their own"))
+      | . as $d
+      | (.msg | split(" dispatched")[0] | [scan("#([0-9]+)")[0]]) as $prs
+      | [ $prs[] | select(. as $n | (any($h[]; .pr == $n and .ts > $d.ts) or any($busy[]; . == $n)) | not) ] as $lost
+      | select($lost | length > 0)
+      | {id: "dispatch_lost:\(.ts)", kind: "dispatch_lost", ts, prs: ($lost | map(tonumber))} ]
+  | .[]' 2>/dev/null
+}
+DL="$(dispatch_lost)"
+
+# The platform's list of this agent's sessions (lib/sessions.sh), read only
+# when a PR hold exists or a dispatch looks lost, so an idle tick makes no
+# call; `session_awareness: disabled` or an unread list leaves the
+# events-based dispatch_lost alone (docs/sessions.md → **Uses**).
+SESS_LIST=""
+if { [ -n "$DL" ] || [ -n "$(ls -A "$WORK/.holds.lock" 2>/dev/null)" ]; } \
+   && [ "$(cfg session_awareness)" != disabled ] && . "$SCRIPT_DIR/lib/sessions.sh" 2>/dev/null; then
+  SESS_ON=1
+  if SESS_LIST="$(sessions_running)"; then
+    [ -n "$DL" ] && DL="$(dispatch_lost "$(printf '%s\n' "$SESS_LIST" | cut -f3 | grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ' ')")"
+  else SESS_LIST=""; fi
+fi
+
+# A review session whose turn runs past SESSION_RUN_MAX_MIN: one alert per
+# session run, cleared when the turn ends.
+OVR="$(printf '%s\n' "$SESS_LIST" | jq -R -c --arg cut "$(epoch2iso $(( NOW_EPOCH - ${SESSION_RUN_MAX_MIN:-180} * 60 )))" '
+  split("\t") | select(length >= 3)
+  | {session: .[0], started: .[1], title: .[2]}
+  | select(.started != "" and (.started | .[0:19]) < ($cut | .[0:19]))
+  | select(.title | test("^(Re-review|Review|Answer mention|Triage CI|Merge PR|Fix findings|Report review alerts|Tidy review state)( |$)"))
+  | {id: "overrun:\(.session):\(.started)", kind: "session_overrun", started, title,
+     session: (.session | .[0:8])}' 2>/dev/null)"
+if [ -n "$OVR" ]; then while IFS= read -r o; do [ -n "$o" ] && cand "$o"; done <<< "$OVR"
+else CLEARED="$CLEARED session_overrun"; fi
+if [ -n "$DL" ]; then while IFS= read -r o; do [ -n "$o" ] && cand "$o"; done <<< "$DL"
+else CLEARED="$CLEARED dispatch_lost"; fi
 
 # ---------------------------------------------- approval not revoked ----
 # review-pr.sh logs a `dismiss` warn when a review below APPROVE could not

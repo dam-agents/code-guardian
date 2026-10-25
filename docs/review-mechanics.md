@@ -158,7 +158,9 @@ many milestones it logged first; a run that never locked it holds nothing.
 Preflight's fallback: with no `locked` step since the lock (it can predate log
 retention after a crash), a recent event naming the PR counts as life when
 its run has not ended the PR. A live holder's PR is omitted and logged
-`holder … — left running`. The check is a local log read; the rule and its
+`holder … — left running`. The platform's session list decides first where it
+knows the holder's session ([sessions.md](sessions.md) → **Uses**); else the
+check is a local log read. The rule and its
 windows live in [lib/holds.sh](../scripts/lib/holds.sh). Two signals must both
 go quiet: the row timestamp ([review.md](review.md) → **Lock heartbeat**) and
 the event stream.

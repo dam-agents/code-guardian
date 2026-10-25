@@ -15,7 +15,9 @@
 #       (docs/config.md → Session model). The platform's own limits on
 #       one-time tasks bound how many start; a refused PR stays with the run.
 #       Prints an empty list for one PR, a housekeeping-only run, or
-#       `review_dispatch: disabled` in the worklist's config.
+#       `review_dispatch: disabled` in the worklist's config. A PR that a
+#       running session of this agent already names alone in its title is
+#       not dispatched: it stays with the run (docs/sessions.md → **Uses**).
 #   dispatch.sh rest <worklist> [<n>…]
 #       Prints `worklist: <path>` — <worklist> without the entries of PRs <n>…,
 #       its read_set recomputed — the run's worklist from then on, and
@@ -45,6 +47,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_JOB="${LOG_JOB:-review}"
 if ! . "$SCRIPT_DIR/log.sh" >/dev/null 2>&1; then logev() { :; }; LOG_RUN=""; fi
 . "$SCRIPT_DIR/lib/common.sh"
+. "$SCRIPT_DIR/lib/sessions.sh" 2>/dev/null || sessions_running() { return 1; }
 
 die() { printf 'dispatch: %s\n' "$1" >&2; exit 2; }
 
@@ -108,8 +111,22 @@ case "$CMD" in
       else units[1:][] end' "$WL")" \
       || die "the worklist could not be read"
     OUT='[]'
+    # the running sessions whose title names one PR alone — a session started
+    # for that PR; an unread list dispatches every PR
+    BUSY=""
+    if [ -n "$NUMS" ] && [ "$(jq -r '.config.session_awareness // "enabled"' "$WL")" != disabled ]; then
+      SESS_ON=1; SESS_CACHE="$BASE-sessions.json"
+      BUSY="$(sessions_running | cut -f3 | while IFS= read -r t; do
+          ns="$(printf '%s' "$t" | grep -oE '#[0-9]+' | tr -d '#')"
+          [ "$(printf '%s\n' "$ns" | grep -c .)" -eq 1 ] && printf '%s ' "$ns"
+        done)"
+    fi
     for n in $NUMS; do
       case "$n" in (''|*[!0-9]*) continue;; esac
+      case " $BUSY " in (*" $n "*)
+        logev info dispatch_skipped "PR #$n: a running session already works on it — not dispatched, the run keeps it"
+        continue;;
+      esac
       UNIT="$BASE-pr$n.json"
       URUN="$(basename "$UNIT" .json)"; URUN="${URUN#cg-worklist-}"
       jq --argjson n "$n" --arg by "$(run_short "$LOG_RUN")" "$READ_SET_JQ$UNIT_JQ"'

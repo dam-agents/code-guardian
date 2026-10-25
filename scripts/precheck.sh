@@ -86,7 +86,8 @@ fi
 # platform stops at its two-minute limit never reaches preflight's own `rm -f`.
 # All of them are short-lived, so the 3-hour window takes only dead files.
 find "$TMP" -maxdepth 1 \( -name 'cg-worklist-*.json' -o -name 'cg-files.*' \
-  -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' -o -name 'cg-open-err.*' \) \
+  -o -name 'cg-mentions-*' -o -name 'cg-precheck-err-*' -o -name 'cg-open-err.*' \
+  -o -name 'cg-sessions.*' -o -name 'cg-signal.*' \) \
   -mmin +180 -delete >/dev/null 2>&1 || true
 find "$TMP" -maxdepth 1 -type d -name 'cg-pf.*' -mmin +180 -exec rm -rf {} + >/dev/null 2>&1 || true
 

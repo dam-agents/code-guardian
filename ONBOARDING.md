@@ -598,6 +598,7 @@ Final shape:
 - review_progress: enabled             # progress check on the PR; omit = disabled
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
+- session_awareness: enabled           # platform session list + HEAD signals (docs/sessions.md); omit = enabled
 - mention_replies: enabled             # @-mention replies + feedback capture (default); or: disabled
 - mention_authors: collaborators       # whose mentions are handled (default); or: anyone
 - project_profile: enabled             # repository map for reviews (docs/profile.md); omit = enabled

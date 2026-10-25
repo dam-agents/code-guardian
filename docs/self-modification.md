@@ -89,7 +89,10 @@ takes the operator.
   from fixed templates and counts only, through `scripts/lib/mcp.sh`
   ([monitor.md](monitor.md) → **Direct delivery**, [health.md](health.md) →
   **Publish**). A new outward action of a script extends one of these two, or
-  belongs to the agent.
+  belongs to the agent. The scripts' platform session calls reach no person:
+  the session list read and preflight's HEAD signal into the agent's own
+  running session, a fixed template of PR numbers and SHAs
+  ([sessions.md](sessions.md) → **Signals**).
 - **CLAUDE.md stays a bootstrap** — repo resolution, the run types, the
   read-the-runbook rule. The run procedures and hard invariants live in
   [runbook.md](runbook.md), the schedule gate and the worklist contract in

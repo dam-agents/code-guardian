@@ -94,6 +94,9 @@ RR_LIB=1; . "$SCRIPT_DIR/lib/review-records.sh" >/dev/null 2>&1 || { RR_LIB=0; r
 # mode stops with an `error` (fail_out below) and the audit's clone sweep judges
 # a `.fix` clone by its age alone.
 HOLDS_LIB=1; . "$SCRIPT_DIR/lib/holds.sh" >/dev/null 2>&1 || HOLDS_LIB=0
+# sessions.sh is optional: unreadable, every hold and lock is judged by its
+# events alone and no holder gets a signal (docs/sessions.md)
+. "$SCRIPT_DIR/lib/sessions.sh" >/dev/null 2>&1 || { session_state() { return 1; }; session_signal() { return 1; }; }
 # paths.sh is optional: unreadable, no path glob ever matches
 . "$SCRIPT_DIR/lib/paths.sh" >/dev/null 2>&1 || path_glob_match() { return 1; }
 LOG_JOB="$MODE"
@@ -332,16 +335,41 @@ if [ "$MODE" = "benchmark" ]; then
       last_run:(if $l == "" then null else $l end)}')"
 fi
 
-# Is the session holding PR #<n>'s lock still working? Local signals only, no
-# API call: lib/holds.sh's live_holders over the events since the lock. When no
+# Is the session holding PR #<n>'s lock still working? The platform's session
+# list first (holder_sessions above), then local signals only: lib/holds.sh's
+# live_holders over the events since the lock. When no
 # run logged a `locked` step on the PR since the lock — the step can predate log
 # retention after a crash — a recent event naming `PR #<n> ` counts as life
 # instead, from a run that has not ended the PR. Prints the live run id (a
 # session UUID by 8 chars, as lib/common.sh → run_short) + minutes since its
 # last event, or nothing.
 # docs/review-mechanics.md → **Live holder**.
+# The platform's session list on the lock's holders (docs/sessions.md): every
+# run with a `locked` step since the lock that has not ended the PR. Prints
+# `running <run>` when one holder's session runs, `ended` when the list shows
+# every holder's session idle, nothing when it does not know them all.
+holder_sessions() { # <pr-number> <lock-ts>
+  local cands c st n=0
+  cands="$(events_jsonl | jq -rs --arg n "$1" --arg lock "${2:0:19}" "$HOLDER_JQ"'
+      [ .[] | select(tkey >= $lock) ] | pr_steps($n) as $pr
+      | [ $pr[] | select(locked_step) | .run ] | unique | .[] | select(ended($pr; .) | not)' 2>/dev/null)"
+  [ -n "$cands" ] || return 0
+  for c in $cands; do
+    st="$(session_state "$c")" || return 0
+    [ "$st" = running ] && { printf 'running %s\n' "$(run_short "$c")"; return 0; }
+    n=$(( n + 1 ))
+  done
+  [ "$n" -gt 0 ] && echo ended
+}
+
 holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty when not
+  local hs
   holder_cutoffs || return 1
+  hs="$(holder_sessions "$1" "$2")"
+  case "$hs" in
+    (running*) printf '%s in a running session\n' "${hs#running }"; return 0;;
+    (ended) return 0;;
+  esac
   events_jsonl | jq -rs --arg n "$1" --arg lock "${2:0:19}" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
       --argjson now "$NOW_EPOCH" "$HOLDER_JQ"'
       [ .[] | select(tkey >= $lock) ] as $ev
@@ -356,6 +384,31 @@ holder_alive() { # <pr-number> <lock-ts> -> "<run> <how it is alive>", empty whe
       | ((($now - (($l | tkey) + "Z" | fromdateiso8601)) / 60) | floor) as $mins
       | ($l.run | if test("^[0-9a-f]{8}-") then .[0:8] else . end) as $who
       | "\($who) \(if $fan then "in the skill fan-out, last event" else "active" end) \($mins)m ago"' 2>/dev/null
+}
+
+# A commit landed on a PR whose review a live session runs: that session gets
+# one signal per head, so it runs its HEAD guard now instead of at post time
+# (docs/sessions.md → **Signals**). The holder is the PR hold's run; a run the
+# session list does not show running gets nothing. SIGNALS keeps what went out.
+SIGNALS="$WORK/.session-signals"
+signal_holder() { # <n> <reviewed sha> <head sha>
+  local run key
+  run="$(sed -n 2p "$HOLD_DIR/$1" 2>/dev/null)"; [ -n "$run" ] || return 0
+  key="$1 $run $3"
+  grep -qxF "$key" "$SIGNALS" 2>/dev/null && return 0
+  [ "$(session_state "$run")" = running ] || return 0
+  session_signal "$run" "code-guardian signal: PR #$1 has a new head commit ${3:0:7}. Your review of PR #$1 is at ${2:0:7}. Read docs/sessions.md → **Signals** before your next step."
+  case $? in
+    (0) log "PR #$1: head moved to ${3:0:7} — signal sent to the session of run $(run_short "$run")";;
+    # the call went out and no answer came: a resend could wake the session twice
+    (4) log "PR #$1: head moved to ${3:0:7} — signal to run $(run_short "$run") sent, its outcome unknown; its guard at post time stays";;
+    (*) log "PR #$1: head moved to ${3:0:7} — no signal queued for run $(run_short "$run"); its guard at post time stays"
+        return 0;;
+  esac
+  with_state_lock "$SIGNALS" signal_record "$key"
+}
+signal_record() { # <key>
+  { tail -n 199 "$SIGNALS" 2>/dev/null; printf '%s\n' "$1"; } > "$SIGNALS.$$.tmp" && mv -f "$SIGNALS.$$.tmp" "$SIGNALS"
 }
 
 # Drop the entries of every PR another live run holds (lib/holds.sh); the first
@@ -376,7 +429,7 @@ apply_holds() { # reviews|mentions
     case $rc in
       0) log "#$n: $why — its reviews and mentions are left to that run"
          HOLDS_JUDGED="$HOLDS_JUDGED$n:held "; held="$held $n";;
-      2) log "#$n: hold from $why released — its run is quiet"; HOLDS_JUDGED="$HOLDS_JUDGED$n:free ";;
+      2) log "#$n: hold from $why — released"; HOLDS_JUDGED="$HOLDS_JUDGED$n:free ";;
       *) HOLDS_JUDGED="$HOLDS_JUDGED$n:free ";;
     esac
   done
@@ -520,7 +573,7 @@ WATCH_RULES="$(cfg_table 'Watch rules' | while IFS='|' read -r _ id wf notify no
 report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
-  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg gl "$GUIDE_LABEL" \
+  --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg sa "$(cfg session_awareness)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg gl "$GUIDE_LABEL" \
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" \
   --arg eo "$ESCALATION_OWNER" --arg mo "$MONITOR_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
@@ -541,6 +594,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    rereview_delta_label:(if $dlbl=="" then null else $dlbl end),
    rereview_trigger:(if $trig=="" then "label" else $trig end), urgent_label:(if $urg=="" then null else $urg end),
    review_progress:$prog, ci_triage:$ci, review_dispatch:(if $rd=="disabled" then "disabled" else "enabled" end),
+   session_awareness:(if $sa=="disabled" then "disabled" else "enabled" end),
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    guide_label:(if $gl=="" then null else $gl end),
@@ -759,6 +813,11 @@ API_ERRS=0
 # directory per pass; precheck.sh sweeps one a killed pass left behind.
 PF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/cg-pf.XXXXXX")"
 trap 'rm -rf "$PF_TMP"' EXIT
+# the platform's session list, read once when a hold or a lock needs it
+# (lib/sessions.sh); its MCP requests end 15 s before the gate's budget
+[ "$(cfg session_awareness)" = disabled ] || SESS_ON=1
+SESS_CACHE="$PF_TMP/sessions.json"
+export MCP_DEADLINE="${MCP_DEADLINE:-$(( NOW_EPOCH + ${CG_PRECHECK_BUDGET_S:-100} - 15 ))}"
 REVIEWS_BODY="$PF_TMP/reviews-page"
 
 # marker-based remote dedup, anchored at one SHA -> prints GitHub timestamp
@@ -1031,17 +1090,19 @@ if [ "$MODE" = "review" ]; then
 
       if [ "$row_status" = "in_progress" ]; then
         age=$(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 60 ))
-        if [ "$age" -lt "$LOCK_TTL_MIN" ]; then
+        if [ "$age" -lt "$LOCK_TTL_MIN" ] && [ "$(holder_sessions "$n" "$row_ts")" != ended ]; then
           log "PR #$n: fresh in_progress lock (${age}m) — skipped"
+          [ "$row_sha" = "$sha" ] || signal_holder "$n" "$row_sha" "$sha"
         elif alive="$(holder_alive "$n" "$row_ts")" && [ -n "$alive" ]; then
           # Past the TTL but demonstrably still working: the holder finishes and
           # posts (fastest delivery, no work thrown away). Taking over here is
           # what destroys a complete fan-out. docs/review-mechanics.md → **Live holder**.
           log "PR #$n: lock past TTL (${age}m) but holder $alive — left running"
+          [ "$row_sha" = "$sha" ] || signal_holder "$n" "$row_sha" "$sha"
         else
           kind="first"; rr_posted "$WORK/reviews/pr-$n.md" && kind="re-review"
           full=false; { [ "$kind" = "first" ] || [ "$has_label" -eq 1 ]; } && full=true
-          log "PR #$n: stale in_progress lock (${age}m, locked $row_ts) — takeover"
+          log "PR #$n: stale in_progress lock (${age}m, locked $row_ts) — takeover$([ "$age" -lt "$LOCK_TTL_MIN" ] && printf ', its holder'"'"'s session has ended')"
           add_review "$n" "$sha" "$ref" "$title" "$author" "$kind" true "$prior" "$URG" false "$full"
         fi
       elif [ "$row_sha" = "$sha" ]; then
