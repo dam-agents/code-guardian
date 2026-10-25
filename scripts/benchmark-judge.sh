@@ -184,8 +184,12 @@ LOOP="$LOOP" LOOP_KEY="$LOOP_KEY" awk '
 
 TO=()
 command -v timeout >/dev/null 2>&1 && TO=(timeout "${CG_JUDGE_TIMEOUT:-600}")
+# claude -p also sends a long input to its small fast model (Haiku), which then
+# shows up in modelUsage and makes the reply a mismatch: point that model at
+# the judge too, so the pinned model is the only one that answers
 run_claude() {
-  ( cd "$TMP" && ${TO[@]+"${TO[@]}"} "$CLI" -p --model "$MODEL" --output-format json \
+  ( cd "$TMP" && ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL" ANTHROPIC_SMALL_FAST_MODEL="$MODEL" \
+      ${TO[@]+"${TO[@]}"} "$CLI" -p --model "$MODEL" --output-format json \
       --tools "" --strict-mcp-config --settings '{"disableAllHooks":true}' \
       --no-session-persistence --system-prompt-file "$TMP/brief.md" \
       < "$TMP/input.md" > "$TMP/reply.json" 2> "$TMP/stderr" )

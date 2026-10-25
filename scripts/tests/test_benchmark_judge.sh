@@ -19,6 +19,7 @@ seed_cli() { # <reply json>
 #!/usr/bin/env bash
 [ "\$1 \$2" = "auth status" ] && { printf '{"loggedIn": true}\n'; exit 0; }
 printf '%s\n' "\$@" > "$SANDBOX/cli/argv"
+printf '%s|%s\n' "\${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" "\${ANTHROPIC_SMALL_FAST_MODEL:-}" > "$SANDBOX/cli/small"
 cat > "$SANDBOX/cli/stdin"
 cp "\$(sed -n '/--system-prompt-file/{n;p;}' "$SANDBOX/cli/argv")" "$SANDBOX/cli/brief" 2>/dev/null
 cat "$SANDBOX/cli/reply.json"
@@ -164,6 +165,13 @@ new_case judge_wrong_model_is_a_mismatch
 seed_cli "$(reply claude-opus-5-5 "$SIX")"
 run_first claude-opus-5
 assert_jq '.status == "mismatch" and .judge == null and .judge_model_used == "claude-opus-5-5"' 'claude-opus-5-5 never passes for claude-opus-5'
+
+new_case judge_small_model_is_the_judge
+seed_cli "$(reply claude-opus-5 "$SIX" | jq -c '.modelUsage += {"claude-haiku-5-5": {}}')"
+run_first claude-opus-5
+assert_jq '.status == "mismatch" and .judge == null' 'a reply that a second model also answered is a mismatch'
+OUT="$(cat "$SANDBOX/cli/small")"
+assert_out_contains '^claude-opus-5\|claude-opus-5$' 'the small fast model of the call is the judge too'
 
 new_case judge_reply_shapes
 seed_cli "$(reply claude-opus-5 "Here you go: \`\`\`json
