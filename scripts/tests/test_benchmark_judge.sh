@@ -295,6 +295,49 @@ assert_jq '.model == "acme/opus-b" and (.replaced | length) == 1 and .replaced[0
 CG_JUDGE_CLI="$SANDBOX/nope" resolve
 assert_jq '.judge == "acme/opus-b" and (.judge_unavailable | test("no .* CLI"))' 'resolve carries the check reason'
 
+# the host's model list: a short or prefixed name is the id the host serves
+new_case judge_name_resolves_to_a_served_id
+seed_cli "$(reply claude/ibm/aws/claude-opus-5 "$SIX")"
+printf '%s\n' claude/ibm/aws/claude-haiku-5-5 claude/ibm/aws/claude-opus-5 claude/ibm/aws/claude-opus-5-5 \
+  claude/ibm/claude-opus-4-8 claude/ibm/aws/claude-sonnet-5-5 > "$SANDBOX/models"
+export CG_JUDGE_MODELS="$SANDBOX/models"
+run_first claude/aws/claude-opus-5
+assert_jq '.status == "ok" and .judge_model_used == "claude/ibm/aws/claude-opus-5"' 'another provider prefix calls the served id'
+OUT="$(cat "$SANDBOX/cli/argv")"
+assert_out_contains '^claude/ibm/aws/claude-opus-5$' 'the served id is passed with --model'
+assert_out_absent '^claude/aws/claude-opus-5$' 'never the configured spelling'
+OUT="$(bash "$JUDGE" models)"
+assert_out_contains '^claude/ibm/aws/claude-opus-5-5$' 'models prints the served ids'
+RC=0; OUT="$(bash "$JUDGE" check opus-5)" || RC=$?
+assert_rc 0 'a short name the host serves passes the check'
+RC=0; OUT="$(bash "$JUDGE" check gpt-6)" || RC=$?
+assert_rc 1 'a name the host does not serve fails the check before any run'
+assert_out_contains "serves no model that matches 'gpt-6'" 'and names the name'
+run_first gpt-6
+assert_jq '.status == "unavailable" and .judge == null' 'the call is not made'
+OUT="$(cat "$SANDBOX/cli/argv")"
+assert_out_absent '^gpt-6$' 'no model call for a name the host does not serve'
+mkdir -p "$WORK"
+resolve() { OUT="$(WORK_DIR="$WORK" bash "$JUDGE" resolve)"; }
+printf -- '- benchmark_judge: opus\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "config" and .configured == "opus"' 'a family name is its newest served id'
+printf -- '- benchmark_judge: claude-opus-6\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude-opus-6" and .cause == "not_served" and (.judge_unavailable | test("serves no model"))' 'an operator id the host does not serve is unavailable, with its cause'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "unpicked" and .candidate == .judge' 'an unpicked auto offers the newest served Opus'
+WORK_DIR="$WORK" bash "$JUDGE" pin claude/ibm/aws/claude-opus-5 "x" >/dev/null
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5" and .source == "picked"' 'a served pin stays the judge though a newer Opus exists'
+WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-gone "x" >/dev/null
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "repick" and .judge_unavailable == null' 'a pin the host no longer serves asks for a re-pick'
+: > "$SANDBOX/models"
+resolve
+assert_jq '.judge == "acme/opus-gone" and .source == "picked" and .judge_unavailable == null' 'an unknown model list keeps the pin and blocks nothing'
+
 # report: judge cells only from a pinned judge
 new_case report_hides_self_judged_scores
 mkdir -p "$SANDBOX/bench/results"

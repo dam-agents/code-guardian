@@ -390,9 +390,12 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 6. **Judge** (when `judge` is not `off` and `judge_unavailable` is null —
    `benchmark-judge.sh resolve`; when it carries a reason, make no judge call,
    keep every phase's `judge` null and make that reason the run's
-   `judge_reason`). `judge` is `auto` while the agent has pinned no judge yet:
-   pick one first (**Choosing the judge**), use it for every call of this
-   run, and record it as the run's `judge`, also when no call runs:
+   `judge_reason`). `judge` is already the exact id this host serves
+   (**Choosing the judge** → **Names**). Under `auto` with `source`
+   `unpicked` or `repick`, `judge` is `resolve`'s `candidate`: pin it after
+   its first `ok` reply; `judge` is `auto` only while the host's model list is
+   unknown — then pick one first. Use that judge for every call of this run,
+   and record it as the run's `judge`, also when no call runs:
    one call per raw review, never a subagent — the judge model and rubric stay
    the same whatever model and harness ran the reviews. The call is
    `claude -p`; where that CLI is missing or not signed in, it is `pi` on the
@@ -571,9 +574,18 @@ Under `auto` the agent picks the judge, once, and every later run uses that
 pick. The judge is the yardstick, so it changes only when the host stops
 serving it.
 
-- **Recommendation**: the most capable reasoning model on this host's model
-  list — the newest top tier of the Claude family (Opus) where the host serves
-  one. Name it by the exact id the host lists, provider prefix included.
+- **Names**: `benchmark_judge` and the pin need not be exact. `resolve` reads
+  this host's model list (`benchmark-judge.sh models`: the claude endpoint's
+  `/v1/models`, or `pi --list-models`) and takes the served id the name
+  matches — the same id, else the same model under another provider prefix,
+  else the newest id the name matches (`opus-5` → `…/claude-opus-5`, never
+  `…/claude-opus-5-5`; `opus` → the newest Opus). A name the host does not
+  serve is `judge_unavailable` with `cause: not_served` before the run, and
+  the monitor alerts it. An unknown list blocks nothing: the name is used as
+  written.
+- **Recommendation**: `resolve`'s `candidate` — the newest Opus this host
+  serves, else the newest Sonnet. Where the list is unknown, the agent picks
+  the most capable model it knows the host serves.
 - **Pin it** after its first `ok` reply, before step 7:
 
   ```bash
@@ -584,7 +596,8 @@ serving it.
   reply stays unpinned: the run records it as `judge`, keeps every phase's
   `judge` null with its `judge_reason`, and the next run picks again.
 - **Re-pick** only when the host's model list no longer names the pinned
-  model. `pin` keeps the old pick under `replaced`; the new judge starts a new
+  model: `resolve` then prints `source: repick` and the `candidate` as
+  `judge`. `pin` keeps the old pick under `replaced`; the new judge starts a new
   comparability window for the judge columns, and the chat summary says so.
 - An operator's model id in `benchmark_judge` always wins: `pin` refuses, and
   the agent never changes that id.

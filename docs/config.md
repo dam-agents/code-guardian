@@ -242,8 +242,10 @@ judge**).
   scoring only). `auto` = the agent picks the judge once from the models this
   host serves and every later run uses that pick
   ([benchmark.md](benchmark.md) → **Choosing the judge**); a model id pins the
-  operator's choice. The judge runs as its own `claude -p` call, whatever model
-  the reviews ran on ([benchmark.md](benchmark.md) → step 6), so the host needs
+  operator's choice, by any name the host's model list matches (`opus-5`,
+  another provider prefix; [benchmark.md](benchmark.md) → **Choosing the
+  judge**). A name the host does not serve fails before the run. The judge
+  runs as its own `claude -p` call, whatever model the reviews ran on ([benchmark.md](benchmark.md) → step 6), so the host needs
   the `claude` CLI, signed in (`claude auth login` once, or
   `ANTHROPIC_API_KEY`), or a `pi` CLI as the fallback on the same model;
   without them the run keeps deterministic scores only, and the monitor

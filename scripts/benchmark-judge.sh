@@ -6,23 +6,33 @@
 #                      <scorer.json> [<prior-review.md>]
 #   benchmark-judge.sh check <judge-model>
 #   benchmark-judge.sh resolve
+#   benchmark-judge.sh models
 #   benchmark-judge.sh pin <judge-model> <why>
 #
 # `resolve` prints the judge every run uses, as one JSON object
-# {judge, source, judge_unavailable}: `benchmark_judge` from work/CONFIG.md
-# when it is a model id (source `config`) or off (`off`); under `auto`, the
-# model the agent pinned in work/benchmark/judge.json (`picked`), or `auto`
-# while none is pinned yet (`unpicked`). `judge_unavailable` is `check`'s
-# reason or null. Preflight's benchmark pass, the monitor and an operator-asked
-# run read the same object, so every run gets the same judge.
+# {judge, source, configured, judge_unavailable, cause, candidate}, and makes
+# no model call. `configured` is `benchmark_judge` from work/CONFIG.md (missing
+# = off). `judge` is the exact id this host serves for it: the name may be
+# short or carry another provider prefix (`opus-5`, `claude/aws/claude-opus-5`),
+# and the served id with the highest version that matches it is the judge.
+# Under `auto`, `judge` is the model the agent pinned in
+# work/benchmark/judge.json (source `picked`); with no pin (`unpicked`), or a
+# pin the host no longer serves (`repick`), it is `candidate` — the newest Opus
+# the host serves, else the newest Sonnet — or `auto` while the list is
+# unknown. `judge_unavailable` says why no judge can run, and `cause` names it
+# in one word: `no_cli`, `not_signed_in` or `not_served` (the host serves no
+# model that matches). An unknown model list never makes a judge unavailable.
+# Preflight's benchmark pass, the monitor and an operator-asked run read the
+# same object, so every run gets the same judge. `models` prints the served ids.
 #
 # `pin` records the agent's pick under `auto` (docs/benchmark.md → **Choosing
 # the judge**) and moves the previous pick into `replaced`. It refuses while
 # `benchmark_judge` is off or a model id: the operator's id wins.
 #
 # `check` makes no model call: it prints nothing and exits 0 when this host
-# can run the judge, else one line with the reason and exits 1. `resolve`
-# runs it, and onboarding runs it for the operator (docs/benchmark.md,
+# can run the judge — a CLI is ready and, when the model list is known, the
+# host serves a model the name matches — else one line with the reason and
+# exits 1. Onboarding runs it for the operator (docs/benchmark.md,
 # docs/monitor.md → `judge_unavailable`). The claude CLI counts as signed in when `claude auth
 # status` says so, or when the environment carries its credentials — `auth
 # status` reports a gateway token (ANTHROPIC_AUTH_TOKEN) as signed out. A pi
@@ -68,7 +78,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRIEF="$SCRIPT_DIR/templates/judge-brief.md"
 
 KIND="${1:-}"; MODEL="${2:-}"; REVIEW="${3:-}"; MANIFEST="${4:-}"; SCORER="${5:-}"; PRIOR="${6:-}"
-usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n       benchmark-judge.sh check <judge-model>\n       benchmark-judge.sh resolve\n       benchmark-judge.sh pin <judge-model> <why>\n' >&2; exit 2; }
+usage() { printf 'usage: benchmark-judge.sh first|rereview <judge-model> <raw-review> <manifest.json> <scorer.json> [<prior-review.md>]\n       benchmark-judge.sh check <judge-model>\n       benchmark-judge.sh resolve | models\n       benchmark-judge.sh pin <judge-model> <why>\n' >&2; exit 2; }
 WORK="${WORK_DIR:-${HOME:-/home/agent}/work}"
 CONFIG="$WORK/CONFIG.md"
 PICK="$WORK/benchmark/judge.json"
@@ -87,30 +97,115 @@ claude_why() {
 }
 pi_ready() { command -v "$PI" >/dev/null 2>&1; }
 
-check_why() { # <model> → nothing and 0 when this host can run the judge, else the reason and 1
-  case "$1" in (off|none|null) return 0;; esac
-  local why; why="$(claude_why)" && return 0
-  pi_ready && return 0
-  printf '%s; %s' "$why" "$NO_FALLBACK"; return 1
+# The models this host serves, one id per line; nothing when the list is
+# unknown (no listing endpoint, an OAuth or cloud sign-in, a failed request).
+# claude: GET /v1/models of the CLI's endpoint; pi: `pi --list-models`. An
+# unknown list never blocks the judge: the name is used as configured.
+served_models() { # <claude|pi>
+  if [ -n "${CG_JUDGE_MODELS+x}" ]; then cat "$CG_JUDGE_MODELS" 2>/dev/null; return 0; fi
+  if [ "$1" = pi ]; then
+    local p m rest
+    "$PI" --list-models 2>/dev/null | sed 1d | while read -r p m rest; do
+      [ -n "$m" ] || continue
+      if [ -n "${PI_PROVIDER:-}" ]; then [ "$p" = "$PI_PROVIDER" ] && printf '%s\n' "$m"
+      else printf '%s/%s\n' "$p" "$m"; fi
+    done
+    return 0
+  fi
+  [ -n "${ANTHROPIC_AUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] || return 0
+  local h; h="$(mktemp)" || return 0
+  chmod 600 "$h"
+  { printf 'anthropic-version: 2023-06-01\n'
+    if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then printf 'Authorization: Bearer %s\n' "$ANTHROPIC_AUTH_TOKEN"
+    else printf 'x-api-key: %s\n' "$ANTHROPIC_API_KEY"; fi; } > "$h"
+  local base="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
+  curl -fsS -m 10 -H "@$h" "${base%/}/v1/models?limit=1000" 2>/dev/null \
+    | jq -r '.data[]?.id | strings' 2>/dev/null
+  rm -f "$h"
 }
+# jq over the served ids: the one id a name means — the same id, else the same
+# model under another provider prefix, else every id the name matches
+# (MODEL_JQ: `opus-5` matches `claude-opus-5`, never `claude-opus-5-5`); of
+# several, the highest version, then the first id in sort order. null: no match
+PICK_JQ="$MODEL_JQ"'
+  def ver: model_key | [scan("[0-9]+") | tonumber];
+  def pick($n): . as $ids
+    | [$ids[] | select(. == $n)] as $same
+    | [$ids[] | select(model_key == ($n | model_key))] as $key
+    | (if ($same | length) > 0 then $same elif ($key | length) > 0 then $key
+       else [$ids[] | select(model_has($n))] end)
+    | if length == 0 then null
+      else (map(ver) | max) as $v | map(select(ver == $v)) | sort | .[0] end;
+'
+pick_model() { # <name> <ids> → the served id, or nothing
+  printf '%s\n' "$2" | jq -R . | jq -rs --arg n "$1" "$PICK_JQ"'map(select(. != "")) | pick($n) // empty' 2>/dev/null
+}
+# the judge auto recommends: the newest Opus the host serves, else the newest Sonnet
+candidate() { # <ids>
+  local c; c="$(pick_model opus "$1")"; [ -n "$c" ] || c="$(pick_model sonnet "$1")"; printf '%s' "$c"
+}
+
+# Sets JH (claude|pi) and WHY/CAUSE (empty, or why this host cannot run any judge)
+harness_ready() {
+  WHY=""; CAUSE=""
+  if WHY="$(claude_why)"; then JH=claude
+  elif pi_ready; then JH=pi; WHY=""
+  else
+    case "$WHY" in ("no '"*) CAUSE=no_cli;; (*) CAUSE=not_signed_in;; esac
+    WHY="$WHY; $NO_FALLBACK"; JH=""
+  fi
+}
+not_served() { # <name>
+  WHY="this host serves no model that matches '$1' (benchmark-judge.sh models lists them)"; CAUSE=not_served
+}
+
+if [ "$KIND" = models ]; then
+  harness_ready
+  [ -n "$JH" ] || { printf '%s\n' "$WHY" >&2; exit 1; }
+  served_models "$JH"; exit 0
+fi
 if [ "$KIND" = check ]; then
   [ -n "$MODEL" ] || usage
-  WHY="$(check_why "$MODEL")" && exit 0
+  case "$MODEL" in (off|none|null) exit 0;; esac
+  harness_ready
+  if [ -z "$WHY" ]; then
+    IDS="$(served_models "$JH")"
+    if [ -n "$IDS" ]; then
+      if [ "$MODEL" = auto ]; then [ -n "$(candidate "$IDS")" ] || not_served opus
+      else [ -n "$(pick_model "$MODEL" "$IDS")" ] || not_served "$MODEL"; fi
+    fi
+  fi
+  [ -z "$WHY" ] && exit 0
   printf '%s\n' "$WHY"; exit 1
 fi
 
 CONF="$(cfg benchmark_judge)"
 case "$CONF" in ("" |none|null) CONF=off;; esac
 if [ "$KIND" = resolve ]; then
+  CAND=""; WHY=""; CAUSE=""
   case "$CONF" in
     (off)  J=off; SRC=off;;
     (auto) J="$(jq -r '.model // empty | strings' "$PICK" 2>/dev/null)"
            if [ -n "$J" ]; then SRC=picked; else J=auto; SRC=unpicked; fi;;
     (*)    J="$CONF"; SRC=config;;
   esac
-  WHY="$(check_why "$J")" || true
-  jq -cn --arg j "$J" --arg s "$SRC" --arg w "$WHY" \
-    '{judge: $j, source: $s, judge_unavailable: (if $w == "" then null else $w end)}'
+  if [ "$J" != off ]; then
+    harness_ready
+    IDS=""; [ -z "$WHY" ] && IDS="$(served_models "$JH")"
+    if [ -n "$IDS" ]; then
+      [ "$CONF" = auto ] && CAND="$(candidate "$IDS")"
+      if [ "$J" = auto ]; then
+        [ -n "$CAND" ] && J="$CAND" || not_served opus
+      elif M="$(pick_model "$J" "$IDS")" && [ -n "$M" ]; then J="$M"
+      elif [ "$SRC" = picked ] && [ -n "$CAND" ]; then J="$CAND"; SRC=repick
+      else not_served "$J"; fi
+    fi
+  fi
+  jq -cn --arg j "$J" --arg s "$SRC" --arg c "$CONF" --arg w "$WHY" --arg k "$CAUSE" --arg d "$CAND" \
+    '{judge: $j, source: $s, configured: $c,
+      judge_unavailable: (if $w == "" then null else $w end),
+      cause: (if $k == "" then null else $k end),
+      candidate: (if $d == "" then null else $d end)}'
   exit 0
 fi
 if [ "$KIND" = pin ]; then
@@ -148,9 +243,14 @@ case "$MODEL" in
   (off|none|null) out off null "" null "benchmark_judge is off";;
   (auto) out failed null "" null "benchmark_judge is auto and no judge is pinned yet: pick one (docs/benchmark.md → Choosing the judge)";;
 esac
-if WHY="$(claude_why)"; then JH=claude
-elif pi_ready; then JH=pi
-else out unavailable null "" null "$WHY; $NO_FALLBACK"
+harness_ready
+[ -n "$JH" ] || out unavailable null "" null "$WHY"
+# a short or differently prefixed name calls the exact id the host serves
+IDS="$(served_models "$JH")"
+if [ -n "$IDS" ]; then
+  M="$(pick_model "$MODEL" "$IDS")"
+  [ -n "$M" ] || { not_served "$MODEL"; out unavailable null "" null "$WHY"; }
+  MODEL="$M"
 fi
 [ -r "$BRIEF" ] || out failed null "" null "judge brief missing: $BRIEF"
 

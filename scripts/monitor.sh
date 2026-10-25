@@ -224,8 +224,8 @@ fi
 # --------------------------------------------------- benchmark judge ----
 # the judge every run uses, when this host cannot run it (benchmark-judge.sh
 # resolve — local, no model call): every benchmark run until the fix scores
-# without the judge. `cause` is one word for the fixed templates; signing the
-# CLI in clears it. A resolve without JSON leaves the alert state as it is.
+# without the judge. `cause` (resolve's) is one word for the fixed templates;
+# signing the CLI in, or a judge name the host serves, clears it. A resolve without JSON leaves the alert state as it is.
 if [ "$(cfg benchmark)" = enabled ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; then
   JUDGE_JSON="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-judge.sh" resolve 2>/dev/null)"
   JUDGE_MODEL="$(printf '%s' "$JUDGE_JSON" | jq -r '.judge // empty' 2>/dev/null)"
@@ -235,7 +235,7 @@ if [ "$(cfg benchmark)" = enabled ] && [ -f "$SCRIPT_DIR/benchmark-judge.sh" ]; 
   elif [ -z "$JUDGE_WHY" ]; then
     CLEARED="$CLEARED judge_unavailable"
   else
-    case "$JUDGE_WHY" in ("no '"*) JUDGE_CAUSE=no_cli;; (*) JUDGE_CAUSE=not_signed_in;; esac
+    JUDGE_CAUSE="$(printf '%s' "$JUDGE_JSON" | jq -r '.cause // "not_signed_in"' 2>/dev/null)"
     cand "$(jq -nc --arg m "$JUDGE_MODEL" --arg c "$JUDGE_CAUSE" --arg r "$JUDGE_WHY" \
       '{id: "judge:\($m)", kind: "judge_unavailable", model: $m, cause: $c, reason: $r}')"
   fi
