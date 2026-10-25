@@ -78,7 +78,20 @@ hold 7 7200 aaaa1111
 ev 14400 aaaa1111 tool_use "Bash [gh api]" debug
 sessions_fx "aaaa1111 true - Review PR #7"
 run_preflight review
-assert_jq '.logs | any(contains("its run is quiet — released"))' 'the first event dates the turn; past 180 min the event rule decides'
+assert_jq '.logs | any(contains("its run is quiet — released"))' 'a run silent past the gap is judged by the event rule'
+
+# --- 1. holds: a resumed session dates its live turn after the last gap ------
+new_case hold_session_resumed_turn
+base_config; mcp_setup
+ic_mention 7
+hold 7 7200 aaaa1111
+ev 18000 aaaa1111 tool_use "Bash [gh api]" debug
+ev 17000 aaaa1111 tool_use "Bash [gh api]" debug
+ev 600 aaaa1111 tool_use "Bash [gh api]" debug
+ev 1500 aaaa1111 tool_use "Bash [gh api]" debug
+sessions_fx "aaaa1111 true - Review PR #7"
+run_preflight review
+assert_jq '.logs | any(contains("#7: held by run aaaa1111, its session is running"))' 'the old turn 5 h ago does not date the live one'
 
 # --- 1. holds: an ended session frees the hold at once ---------------------
 new_case hold_session_idle
@@ -247,11 +260,13 @@ check_eq "$(calls list_sessions)" 0 'no hold and no lost dispatch: no list read'
 new_case monitor_overrun_event_start
 base_config; mcp_setup
 ev 60 review-x info precheck "review gate: nothing to do"
-ev 14400 ffff6666 tool_use "Bash [gh api]" debug
-sessions_fx "ffff6666 true - Review PR #3"
+for a in 14400 11400 8400 5400 2400 120; do ev "$a" ffff6666 tool_use "Bash [gh api]" debug; done
+ev 120 aaaa1111 tool_use "Bash [gh api]" debug
+ev 30000 aaaa1111 tool_use "Bash [gh api]" debug
+sessions_fx "ffff6666 true - Review PR #3" "aaaa1111 true - Review PR #4"
 hold 3 14400 ffff6666
 OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" PATH="$T_DIR/bin:$PATH" bash "$REPO_ROOT/scripts/monitor.sh" 2>>"$STDERR_LOG")"
-assert_jq '[.alerts_due[] | select(.kind == "session_overrun") | .session] == ["ffff6666"]' 'the overrun alerts from the event start'
+assert_jq '[.alerts_due[] | select(.kind == "session_overrun") | .session] == ["ffff6666"]' 'a 4 h turn alerts; a resumed session with a new turn does not'
 
 # --- 3. monitor: an overlong review turn and a lost dispatch ---------------
 new_case monitor_session_alerts

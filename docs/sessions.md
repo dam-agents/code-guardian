@@ -24,8 +24,10 @@ Each use falls back to its rule from before the tools when the list is
 unknown: no `platform-outbound` endpoint, a platform without the tools, a
 refusal, a timeout, a session the list does not show, or a turn that runs
 longer than `SESSION_RUN_MAX_MIN` (180). A turn starts at its `runStartedAt`;
-the platform leaves it null for a turn it did not stamp, and then the run's
-first event dates it. A running turn with no date counts as running.
+the platform leaves it null for a turn it did not stamp. Then the run's first
+event after its last silence of over 60 min dates it, because a resumed
+session logs every turn under one run id. A running turn that logged nothing
+counts as running; one silent for over 60 min is unknown.
 
 | Use | With the list | Unknown |
 | --- | --- | --- |

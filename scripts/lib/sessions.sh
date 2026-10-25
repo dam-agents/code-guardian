@@ -14,8 +14,10 @@
 #   sessions_running        one `<id>\t<start>\t<title>` line per session with a
 #                           running turn; rc 1 = no read
 #   session_start <id> <runStartedAt>
-#                           the turn's start: runStartedAt, else the first event
-#                           of the run with that id; empty when neither is known
+#                           the turn's start: runStartedAt, else the run's first
+#                           event after its last gap over SESSION_GAP_MIN; empty
+#                           when the run logged nothing, `?` when it has been
+#                           silent for longer than SESSION_GAP_MIN
 #   session_signal <id> <text>
 #                           queues one message into that session; rc 0 = queued
 #
@@ -23,6 +25,8 @@
 # log-based live-holder windows, the dispatch of every PR, no signal.
 
 SESSION_RUN_MAX_MIN=180   # a turn longer than this is judged by the old rule
+SESSION_GAP_MIN=60        # the longest silence inside one turn (the skill
+                          # fan-out, lib/holds.sh FANOUT_QUIET_MIN)
 SESS_TIMEOUT_S="${SESS_TIMEOUT_S:-8}"
 SESS_LIST_MAX=50          # the platform's own cap
 
@@ -49,13 +53,24 @@ sessions_read() {
   return 1
 }
 
-# The platform leaves runStartedAt null for a turn it did not stamp; the run
-# id is the session id, so the run's first logged event stands in for it.
+# The platform leaves runStartedAt null for a turn it did not stamp. The run
+# id is the session id, and a resumed session logs every turn under it, so a
+# turn starts at the first event after the run's last gap over
+# SESSION_GAP_MIN. A run that logged nothing has an unknown start; a run
+# silent for longer than that window prints `?`, and its turn is judged by
+# the event rule.
 session_start() { # <id> <runStartedAt>
   [ -n "${2:-}" ] && { printf '%s\n' "$2"; return 0; }
-  declare -F events_jsonl >/dev/null 2>&1 || return 0
-  grep -hF "\"run\":\"$1\"" "${LOG_DIR:-${WORK:-}/logs}"/events-*.jsonl 2>/dev/null | head -1 \
-    | jq -r '.ts // empty' 2>/dev/null
+  grep -hF "\"run\":\"$1\"" "${LOG_DIR:-${WORK:-}/logs}"/events-*.jsonl 2>/dev/null \
+    | jq -rs --argjson gap "$(( SESSION_GAP_MIN * 60 ))" --argjson now "$(date -u +%s)" '
+      def ep: .[0:19] + "Z" | fromdateiso8601;
+      [ .[] | .ts | strings ] | sort
+      | if length == 0 then empty
+        elif ($now - (last | ep)) > $gap then "?"
+        else reduce .[] as $t ({start: null, prev: null};
+               if .prev == null or (($t | ep) - (.prev | ep)) > $gap then {start: $t, prev: $t}
+               else .prev = $t end)
+             | .start end' 2>/dev/null
 }
 
 session_state() { # <id>
@@ -71,6 +86,7 @@ session_state() { # <id>
     (*) return 1;;
   esac
   start="$(session_start "$1" "$(printf '%s' "${row#running}" | tr -d ' ')")"
+  [ "$start" = "?" ] && return 1
   cut="$(epoch2iso $(( $(date -u +%s) - SESSION_RUN_MAX_MIN * 60 )))"
   [ -z "$start" ] || [ "${start:0:19}" \> "${cut:0:19}" ] || [ "${start:0:19}" = "${cut:0:19}" ] || return 1
   echo running
@@ -83,7 +99,8 @@ sessions_running() {
     | [.sessionId, (.runStartedAt // "-"), ((.title // "") | gsub("[\t\n]"; " "))] | @tsv' 2>/dev/null \
     | while IFS=$'\t' read -r id st title; do
         # `-` holds the place of a null start: read joins two tabs into one
-        printf '%s\t%s\t%s\n' "$id" "$(session_start "$id" "${st#-}")" "$title"
+        st="$(session_start "$id" "${st#-}")"
+        printf '%s\t%s\t%s\n' "$id" "${st#\?}" "$title"
       done
 }
 
