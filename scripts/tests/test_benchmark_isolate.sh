@@ -324,6 +324,25 @@ check_eq "$RC" 1 'a sub-agent on another model than start asked for fails the co
 check_eq "$(printf '%s' "$OUT" | jq -c '[.mismatches[].fields[]] | unique')" '["model"]' 'the model is named'
 check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'nothing is recorded'
 
+iso_case collect_flags_a_sibling_model
+seed_state
+for i in 1 2; do done_view m1 | jq '.result.model = "claude-opus-5-5-mini"' > "$SANDBOX/rest/GET_invocations_inv-$i.json"; done
+iso wait "$SANDBOX/st"
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
+check_eq "$RC" 1 'a sibling of the asked model fails the collection'
+check_eq "$(printf '%s' "$OUT" | jq -c '[.mismatches[].fields[]] | unique')" '["model"]' 'the model is named'
+
+iso_case collect_refuses_without_a_model
+seed_state
+rm -f "$SANDBOX/st/model"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-1.json"
+done_view m1 > "$SANDBOX/rest/GET_invocations_inv-2.json"
+iso wait "$SANDBOX/st"
+iso_env bash "$ISO" collect "$SANDBOX/st" "$SANDBOX/raw" > "$SANDBOX/out" 2>&1; RC=$?; OUT="$(cat "$SANDBOX/out")"
+check_eq "$RC" 1 'a state dir with no spawn model collects nothing'
+assert_out_contains 'no spawn model' 'the refusal says what is missing'
+check_eq "$(ls "$SANDBOX/raw" 2>/dev/null | wc -l | tr -d ' ')" 0 'nothing is recorded'
+
 iso_case collect_takes_the_asked_effort
 seed_state
 printf 'high\n' > "$SANDBOX/st/effort"

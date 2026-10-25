@@ -44,7 +44,9 @@
 # and skill archive, prints one JSON object (tasks, model, harness_version,
 # effort, failed[], mismatches[]) and exits 1 on a failed task, a malformed
 # result, provenance that differs from <state-dir>/expect.json, or a model
-# other than the one `start` spawned on — then it writes no raw file.
+# other than the one `start` spawned on (the id after the provider path, equal
+# in any letter case) — then it writes no raw file. With no model recorded in
+# <state-dir> it refuses.
 #
 # Every spawn names its model: --model, else the session's own
 # (lib/harness.sh → cg_harness_model); with neither, `start` refuses.
@@ -347,7 +349,8 @@ collect() { # <state-dir> <raw-dir>
   ts="$(cat "$st/ts" 2>/dev/null)"; [ -n "$ts" ] || die "no run timestamp in $st"
   # the effort start passed stands in where a sub-agent's harness exposes none
   asked="$(cat "$st/effort" 2>/dev/null)"
-  want="$(cat "$st/model" 2>/dev/null)"
+  # start records the spawn model before any spawn: without it, nothing proves the sub-agents' model
+  want="$(cat "$st/model" 2>/dev/null)"; [ -n "$want" ] || die "no spawn model in $st"
   jq -e 'type == "object"' "$exp" >/dev/null 2>&1 || die "expected provenance unreadable: $exp"
   mkdir -p "$raw"
   for f in "$st"/*.id; do
@@ -376,7 +379,7 @@ collect() { # <state-dir> <raw-dir>
          + (if ($p.definition_ref.sha // null) != ($x.definition_ref.sha // null) then ["definition_ref.sha"] else [] end)
          + (if ($p.effort // "unknown") != "unknown" and ($x.effort // "unknown") != "unknown"
                and $p.effort != $x.effort then ["effort"] else [] end)
-         + (if $want != "" and ($r.model | model_has($want) | not) then ["model"] else [] end)) as $diff
+         + (if ($r.model | model_key) != ($want | model_key) then ["model"] else [] end)) as $diff
       | . + [{task: $t, slug: $s, phase: $ph, spawn: $id,
               seconds: $r.measure.seconds, tokens: $r.measure.tokens, suppressed: $r.suppressed,
               model: $r.model, harness_version: ($p.harness_version // null), effort: ($p.effort // "unknown"),
