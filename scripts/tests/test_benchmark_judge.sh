@@ -9,6 +9,7 @@ JUDGE="$REPO_ROOT/scripts/benchmark-judge.sh"
 VALIDATE="$REPO_ROOT/scripts/benchmark-validate.sh"
 REPORT="$REPO_ROOT/scripts/benchmark-report.sh"
 export BENCH_CONFIG=/dev/null
+export WORK_DIR=/nonexistent   # no CONFIG.md unless a case seeds one
 
 # fake claude: records its argv and stdin, prints $FAKE_REPLY
 seed_cli() { # <reply json>
@@ -18,6 +19,7 @@ seed_cli() { # <reply json>
 #!/usr/bin/env bash
 [ "\$1 \$2" = "auth status" ] && { printf '{"loggedIn": true}\n'; exit 0; }
 printf '%s\n' "\$@" > "$SANDBOX/cli/argv"
+printf '%s|%s\n' "\${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" "\${ANTHROPIC_SMALL_FAST_MODEL:-}" > "$SANDBOX/cli/small"
 cat > "$SANDBOX/cli/stdin"
 cp "\$(sed -n '/--system-prompt-file/{n;p;}' "$SANDBOX/cli/argv")" "$SANDBOX/cli/brief" 2>/dev/null
 cat "$SANDBOX/cli/reply.json"
@@ -164,6 +166,13 @@ seed_cli "$(reply claude-opus-5-5 "$SIX")"
 run_first claude-opus-5
 assert_jq '.status == "mismatch" and .judge == null and .judge_model_used == "claude-opus-5-5"' 'claude-opus-5-5 never passes for claude-opus-5'
 
+new_case judge_small_model_is_the_judge
+seed_cli "$(reply claude-opus-5 "$SIX" | jq -c '.modelUsage += {"claude-haiku-5-5": {}}')"
+run_first claude-opus-5
+assert_jq '.status == "mismatch" and .judge == null' 'a reply that a second model also answered is a mismatch'
+OUT="$(cat "$SANDBOX/cli/small")"
+assert_out_contains '^claude-opus-5\|claude-opus-5$' 'the small fast model of the call is the judge too'
+
 new_case judge_reply_shapes
 seed_cli "$(reply claude-opus-5 "Here you go: \`\`\`json
 $SIX
@@ -213,13 +222,121 @@ assert_out_contains 'rc=1' 'and stops the run'
 results claude-opus-5 null "$SIX" > "$SANDBOX/r/nouse.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/nouse.json")"
 assert_out_contains 'FAIL judge_pinned: .*judge_model_used is missing' 'scores without judge_model_used are rejected'
-results claude-opus-5 '"claude-opus-5-20260401"' "$SIX" > "$SANDBOX/r/ok.json"
+results claude-opus-5 '"claude-opus-5-20260401"' "$SIX" | jq '.judge_reason = "judge reply is not the score object"' > "$SANDBOX/r/ok.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/ok.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'ok   judge_pinned' 'the pinned judge passes'
 assert_out_contains 'rc=0' 'clean'
 results off null null > "$SANDBOX/r/off.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/r/off.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'rc=0' 'no judge, no scores: clean'
+
+new_case validate_judge_reason
+mkdir -p "$SANDBOX/r"
+results claude-opus-5 null null > "$SANDBOX/r/old.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/old.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=0' 'a file from before 12.3.0 needs no judge_reason'
+results claude-opus-5 null null | jq '.definition_version = "12.3.0"' > "$SANDBOX/r/silent.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/silent.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_reason: a fixture judge is null, but judge_reason is missing' 'a judge that never answered needs its reason'
+assert_out_contains 'rc=1' 'and stops the run'
+jq '.judge_reason = "judge claude CLI error: unknown model"' "$SANDBOX/r/silent.json" > "$SANDBOX/r/why.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/why.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   judge_reason' 'a recorded reason passes'
+assert_out_contains 'rc=0' 'clean'
+results auto null null | jq '.judge_reason = "x" | .definition_version = "12.10.0"' > "$SANDBOX/r/auto.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/r/auto.json")"
+assert_out_contains 'FAIL judge_reason: judge is auto' 'auto is never the recorded judge'
+
+new_case validate_judge_resolved
+mkdir -p "$SANDBOX/r" "$WORK"
+printf -- '- benchmark_judge: claude-opus-5\n' > "$WORK/CONFIG.md"
+results off null null > "$SANDBOX/r/dropped.json"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/dropped.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_resolved: judge is "off", but benchmark-judge.sh resolve prints "claude-opus-5"' 'a run that dropped the configured judge is rejected'
+assert_out_contains 'rc=1' 'and stops the run'
+results claude-opus-5 '"claude-opus-5"' "$SIX" | jq '.judge_reason = "judge reply is not the score object"' > "$SANDBOX/r/same.json"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   judge_resolved' 'the resolved judge passes'
+assert_out_contains 'rc=0' 'clean'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=0' 'an unpicked auto accepts the candidate the run tried'
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results "$SANDBOX/r/dropped.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL judge_resolved: judge is "off" under an unpicked auto' 'an unpicked auto needs the candidate on record'
+printf -- '- benchmark_judge: acme/new-judge\n' > "$WORK/CONFIG.md"
+OUT="$(WORK_DIR="$WORK" bash "$VALIDATE" results --stored "$SANDBOX/r/same.json"; printf 'rc=%s' "$?")"
+assert_out_absent 'judge_resolved' 'a kept file is not compared with the live config'
+assert_out_contains 'rc=0' 'the audit keeps an older judge as it was'
+
+# resolve and pin: the one judge every run uses
+new_case judge_resolve_and_pin
+seed_cli "$(reply claude-opus-5 "$SIX")"
+mkdir -p "$WORK"
+resolve() { OUT="$(WORK_DIR="$WORK" bash "$JUDGE" resolve)"; }
+resolve
+assert_jq '.judge == "off" and .source == "off" and .judge_unavailable == null' 'no CONFIG.md key is off'
+printf -- '- benchmark_judge: acme/judge-model  # the operator pick\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "acme/judge-model" and .source == "config" and .judge_unavailable == null' 'an operator id is the judge'
+OUT="$(WORK_DIR="$WORK" bash "$JUDGE" pin acme/other "why" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'not auto: the operator chose the judge' 'pin never overrides the operator'
+assert_out_contains 'rc=1' 'and fails'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "auto" and .source == "unpicked"' 'auto without a pick asks for one'
+run_first auto
+assert_jq '.status == "failed" and .judge == null and (.reason | test("no judge is pinned"))' 'auto is never a model to call'
+OUT="$(WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-a "the strongest model on the host")"
+resolve
+assert_jq '.judge == "acme/opus-a" and .source == "picked"' 'the pick is the judge of every later run'
+WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-b "acme/opus-a left the host" >/dev/null
+OUT="$(cat "$WORK/benchmark/judge.json")"
+assert_jq '.model == "acme/opus-b" and (.replaced | length) == 1 and .replaced[0].model == "acme/opus-a" and (.replaced[0].until | type) == "string"' 'a re-pick keeps the old judge on record'
+CG_JUDGE_CLI="$SANDBOX/nope" resolve
+assert_jq '.judge == "acme/opus-b" and (.judge_unavailable | test("no .* CLI"))' 'resolve carries the check reason'
+
+# the host's model list: a short or prefixed name is the id the host serves
+new_case judge_name_resolves_to_a_served_id
+seed_cli "$(reply claude/ibm/aws/claude-opus-5 "$SIX")"
+printf '%s\n' claude/ibm/aws/claude-haiku-5-5 claude/ibm/aws/claude-opus-5 claude/ibm/aws/claude-opus-5-5 \
+  claude/ibm/claude-opus-4-8 claude/ibm/aws/claude-sonnet-5-5 > "$SANDBOX/models"
+export CG_JUDGE_MODELS="$SANDBOX/models"
+run_first claude/aws/claude-opus-5
+assert_jq '.status == "ok" and .judge_model_used == "claude/ibm/aws/claude-opus-5"' 'another provider prefix calls the served id'
+OUT="$(cat "$SANDBOX/cli/argv")"
+assert_out_contains '^claude/ibm/aws/claude-opus-5$' 'the served id is passed with --model'
+assert_out_absent '^claude/aws/claude-opus-5$' 'never the configured spelling'
+OUT="$(bash "$JUDGE" models)"
+assert_out_contains '^claude/ibm/aws/claude-opus-5-5$' 'models prints the served ids'
+RC=0; OUT="$(bash "$JUDGE" check opus-5)" || RC=$?
+assert_rc 0 'a short name the host serves passes the check'
+RC=0; OUT="$(bash "$JUDGE" check gpt-6)" || RC=$?
+assert_rc 1 'a name the host does not serve fails the check before any run'
+assert_out_contains "serves no model that matches 'gpt-6'" 'and names the name'
+run_first gpt-6
+assert_jq '.status == "unavailable" and .judge == null' 'the call is not made'
+OUT="$(cat "$SANDBOX/cli/argv")"
+assert_out_absent '^gpt-6$' 'no model call for a name the host does not serve'
+mkdir -p "$WORK"
+resolve() { OUT="$(WORK_DIR="$WORK" bash "$JUDGE" resolve)"; }
+printf -- '- benchmark_judge: opus\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "config" and .configured == "opus"' 'a family name is its newest served id'
+printf -- '- benchmark_judge: claude-opus-6\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude-opus-6" and .cause == "not_served" and (.judge_unavailable | test("serves no model"))' 'an operator id the host does not serve is unavailable, with its cause'
+printf -- '- benchmark_judge: auto\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "unpicked" and .candidate == .judge' 'an unpicked auto offers the newest served Opus'
+WORK_DIR="$WORK" bash "$JUDGE" pin claude/ibm/aws/claude-opus-5 "x" >/dev/null
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5" and .source == "picked"' 'a served pin stays the judge though a newer Opus exists'
+WORK_DIR="$WORK" bash "$JUDGE" pin acme/opus-gone "x" >/dev/null
+resolve
+assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "repick" and .judge_unavailable == null' 'a pin the host no longer serves asks for a re-pick'
+: > "$SANDBOX/models"
+resolve
+assert_jq '.judge == "acme/opus-gone" and .source == "picked" and .judge_unavailable == null' 'an unknown model list keeps the pin and blocks nothing'
 
 # report: judge cells only from a pinned judge
 new_case report_hides_self_judged_scores

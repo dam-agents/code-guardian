@@ -11,6 +11,17 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 12.3.0 — 2026-10-25
+
+**Upgrade:** Under `benchmark: enabled`, when `benchmark_judge` in
+`work/CONFIG.md` is missing, `off`, or a name that
+`bash "$HOME/scripts/benchmark-judge.sh" check <name>` rejects, offer
+`benchmark_judge: auto` to the operator: the agent then picks the judge once
+from this host's models and every later run uses that pick
+([docs/benchmark.md](docs/benchmark.md) → **Choosing the judge**). A yes
+writes the value; the first judged run after it starts a new comparability
+window for the judge columns. A model id the host serves stays as it is.
+
 ## 12.2.1 — 2026-10-25
 
 **Upgrade:** Nothing — docs are re-read per run.

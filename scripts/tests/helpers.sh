@@ -9,6 +9,9 @@ TEST_REF=""                # set per case to pass a host-prefixed target ref
 FAILED=0
 SANDBOXES=()
 trap 'rm -rf "${SANDBOXES[@]:-}"' EXIT
+# the judge's model list (benchmark-judge.sh): unknown, never the host's gateway;
+# a case seeds a file to give one
+export CG_JUDGE_MODELS=/dev/null
 
 # fresh sandbox per case: work dir, seeded REVIEWS.md, fixtures dir, fake HOME
 new_case() { # <case-name>

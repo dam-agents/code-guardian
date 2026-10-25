@@ -250,7 +250,6 @@ if [ "$MODE" = "benchmark" ]; then
     log "benchmark disabled — nothing to do"
     local_out true null
   fi
-  BENCH_JUDGE="$(cfg benchmark_judge)"; BENCH_JUDGE="${BENCH_JUDGE:-off}"
   report_surface benchmark_report EFF_REPORT
   BENCH_DIR="$WORK/benchmark"
   BENCH_MIN_FIXTURES=5
@@ -312,10 +311,14 @@ if [ "$MODE" = "benchmark" ]; then
     fi
   fi
   log "benchmark run due on $BENCH_COUNT fixture(s) (last scheduled run: ${LAST_TS:-never})"
-  # a judge this host cannot run is known before the run: the run makes no
-  # judge call and reports the reason once (docs/benchmark.md, phase 2 step 6)
-  BENCH_JUDGE_WHY="$(bash "$SCRIPT_DIR/benchmark-judge.sh" check "$BENCH_JUDGE" 2>/dev/null)" \
-    || { BENCH_JUDGE_WHY="${BENCH_JUDGE_WHY:-the judge check failed}"; log "benchmark judge unavailable — $BENCH_JUDGE_WHY"; }
+  # the judge every run uses (benchmark_judge, or the agent's pick under
+  # auto), and a judge this host cannot run is known before the run: the run
+  # makes no judge call and reports the reason once (docs/benchmark.md, step 6)
+  BENCH_JUDGE_JSON="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-judge.sh" resolve 2>/dev/null)"
+  BENCH_JUDGE="$(printf '%s' "$BENCH_JUDGE_JSON" | jq -r '.judge // empty' 2>/dev/null)"
+  BENCH_JUDGE_WHY="$(printf '%s' "$BENCH_JUDGE_JSON" | jq -r '.judge_unavailable // empty' 2>/dev/null)"
+  [ -n "$BENCH_JUDGE" ] || { BENCH_JUDGE=off; BENCH_JUDGE_WHY="the judge resolve failed"; }
+  [ -n "$BENCH_JUDGE_WHY" ] && log "benchmark judge unavailable — $BENCH_JUDGE_WHY"
   # isolation (docs/benchmark.md → Isolation): the reviews run in sub-agents
   # that hold no ground truth only while the work repo is not public and the
   # seeded definition repo is — two GitHub GETs, on a due run only
@@ -2205,7 +2208,7 @@ if [ "$MODE" = "audit" ]; then
     fi
     newest_res="$(ls "$WORK/benchmark/results"/*.json 2>/dev/null | sort | tail -1)"
     if [ -n "$newest_res" ]; then
-      bv_bad="$(bash "$SCRIPT_DIR/benchmark-validate.sh" results "$newest_res" 2>/dev/null \
+      bv_bad="$(bash "$SCRIPT_DIR/benchmark-validate.sh" results --stored "$newest_res" 2>/dev/null \
                 | grep '^FAIL ' | cut -d' ' -f2 | head -4 | tr '\n' ' ')"
       if [ -n "${bv_bad// /}" ]; then
         check benchmark_results warn "newest results file (${newest_res##*/}) fails: ${bv_bad% } — the report tolerates it, later runs must not repeat the shape"

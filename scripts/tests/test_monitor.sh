@@ -312,6 +312,13 @@ cp "$SANDBOX/cli/claude" "$SANDBOX/cli/pi"
 CG_JUDGE_CLI="$SANDBOX/cli/none" CG_JUDGE_PI="$SANDBOX/cli/pi" run_monitor
 assert_jq '[.alerts_due[] | select(.kind == "judge_unavailable")] == []' 'a pi CLI to fall back to clears it'
 
+mon_case mon_judge_not_served '- benchmark: enabled' '- benchmark_judge: claude-opus-6'
+mkdir -p "$SANDBOX/cli"
+printf '#!/usr/bin/env bash\nprintf %s\n' "'{\"loggedIn\": true}'" > "$SANDBOX/cli/claude"; chmod +x "$SANDBOX/cli/claude"
+printf 'claude/ibm/aws/claude-opus-5-5\n' > "$SANDBOX/models"
+CG_JUDGE_CLI="$SANDBOX/cli/claude" CG_JUDGE_MODELS="$SANDBOX/models" run_monitor
+assert_jq '.alerts_due[] | select(.kind == "judge_unavailable") | .cause == "not_served"' 'a judge the host does not serve alerts before the run'
+
 # --- the gate's monitor mode ---------------------------------------------------------
 mon_case mon_gate_idle
 run_precheck monitor
