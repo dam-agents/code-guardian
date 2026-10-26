@@ -2201,10 +2201,12 @@ cmd_post() {
   if [ "$kind" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ]; then
     local lateset='[]'
     [ -f "$CTX/findings.annotated.json" ] \
-      && lateset="$(jq -c '[ .[] | select(.late == true and .severity == "suggestion") | {file, line} ]' "$CTX/findings.annotated.json" 2>/dev/null)"
+      && lateset="$(jq -c 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+        [ .[] | select(.late == true and .severity == "suggestion") | anchors[] ]' "$CTX/findings.annotated.json" 2>/dev/null)"
     [ -n "$lateset" ] || lateset='[]'
-    if jq -e --argjson L "$lateset" 'any(.[]; (.severity == "warning" or .severity == "critical")
-         and ((.late == true and .severity == "warning") or ({file, line} as $a | any($L[]; . == $a))))' "$FINDINGS" >/dev/null 2>&1; then
+    if jq -e --argjson L "$lateset" 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+         any(.[]; (.severity == "warning" or .severity == "critical")
+         and ((.late == true and .severity == "warning") or (anchors | any(. as $a | any($L[]; . == $a)))))' "$FINDINGS" >/dev/null 2>&1; then
       fail "a delta re-review keeps a late warning blocking — post the findings file delta annotated, where every late 🟡 is 🟢"
     fi
   fi

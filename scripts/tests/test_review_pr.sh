@@ -872,6 +872,9 @@ assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post re
 jq '.[1].severity = "warning" | del(.[1].late)' "$A" > "$SANDBOX/kept-unflagged.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-unflagged.json"
 assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post reads the late set from annotated, not from the posted array'
+jq '.[1] |= (.severity = "warning" | del(.late) | .file = "src/gamma.ts" | .line = 9 | .also = [{file: "src/beta.ts", line: 1}])' "$A" > "$SANDBOX/kept-also.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-also.json"
+assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post matches the late set on an also anchor of the posted finding'
 run_rp abort 1 "reset"
 
 # a finding merged into ### Findings is printed once: a skill-section copy is refused
