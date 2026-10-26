@@ -760,8 +760,9 @@ holder_alive() {
 
 # ----------------------------------------------------------- hunk index ----
 # $DIFF → $CTX/hunks.json: {path: {right:[new-file lines in hunks], left:[old-file lines]}}
-# The same walk writes $CTX/added.tsv (`<path>\t<line>\t<text>` per added line),
-# which `build_risk` greps, $CTX/files.tsv (`<path>\t<added|removed|modified>`),
+# The same walk writes $CTX/added.tsv (`<path>\t<line>\t<text>` per added line)
+# and $CTX/removed.tsv (the same per removed line, old-file numbers), which
+# `build_risk` greps, $CTX/files.tsv (`<path>\t<added|removed|modified>`),
 # and one slice per file section in $CTX/diff/ with its `<path>\t<slice>` row in
 # $CTX/diff.tsv (docs/review.md step c) — one pass over the diff serves all.
 # Header lines count only before a section's first `@@`: past it every line is
@@ -769,8 +770,8 @@ holder_alive() {
 # header. git ends a `---`/`+++` path that holds a space with a TAB.
 build_hunks() {
   local file="" opath="" npath="" inhunk=0 oldl=0 newl=0 line p h old new k=0 open=0
-  local tsv="$CTX/hunks.tsv" add="$CTX/added.tsv" ft="$CTX/files.tsv" d="$CTX/diff" map="$CTX/diff.tsv"
-  : > "$tsv"; : > "$add"; : > "$ft"; : > "$map"
+  local tsv="$CTX/hunks.tsv" add="$CTX/added.tsv" rem="$CTX/removed.tsv" ft="$CTX/files.tsv" d="$CTX/diff" map="$CTX/diff.tsv"
+  : > "$tsv"; : > "$add"; : > "$rem"; : > "$ft"; : > "$map"
   rm -rf "$d"; mkdir -p "$d" 2>/dev/null || d=""
   section_end() { # the finished section's file row and slice row
     [ "$open" -eq 1 ] && exec 3>&-; open=0
@@ -805,7 +806,8 @@ build_hunks() {
             ('\ No newline'*) ;;
             ('+'*) printf '%s\tR\t%s\n' "$file" "$newl" >> "$tsv"
                    printf '%s\t%s\t%s\n' "$file" "$newl" "${line#+}" >> "$add"; newl=$((newl+1));;
-            ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"; oldl=$((oldl+1));;
+            ('-'*) printf '%s\tL\t%s\n' "$file" "$oldl" >> "$tsv"
+                   printf '%s\t%s\t%s\n' "$file" "$oldl" "${line#-}" >> "$rem"; oldl=$((oldl+1));;
             (*)    printf '%s\tR\t%s\n%s\tL\t%s\n' "$file" "$newl" "$file" "$oldl" >> "$tsv"; newl=$((newl+1)); oldl=$((oldl+1));;
           esac
         fi;;
@@ -856,7 +858,23 @@ raw-sql;a SQL statement built in code;(SELECT[[:space:]].*[[:space:]]FROM[[:spac
 chmod-777;a world-writable permission;chmod([[:space:]]+-[^[:space:]]+)*[[:space:]]+[0-7]*777
 rm-rf;a recursive force delete;rm[[:space:]]+-[[:alpha:]]*r[[:alpha:]]*f|rm[[:space:]]+-[[:alpha:]]*f[[:alpha:]]*r'
 
-build_risk() { # $CTX/added.tsv + $CTX/files.json → $CTX/risk.json
+# (c) weakened gates — a change that lets a failure pass: a test skipped,
+# focused or deleted, assertions removed, a failing step or a check silenced,
+# a threshold line changed. Agents reach a green run this way, so the review
+# reads these hits first (docs/review.md → Gate check). Row form
+# `id;scope;description;ERE`: scope `test` or `config` matches files of that
+# class only (a `|| true` in a script is routine, in a CI step it is not),
+# `any` every reviewable file; GATE_ADDED reads added lines, GATE_REMOVED removed ones.
+GATE_ADDED='skip;test;a test is skipped;(\.skip\(|(^|[^[:alnum:]_])x(it|describe|test)\(|@(pytest\.mark\.)?skip|@Disabled|@Ignore|t\.Skip(Now)?\()
+focus;test;only the focused tests run;(\.only\(|(^|[^[:alnum:]_])f(it|describe)\()
+fail-silenced;config;a failing step is silenced;(\|\|[[:space:]]*(true|:)([[:space:]]|;|$)|continue-on-error:[[:space:]]*true|allow_failure:[[:space:]]*true|set[[:space:]]+\+e|--no-verify)
+check-disabled;any;a lint or type check is turned off;(eslint-disable|@ts-(ignore|nocheck)|#[[:space:]]*noqa|//[[:space:]]*nolint|#[[:space:]]*type:[[:space:]]*ignore|shellcheck[[:space:]]+disable)'
+GATE_REMOVED='threshold;any;a coverage or quality threshold line changed;(fail_under|fail-under|coverage[_-]?threshold|coverageThreshold|min[_-]?coverage|--cov-fail-under)'
+# an asserting line of a test file; a file that loses more of them than it
+# gains is listed once, with the net count
+GATE_ASSERT_RE='(assert|expect[[:space:]]*\(|\.should|t\.(Error|Fatal)|\.to(Be|Equal|Match|Throw))'
+
+build_risk() { # $CTX/added.tsv + $CTX/removed.tsv + $CTX/files.json → $CTX/risk.json
   local rows="" scope="" pre="^[^$TAB]*$TAB[0-9]*$TAB" seen="" trunc=false
   local p r np=0 nx=0 id desc re f l
   # (a) sensitive areas — the first matching area of each changed file, over
@@ -878,6 +896,7 @@ build_risk() { # $CTX/added.tsv + $CTX/files.json → $CTX/risk.json
   done <<EOF
 $(jq -r '.[] | select((.class | IN("code","test","config")) and .status != "removed") | .path' "$CTX/files.json" 2>/dev/null)
 EOF
+  build_gates
   # (b) second-look patterns — the first added line per pattern and file
   [ -s "$CTX/added.tsv" ] || { printf '%s' "$rows" | risk_json "$trunc"; return 0; }
   while IFS=';' read -r id desc re; do
@@ -897,13 +916,58 @@ $RISK_PATTERNS
 EOF
   printf '%s' "$rows" | risk_json "$trunc"
 }
+build_gates() { # the (c) list → G rows appended to build_risk's $rows
+  local tests confs ng=0 seen="" id kind desc re f l n src pats
+  tests="$(jq -r '.[] | select(.class == "test" and .status != "removed") | "<\(.path)>"' "$CTX/files.json" 2>/dev/null | tr -d '\n')"
+  confs="$(jq -r '.[] | select(.class == "config" and .status != "removed") | "<\(.path)>"' "$CTX/files.json" 2>/dev/null | tr -d '\n')"
+  gate_row() { # <id> <description> <file> <line, 0 = the whole file> — the first hit per id and file
+    case "$seen" in (*"<$1$TAB$3>"*) return 0;; esac
+    if [ "$ng" -ge "$RISK_CAP" ]; then trunc=true; return 0; fi
+    seen="$seen<$1$TAB$3>"; rows="$rows"$'\n'"G$TAB$1$TAB$2$TAB$3$TAB$4"; ng=$((ng+1))
+  }
+  while IFS= read -r f; do
+    [ -n "$f" ] && gate_row test-deleted "a test file is deleted" "$f" 0
+  done <<EOF
+$(jq -r '.[] | select(.class == "test" and .status == "removed") | .path' "$CTX/files.json" 2>/dev/null)
+EOF
+  for src in added removed; do
+    [ -s "$CTX/$src.tsv" ] || continue
+    if [ "$src" = added ]; then pats="$GATE_ADDED"; else pats="$GATE_REMOVED"; fi
+    while IFS=';' read -r id kind desc re; do
+      [ -n "$id" ] || continue
+      while IFS="$TAB" read -r f l; do
+        [ -n "$f" ] || continue
+        case "$kind" in (test) n="$tests";; (config) n="$confs";; (*) n="$scope";; esac
+        case "$n" in (*"<$f>"*) ;; (*) continue;; esac
+        gate_row "$id" "$desc" "$f" "$l"
+      done <<EOF
+$(grep -E -- "^[^$TAB]*$TAB[0-9]*$TAB.*($re)" "$CTX/$src.tsv" 2>/dev/null | cut -f1,2)
+EOF
+    done <<EOF
+$pats
+EOF
+  done
+  # assertions removed: per test file, the removed asserting lines past the added ones
+  while IFS="$TAB" read -r f n; do
+    [ -n "$f" ] && gate_row assertions-removed "$n assertion line(s) removed, net" "$f" 0
+  done <<EOF
+$(jq -R -s -r --arg t "$tests" --arg re "$GATE_ASSERT_RE" --rawfile a "$CTX/added.tsv" '
+    def rows($s): [ $s | split("\n")[] | split("\t") | select(length >= 3 and (.[2:] | join("\t") | test($re))) | .[0] ];
+    (rows(.) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $rm
+    | (rows($a) | group_by(.) | map({key: .[0], value: length}) | from_entries) as $ad
+    | $rm | to_entries[] | . as $e | select($t | contains("<" + $e.key + ">"))
+    | (.value - ($ad[.key] // 0)) as $n | select($n > 0) | "\(.key)\t\($n)"' "$CTX/removed.tsv" 2>/dev/null)
+EOF
+}
 risk_json() { # <truncated> — the collected rows on stdin → $CTX/risk.json
   jq -R -s --argjson t "$1" '[ split("\n")[] | select(length > 0) | split("\t") ] as $r
     | {paths:    [ $r[] | select(.[0] == "P") | {path:.[1], reason:.[2]} ],
        patterns: [ $r[] | select(.[0] == "X") | {id:.[1], description:.[2], file:.[3], line:(.[4]|tonumber)} ],
+       gates:    [ $r[] | select(.[0] == "G") | {id:.[1], description:.[2], file:.[3]}
+                          + (if .[4] == "0" then {} else {line:(.[4]|tonumber)} end) ],
        truncated: $t}' > "$CTX/risk.json" 2>/dev/null \
-    || printf '{"paths":[],"patterns":[],"truncated":false}\n' > "$CTX/risk.json"
-  rm -f "$CTX/added.tsv"
+    || printf '{"paths":[],"patterns":[],"gates":[],"truncated":false}\n' > "$CTX/risk.json"
+  rm -f "$CTX/added.tsv" "$CTX/removed.tsv"
 }
 
 # ================================================================= prepare ====
@@ -1279,6 +1343,7 @@ cmd_prepare() {
   [ -n "$vl" ] && vlblock=$' Rows and paths this PR itself changes — read them live, never from the map:\n'"$vl"
   rk="$(jq -r '[.paths[]? | "- \(.path) — sensitive area: \(.reason)"]
                + [.patterns[]? | "- \(.file):\(.line) — \(.id): \(.description)"]
+               + [.gates[]? | "- \(.file)\(if .line then ":\(.line)" else "" end) — weakened gate, \(.id): \(.description)"]
                + (if .truncated then ["- more hits than the prescan lists"] else [] end) | .[]' "$CTX/risk.json" 2>/dev/null)"
   [ -n "$rk" ] && rkblock=$'\n\nSame status for this diff\'s risk prescan — the changed paths in sensitive\nareas and the added lines that ask for a second look:\n'"$rk"
   # the reviewable classes: noise files and deleted files route nowhere

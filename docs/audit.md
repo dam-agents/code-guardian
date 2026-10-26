@@ -341,6 +341,11 @@ measurement.
       its `n` and judged as an anecdote.
     - `conflicts` — PRs whose first merge conflict a shepherd sweep saw this
       week; a PR counts once in its life.
+    - `rounds` — the median count of this agent's reviews per PR merged this
+      week, over the PR's whole life. A rise means findings take more rounds
+      to settle: read it against `late_shift` (task 28).
+    - `abandoned` — PRs closed unmerged this week whose last review of this
+      agent did not approve. A rise means authors give up after the feedback.
     - `hot_areas` — the three directories carrying the most open findings, from
       the profile's own history ([profile.md](profile.md)). Orientation for the
       reader, never a claim about the live code.
@@ -411,7 +416,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review style: <ste.sentences_over_20>/<ste.sentences> sentences over 20 words, average <ste.avg_sentence_words> (omit when ste.reviews = 0)
 • Median time-to-first-review: <m> min (review itself <duration.median_min> min, n=<duration.n>) · Open PRs: <open_prs> · awaiting_label: <n>
 • Review time by phase: <phase> <median_min> min (n=<n>) · <phase> <median_min> min (n=<n>) — the two largest (omit when every phase is unmeasured)
-• Project — coverage: <project.coverage.reviewed>/<project.coverage.merged> merged PRs reviewed (<share>%) · median PR <pr_size.median_files> files / <median_lines> lines (n=<n>) · first human review <human_latency.median_hours>h (n=<n>) · merge conflicts: <conflicts> PRs (each figure "not measured" when null)
+• Project — coverage: <project.coverage.reviewed>/<project.coverage.merged> merged PRs reviewed (<share>%) · median PR <pr_size.median_files> files / <median_lines> lines (n=<n>) · first human review <human_latency.median_hours>h (n=<n>) · merge conflicts: <conflicts> PRs · review rounds <rounds.median> (n=<n>) · abandoned after review: <abandoned> PRs (each figure "not measured" when null)
 • Findings sit in: <hot_areas[].dir> <critical>🔴/<warning>🟡, … — top 3 (omit when empty)
 • Nudges: <nudges.prs_nudged> PRs nudged (<nudges.prs>) · reviewed ≤48h after nudge: <x>/<y> · held/L4: <list or none>
 • Reactions on my comments: 👍<up> · 👎<down> — <lessons recorded or "none"> (omit when scanned = 0; when scanned = null: `not measured this week`)

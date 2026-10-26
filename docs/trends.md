@@ -64,7 +64,7 @@ write, and it never touches state outside `work/audit/`.
 | Cost | heartbeats and idle share, wake-ups by work (reviews / mention replies), tokens, estimated spend per week and per review, actual spend | `stats.heartbeats`, `stats.wakeups`, `stats.tokens`, the price table, extras |
 | Runs | finished sessions, run length (median, mean, p90; review runs apart), cost per run (median, mean), cache hit ratio — per week and per day | `stats.sessions` (below) |
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts, the fullest volume (space, inodes), the size of `work/` | `stats.stalls`, `stats.log_events`, `checks[]`, `stats.disk` |
-| Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
+| Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, review rounds per merged PR, PRs abandoned after review, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
 
 A metric the week did not measure — a week recorded before the metric
 existed included — renders `—`; zero is written only where zero was measured.

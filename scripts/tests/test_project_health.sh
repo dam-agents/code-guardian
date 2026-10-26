@@ -65,4 +65,29 @@ run_preflight audit
 assert_jq '.stats.project.coverage.merged == 0' 'a PR merged before the window is not counted'
 assert_jq '.stats.project.human_latency.n == 0' 'a first review before the window is not counted'
 
+# --- review rounds per merged PR, and PRs closed after a change request -------
+new_case project_rounds
+base_config
+ledger_row 1 1814400 first     # before the window: still one of #1's rounds
+ledger_row 1 172800 re-review
+ledger_row 1 86400 re-review
+ledger_row 2 86400 first
+ledger_row 3 86400 first       # closed unmerged, last review not APPROVE
+ledger_row 4 86400 first
+jq -c '(select(.pr == 4) | .verdict) |= "APPROVE"' "$WORK/REVIEW-LEDGER.jsonl" > "$WORK/l.tmp" && mv "$WORK/l.tmp" "$WORK/REVIEW-LEDGER.jsonl"
+merged_fx "$(jq -nc --arg a "$(iso_ago 86400)" \
+  '[{number:1, merged_at:$a}, {number:2, merged_at:$a},
+    {number:3, merged_at:null, closed_at:$a}, {number:4, merged_at:null, closed_at:$a}]')"
+run_preflight audit
+assert_jq '.stats.project.rounds | .n == 2 and .median == 2' 'rounds count every review of a merged PR, older ones too'
+assert_jq '.stats.project.abandoned == 1' 'a PR closed unmerged after a change request counts, an approved one does not'
+
+# --- nothing merged or closed: no median, and zero abandoned -----------------
+new_case project_rounds_empty
+base_config
+ledger_row 1 86400 first
+run_preflight audit
+assert_jq '.stats.project.rounds | .n == 0 and .median == null' 'no merged PR leaves the rounds median unmeasured'
+assert_jq '.stats.project.abandoned == 0' 'no closed PR counts zero abandoned'
+
 finish

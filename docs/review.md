@@ -61,9 +61,10 @@ b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
    [review-rereview.md](review-rereview.md) → **Carried review after a HEAD
    move**. `paths.pack` lists per changed code file its dependents, its
    tests and its changed lines; `paths.context` holds the PR context
-   (**PR context**); `paths.risk` names the changed files in sensitive areas
-   and the added lines that ask for a second look — orientation, never
-   evidence ([profile.md](profile.md) → **What it is, and is not**).
+   (**PR context**); `paths.risk` names the changed files in sensitive areas,
+   the added lines that ask for a second look and the weakened gates —
+   orientation, never evidence ([profile.md](profile.md) → **What it is, and
+   is not**).
 c. **Review the diff** — file by file in `files[]` order: classes `code`,
    `test`, `docs`, `config`. Read each entry's `diff` — that file's own section
    of `$PR_DIR.diff` — once; the whole diff stays for the tools. The noise
@@ -290,6 +291,16 @@ clone, in the diff or outside it: a cluster policy, a chart value, a schema.
 Report the conflicting fields as **one** finding, each extra field in `also`.
 The block sweep covers the whole block the finding names, on every scope.
 
+**Gate check** — before the code, read every `gates[]` hit of `paths.risk`:
+a test skipped, focused or deleted, assertions removed, a failing CI step or
+a lint or type check silenced, a coverage threshold changed. Each hit is a
+question: does the PR still test what it changes? A hit that the body or the
+code justifies (a removed feature, a flaky test with an issue) is no finding.
+A hit that lets the changed behavior pass unchecked is 🟡, and 🔴 when it
+opens a release or deploy gate ([finding-form.md](finding-form.md)). A test
+whose assertion now expects the new output is the same question: confirm the
+new value is correct from the code, not from the test.
+
 **Claim sweep** — for a finding whose class is *an in-tree statement about X is
 false or incomplete*, the siblings sit outside the diff by construction, so the
 sweep covers the whole clone: `review-pr.sh sweep <n> '<regex>' --tree` returns
@@ -463,7 +474,8 @@ Before you declare the run done:
   observed insights recorded ([preferences.md](preferences.md)) · `memory_due`
   read before reviewing · orientation used for where to look only,
   `verify_live` rows read live, no finding citing the profile or the risk
-  prescan ([profile.md](profile.md)) · noise files excluded with their Summary
+  prescan ([profile.md](profile.md)) · every gate hit answered (**Gate
+  check**) · noise files excluded with their Summary
   line · every blocking finding verified, the skills' included, and
   sibling-swept with its `also` locations, a statement finding claim-swept over
   the clone, a design finding checked against the in-tree decision that covers

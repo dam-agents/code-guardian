@@ -3049,13 +3049,16 @@ if [ "$MODE" = "audit" ]; then
     review_records "$WORK/reviews" "$LEDGER" "$SINCE_ISO" 2>/dev/null
   }
   # coverage — PRs merged this week against the ones this agent reviewed; the
-  # same list call feeds the revert scan below
-  MERGED_READ=false
+  # same list call feeds the revert scan and the closed-unmerged list below
+  MERGED_READ=false; CLOSED_WEEK='[]'
   merged_raw="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null)" \
     && MERGED_WEEK="$(printf '%s' "$merged_raw" | jq -c --arg s "$SINCE_ISO" '[.[] | select(.merged_at != null and .merged_at >= $s)
                                    | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)" \
     && [ -n "$MERGED_WEEK" ] && MERGED_READ=true
   [ "$MERGED_READ" = true ] || MERGED_WEEK='[]'
+  [ "$MERGED_READ" = true ] && CLOSED_WEEK="$(printf '%s' "$merged_raw" | jq -c --arg s "$SINCE_ISO" \
+    '[.[] | select(.merged_at == null and (.closed_at // "") >= $s) | .number]' 2>/dev/null)"
+  [ -n "$CLOSED_WEEK" ] || CLOSED_WEEK='[]'
   unset merged_raw
   merged_nums="$(printf '%s' "$MERGED_WEEK" | jq -r '.[].number' 2>/dev/null)"
   if [ -n "$merged_nums" ]; then
@@ -3209,10 +3212,30 @@ if [ "$MODE" = "audit" ]; then
     "$WORK/PROFILE.json" 2>/dev/null)"
   case "$HOT_AREAS" in (''|null) HOT_AREAS='[]';; esac
 
+  # review rounds and abandoned PRs — over every review on record, not only the
+  # week's: a PR merged this week counts the rounds it took in its whole life.
+  # `rounds` is the median count of this agent's reviews per PR merged this
+  # week; `abandoned` the PRs closed unmerged this week whose last review asked
+  # for changes. Unread list → both null.
+  # the PR lists reach jq in files, never in argv (docs/self-modification.md §9)
+  printf '%s' "$MERGED_WEEK" | jq -c '[.[].number]' > "$PF_TMP/merged-week.json" 2>/dev/null \
+    || printf '[]' > "$PF_TMP/merged-week.json"
+  printf '%s' "$CLOSED_WEEK" > "$PF_TMP/closed-week.json"
+  ROUNDS="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
+    | jq -sc --slurpfile m "$PF_TMP/merged-week.json" --slurpfile c "$PF_TMP/closed-week.json" \
+        --argjson read "$MERGED_READ" "$STATS_JQ"'
+      if ($read | not) then {rounds: {n: 0, median: null}, abandoned: null} else
+      ($m[0] // []) as $m | ($c[0] // []) as $c
+      | group_by(.pr) as $g
+      | { rounds: ([ $g[] | select(.[0].pr | IN($m[])) | length ] | {n: length, median: median(round)}),
+          abandoned: ([ $g[] | select(.[0].pr | IN($c[])) | sort_by(.ts) | last
+                        | select(.verdict != "APPROVE") ] | length) } end' 2>/dev/null)"
+  case "$ROUNDS" in (''|null) ROUNDS='{"rounds":{"n":0,"median":null},"abandoned":null}';; esac
+
   PROJECT_JSON="$(jq -nc --argjson cov "$COVERAGE" --argjson size "$PR_SIZE" \
-    --argjson ev "$PROJECT_EVENTS" --argjson hot "$HOT_AREAS" \
+    --argjson ev "$PROJECT_EVENTS" --argjson hot "$HOT_AREAS" --argjson rd "$ROUNDS" \
     '{coverage:$cov, pr_size:$size, human_latency:$ev.human_latency,
-      conflicts:$ev.conflicts, hot_areas:$hot}')"
+      conflicts:$ev.conflicts, hot_areas:$hot, rounds:$rd.rounds, abandoned:$rd.abandoned}')"
 
   # The week's classifier refusals and API failures, from the harness hooks
   # (docs/audit.md task 38): what the classifier refused and why, and the
