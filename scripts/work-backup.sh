@@ -51,7 +51,7 @@ fi
 EXCLUDES=(--exclude='./.git' --exclude='.nfs*' --exclude='*.lock' --exclude='*.tmp' --exclude='.run-lock')
 SKIP_RE='(^|/)\.nfs|\.lock(/|$)|\.tmp$|(^|/)\.run-lock$'
 # Append-only or unreconstructable records a persist may never delete
-PROTECTED="CONFIG.md MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl PR-EVENTS.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
+PROTECTED="CONFIG.md BRIEF.log MEMORY.md LESSONS.md REVIEW-LEDGER.jsonl PR-EVENTS.jsonl audit/weeks benchmark/RESULTS.md benchmark/results"
 
 # work_repo is `[<host>/]<owner>/<repo>`: three segments name the host, two use
 # the ambient default (docs/config.md)

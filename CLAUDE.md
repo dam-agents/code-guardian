@@ -22,7 +22,7 @@ work: the prompt carries the path of the computed worklist.
    ([docs/worklist.md](docs/worklist.md) → **Entry command**).
 2. **Read [docs/runbook.md](docs/runbook.md) before any other action** — the
    trust boundary, the run procedures (`Review run`, `Shepherd run`,
-   `Audit run`, `Benchmark run`, `Survey run`, `Monitor run`: the sections a
+   `Audit run`, `Benchmark run`, `Survey run`, `Brief run`, `Monitor run`: the sections a
    schedule's task text names as `CLAUDE.md → "<name>"`) and the hard
    invariants — and follow it to the end of the run.
 3. No worklist (the gate broke, the file is gone, `nothing_to_do` from an

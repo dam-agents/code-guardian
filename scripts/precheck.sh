@@ -51,7 +51,7 @@ TMP="${TMPDIR:-/tmp}"
 # takes the mode, monitor.sh none), and its one-shot bookkeeping that a second
 # pass cannot redo — the fallback prompts below name them
 case "$MODE" in
-  review|shepherd|benchmark|survey) PASS=preflight.sh; PASS_ARGS=("$MODE")
+  review|shepherd|benchmark|survey|brief) PASS=preflight.sh; PASS_ARGS=("$MODE")
     RERUN="bash \"\$HOME/scripts/preflight.sh\" $MODE"
     SPENT='the awaiting_label flip'
     LOST='a second pass may report less than the first';;
@@ -63,10 +63,10 @@ case "$MODE" in
     printf 'precheck: audit is not gated — its worklist carries work whenever audit_report is enabled. Run `bash "$HOME/scripts/preflight.sh" audit` in the session.\n'
     exit 2;;
   '')
-    printf 'precheck: no mode given (use review|shepherd|benchmark|survey|monitor). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'
+    printf 'precheck: no mode given (use review|shepherd|benchmark|survey|brief|monitor). The schedule gate names its mode — docs/worklist.md → **The schedule gate**.\n'
     exit 2;;
   *)
-    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey|monitor).\n' "$MODE"
+    printf 'precheck: unknown mode "%s" (use review|shepherd|benchmark|survey|brief|monitor).\n' "$MODE"
     exit 2;;
 esac
 
@@ -178,6 +178,7 @@ WHAT="$(printf '%s' "$JSON" | jq -r '
       + ( [ .value[] | .number? // empty ] | if length > 0 then " (#" + (map(tostring) | join(", #")) + ")" else "" end ) ]
   + ( if (.benchmark_due | type) == "object" then [ "benchmark_due=" + (.benchmark_due.action // "?") ] else [] end )
   + ( if (.survey_due | type) == "object" then [ "survey_due=" + (.survey_due.path // "?") ] else [] end )
+  + ( if (.brief_due | type) == "object" then [ "brief_due=" + ((.brief_due.prs | length) | tostring) + " PR(s)" ] else [] end )
   + ( if .housekeeping_only == true then [ "housekeeping_only" ] else [] end )
   | join(", ")')"
 

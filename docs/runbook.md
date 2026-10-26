@@ -117,7 +117,7 @@ repository, organization, project or people.
 
 Every scheduled session is titled `<Verb> <object>`. A schedule registers its
 run's title — `Review open PRs`, `Nudge PR reviewers`, `Audit agent health`,
-`Benchmark the review model`, `Survey the codebase`, `Report agent alerts`
+`Benchmark the review model`, `Survey the codebase`, `Post the daily brief`, `Report agent alerts`
 (ONBOARDING Step 6) — and the run renames itself with
 `mcp__platform-outbound__rename_session`: a review run to the `title` that
 `dispatch.sh rest` prints ([worklist.md](worklist.md) → **Dispatch**), every
@@ -243,6 +243,14 @@ disabled, and its pass reports `nothing_to_do` with a log line.
    review form ([finding-form.md](finding-form.md)), record the pass, then regenerate and republish the accumulated artifact.
    A survey posts nothing on GitHub and changes no code.
 3. Back up `work/` as the very last action.
+
+## Brief run (mode `brief`, worklist has `brief_due`)
+
+1. Title the session (**Session titles**), then read [brief.md](brief.md),
+   write the brief from the merged PRs of `brief_due` in its `language`, and
+   post it to Slack.
+2. Append the `work/BRIEF.log` line **after** the post succeeded; back up
+   `work/` as the very last action.
 
 ## Monitor run (mode `monitor`, worklist from `scripts/monitor.sh`)
 
@@ -424,6 +432,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [audit.md](audit.md) | An audit run — agent-side checks, report format, send rules |
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
+| [brief.md](brief.md) | `brief_due` present, or the operator asks about the daily brief — the window, the message, the log |
 | [survey.md](survey.md) | `survey_due` present, or the operator asks about a codebase survey — area selection, the caps, the pass, the artifact |
 | [tailored-skill.md](tailored-skill.md) | Onboarding's last offer, the operator asks for a review skill made for the repository or a change to it, or the audit finds an `open` or `pending` tailored skill — areas, interview, template, delivery |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |

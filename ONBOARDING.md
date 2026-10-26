@@ -542,7 +542,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > The survey artifact is public to anyone with its URL. Shall it show the findings themselves — severity, summary, fix and a link to the code — or stay an index of areas and passes? A finding on it is a disclosure of a weak point. Default: **index only**.
 
     Findings → `survey_report_findings: enabled`; otherwise omit.
-13. **Review cadence** — `active_hours`, `active_days`,
+13. **Daily brief** (only when Slack is enabled; `docs/brief.md`). Ask:
+
+    > Every weekday morning (06:00 UTC by default) I can post one Slack message: what the PRs merged since the last brief changed — news for the whole team by author, explained like release notes, then the technical changes with impact and the risky ones. Weekend merges arrive on Monday; a day with no merge sends nothing. Turn it on, and in which language? Default: off, English.
+
+    **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
+    English), and register the schedule in Step 6g.
+14. **Review cadence** — `active_hours`, `active_days`,
     `review_interval_active`, `review_interval_quiet` (semantics in
     `docs/config.md`; the crons themselves in Step 6a). Ask:
 
@@ -555,7 +561,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     schedules, with the keys left at their 24/7 values. For a window, tell the
     operator that a PR opened in a quiet hour, an urgent one included, waits up
     to `review_interval_quiet` minutes.
-14. **`definition_issues`** — whether the agent files tracking issues on the
+15. **`definition_issues`** — whether the agent files tracking issues on the
     definition repo (`docs/runbook.md` → **Definition-repo issues**). First
     read the repo's visibility:
     `gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO" --jq '.private'`
@@ -566,7 +572,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     **Yes** → `definition_issues: enabled`; **no, or no reply** →
     `definition_issues: disabled`. Always write the key, so the choice is
     explicit.
-15. **`health_dashboard`** — the health dashboard (`docs/health.md`). Ask:
+16. **`health_dashboard`** — the health dashboard (`docs/health.md`). Ask:
 
     > I keep a technical history for 90 days — schedule ticks, sessions, model and GitHub failures, classifier refusals, errors per hour — and a list of incidents. I can publish it as one dashboard in the DAM Artifact Library, with the state of each service, updated in place when a state changes or every 3 hours, with no model call. Anyone with its link can open it. Turn it on?
 
@@ -614,6 +620,8 @@ Final shape:
 - survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled
 - survey_interval_days: 7              # floor between two passes; omit = 7
+- daily_brief: enabled                 # weekday Slack brief of merged PRs; omit = disabled
+- brief_language: Czech                # language of the brief; omit = English
 - benchmark: enabled                   # monthly self-benchmark; omit = disabled
 - benchmark_judge: auto   # auto = the agent picks the judge once | <model-id> | off = deterministic scoring only
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
@@ -707,7 +715,7 @@ The first heartbeat then skips the already-reviewed SHAs.
 
 Independent platform schedules, never an in-process cron tool — the shepherd
 one only under `slack_notifications: enabled`, the benchmark one only under
-`benchmark: enabled`, the survey one only under `survey: enabled`.
+`benchmark: enabled`, the survey one only under `survey: enabled`, the brief one only under `daily_brief: enabled`.
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
@@ -720,7 +728,7 @@ platform's (`docs/config.md` → **Session model**).
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
 carries every schedule of 6a–6f, at the default cadence of its step, with the
-Slack-, benchmark- and survey-dependent ones disabled ([`kit.yaml`](kit.yaml) →
+Slack-, benchmark-, survey- and brief-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
 
@@ -805,6 +813,15 @@ health alerts of `docs/monitor.md`. Create
 
 > Agent monitor. The precheck already ran scripts/monitor.sh and found alerts due: read the worklist JSON at the path its output names, and never run monitor.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/monitor.sh"` yourself. Then follow CLAUDE.md → "Monitor run": read docs/monitor.md, report every alert of the worklist in one message (chat UI, plus the monitor-owner DM when slack_notifications is enabled), acknowledge them with `scripts/monitor.sh ack <ids>` only after the send, never repair or re-run anything in response, and back up work/ (`scripts/work-backup.sh persist`).
 
+**6g — Daily brief** (only when `daily_brief: enabled`; create it later if the
+brief is enabled in chat). Ask: *When should the daily brief be posted? Default
+is weekdays 06:00 (platform timezone).* Create `name: code-guardian-brief-daily`,
+cron default `0 6 * * 1-5`, `sessionMode: fresh`,
+`precheck: bash "$HOME/scripts/precheck.sh" brief`,
+`sessionTitle: Post the daily brief`, `task`:
+
+> Daily brief. The precheck already ran preflight and found merged PRs: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" brief` yourself. Then follow CLAUDE.md → "Brief run": read docs/brief.md, read the merged PRs in brief_due, write the brief in brief_due.language, post it to Slack, append the BRIEF.log line only after the post succeeds, and back up work/ (`scripts/work-backup.sh persist`).
+
 ## Step 7 — Record the version, write the sentinel, verify, report
 
 Only after Steps 1–6 succeeded. `work/VERSION` records the adopted definition
@@ -848,7 +865,7 @@ with the verification result (the `PASS` line plus any warnings):
 1. The final `work/CONFIG.md`, verbatim.
 2. What runs where: target repo, the review cadence (under an active window
    also the quiet-hour interval a night or weekend PR waits for), shepherd
-   cadence when Slack is on, audit day, benchmark and survey days when
+   cadence when Slack is on, audit day, benchmark and survey days and the daily brief when
    enabled, the monitor every 15 minutes (with its direct DM and dashboard
    when enabled), that the platform's model settings choose the session model,
    whether anonymous issues go to the definition repo (`definition_issues`),

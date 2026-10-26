@@ -39,6 +39,9 @@
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); local, plus two repo GETs
 #                             on a due run (isolation_unavailable)
+#   preflight.sh brief     -> brief_due (the merged PRs since the last brief and
+#                             the language) when `daily_brief: enabled` and a
+#                             PR merged (docs/brief.md)
 #   preflight.sh survey    -> survey_due (the area to read and its
 #                             history) when `survey: enabled` and the interval
 #                             passed (docs/survey.md)
@@ -584,6 +587,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
+  --arg db2 "$(cfg daily_brief)" --arg bl "$(cfg brief_language)" \
   --arg tl "$(token_login)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
   --arg ah "$(cfg active_hours)" --arg ad "$(cfg active_days)" --arg ria "$(cfg review_interval_active)" --argjson riq "$REVIEW_INTERVAL_QUIET" '
   {github_repo:$repo, repo_host:$host, bot_login:(if $bot=="" then null else $bot end),
@@ -621,6 +625,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    survey:(if $sv=="enabled" then "enabled" else "disabled" end), survey_report:(if $sr=="off" then "off" else "dam" end),
    survey_report_findings:(if $srf=="enabled" then "enabled" else "disabled" end),
    survey_interval_days:(if ($sid|test("^[0-9]+$")) then ($sid|tonumber) else 7 end),
+   daily_brief:(if $db2=="enabled" then "enabled" else "disabled" end), brief_language:(if $bl=="" then "English" else $bl end),
    skills_table:$skills, watch_rules:$watches}')"
 
 # Memory budget (docs/preferences.md → Two layers): the caps of the layer every
@@ -688,6 +693,31 @@ fail_out() {
 [ "$MODE" = "review" ] && [ "$HOLDS_LIB" -eq 0 ] \
   && fail_out "lib/holds.sh unreadable — live holders and PR holds cannot be judged"
 [ -f "$CONFIG" ] || log "work/CONFIG.md missing — running with defaults"
+
+# ============================================================ BRIEF MODE ====
+# The daily Slack brief (docs/brief.md). Deterministic: the window runs from the
+# last line of work/BRIEF.log (24h without one) to now, and the merged PRs in
+# it are listed. No merge in the window, a weekend, or either key off → nothing
+# to do, so the schedule starts no session. The agent writes the log line after
+# the post; this pass writes nothing.
+if [ "$MODE" = "brief" ]; then
+  [ "$(cfg daily_brief)" = "enabled" ] && [ "$(cfg slack_notifications)" = "enabled" ] \
+    || { log "daily brief off (needs daily_brief and slack_notifications enabled) — nothing to do"; local_out true null; }
+  case "$(date -u +%u)" in (6|7) log "weekend — the Monday brief covers it"; local_out true null;; esac
+  BRIEF_LANG="$(cfg brief_language)"; BRIEF_LANG="${BRIEF_LANG:-English}"
+  BRIEF_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$WORK/BRIEF.log" 2>/dev/null | sort | tail -1)"
+  BRIEF_SINCE="${BRIEF_LAST:-$(date -u -d "@$((NOW_EPOCH - 86400))" +%Y-%m-%dT%H:%M:%SZ)}"
+  BRIEF_RAW="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null)"
+  printf '%s' "$BRIEF_RAW" | jq -e 'type == "array"' >/dev/null 2>&1 \
+    || fail_out "could not list merged PRs on $REPO — the brief window stays open"
+  BRIEF_PRS="$(printf '%s' "$BRIEF_RAW" | jq -c --arg s "$BRIEF_SINCE" \
+    '[.[] | select(.merged_at != null and .merged_at > $s)
+     | {number, title: (.title // ""), author: (.user.login // ""), merged_at, url: .html_url}] | sort_by(.merged_at)')"
+  [ "$(printf '%s' "$BRIEF_PRS" | jq length)" -gt 0 ] || { log "no PR merged since $BRIEF_SINCE — nothing to do"; local_out true null; }
+  log "brief due: $(printf '%s' "$BRIEF_PRS" | jq length) merged PR(s) since $BRIEF_SINCE"
+  local_out false "$(jq -nc --arg s "$BRIEF_SINCE" --arg l "$BRIEF_LANG" --argjson p "$BRIEF_PRS" \
+    '{since:$s, language:$l, prs:$p}')"
+fi
 
 # ------------------------------------------------------------ open PR set ----
 # an open-PR list is always a JSON array, `[]` included: anything else is no
@@ -3287,4 +3317,4 @@ if [ "$MODE" = "audit" ]; then
   exit 0
 fi
 
-fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey|memory)"
+fail_out "unknown mode '$MODE' (use review|shepherd|audit|benchmark|survey|brief|memory)"

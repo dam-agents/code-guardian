@@ -150,5 +150,13 @@ schedules:
       `scripts/monitor.sh ack <ids>` only after the send, never repair or
       re-run anything in response, and back up work/ (`scripts/work-backup.sh
       persist`).
+  # Daily brief (Step 6g) — only under `daily_brief: enabled`, weekdays 06:00.
+  - name: code-guardian-brief-daily
+    cron: "0 6 * * 1-5"
+    sessionMode: fresh
+    precheck: bash "$HOME/scripts/precheck.sh" brief
+    enabled: false
+    task: >-
+      Daily brief. The precheck already ran preflight and found merged PRs: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" brief` yourself. Then follow CLAUDE.md → "Brief run": read docs/brief.md, read the merged PRs in brief_due, write the brief in brief_due.language, post it to Slack, append the BRIEF.log line only after the post succeeds, and back up work/ (`scripts/work-backup.sh persist`).
 bundledSkills:
   path: .agents/skills
