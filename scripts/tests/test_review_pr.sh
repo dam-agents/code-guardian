@@ -869,6 +869,9 @@ jq -e '.[0].severity == "warning" and .[1].severity == "suggestion" and .[1].fix
 jq '.[1].severity = "warning"' "$A" > "$SANDBOX/kept-late.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-late.json"
 assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post refuses a delta round that keeps a late warning blocking'
+jq '.[1].severity = "warning" | del(.[1].late)' "$A" > "$SANDBOX/kept-unflagged.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-unflagged.json"
+assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post reads the late set from annotated, not from the posted array'
 run_rp abort 1 "reset"
 
 # a finding merged into ### Findings is printed once: a skill-section copy is refused

@@ -58,8 +58,9 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
   author's round could not see it, so a late 🟡 is graded 🟢: it stays in the
   block as `🔎 Missed earlier`, in `### Findings` as a suggestion outside the
   🟢 budget, and out of the verdict. `delta` regrades it in `annotated` and
-  marks it `demote: true` in `late[]`; `post` refuses a delta re-review whose
-  findings keep a `late` warning. A complete re-review keeps every grade.
+  marks it `demote: true` in `late[]`. `post` reads the late set from that
+  annotated file, whatever findings file you pass, and refuses a 🔴/🟡 at an
+  anchor it grades 🟢. A complete re-review keeps every grade.
 - **A defect the range causes from another file is new.** When a range change
   outside every anchor makes the finding true — a new caller, a changed
   default — rerun `delta` with `--fresh <index>` for that finding, in the same

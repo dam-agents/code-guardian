@@ -2196,9 +2196,17 @@ cmd_post() {
   nbody="$(grep -cE '^[[:space:]]*[-*][[:space:]]+(🔴|🟡)' "$BODY" || :)"
   [ "${nbody:-0}" -le "$nblk" ] \
     || fail "the body prints ${nbody} 🔴/🟡 finding line(s) but findings-json holds ${nblk} open blocking finding(s) — print each merged finding once, in ### Findings, and drop its copy from the skill section"
-  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ] \
-     && jq -e 'any(.[]; .late == true and .severity == "warning")' "$FINDINGS" >/dev/null 2>&1; then
-    fail "a delta re-review keeps a late warning blocking — post the findings file delta annotated, where every late 🟡 is 🟢"
+  # the late set comes from the file `delta` annotated, whatever file the caller
+  # passed: a posted array without the `late` flag still names its anchors
+  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ]; then
+    local lateset='[]'
+    [ -f "$CTX/findings.annotated.json" ] \
+      && lateset="$(jq -c '[ .[] | select(.late == true and .severity == "suggestion") | {file, line} ]' "$CTX/findings.annotated.json" 2>/dev/null)"
+    [ -n "$lateset" ] || lateset='[]'
+    if jq -e --argjson L "$lateset" 'any(.[]; (.severity == "warning" or .severity == "critical")
+         and ((.late == true and .severity == "warning") or ({file, line} as $a | any($L[]; . == $a))))' "$FINDINGS" >/dev/null 2>&1; then
+      fail "a delta re-review keeps a late warning blocking — post the findings file delta annotated, where every late 🟡 is 🟢"
+    fi
   fi
 
   # --- anchor check: every findings-json line must exist in the file it names ---
