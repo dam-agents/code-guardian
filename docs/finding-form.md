@@ -62,7 +62,8 @@ list of what is wrong with the PR.
 
 **🟢 budget per review: 3 when the review carries no 🔴 and no 🟡, otherwise
 1.** The budget counts every 🟢 the review prints — `### Findings` and skill
-sections together — and keeps the strongest. *Review only:* what it dropped is
+sections together — and keeps the strongest. A late 🟡 graded 🟢 on a delta
+re-review is outside it ([review-rereview.md](review-rereview.md)). *Review only:* what it dropped is
 counted in `### Summary`, `_N suggestion(s) dropped under the 🟢 budget._`, so
 a section that reported 🟢 never reads as clean.
 
@@ -73,6 +74,15 @@ body format**). A **Fix:** that reads as a rule — *every*, *each*, *all* —
 carries that complete list, because the fix round works the locations and not
 the sentence. Cannot enumerate → narrow the **Fix:** to the locations you
 verified.
+
+**A predicate finding names its grammar, not its shapes.** When the defect is
+an incomplete predicate, allowlist or parser over a format — a block that
+passes as pure, a line kind the mapping drops — the **Fix:** names the
+format's every line or token kind and says: accept only what the mapping
+uses, treat the rest as free text. The shapes you found are examples in the
+description, never the list the fix works. Its `checks` entry `clean` names
+every kind with the mapping field it reaches or `free text`, so the fix round
+writes one test over all kinds, not one per shape found.
 
 **Concise by default (all reviews, all channels):**
 

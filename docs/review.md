@@ -367,18 +367,21 @@ and it is the one text addressed to a person.
 Your diff review and every skill section report into one review, so the same
 defect can arrive twice. Compose from all of them together:
 
-- **One defect, one finding.** The same defect class at the same location from
-  two sources appears **once**: keep the strongest severity, merge the
-  locations into that entry, name the reporting sources in the description.
-- Its home is the strongest place it qualifies for — `### Findings` plus an
-  inline comment when it maps inline, else the section of the first reporting
-  skill in table order.
-- A blocking finding that stays in a skill section is mirrored into
-  `### Findings` as one line with its **Fix:**, so the bar stays complete.
+- **One defect, one finding, one place.** The same defect class at the same
+  location from two sources appears **once** in the body: keep the strongest
+  severity, merge the locations into that entry, and end its description with
+  `Reported by <skill section>.` for each skill that reported it.
+- Its home is `### Findings` when it is blocking or maps inline, else the
+  section of the first reporting skill in table order. A finding that moves to
+  `### Findings` leaves its skill section: no copy, no "merged into" line. A
+  skill section left with no finding prints its clean-run line.
 - **Merging drops duplicates, never findings.** A defect from one source always
   survives; 🔴 and 🟡 are uncapped, 🟢 survive within their budget
   ([finding-form.md](finding-form.md)). Each skill keeps its own
   `findings=<N>` audit line whatever the merge prints ([skills.md](skills.md)).
+  `post` refuses a body that prints more 🔴/🟡 lines than `findings-json`
+  holds open blocking findings ([review-mechanics.md](review-mechanics.md) →
+  **Summary body format**).
 
 ## Guarding a running review
 
@@ -477,8 +480,10 @@ Before you declare the run done:
   context change folded into the review · every carried finding settled at
   its anchor and reported as this review's own, the carry never named · every
   structured-block finding block-swept · every `late`
-  finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`) ·
-  skill sections reformatted and merged with no finding lost · stale approval
+  finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`),
+  graded 🟢 on a delta re-review unless 🔴 ·
+  skill sections reformatted and merged with no finding lost and none printed
+  twice · stale approval
   dismissed when the verdict dropped below APPROVE · every sentence of the
   posted prose inside the 20-word bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in

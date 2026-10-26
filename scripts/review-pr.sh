@@ -31,7 +31,8 @@
 #                                          and the annotated array `post` takes;
 #                                          --settle overrides an ambiguous pair's
 #                                          suggestion by its `index`; --fresh clears
-#                                          a `late` new finding by its `index`
+#                                          a `late` new finding by its `index`;
+#                                          a delta round grades a late 🟡 as 🟢
 #   compose-brief <n>                      this PR's compose contract: the body
 #                                          skeleton, the format rules from docs/,
 #                                          its overrides and memory rules, and the
@@ -1682,8 +1683,9 @@ cmd_delta() {
   age="$(jq -c 'if type == "object" and .known == true then . else null end' "$CTX/age.json" 2>/dev/null)"
   [ -n "$age" ] || age='null'
   local j
+  local full; [ "$(ctx_get '.full')" = true ] && full=true || full=false
   j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" --argjson s "$settle" \
-    --argjson a "$age" --argjson fr "$fresh" '
+    --argjson a "$age" --argjson fr "$fresh" --argjson full "$full" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     # a finding carries one anchor per location: its own file:line plus every
@@ -1731,7 +1733,10 @@ cmd_delta() {
         | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)}
         # `aged`: late before any --fresh, the set --fresh may name
         | . + {aged: (.settled == "new" and late(.f; -1))}
-        | . + {late: (.aged and late(.f; $i))} ] as $cl
+        | . + {late: (.aged and late(.f; $i))}
+        # a late 🟡 on a delta re-review is graded 🟢 (docs/review-rereview.md)
+        | . + {demote: (.late and ($full | not) and .f.severity == "warning")}
+        | if .demote then .f |= (.severity = "suggestion" | .fix = null) else . end ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
     # --settle takes the indexes `ambiguous[]` lists: reported pairs only
     | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
@@ -1750,7 +1755,8 @@ cmd_delta() {
         new:   [ $rep[] | select(.settled == "new")
                  | (.f | del(.late)) + (if .cls == "ambiguous" then {ambiguous: true} else {} end)
                       + (if .late then {late: true} else {} end) ],
-        late:  [ $rep[] | select(.late) | {index: .index, file: .f.file, line: .f.line, summary: .f.summary} ],
+        late:  [ $rep[] | select(.late) | {index: .index, file: .f.file, line: .f.line, summary: .f.summary}
+                 + (if .demote then {demote: true} else {} end) ],
         fixed: $gone,
         ambiguous: [ $rep[] | select(.cls == "ambiguous")
                      | {index: .index, current: .f, prior: .prior, suggest: .suggest, settled: .settled,
@@ -2178,6 +2184,30 @@ cmd_post() {
       logstep "$sha7 aborted duplicate (review already on GitHub at $ts)"
       cleanup
       out "$(jq -nc --arg t "$ts" '{outcome:"duplicate", reason:("a review with this marker already exists on GitHub (" + $t + ") — row self-healed")}')"
+    fi
+  fi
+
+  # --- one finding, one place: the body prints no blocking line findings-json
+  # does not hold, so a skill-section copy of a merged finding is refused, and a
+  # delta re-review keeps no late 🟡 blocking (docs/review.md → Merging findings
+  # across sources, docs/review-rereview.md → Re-review output)
+  local nblk nbody
+  nblk="$(jq '[ .[] | select((.severity == "critical" or .severity == "warning") and .status != "fixed") ] | length' "$FINDINGS")"
+  nbody="$(grep -cE '^[[:space:]]*[-*][[:space:]]+(🔴|🟡)' "$BODY" || :)"
+  [ "${nbody:-0}" -le "$nblk" ] \
+    || fail "the body prints ${nbody} 🔴/🟡 finding line(s) but findings-json holds ${nblk} open blocking finding(s) — print each merged finding once, in ### Findings, and drop its copy from the skill section"
+  # the late set comes from the file `delta` annotated, whatever file the caller
+  # passed: a posted array without the `late` flag still names its anchors
+  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ]; then
+    local lateset='[]'
+    [ -f "$CTX/findings.annotated.json" ] \
+      && lateset="$(jq -c 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+        [ .[] | select(.late == true and .severity == "suggestion") | anchors[] ]' "$CTX/findings.annotated.json" 2>/dev/null)"
+    [ -n "$lateset" ] || lateset='[]'
+    if jq -e --argjson L "$lateset" 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+         any(.[]; (.severity == "warning" or .severity == "critical")
+         and ((.late == true and .severity == "warning") or (anchors | any(. as $a | any($L[]; . == $a)))))' "$FINDINGS" >/dev/null 2>&1; then
+      fail "a delta re-review keeps a late warning blocking — post the findings file delta annotated, where every late 🟡 is 🟢"
     fi
   fi
 
