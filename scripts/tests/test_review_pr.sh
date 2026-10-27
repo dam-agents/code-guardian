@@ -930,7 +930,7 @@ run_rp abort 1 "reset"
 setup post_merged_twice
 pr_fx open '["cg-rereview"]'
 run_rp prepare 1
-printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n  **Fix:** guard it\n\n### Documentation Check\n- 🟡 **Warning:** missing guard — merged into `### Findings` (`src/alpha.ts:6`).\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n\n### Documentation Check\n- 🟡 **Warning:** missing guard — merged into `### Findings` (`src/alpha.ts:6`).\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
 printf '{"id":93,"html_url":"https://example.test/r/93","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
@@ -2005,6 +2005,7 @@ run_rp compose-brief 1
 assert_out_contains '_Limits: 1 skill(s) did not run: typescript-engineering\._' 'the line counts and names the skill that did not run'
 assert_out_absent 'the clone failed' 'a clone that worked is not reported as a limit'
 assert_out_contains 'refuses a body without it' 'the brief says the line is mandatory'
+assert_out_contains 'an inline-carried finding is one line here' 'the skeleton states the one-line rule next to ### Findings'
 run_rp abort 1 "reset"
 
 # a failed clone reaches the reader, and `post` refuses a body that drops the line
@@ -2029,6 +2030,38 @@ assert_file_contains "$WORK/REVIEWS.md" '| 1 | .* | in_progress |' 'the lock sur
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted"' 'the body that carries the line posts'
 assert_file_contains "$WORK/reviews/pr-1.md" '_Limits: the clone failed' 'the posted body states the limit'
+
+# --- post: an inline-carried finding is one line in ### Findings ------------------
+# docs/review.md → Output format (first reviews): its description and Fix live
+# only in the inline comment; a summary-only finding keeps its full form
+setup post_inline_one_line
+pr_fx open '[]'
+run_rp prepare 1
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":2,"inline":true,"summary":"wrong default","fix":"use 0"}]' > "$SANDBOX/findings.json"
+printf '[{"path":"src/alpha.ts","line":1,"side":"RIGHT","body":"🟡 missing guard"},{"path":"src/alpha.ts","line":2,"side":"RIGHT","body":"🟡 wrong default"}]' > "$SANDBOX/comments.json"
+printf '{"id":94,"html_url":"https://example.test/r/94","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n  **Fix:** use 0\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
+assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'post refuses a Findings section that repeats the inline text'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: nothing was posted\n' "$CASE"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  ```suggestion\n  if (!x) return\n  ```\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
+assert_jq '.outcome == "error"' 'post refuses a suggestion block under an inline-carried finding'
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
+assert_jq '.outcome == "posted"' 'one line per inline-carried finding posts'
+
+# a summary-only finding keeps its description and Fix in ### Findings
+setup post_summary_only_full
+pr_fx open '[]'
+run_rp prepare 1
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":null,"inline":false,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":2,"inline":true,"summary":"wrong default","fix":"use 0"}]' > "$SANDBOX/findings.json"
+printf '{"id":95,"html_url":"https://example.test/r/95","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts`)\n  The call reads the value before the check.\n  **Fix:** guard it\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'a summary-only finding posts in full form'
 
 # --- post: the ledger row carries the style and refutation measurements --------
 # docs/review-mechanics.md → **Review ledger**: the week's noise and style numbers are

@@ -1956,6 +1956,7 @@ cmd_compose_brief() {
   else
     printf '<every current finding, per docs/finding-form.md>\n\n'
   fi
+  printf '<an inline-carried finding is one line here — severity, short label, `file:line` — its description, Fix line and suggestion only in the inline comment: `post` refuses more>\n\n'
   printf '%s' "$ran" | while IFS= read -r sec; do
     [ -n "$sec" ] || continue
     if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
@@ -2158,6 +2159,25 @@ cmd_post() {
     grep -qF -- "$lim" "$BODY" 2>/dev/null \
       || fail "the body drops the limits line — copy it into ### Summary word for word: $lim"
   fi
+  # an inline-carried finding is one line in ### Findings: its description, Fix
+  # and suggestion live in the inline comment. Only a summary-only finding, or a
+  # still-present one a complete re-review lists in full, takes more than one
+  # line or a **Fix:** there (docs/review.md → Output format (first reviews))
+  local nfull nmulti nfix
+  nfull="$(jq '[ .[] | select(.status != "fixed" and (.inline != true or .status == "still")) ] | length' "$FINDINGS")"
+  read -r nmulti nfix < <(awk '
+    /^[[:space:]]*```/ { fence = !fence; if (infind && cur && !cont) { multi++; cont = 1 }; next }
+    fence { next }
+    /^### / { infind = ($0 ~ /^### Findings[[:space:]]*$/); cur = 0; next }
+    /^#/ { infind = 0; cur = 0; next }
+    !infind { next }
+    /\*\*Fix:\*\*/ { fix++ }
+    /^[-*][[:space:]]/ { cur = 1; cont = 0; next }
+    /^[[:space:]]*$/ { next }
+    cur && !cont { multi++; cont = 1 }
+    END { printf "%d %d\n", multi, fix }' "$BODY")
+  [ "${nmulti:-0}" -le "$nfull" ] && [ "${nfix:-0}" -le "$nfull" ] \
+    || fail "### Findings writes ${nmulti} finding(s) on more than one line and ${nfix} **Fix:** line(s), but findings-json holds ${nfull} finding(s) not carried inline — write each inline-carried finding there as one line (severity, short label, file:line), its description and Fix only in the inline comment"
   local sha kind title; sha="$(ctx_get '.head_sha')"; kind="$(ctx_get '.kind')"; title="$(ctx_get '.title')"
   local sha7="${sha:0:7}" now; now="$(now_iso)"
 

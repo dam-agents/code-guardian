@@ -93,7 +93,8 @@ writes one test over all kinds, not one per shape found.
   its scope named when more than one place is affected. A finding whose remedy
   you cannot state is not verified — drop it. *Review only:* the Fix line sits
   with the description (the inline comment when the finding is inline-carried,
-  `### Findings` otherwise), above any ` ```suggestion ` block.
+  `### Findings` otherwise), above any ` ```suggestion ` block — `post`
+  refuses an inline-carried finding's Fix line in `### Findings`.
 - Findings anchor to this PR's diff. A pre-existing problem spotted in passing
   is at most one 🟢 line suggesting a separate issue.
 - 🟢 only when the improvement is substantial. Style nits, micro-refactors and
