@@ -92,10 +92,52 @@ fi
 chmod +x "$SCRIPT" "$TOKENS" "$FINISH" "$STEPS" "$GUARD" "$DENIED" "$APIFAIL" "$ADAPTER_DIR/../../log.sh" 2>/dev/null || true
 
 mkdir -p "$(dirname "$SETTINGS")"
-[ -s "$SETTINGS" ] || echo '{}' > "$SETTINGS"
 
-tmp="$(mktemp)"
-if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" --arg g "$GUARD" \
+# The platform writes settings.json too (its settings sync, the harness-config
+# driver): every writer takes $SETTINGS.lock for its whole read-modify-write,
+# reads the file only once it holds it, and renames a copy staged beside it
+# (DAM docs/architecture/runtime-delivery.md → Writing a file). The lock is an
+# exclusive create holding "<pid>:code-guardian". A lock older than 30 s is
+# broken when its pid is not alive or its text names no pid; a younger one is
+# always waited for.
+LOCK="$SETTINGS.lock"
+LOCK_TEXT="$$:code-guardian"
+lock_stale() { # sets STALE to the text it judged
+  local txt pid mtime
+  txt="$(cat "$LOCK" 2>/dev/null)" || return 1
+  STALE="$txt"
+  mtime="$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null)" || return 1
+  [ $(( $(date +%s) - mtime )) -gt 30 ] || return 1
+  pid="${txt%%:*}"
+  case "$pid" in (''|*[!0-9]*) return 0;; esac
+  ! kill -0 "$pid" 2>/dev/null
+}
+release_lock() {
+  [ "$(cat "$LOCK" 2>/dev/null)" = "$LOCK_TEXT" ] && rm -f "$LOCK"
+  return 0
+}
+tries=0
+until ( set -o noclobber; printf '%s' "$LOCK_TEXT" > "$LOCK" ) 2>/dev/null; do
+  tries=$((tries + 1))
+  # break it only while it still holds the text judged stale
+  if lock_stale; then [ "$(cat "$LOCK" 2>/dev/null)" = "$STALE" ] && rm -f "$LOCK"; continue; fi
+  if [ "$tries" -gt 100 ]; then   # 10 s
+    echo "settings.json is locked by another writer ($(cat "$LOCK" 2>/dev/null)) — settings.json left unchanged; re-run install.sh" >&2
+    exit 0
+  fi
+  sleep 0.1
+done
+trap 'rm -f "${tmp:-}"; release_lock' EXIT
+
+# a file that cannot be read or parsed is kept, never treated as empty
+if [ -e "$SETTINGS" ] && { [ ! -r "$SETTINGS" ] || { [ -s "$SETTINGS" ] \
+     && ! jq -e 'type == "object"' "$SETTINGS" >/dev/null 2>&1; }; }; then
+  echo "$SETTINGS cannot be read or is not a JSON object — left unchanged; fix or remove it, then re-run install.sh" >&2
+  exit 0
+fi
+
+tmp="$(mktemp "$SETTINGS.XXXXXX")" || { tmp=""; echo "cannot stage a copy beside $SETTINGS — left unchanged" >&2; exit 0; }
+if ! { if [ -s "$SETTINGS" ]; then cat "$SETTINGS"; else printf '{}'; fi; } | jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" --arg g "$GUARD" \
       --arg pd "$DENIED" --arg af "$APIFAIL" \
       --argjson e "$AM_ENV" --argjson a "$AM_ALLOW" --argjson deny "$DENY" --argjson prev "$PREV" '
     # own entries are replaced, the operator'"'"'s kept; a new list keeps the
@@ -132,8 +174,7 @@ if ! jq --arg c "$SCRIPT" --arg t "$TOKENS" --arg f "$FINISH" --arg s "$STEPS" -
     if ($deny | length) > 0 or ((.permissions.deny // []) | any(. as $x | $prev | index([$x])))
     then .permissions.deny = ([(.permissions.deny // [])[] | select(. as $x | ($prev + $deny) | index([$x]) | not)] + $deny)
     else . end
-  ' "$SETTINGS" > "$tmp"; then
-  rm -f "$tmp"
+  ' > "$tmp"; then
   echo "hook install did not complete — settings.json left unchanged"
   exit 0
 fi
@@ -143,10 +184,8 @@ jq -e -n --slurpfile old "$SETTINGS" --slurpfile new "$tmp" '$old == $new' >/dev
 agent_same=0
 cmp -s "$AGENT_SRC" "$AGENT_DST" && agent_same=1
 
-if [ "$settings_same" = 1 ]; then
-  rm -f "$tmp"
-else
-  mv "$tmp" "$SETTINGS"
+if [ "$settings_same" = 0 ]; then
+  mv "$tmp" "$SETTINGS" && tmp=""
 fi
 printf '%s\n' "$DENY" > "$OWNED" 2>/dev/null || true
 if [ "$agent_same" = 0 ] && [ -f "$AGENT_SRC" ]; then
