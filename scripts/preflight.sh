@@ -39,8 +39,8 @@
 #                             `benchmark: enabled` and the monthly gate passes
 #                             (docs/benchmark.md); local, plus two repo GETs
 #                             on a due run (isolation_unavailable)
-#   preflight.sh brief     -> brief_due (the merged PRs since the last brief and
-#                             the language) when `daily_brief: enabled` and a
+#   preflight.sh brief     -> brief_due (the merged PRs since the last brief,
+#                             the window end `until` and the language) when `daily_brief: enabled` and a
 #                             PR merged (docs/brief.md)
 #   preflight.sh survey    -> survey_due (the area to read and its
 #                             history) when `survey: enabled` and the interval
@@ -696,27 +696,33 @@ fail_out() {
 
 # ============================================================ BRIEF MODE ====
 # The daily Slack brief (docs/brief.md). Deterministic: the window runs from the
-# last line of work/BRIEF.log (24h without one) to now, and the merged PRs in
-# it are listed. No merge in the window, a weekend, or either key off → nothing
+# last line of work/BRIEF.log to `until`, the moment this pass started, and the
+# merged PRs in it are listed. Without a log the window opens at the previous
+# weekday, the same time of day (Friday on a Monday, so the weekend is covered).
+# The agent writes `until` to the log after the post, never the post time: a PR
+# merged while the brief was written then falls in the next window. No merge in the window, a weekend, or either key off → nothing
 # to do, so the schedule starts no session. The agent writes the log line after
 # the post; this pass writes nothing.
 if [ "$MODE" = "brief" ]; then
   [ "$(cfg daily_brief)" = "enabled" ] && [ "$(cfg slack_notifications)" = "enabled" ] \
     || { log "daily brief off (needs daily_brief and slack_notifications enabled) — nothing to do"; local_out true null; }
-  case "$(date -u +%u)" in (6|7) log "weekend — the Monday brief covers it"; local_out true null;; esac
+  BRIEF_DOW="${CG_BRIEF_DOW:-$(date -u +%u)}"   # the weekday, 1-7; a test pins it
+  case "$BRIEF_DOW" in (6|7) log "weekend — the Monday brief covers it"; local_out true null;; esac
   BRIEF_LANG="$(cfg brief_language)"; BRIEF_LANG="${BRIEF_LANG:-English}"
   BRIEF_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$WORK/BRIEF.log" 2>/dev/null | sort | tail -1)"
-  BRIEF_SINCE="${BRIEF_LAST:-$(date -u -d "@$((NOW_EPOCH - 86400))" +%Y-%m-%dT%H:%M:%SZ)}"
+  case "$BRIEF_DOW" in (1) BRIEF_BACK=3;; (*) BRIEF_BACK=1;; esac
+  BRIEF_SINCE="${BRIEF_LAST:-$(date -u -d "@$((NOW_EPOCH - BRIEF_BACK * 86400))" +%Y-%m-%dT%H:%M:%SZ)}"
+  BRIEF_UNTIL="$NOW_ISO"
   BRIEF_RAW="$(gh api "repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" 2>/dev/null)"
   printf '%s' "$BRIEF_RAW" | jq -e 'type == "array"' >/dev/null 2>&1 \
     || fail_out "could not list merged PRs on $REPO — the brief window stays open"
-  BRIEF_PRS="$(printf '%s' "$BRIEF_RAW" | jq -c --arg s "$BRIEF_SINCE" \
-    '[.[] | select(.merged_at != null and .merged_at > $s)
+  BRIEF_PRS="$(printf '%s' "$BRIEF_RAW" | jq -c --arg s "$BRIEF_SINCE" --arg u "$BRIEF_UNTIL" \
+    '[.[] | select(.merged_at != null and .merged_at > $s and .merged_at <= $u)
      | {number, title: (.title // ""), author: (.user.login // ""), merged_at, url: .html_url}] | sort_by(.merged_at)')"
   [ "$(printf '%s' "$BRIEF_PRS" | jq length)" -gt 0 ] || { log "no PR merged since $BRIEF_SINCE — nothing to do"; local_out true null; }
   log "brief due: $(printf '%s' "$BRIEF_PRS" | jq length) merged PR(s) since $BRIEF_SINCE"
-  local_out false "$(jq -nc --arg s "$BRIEF_SINCE" --arg l "$BRIEF_LANG" --argjson p "$BRIEF_PRS" \
-    '{since:$s, language:$l, prs:$p}')"
+  local_out false "$(jq -nc --arg s "$BRIEF_SINCE" --arg u "$BRIEF_UNTIL" --arg l "$BRIEF_LANG" --argjson p "$BRIEF_PRS" \
+    '{since:$s, until:$u, language:$l, prs:$p}')"
 fi
 
 # ------------------------------------------------------------ open PR set ----

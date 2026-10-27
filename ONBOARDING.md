@@ -727,7 +727,7 @@ platform's (`docs/config.md` → **Session model**).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
-carries every schedule of 6a–6f, at the default cadence of its step, with the
+carries every schedule of 6a–6g, at the default cadence of its step, with the
 Slack-, benchmark-, survey- and brief-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
@@ -820,7 +820,7 @@ cron default `0 6 * * 1-5`, `sessionMode: fresh`,
 `precheck: bash "$HOME/scripts/precheck.sh" brief`,
 `sessionTitle: Post the daily brief`, `task`:
 
-> Daily brief. The precheck already ran preflight and found merged PRs: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" brief` yourself. Then follow CLAUDE.md → "Brief run": read docs/brief.md, read the merged PRs in brief_due, write the brief in brief_due.language, post it to Slack, append the BRIEF.log line only after the post succeeds, and back up work/ (`scripts/work-backup.sh persist`).
+> Daily brief. The precheck already ran preflight and found merged PRs: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" brief` yourself. Then follow CLAUDE.md → "Brief run": read docs/brief.md, read the merged PRs in brief_due, write the brief in brief_due.language, post it to Slack, append brief_due.until to BRIEF.log only after the post succeeds, and back up work/ (`scripts/work-backup.sh persist`).
 
 ## Step 7 — Record the version, write the sentinel, verify, report
 

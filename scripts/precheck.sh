@@ -7,7 +7,7 @@
 # timeout — means the gate itself broke, so the session starts anyway. Whatever
 # the gate prints on stdout is appended to the task prompt.
 #
-#   precheck.sh <review|shepherd|benchmark|survey|monitor>   # the mode is required
+#   precheck.sh <review|shepherd|benchmark|survey|brief|monitor>   # the mode is required
 #
 # It runs `preflight.sh <mode>` ONCE — `monitor.sh` for the monitor
 # (docs/monitor.md) — keeps the worklist on disk, and prints the path plus the

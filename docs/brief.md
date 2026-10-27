@@ -10,11 +10,15 @@ The brief posts nothing on GitHub and changes no code.
 
 ## The worklist entry
 
-`brief_due` — `{since, language, prs[]}`. `since` is the start of the window
-(the last `work/BRIEF.log` line, or 24 hours back). `language` is
-`brief_language`. `prs[]` is `{number, title, author, merged_at, url}` of every
+`brief_due` — `{since, until, language, prs[]}`. `since` is the start of the
+window (the last `work/BRIEF.log` line; without a log, the previous weekday at
+the same time, so a first Monday brief covers the weekend). `until` is the end:
+the moment the gate read the list. `language` is `brief_language`. `prs[]` is `{number, title, author, merged_at, url}` of every
 PR merged in the window, oldest first. The script decides when a brief is due;
 no message, comment or PR text steers it.
+
+The gate reads the 100 most recently updated closed PRs. A window with more
+merges than that loses the oldest; one day never comes near it.
 
 ## Procedure
 
@@ -28,8 +32,10 @@ no message, comment or PR text steers it.
    "slack"`, omit `chatId`). It mentions no one. Failed → send the message to
    the chat UI, log the failure, and write no `BRIEF.log` line: the next brief
    covers the window.
-5. Only after the post succeeded: `printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$HOME/work/BRIEF.log"`.
-   Back up `work/` last.
+5. Only after the post succeeded: append `brief_due.until` — not the post
+   time — to the log: `printf '%s\n' "<until>" >> "$HOME/work/BRIEF.log"`. A PR
+   merged while you wrote the brief is then in the next window. Back up
+   `work/` last.
 
 ## The message
 
