@@ -26,7 +26,7 @@ comment serve both paths, so a commit is triaged at most once:
 1. `review-pr.sh ci <n> [--sha <sha>]` returns
    `{sha, terminal, failing:[{name, conclusion, url, evidence}]}`. `evidence`,
    for the first three failing checks, is a file path: the failing job's log
-   tail, else the check run's own output, else `null`. **`terminal: false` or
+   tail with its colour codes stripped, else the check run's own output, else `null`. **`terminal: false` or
    `error` → stop.** No comment, no marker; a later heartbeat reads the rollup
    again.
 2. Read every `evidence` file. For each failing check name the **probable
