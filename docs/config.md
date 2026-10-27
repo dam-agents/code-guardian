@@ -236,7 +236,9 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   only for a repository whose code, and whose weak points, may be read there.
 - **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;
   an unparseable value falls back to `7`. It bounds a drifting cron, so a
-  weekly schedule never surveys twice in one week.
+  weekly schedule never surveys twice in one week. The floor is 6 hours short
+  of the full interval: the ledger records the end of a pass, so the next
+  fire of the cron comes a few minutes before the interval is complete.
 - **`daily_brief`** — `enabled` | `disabled`. **Missing = `disabled`.** One
   Slack message each weekday morning: user-facing news of the merged PRs by
   topic, then the technical changes with impact ([brief.md](brief.md)). Needs

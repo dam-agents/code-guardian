@@ -173,12 +173,16 @@ if [ "$MODE" = "survey" ]; then
   case "$SURVEY_INTERVAL_D" in (''|*[!0-9]*) SURVEY_INTERVAL_D=7;; esac
   report_surface survey_report EFF_SURVEY
 
-  # the cadence floor, so a drifting cron never surveys twice in one interval
+  # the cadence floor, so a drifting cron never surveys twice in one interval.
+  # The ledger records when a pass finished, minutes after its cron fired, so
+  # the next fire comes a little short of the full interval: the floor sits
+  # SURVEY_SLACK_H below it, or a weekly cron would survey every second week.
+  SURVEY_SLACK_H=6
   SURVEY_LAST="$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$SURVEY_LEDGER" 2>/dev/null | sort | tail -1)"
   if [ -n "$SURVEY_LAST" ]; then
-    d=$(( (NOW_EPOCH - $(iso2epoch "$SURVEY_LAST")) / 86400 ))
-    if [ "$d" -lt "$SURVEY_INTERVAL_D" ]; then
-      log "last survey ${d}d ago (< ${SURVEY_INTERVAL_D}d) — nothing to do"
+    h=$(( (NOW_EPOCH - $(iso2epoch "$SURVEY_LAST")) / 3600 ))
+    if [ "$h" -lt $(( SURVEY_INTERVAL_D * 24 - SURVEY_SLACK_H )) ]; then
+      log "last survey $(( h / 24 ))d ago (< ${SURVEY_INTERVAL_D}d) — nothing to do"
       local_out true null
     fi
   fi
