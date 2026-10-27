@@ -1840,6 +1840,15 @@ assert_event 'PR #1 aborted state damaged' 'the run logs a terminal step, so the
 run_rp verify 1
 assert_jq '.outcome == "ok"' 'verify accepts the fail-closed end'
 
+# the fail-closed end still ends the progress signal, on the SHA the lock row keeps
+setup state_damaged_progress '- review_progress: enabled'
+run_rp prepare 1
+raw_pr_over_state; rm -f "$(PR_DIR).state.json"
+run_rp collect 1
+assert_jq '.outcome == "state_damaged"' 'collect on a damaged state with no copy fails closed'
+assert_call "statuses/$B1_SHA -f state=success -f context=cg:review -f description=no review posted - prepared state damaged" \
+  'the fail-closed end writes the terminal success status'
+
 # abort on the same damage restores the prior row instead of deleting it
 setup state_damaged_abort_rereview
 PRIOR="1111111111111111111111111111111111111111"

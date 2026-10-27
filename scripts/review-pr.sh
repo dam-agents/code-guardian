@@ -235,6 +235,11 @@ ctx_restore() { # 0 = the state is intact, restored from the copy when it was no
 # needs the kind and the prior row the damaged file lost — and the terminal
 # step lets the dead-run takeover (docs/review-mechanics.md) take the lock.
 state_damaged() {
+  local sha; sha="$(row_field "$(row_for)" 3)"   # the lock row keeps the SHA the state lost
+  if [ "$PROGRESS" = enabled ] && printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$'; then
+    progress_write "$sha" success "no review posted - prepared state damaged; retrying next heartbeat" "" \
+      || logev warn progress_status "PR #$N: progress write did not succeed (success: state damaged)$PW_HTTP"
+  fi
   logstep "aborted state damaged — lock kept"
   logev error review_pr "PR #$N: $CMD — the prepared state $CTX/pr.json is damaged and its copy too; lock, clone and skill outputs kept"
   out "$(jq -nc --arg n "$N" '{outcome:"state_damaged", reason:"the prepared state is damaged and its copy too",

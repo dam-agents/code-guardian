@@ -464,7 +464,7 @@ Before you declare the run done:
 
 - **Per reviewed PR, mechanical** — chain `&& review-pr.sh verify <n>` onto
   the PR's last `review-pr.sh` command: `post`, `abort`, or the one that
-  returned `head_moved`. It checks the last lock cycle's terminal step,
+  returned `head_moved` or `state_damaged`. It checks the last lock cycle's terminal step,
   milestones, `skill_timing`, row, history file, ledger and cleanup in one
   call. `ok` settles those lines; every `fail` check of `issues` names what to
   repair; `not_locked` means this run took no lock on the PR; `error` names the
