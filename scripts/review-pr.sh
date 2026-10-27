@@ -1956,6 +1956,8 @@ cmd_compose_brief() {
   else
     printf '<every current finding, per docs/finding-form.md>\n\n'
   fi
+  [ "$kind" = "re-review" ] && [ "$full" = "true" ] \
+    || printf '<an inline-carried finding is one line here — severity, short label, `file:line` — its description, Fix line and suggestion only in the inline comment: `post` refuses more>\n\n'
   printf '%s' "$ran" | while IFS= read -r sec; do
     [ -n "$sec" ] || continue
     if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
@@ -2158,6 +2160,38 @@ cmd_post() {
     grep -qF -- "$lim" "$BODY" 2>/dev/null \
       || fail "the body drops the limits line — copy it into ### Summary word for word: $lim"
   fi
+  # an inline-carried finding is one line in ### Findings: its description, Fix
+  # and suggestion live in the inline comment. Only a summary-only finding takes
+  # more than one line or a **Fix:** there (docs/review.md → Output format (first
+  # reviews)); a delta re-review prints only its `new` findings, so only those
+  # count; a complete re-review lists every current finding in full
+  # (docs/review-rereview.md), so it is not checked
+  local nfull=999999 nmulti=0 nfix=0 infind=0 cur=0 cont=0 blank=0 fence=0 ln
+  [ "$(ctx_get '.kind')" = "re-review" ] && [ "$(ctx_get '.full')" = "true" ] \
+    || nfull="$(jq --arg k "$(ctx_get '.kind')" '[ .[] | select(.status != "fixed" and .inline != true and (($k != "re-review") or .status == "new")) ] | length' "$FINDINGS")"
+  case "$nfull" in (''|*[!0-9]*) fail "cannot count the findings not carried inline in $FINDINGS";; esac
+  [ -r "$BODY" ] || fail "cannot read the body $BODY"
+  local re_fence='^[[:space:]]*```' re_item='^[-*][[:space:]]' re_blank='^[[:space:]]*$' re_find='^### Findings[[:space:]]*$'
+  while IFS= read -r ln || [ -n "$ln" ]; do
+    if [[ $ln =~ $re_fence ]]; then
+      fence=$((1 - fence)); [ "$infind" = 1 ] && [ "$cur" = 1 ] && [ "$cont" = 0 ] && { nmulti=$((nmulti + 1)); cont=1; }
+      continue
+    fi
+    [ "$fence" = 1 ] && continue
+    case "$ln" in
+      ('### '*) cur=0; infind=0; [[ $ln =~ $re_find ]] && infind=1; continue;;
+      ('#'*) infind=0; cur=0; continue;;
+    esac
+    [ "$infind" = 1 ] || continue
+    case "$ln" in (*'**Fix:**'*) nfix=$((nfix + 1));; esac
+    if [[ $ln =~ $re_item ]]; then cur=1; cont=0; blank=0; continue; fi
+    if [[ $ln =~ $re_blank ]]; then blank=1; continue; fi
+    case "$ln" in ([![:space:]]*) [ "$blank" = 1 ] && cur=0;; esac
+    blank=0
+    [ "$cur" = 1 ] && [ "$cont" = 0 ] && { nmulti=$((nmulti + 1)); cont=1; }
+  done < "$BODY"
+  [ "$nmulti" -le "$nfull" ] && [ "$nfix" -le "$nfull" ] \
+    || fail "### Findings writes ${nmulti} finding(s) on more than one line and ${nfix} **Fix:** line(s), but findings-json holds ${nfull} finding(s) not carried inline — write each inline-carried finding there as one line (severity, short label, file:line), its description and Fix only in the inline comment"
   local sha kind title; sha="$(ctx_get '.head_sha')"; kind="$(ctx_get '.kind')"; title="$(ctx_get '.title')"
   local sha7="${sha:0:7}" now; now="$(now_iso)"
 
