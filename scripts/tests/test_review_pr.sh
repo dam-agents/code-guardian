@@ -126,7 +126,7 @@ jq -e '."src/alpha.ts".dependents == ["src/uses-alpha.ts"] and ."src/alpha.ts".c
 # a PR with no sensitive path and no second-look pattern: an empty signal, and
 # no block in the brief (docs/review.md → Per-PR review sequence, step b)
 assert_jq '.paths.risk == "'"$(PR_DIR)"'.ctx/risk.json"' 'the risk prescan has its path in the prepare output'
-jq -e '.paths == [] and .patterns == [] and .truncated == false' "$(PR_DIR).ctx/risk.json" >/dev/null \
+jq -e '.paths == [] and .patterns == [] and .gates == [] and .truncated == false' "$(PR_DIR).ctx/risk.json" >/dev/null \
   && printf 'ok   %s: a clean PR prescans to an empty signal\n' "$CASE" \
   || { printf 'FAIL %s: risk wrong: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/risk.json" 2>/dev/null)"; FAILED=1; }
 grep -q 'risk prescan' "$B" \
@@ -340,6 +340,55 @@ grep -q 'src/auth/session.ts:1 — eval: dynamic code evaluation' "$B" \
   && printf 'ok   %s: the brief carries the prescan\n' "$CASE" \
   || { printf 'FAIL %s: the brief misses the prescan block\n' "$CASE"; FAILED=1; }
 grep -q '{{' "$B" && { printf 'FAIL %s: unreplaced placeholder in brief\n' "$CASE"; FAILED=1; } || printf 'ok   %s: no placeholder left\n' "$CASE"
+run_rp abort 1 "reset"
+
+# --- weakened gates: a skipped or deleted test, lost assertions, a silenced step ---
+setup gate_prescan
+mkdir -p "$FX/tests" "$FX/.github/workflows"
+printf 'it("a", () => { expect(a()).toBe(1); });\nit("b", () => { expect(b()).toBe(2); });\n' > "$FX/tests/a.test.ts"
+printf 'it("old", () => { expect(o()).toBe(0); });\n' > "$FX/tests/old.test.ts"
+printf 'it("c", () => { c(); });\n' > "$FX/tests/c.test.ts"
+printf 'export const d = 1;\n' > "$FX/src/d.ts"
+printf 'name: ci\njobs:\n  t:\n    steps:\n      - run: npm test\n' > "$FX/.github/workflows/ci.yml"
+printf '[tool.coverage.report]\nfail_under = 90\n' > "$FX/pyproject.toml"
+printf '#!/bin/sh\ncmd\n' > "$FX/src/run.sh"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm gated-base
+git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" rebase -q main
+printf 'it.skip("a", () => { a(); });\nit("b", () => { expect(b()).toBe(2); });\n' > "$FX/tests/a.test.ts"
+printf 'it.only("c", () => { c(); });\n' > "$FX/tests/c.test.ts"
+printf '// @ts-ignore\nexport const d = 1;\n' > "$FX/src/d.ts"
+git -C "$FX" rm -q "$FX/tests/old.test.ts"
+printf 'name: ci\njobs:\n  t:\n    steps:\n      - run: npm test || true\n' > "$FX/.github/workflows/ci.yml"
+printf '[tool.coverage.report]\nfail_under = 50\n' > "$FX/pyproject.toml"
+printf '#!/bin/sh\ncmd || true\n' > "$FX/src/run.sh"
+git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm weaken
+B1_SHA="$(git -C "$FX" rev-parse HEAD)"
+git -C "$FX" diff main...b1 > "$SANDBOX/diff.txt"
+git -C "$FX" checkout -q main
+pr_fx open '[]' "$B1_SHA"; ctx_fx
+run_rp prepare 1
+assert_jq '.outcome == "ready"' 'ready'
+R="$(PR_DIR).ctx/risk.json"
+gate_ok() { # <jq filter over .gates> <description>
+  jq -e ".gates | $1" "$R" >/dev/null \
+    && printf 'ok   %s: %s\n' "$CASE" "$2" \
+    || { printf 'FAIL %s: %s: %s\n' "$CASE" "$2" "$(jq -c .gates "$R" 2>/dev/null)"; FAILED=1; }
+}
+gate_ok 'any(.id == "skip" and .file == "tests/a.test.ts" and .line == 1)' 'a skipped test is named with its line'
+gate_ok 'any(.id == "assertions-removed" and .file == "tests/a.test.ts" and (has("line") | not))' 'a test file that loses assertions is named once'
+gate_ok 'any(.id == "test-deleted" and .file == "tests/old.test.ts")' 'a deleted test file is named'
+gate_ok 'any(.id == "focus" and .file == "tests/c.test.ts" and .line == 1)' 'a focused test is named with its line'
+gate_ok 'any(.id == "check-disabled" and .file == "src/d.ts" and .line == 1)' 'a disabled type check is named with its line'
+gate_ok 'any(.id == "fail-silenced" and .file == ".github/workflows/ci.yml")' 'a silenced CI step is named'
+gate_ok 'any(.id == "threshold" and .file == "pyproject.toml")' 'a changed coverage threshold is named'
+gate_ok 'all(.file != "src/run.sh")' 'a `|| true` in a script is not a gate'
+B="$(PR_DIR).ctx/briefs/doc-drift.md"
+grep -q 'tests/a.test.ts:1 — weakened gate, skip' "$B" \
+  && printf 'ok   %s: the brief carries the gate hits\n' "$CASE" \
+  || { printf 'FAIL %s: the brief misses the gate hits\n' "$CASE"; FAILED=1; }
+[ -f "$(PR_DIR).ctx/removed.tsv" ] \
+  && { printf 'FAIL %s: the removed-line stream outlived the prescan\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the removed-line stream is deleted after the prescan\n' "$CASE"
 run_rp abort 1 "reset"
 
 # --- the diff walk: headers are read before a section's first @@ only -----------
