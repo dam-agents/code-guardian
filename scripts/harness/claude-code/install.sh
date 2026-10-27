@@ -97,8 +97,9 @@ mkdir -p "$(dirname "$SETTINGS")"
 # driver): every writer takes $SETTINGS.lock for its whole read-modify-write,
 # reads the file only once it holds it, and renames a copy staged beside it
 # (DAM docs/architecture/runtime-delivery.md → Writing a file). The lock is an
-# exclusive create holding "<pid>:code-guardian"; one older than 30 s whose
-# holder is gone, or whose text names no pid, is broken.
+# exclusive create holding "<pid>:code-guardian". A lock older than 30 s is
+# broken when its pid is not alive or its text names no pid; a younger one is
+# always waited for.
 LOCK="$SETTINGS.lock"
 LOCK_TEXT="$$:code-guardian"
 lock_stale() { # sets STALE to the text it judged
