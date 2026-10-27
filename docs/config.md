@@ -239,7 +239,7 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   weekly schedule never surveys twice in one week.
 - **`daily_brief`** — `enabled` | `disabled`. **Missing = `disabled`.** One
   Slack message each weekday morning: user-facing news of the merged PRs by
-  author, then the technical changes with impact ([brief.md](brief.md)). Needs
+  topic, then the technical changes with impact ([brief.md](brief.md)). Needs
   `slack_notifications: enabled`; without it nothing is sent. Weekend merges
   arrive on Monday.
 - **`brief_language`** — the language of the brief, as a plain name
