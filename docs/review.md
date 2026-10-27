@@ -445,8 +445,10 @@ code that moved past its override lets the finding surface normally.
   restores the prior row — deletes clone and state, writes the abort status,
   and logs `aborted <reason>`. Log
   `PR #<n>: <step> failed after retry — aborted, lock released` in the chat UI
-  and continue with the next PR. Never leave an `in_progress` lock behind, and
-  never retry a call twice: the next heartbeat picks the PR up fresh.
+  and continue with the next PR. Never leave an `in_progress` lock behind —
+  except after `state_damaged`, whose lock and paths the takeover of a dead
+  run takes (**Guarding a running review**) — and never retry a call twice:
+  the next heartbeat picks the PR up fresh.
 - **Abort also on** a HEAD that moved, a PR gone draft, a withdrawn re-review
   trigger, or a dedup check unreadable after its retry. A phase guard reports
   the HEAD move as `head_moved`, not `aborted` (**Guarding a running review**).

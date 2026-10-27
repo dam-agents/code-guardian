@@ -393,8 +393,10 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   scored run at a time — a live run lock is never displaced, and every terminal
   path releases it.
 - No leftover `/tmp/review-pr-*` entries (clone, `.out`, `.s-*`, `.diff`,
-  `.ctx`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` clones, `/tmp/benchmark-pr*` directories, `.bench-usage-*`
-  nonce caches, or temp payload files at run end. `/tmp/cg-worklist-*.json`
+  `.ctx`, `.state.json`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` clones,
+  `/tmp/benchmark-pr*` directories, `.bench-usage-*` nonce caches, or temp
+  payload files at run end. The one exception is a PR that ended
+  `state_damaged`: the takeover's `prepare` removes its paths. `/tmp/cg-worklist-*.json`
   belongs to the gate, which sweeps its own past 3 h — a run never deletes one.
 - One fire, one gate pass: a gated run consumes the worklist the gate
   computed, a dispatched session its unit worklist, and neither re-runs the
