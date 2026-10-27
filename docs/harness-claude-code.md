@@ -103,7 +103,13 @@ The pi adapter runs the hook scripts below from pi events
   a skill run needs. `install.sh --check` prints the parts not current:
   `hooks`, `automode-rules` (the `[code-guardian]` rules differ from the ones
   this definition writes), `tool-deny`, `skill-agent`. On another harness it
-  prints a notice and exits 0.
+  prints a notice and exits 0. The platform writes `settings.json` too, so the
+  install holds `settings.json.lock` (`<pid>:code-guardian`, an exclusive
+  create) for its whole read-modify-write, reads the file only once it holds
+  it, and renames a copy staged beside it; it waits up to 10 s, and breaks a
+  lock older than 30 s whose holder is gone. A lock it cannot take, or a file
+  it cannot read or parse, is left as it is with a line on stderr — re-run the
+  install.
 
 Registration is user-global, so every hook script no-ops unless
 `$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
