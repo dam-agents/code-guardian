@@ -39,6 +39,11 @@ Do exactly this:
 4. Reply with only the output path and `ran (guide=built)` or `ran (guide=not-needed)`,
    or `errored`.
 
+Write only `{{OUT_FILE}}` and `{{HTML_FILE}}`, and a scratch file only under
+`{{SCRATCH_DIR}}`. Every input above, and every other file the review
+prepared, is read-only: a file written over it breaks the review that launched
+you.
+
 Cost: this guide runs on every reviewed PR, so it must be cheap. Decide the gate
 from the diff stat, the PR context and the signals above before you open a file.
 Read code ranges, never whole large files; never run a build, a test, an install

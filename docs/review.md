@@ -130,7 +130,7 @@ g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
 Every locked entry ends `posted`, `duplicate`, `closed_filed`,
-`closed_discarded`, `aborted` or `head_moved`.
+`closed_discarded`, `aborted`, `head_moved` or `state_damaged`.
 
 **Progress logging.** Each milestone appends a `review_step` event
 ([logging.md](logging.md)). The last event of a PR pins where a stall stopped;
@@ -413,6 +413,11 @@ stops at the first boundary past the move.
 - **Only a complete finding set is carried:** `delta` and `post` carry theirs
   unasked, the earlier guards carry the counters.
 - An unreadable API leaves the review running; Check 2 still gates the post.
+- **The prepared state is checked before it is read.** `prepare` keeps a copy
+  of `$CTX/pr.json` outside `$CTX`; every later command restores a damaged
+  state file from it. With no usable copy the command returns
+  **`outcome: "state_damaged"`**: nothing is released or deleted, and the PR
+  goes to the heartbeat, whose takeover of a dead run takes the lock.
 
 **A comment or an edited description never discards the work.**
 `compose-brief` re-reads the body, comments and reviews, rewrites

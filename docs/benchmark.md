@@ -333,7 +333,7 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    [skills.md](skills.md) fan-out from the session (outputs in `$PR_DIR.out`;
    routing list = `git -C "$PR_DIR" diff --name-only origin/main..pr`; briefs
    rendered by you from `scripts/templates/skill-brief.md`, its base ref
-   `main`, its checkout a detached worktree per skill
+   `main`, its scratch directory `$PR_DIR.out/<skill>.scratch`, its checkout a detached worktree per skill
    (`git -C "$PR_DIR" worktree add -q --detach "$PR_DIR.s-<skill>"`), its
    severity rubric the bullets under **Severity:** of
    [finding-form.md](finding-form.md), its time budget the `SKILL_BUDGET_MIN`
