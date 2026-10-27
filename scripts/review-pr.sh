@@ -2766,10 +2766,17 @@ cmd_ci() {
         # An Actions check run links its job; the job id is the only handle the
         # logs endpoint takes, and details_url is where it is published.
         jid="$(printf '%s' "$url" | sed -n 's#.*/job/\([0-9][0-9]*\).*#\1#p')"
-        if [ -n "$jid" ] && gh api "repos/$REPO/actions/jobs/$jid/logs" > "$f.raw" 2>/dev/null && [ -s "$f.raw" ]; then
-          tail -n "$CI_LOG_LINES" "$f.raw" > "$f"; got=log
+        # gh refuses to print a log that carries terminal escape sequences
+        # without --allow-escape-sequences; the colour codes are stripped
+        # before the tail, so the evidence reads as plain text
+        if [ -n "$jid" ]; then
+          if gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$jid/logs" > "$f.raw" 2> "$f.err" && [ -s "$f.raw" ]; then
+            sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$f.raw" | tail -n "$CI_LOG_LINES" > "$f"; got=log
+          else
+            logev warn gh_api "PR #$N: job $jid log fetch failed — $(tr '\n' ' ' < "$f.err" | cut -c1-200)"
+          fi
         fi
-        rm -f "$f.raw"
+        rm -f "$f.raw" "$f.err"
         if [ "$got" = "none" ]; then
           printf '%s' "$e" | jq -r '.out' | grep -v '^[[:space:]]*$' > "$f" 2>/dev/null
           [ -s "$f" ] && got=output
