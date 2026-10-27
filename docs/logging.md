@@ -32,7 +32,7 @@ file per UTC day), one JSON object per line:
   - Where the harness has a session id it wins: a gated fire is a pair, the gate's id
     and the session's, matched on `job` and on the minute the gate's
     `precheck` event names.
-- **job** — `review` | `shepherd` | `audit` | `benchmark` | `survey` |
+- **job** — `review` | `shepherd` | `audit` | `benchmark` | `survey` | `brief` |
   `monitor` | `session` (from `LOG_JOB`).
 - **level** — `debug` | `info` | `warn` | `error`. `debug` lines are written
   only under `log_level: debug`.

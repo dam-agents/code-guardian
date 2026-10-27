@@ -50,7 +50,7 @@ echo.
 ## The pre-flight contract
 
 **Entry command:** `bash "$HOME/scripts/preflight.sh" <mode>` — `review`,
-`shepherd`, `audit`, `benchmark` or `survey`; `bash "$HOME/scripts/monitor.sh"`
+`shepherd`, `audit`, `benchmark`, `survey` or `brief`; `bash "$HOME/scripts/monitor.sh"`
 for the monitor — for a run whose prompt carries no worklist path. Cadence,
 gate and task text per run: ONBOARDING Step 6.
 
@@ -106,6 +106,7 @@ changes", then end the run the same way.
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
 | `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` (`judge`: `benchmark-judge.sh resolve`'s, `auto` while unpicked; `judge_unavailable` / `isolation_unavailable`: why the judge cannot run / the run cannot be isolated, or null) | [benchmark.md](benchmark.md) |
+| `brief_due` | brief mode: the PRs merged since the last brief, and the language to write it in | [brief.md](brief.md) |
 | `survey_due` | survey mode: the area to read this run, with its history slice | [survey.md](survey.md) |
 | `alerts_due`, `recorded`, `direct`, `suppressed` | monitor mode: the alerts to report (each with its `id`), the history-only conditions (never reported), the direct send's result, the count of alerts already sent | [monitor.md](monitor.md) |
 | `housekeeping_only` | present and `true` when the run carries bookkeeping alone → the short read set and the short self-check | **The schedule gate** |

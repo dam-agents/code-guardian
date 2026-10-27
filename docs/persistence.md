@@ -48,7 +48,7 @@ logged and retried next run.
 
 Both directions carry every `work/` file except pod-local transient state:
 lock files (`*.lock`), `*.tmp` and the benchmark run locks (`.run-lock`). A
-persist that would delete `CONFIG.md`, `MEMORY.md`, `LESSONS.md`,
+persist that would delete `CONFIG.md`, `BRIEF.log`, `MEMORY.md`, `LESSONS.md`,
 `REVIEW-LEDGER.jsonl`, `PR-EVENTS.jsonl`, `audit/weeks/`,
 `benchmark/RESULTS.md` or `benchmark/results/` is refused and logged as an error: that snapshot comes
 from an unhydrated `work/`, so restore first. A deletion the operator asked

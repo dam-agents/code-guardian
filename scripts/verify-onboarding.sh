@@ -220,7 +220,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch session_awareness mention_replies mention_authors project_profile guide_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch session_awareness mention_replies mention_authors project_profile guide_label slack_notifications merge_ready_nudge audit_report audit_trend definition_issues survey survey_report survey_report_findings survey_interval_days daily_brief brief_language benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -275,6 +275,7 @@ EOF
       fi
     fi
     chk_enum survey 'enabled|disabled' 'enabled | disabled'
+    chk_enum daily_brief 'enabled|disabled' 'enabled | disabled'
     chk_enum survey_interval_days '[0-9]+' 'an integer of days'
     chk_enum benchmark 'enabled|disabled' 'enabled | disabled'
     chk_enum project_profile 'enabled|disabled' 'enabled | disabled'
@@ -491,7 +492,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md diagrams VERSION AUDIT.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock GITHUB.json .housekeeping-since .mention-scan-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md diagrams VERSION AUDIT.log BRIEF.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock GITHUB.json .housekeeping-since .mention-scan-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

@@ -153,7 +153,8 @@ jobs:
                   'code-guardian-audit-':     (2, None,        True),
                   'code-guardian-benchmark-': (3, 'benchmark', False),
                   'code-guardian-survey-':    (4, 'survey',    False),
-                  'code-guardian-monitor-':   (5, 'monitor',   True)}
+                  'code-guardian-monitor-':   (5, 'monitor',   True),
+                  'code-guardian-brief-':     (6, 'brief',     False)}
           if len(quotes) != len(SPEC):
               sys.exit('ONBOARDING Step 6: %d task blockquotes, the run table has %d rows' % (len(quotes), len(SPEC)))
 

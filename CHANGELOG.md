@@ -11,9 +11,21 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 12.6.0 — 2026-10-26
+## 12.7.0 — 2026-10-27
 
 **Upgrade:** Nothing — docs are re-read per run.
+
+## 12.6.0 — 2026-10-26
+
+**Upgrade:** Offer the daily brief when `slack_notifications: enabled`
+(off by default; a yes writes `daily_brief: enabled` and, when wanted,
+`brief_language: <language>` — default English — and does Step 6g). Step 6g
+creates `code-guardian-brief-daily` (cron `0 6 * * 1-5`, precheck
+`precheck.sh brief`, title `Post the daily brief`, task per ONBOARDING Step 6g)
+with `list_schedules` first; a kit-created instance gets it disabled, so only
+`toggle_schedule` it **enabled** on a yes. **Operator-only:** the kit is read
+at create, so an older instance creates the schedule by hand. Then re-run
+`bash "$HOME/scripts/verify-onboarding.sh" --live`.
 
 ## 12.5.0 — 2026-10-25
 
