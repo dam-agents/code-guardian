@@ -2053,6 +2053,41 @@ printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing 
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
 assert_jq '.outcome == "posted"' 'one line per inline-carried finding posts'
 
+# a complete re-review lists every current finding in full (docs/review-rereview.md):
+# its multi-line inline finding posts; the same body on a delta round is refused
+setup post_full_rereview_full_text
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+assert_jq '.kind == "re-review" and .full == true' 'the label prepares a complete re-review'
+printf '[{"status":"still","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '{"id":96,"html_url":"https://example.test/r/96","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'a complete re-review posts an inline finding in full'
+setup post_delta_rereview_one_line
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'
+run_rp prepare 1 --on-demand
+assert_jq '.kind == "re-review" and .full == false' 'on demand prepares a delta re-review'
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'a delta re-review repeating the inline text is refused'
+run_rp abort 1 "reset"
+
+# the brief prints the one-line rule except on a complete re-review
+setup compose_full_rereview_rule
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+run_rp compose-brief 1
+assert_out_absent 'an inline-carried finding is one line here' 'a complete re-review skeleton carries no one-line rule'
+run_rp abort 1 "reset"
+
 # a summary-only finding keeps its description and Fix in ### Findings
 setup post_summary_only_full
 pr_fx open '[]'
