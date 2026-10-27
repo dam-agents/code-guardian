@@ -2076,6 +2076,9 @@ printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"in
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'a delta re-review repeating the inline text is refused'
+printf '[{"status":"still","severity":"warning","file":"src/beta.ts","line":null,"inline":false,"summary":"stale doc","fix":"update it"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'a still summary-only finding the delta body does not print raises no allowance'
 run_rp abort 1 "reset"
 
 # the brief prints the one-line rule except on a complete re-review

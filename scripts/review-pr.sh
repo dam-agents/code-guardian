@@ -2163,11 +2163,12 @@ cmd_post() {
   # an inline-carried finding is one line in ### Findings: its description, Fix
   # and suggestion live in the inline comment. Only a summary-only finding takes
   # more than one line or a **Fix:** there (docs/review.md → Output format (first
-  # reviews)); a complete re-review lists every current finding in full
+  # reviews)); a delta re-review prints only its `new` findings, so only those
+  # count; a complete re-review lists every current finding in full
   # (docs/review-rereview.md), so it is not checked
   local nfull=999999 nmulti=0 nfix=0 infind=0 cur=0 cont=0 blank=0 fence=0 ln
   [ "$(ctx_get '.kind')" = "re-review" ] && [ "$(ctx_get '.full')" = "true" ] \
-    || nfull="$(jq '[ .[] | select(.status != "fixed" and .inline != true) ] | length' "$FINDINGS")"
+    || nfull="$(jq --arg k "$(ctx_get '.kind')" '[ .[] | select(.status != "fixed" and .inline != true and (($k != "re-review") or .status == "new")) ] | length' "$FINDINGS")"
   case "$nfull" in (''|*[!0-9]*) fail "cannot count the findings not carried inline in $FINDINGS";; esac
   [ -r "$BODY" ] || fail "cannot read the body $BODY"
   local re_fence='^[[:space:]]*```' re_item='^[-*][[:space:]]' re_blank='^[[:space:]]*$' re_find='^### Findings[[:space:]]*$'
