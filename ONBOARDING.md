@@ -544,7 +544,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     Findings → `survey_report_findings: enabled`; otherwise omit.
 13. **Daily brief** (only when Slack is enabled; `docs/brief.md`). Ask:
 
-    > Every weekday morning (06:00 UTC by default) I can post one Slack message: what the PRs merged since the last brief changed — news for the whole team by author, explained like release notes, then the technical changes with impact and the risky ones. Weekend merges arrive on Monday; a day with no merge sends nothing. Turn it on, and in which language? Default: off, English.
+    > Every weekday morning (06:00 UTC by default) I can post one Slack message: what the PRs merged since the last brief changed — news for the whole team by topic, explained like release notes, then the technical changes with impact and the risky ones. Weekend merges arrive on Monday; a day with no merge sends nothing. Turn it on, and in which language? Default: off, English.
 
     **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
     English), and register the schedule in Step 6g.
