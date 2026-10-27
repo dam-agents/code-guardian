@@ -53,6 +53,23 @@ run_preflight survey
 assert_jq '.nothing_to_do == true' 'a survey inside the interval does not fire'
 assert_jq '[.logs[] | select(test("< 7d"))] | length == 1' 'the floor says why'
 
+# --- a weekly cron that fires just short of 7 days still surveys (#254) -------
+new_case survey_interval_slack
+base_config '- survey: enabled'
+mkdir -p "$WORK/survey"
+profile_fx '[{"path":"src/api","name":"api"}]'
+survey_ledger "| src_api | src/api | $(iso_ago $(( 7 * 86400 - 600 ))) | 1 | 2 |"
+run_preflight survey
+assert_jq '.nothing_to_do == false and .survey_due.slug == "src_api"' 'a pass 6d 23h 50m ago does not hold the weekly fire'
+
+new_case survey_interval_short
+base_config '- survey: enabled'
+mkdir -p "$WORK/survey"
+profile_fx '[{"path":"src/api","name":"api"}]'
+survey_ledger "| src_api | src/api | $(iso_ago $(( 6 * 86400 + 12 * 3600 ))) | 1 | 2 |"
+run_preflight survey
+assert_jq '.nothing_to_do == true' 'a pass 6d 12h ago still holds the floor'
+
 # --- no profile → nothing to survey, never a guess ---------------------------
 new_case survey_no_profile
 base_config '- survey: enabled'
