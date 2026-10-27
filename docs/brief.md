@@ -43,17 +43,18 @@ merges than that loses the oldest; one day never comes near it.
 ☀️ *Daily brief — <date>* · <n> merged PRs
 
 *What's new* (for the whole team)
-_<author>_
-• <what changed for a user, and how to use it when it is new> (#<n>)
+_<topic>_
+• <what changed for a user, and how to use it when it is new> (<author>, #<n>)
 
 *Under the hood* (for developers)
 • ⚠️ <risky change: what it is, who it affects, what to do> (#<n>)
 • <architecture, component, dependency, working-method or security change> (#<n>)
 ```
 
-- **What's new**: only changes a user sees, grouped by PR author (their GitHub
-  login). Write it as release notes, not a title list: what it is for, and for
-  a new feature how to use or control it. Several PRs of one author on one
+- **What's new**: only changes a user sees, grouped by topic (a product area,
+  for example Plans, Profiles, CLI), each bullet ending with the PR author's
+  GitHub login. Write it as release notes, not a title list: what it is for, and for
+  a new feature how to use or control it. Several PRs on one
   feature are one bullet.
 - **Under the hood**: only changes with impact — architecture, building
   blocks, components, dependencies, how the system works, security. Risky
