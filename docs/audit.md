@@ -78,7 +78,8 @@ reason, never dropped.
    schedules — `…-review-active` plus the `…-review-quiet` /
    `…-review-offdays` ones the cadence keys call for), the shepherd sweep
    (under `slack_notifications: enabled`), the monthly benchmark (under
-   `benchmark: enabled`), the weekly survey (under `survey: enabled`), the
+   `benchmark: enabled`), the weekly survey (under `survey: enabled`), the daily brief (under
+   `daily_brief: enabled`), the
    monitor and this audit job all exist and are **enabled**, with crons
    matching ONBOARDING Step 6. Missing or disabled → **fail**.
    - **Each must also be firing, not merely enabled.** Per entry,

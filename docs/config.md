@@ -237,6 +237,14 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
 - **`survey_interval_days`** — the floor between two passes. **Missing = `7`**;
   an unparseable value falls back to `7`. It bounds a drifting cron, so a
   weekly schedule never surveys twice in one week.
+- **`daily_brief`** — `enabled` | `disabled`. **Missing = `disabled`.** One
+  Slack message each weekday morning: user-facing news of the merged PRs by
+  author, then the technical changes with impact ([brief.md](brief.md)). Needs
+  `slack_notifications: enabled`; without it nothing is sent. Weekend merges
+  arrive on Monday.
+- **`brief_language`** — the language of the brief, as a plain name
+  (`English`, `Czech`). **Missing = `English`.** It sets the brief only;
+  every other outward text stays in ASD-STE100.
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
   monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
   pipeline and scores each output against its known defects; results
@@ -349,8 +357,8 @@ the operator for the slug, never guess.
   review, which is refused.
 - On first Slack enablement, build the roster and register the shepherd
   schedule (ONBOARDING Step 4 items 8–9, Step 6b); on disablement, disable
-  that schedule. `benchmark` and `survey` do the same with their schedules
-  (Steps 6d, 6e).
+  that schedule. `benchmark`, `survey` and `daily_brief` do the same with their
+  schedules (Steps 6d, 6e, 6g).
 - An edited cadence key takes effect once the schedules are reconciled per
   ONBOARDING Step 6.
 - **Missing `work/CONFIG.md`** = not onboarded, or state lost: apply per-key
