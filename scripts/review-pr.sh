@@ -96,7 +96,7 @@
 # success they print the text above, and their guard failures are JSON like
 # every other.
 # Files: /tmp/review-pr-<n> (clone), .out/ (skill outputs),
-# .s-<skill> (per-skill worktrees), .diff, .ctx/ (pr.json, context.json, hunks.json,
+# .s-<skill> (per-skill worktrees), .state.json (the copy of .ctx/pr.json), .diff, .ctx/ (pr.json, context.json, hunks.json,
 # files.json, diff/ (per-file slices), pack.json, risk.json, briefs/, profile.md (the
 # skills' profile slice), fanout.ts, prior.json, collect.json, limits.txt,
 # findings.annotated.json), .fix (the agent-fix clone), .ci/ (the
@@ -133,7 +133,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/holds.sh"
 TMP_ROOT="${TMPDIR:-/tmp}"
 PR_DIR="$TMP_ROOT/review-pr-$N"; OUT="$PR_DIR.out"; DIFF="$PR_DIR.diff"; CTX="$PR_DIR.ctx"
-PAYLOAD="$PR_DIR.post.json"
+PAYLOAD="$PR_DIR.post.json"; STATE_COPY="$PR_DIR.state.json"
 INLINE_CAP=25
 CI_EVIDENCE_MAX=3      # failing checks that get evidence fetched (docs/ci-triage.md)
 CI_LOG_LINES=200       # tail of a failing job's log kept as evidence
@@ -216,7 +216,39 @@ delete_row_held() {
 
 # --------------------------------------------------------- state files ----
 ctx_get() { jq -r "$1" "$CTX/pr.json" 2>/dev/null; }
-need_ctx() { [ -f "$CTX/pr.json" ] || fail "no prepared state for PR #$N — run: review-pr.sh prepare $N"; }
+# A skill subagent can write over $CTX/pr.json, and a damaged file read as
+# state made a null HEAD look moved and deleted the workspace (#253). Every
+# command checks the shape `prepare` writes, and restores a damaged file from
+# the copy `prepare` keeps outside $CTX.
+ctx_ok() { # <file> — 0 = the shape prepare writes
+  jq -e --arg n "$N" '(.number | tostring) == $n and (.kind | IN("first", "re-review"))
+    and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))' "$1" >/dev/null 2>&1
+}
+ctx_save() { cp "$CTX/pr.json" "$STATE_COPY.$$" && mv "$STATE_COPY.$$" "$STATE_COPY"; }
+ctx_restore() { # 0 = the state is intact, restored from the copy when it was not
+  ctx_ok "$CTX/pr.json" && return 0
+  ctx_ok "$STATE_COPY" || return 1
+  { mkdir -p "$CTX" && cp "$STATE_COPY" "$CTX/pr.json.$$" && mv "$CTX/pr.json.$$" "$CTX/pr.json"; } || return 1
+  logev warn review_pr "PR #$N: $CMD — the prepared state was damaged; restored from the copy prepare keeps"
+}
+# No usable copy: fail closed. Nothing is released or deleted — a release
+# needs the kind and the prior row the damaged file lost — and the terminal
+# step lets the dead-run takeover (docs/review-mechanics.md) take the lock.
+state_damaged() {
+  local sha; sha="$(row_field "$(row_for)" 3)"   # the lock row keeps the SHA the state lost
+  if [ "$PROGRESS" = enabled ] && printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$'; then
+    progress_write "$sha" success "no review posted - prepared state damaged; retrying next heartbeat" "" \
+      || logev warn progress_status "PR #$N: progress write did not succeed (success: state damaged)$PW_HTTP"
+  fi
+  logstep "aborted state damaged — lock kept"
+  logev error review_pr "PR #$N: $CMD — the prepared state $CTX/pr.json is damaged and its copy too; lock, clone and skill outputs kept"
+  out "$(jq -nc --arg n "$N" '{outcome:"state_damaged", reason:"the prepared state is damaged and its copy too",
+    next:("leave PR #" + $n + " to the heartbeat — the takeover of a dead run takes its lock")}')"
+}
+need_ctx() {
+  [ -f "$CTX/pr.json" ] || [ -f "$STATE_COPY" ] || fail "no prepared state for PR #$N — run: review-pr.sh prepare $N"
+  ctx_restore || state_damaged
+}
 
 # ------------------------------------------------- prior review artefacts ----
 # `reviews/pr-<n>.md` holds the last posted review's findings-json line and the
@@ -606,7 +638,7 @@ progress() { # <state> <description> [target_url] — best-effort (docs/review.m
 # ---------------------------------------------------------------- cleanup ----
 # every temp path of this PR's review: `cleanup` deletes them, `verify` checks
 # that none is left
-tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$PR_DIR".prompts "$DIFF" "$CTX" "$PAYLOAD"); }
+tmp_paths() { TMP_PATHS=("$PR_DIR" "$OUT" "$PR_DIR".s-* "$PR_DIR".prompts "$DIFF" "$CTX" "$PAYLOAD" "$STATE_COPY"); }
 cleanup() { tmp_paths; rm -rf "${TMP_PATHS[@]}"; }
 
 # release the lock per kind (docs/review.md → Error handling): a first review
@@ -1066,6 +1098,7 @@ cmd_prepare() {
   [ -n "$REPO" ] || fail "target repo unresolved"
   # re-entrant for the run that owns the state: a second prepare returns what
   # the first one built instead of standing down against itself
+  [ -f "$STATE_COPY" ] && ctx_restore
   if [ -f "$CTX/pr.json" ] && [ -f "$CTX/skills.json" ] && [ -n "$me" ] && [ "$(ctx_get '.run // empty')" = "$me" ]; then
     emit_ready true
   fi
@@ -1132,6 +1165,7 @@ cmd_prepare() {
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending"}' > "$CTX/pr.json"
+  ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
   local eta_txt=""; [ -n "$ETA" ] && eta_txt=" · usually ~$(( (ETA + 59) / 60 < 1 ? 1 : (ETA + 59) / 60 )) min"
@@ -1290,7 +1324,7 @@ cmd_prepare() {
     if [ "$clone" = "ok" ]; then logstep "${sha:0:7} cloned"
     else rm -rf "$PR_DIR"; logev error clone "PR #$N: clone of $ref did not succeed — every skill is clone-failed"; fi
   fi
-  jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
+  jq --arg c "$clone" --arg x "$cstat" '.clone = $c | .context = $x' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json" && ctx_save
 
   # --- skills: inclusive routing, per-skill worktrees, briefs from the template ---
   local skills nrun=0 tpl profile="" tpaths sevr
@@ -1405,7 +1439,7 @@ cmd_prepare() {
         [ -n "$profile" ] || t="${t%%Orientation: *}Orientation: no repository map is available — find your way in the tree. Whatever orients you says where to look; it is never evidence for a finding.{{VERIFY_LIVE_BLOCK}}${t#*\{\{VERIFY_LIVE_BLOCK\}\}}";;
       esac
       fill SKILL "$s"; fill PR "$N"; fill REPO "$REPO_HOST/$REPO"; fill HEAD_SHA "$sha"; fill BASE_REF "$base"
-      fill OUT_FILE "$OUT/$s.txt"; fill PROFILE "$profile"; fill FILES_BLOCK "$fblock"; fill VERIFY_LIVE_BLOCK "$vlblock"
+      fill OUT_FILE "$OUT/$s.txt"; fill SCRATCH_DIR "$OUT/$s.scratch"; fill PROFILE "$profile"; fill FILES_BLOCK "$fblock"; fill VERIFY_LIVE_BLOCK "$vlblock"
       fill RISK_BLOCK "$rkblock"; fill TOOL_PATHS "$tpaths"; fill SEVERITY "$sevr"
       if [ "$kind" = guide ]; then fill BUDGET_MIN "$GUIDE_BUDGET_MIN"; else fill BUDGET_MIN "$SKILL_BUDGET_MIN"; fi
       printf '%s\n' "$t" > "$brief.tmp"
@@ -1431,6 +1465,7 @@ cmd_prepare() {
       git -C "$PR_DIR" worktree add -q --detach "$wt" HEAD >/dev/null 2>&1 \
         || { rm -rf "$wt"; cp -a "$PR_DIR" "$wt" 2>/dev/null; } || { rm -rf "$wt"; wt="$PR_DIR"; }
       SK="$(printf '%s' "$SK" | jq --arg s "$s" --arg c "$wt" '.[$s].workdir = $c')"
+      mkdir -p "$OUT/$s.scratch"
       sed -i.bak "s#{{WORKDIR}}#$wt#g" "$CTX/briefs/$s.md" 2>/dev/null; rm -f "$CTX/briefs/$s.md.bak"
     done < <(printf '%s' "$SK" | jq -r 'to_entries[] | select(.value.status=="run") | .key')
   fi
@@ -2099,7 +2134,7 @@ cmd_rapid() {
   rm -f "$PAYLOAD" "$CTX/rapid.err"
   [ "$ev" = "$verdict" ] || logev warn review_pr "PR #$N: rapid $verdict posted as COMMENT — this account opened the pull request"
   write_row "$sha" "$(now_iso)" RAPID in_progress
-  jq '.rapid_posted = true' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json"
+  jq '.rapid_posted = true' "$CTX/pr.json" > "$CTX/pr.json.tmp" && mv "$CTX/pr.json.tmp" "$CTX/pr.json" && ctx_save
   logstep "${sha:0:7} rapid posted"
   logev info review_pr "PR #$N: rapid review posted $verdict at ${sha:0:7}"
   # a critical at this HEAD revokes a rapid approval of an earlier HEAD
@@ -2617,6 +2652,9 @@ cmd_verify() {
   fi
   row="$(row_for)"; st="$(row_field "$row" 6)"; rsha="$(row_field "$row" 3)"; rts="$(row_field "$row" 4)"
   case "$term" in
+    ("aborted state damaged"*)
+      # state_damaged releases nothing: the takeover of a dead run takes the lock
+      chk row ok "${st:-absent} — the damaged state kept the lock for the takeover";;
     (done|"aborted duplicate"*)
       # a post, or a duplicate self-healed from the remote marker: done at this SHA
       if [ "$st" = done ] && [ -n "$sha7" ] && [ "${rsha#"$sha7"}" != "$rsha" ]; then chk row ok "done at $sha7"
@@ -2647,7 +2685,8 @@ cmd_verify() {
   fi
   tmp_paths
   for f in "${TMP_PATHS[@]}"; do [ -e "$f" ] && left="$left ${f##*/}"; done
-  [ -z "$left" ] && chk cleanup ok "no temp paths left" || chk cleanup fail "left behind:$left"
+  if [ "${term#aborted state damaged}" != "$term" ]; then chk cleanup ok "kept for diagnosis — the takeover's prepare removes it"
+  else [ -z "$left" ] && chk cleanup ok "no temp paths left" || chk cleanup fail "left behind:$left"; fi
   out "$(printf '%s' "$checks" | jq -Rsc '[ split("\n")[] | select(length > 0) | split("\t")
       | {check: .[0], status: .[1], detail: (.[2:] | join("\t"))} ]
     | {outcome: (if any(.[]; .status == "fail") then "issues" else "ok" end), checks: .}')"

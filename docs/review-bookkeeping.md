@@ -93,6 +93,7 @@ check of the commit ([ci-triage.md](ci-triage.md)).
 | Urgent phase 1 — rapid posted | `pending` | `rapid review: approved · full review running` (or `changes requested`) | the rapid review |
 | `post` — review posted | `success` | `<VERDICT> · <a> critical, <b> warning, <c> suggestion · took <m>m` | the posted review |
 | `post` / `abort` — posting aborted | `success` | `no review posted — <reason>; retrying next heartbeat` | — |
+| Any command — `state_damaged` | `success` | `no review posted - prepared state damaged; retrying next heartbeat` | — |
 | PR closed mid-review | `success` | `PR closed · <n> <scope> finding(s) in issue #<i>` | the issue |
 | `status_resets_due` entry | `success` | `review abandoned — resumes when the PR is ready` | — |
 

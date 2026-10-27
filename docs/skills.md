@@ -243,9 +243,12 @@ Skill findings feed the verdict like your own
 Per-PR working directory `PR_DIR="/tmp/review-pr-<number>"`, with
 `$PR_DIR.out/` (skill outputs), `$PR_DIR.s-<skill>` (a detached worktree of
 the clone per running skill, so a skill's commit or reset moves only its own
-HEAD; a copy when that fails), `$PR_DIR.diff` and `$PR_DIR.ctx/` beside
-it — all made by `review-pr.sh prepare` and removed together, after the row is
-final, by `post`, `abort` or the phase guard that returns `head_moved`:
+HEAD; a copy when that fails), `$PR_DIR.diff`, `$PR_DIR.ctx/` and its state
+copy `$PR_DIR.state.json` beside it (`$PR_DIR.out/<skill>.scratch/` is the
+one place a skill's brief lets it write scratch files) — all made by
+`review-pr.sh prepare` and removed together, after the row is final, by
+`post`, `abort` or the phase guard that returns `head_moved` (after
+`state_damaged`, by the takeover's `prepare`):
 exactly once per PR, never between skills, and **by exact name, never a bare
 `/tmp/review-pr-<n>*` glob** — for PR #4 that glob also matches PR #42, whose
 review may be running in a concurrent session.

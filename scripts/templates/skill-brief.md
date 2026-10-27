@@ -32,6 +32,11 @@ Do exactly this:
 3. Reply with only the output path and `ran (findings=<N>)`, or `errored` — the
    file is the only channel that carries findings.
 
+Write only `{{OUT_FILE}}`, and a scratch file only under `{{SCRATCH_DIR}}`.
+Every other file this brief names or the review prepared — the brief itself,
+the diff, the profile, the PR state beside them — is read-only input: a file
+written over it breaks the review that launched you.
+
 No circling: whatever fails or comes back empty (a file, document, symbol, or
 reference you cannot find; a command, install, or build that does not work) gets
 one retry, then you continue without it. The output names what was skipped

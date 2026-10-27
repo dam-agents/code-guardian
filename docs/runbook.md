@@ -304,7 +304,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   `verify_live` row is read from the live file, and a missing or stale profile
   changes nothing ([profile.md](profile.md)).
 - A review run ends only when every `reviews_due` PR reached a
-  posted-or-aborted terminal state with its lock resolved. Never end the turn
+  posted-or-aborted terminal state with its lock resolved — or `state_damaged`,
+  whose lock the takeover of a dead run resolves. Never end the turn
   mid-pipeline — a skill's "report to the user" is not the deliverable — and
   for an urgent PR the rapid post alone is never terminal. A transient tool
   failure is retried once, then aborts the PR **releasing its lock**: never
@@ -392,8 +393,10 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   scored run at a time — a live run lock is never displaced, and every terminal
   path releases it.
 - No leftover `/tmp/review-pr-*` entries (clone, `.out`, `.s-*`, `.diff`,
-  `.ctx`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` clones, `/tmp/benchmark-pr*` directories, `.bench-usage-*`
-  nonce caches, or temp payload files at run end. `/tmp/cg-worklist-*.json`
+  `.ctx`, `.state.json`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` clones,
+  `/tmp/benchmark-pr*` directories, `.bench-usage-*` nonce caches, or temp
+  payload files at run end. The one exception is a PR that ended
+  `state_damaged`: the takeover's `prepare` removes its paths. `/tmp/cg-worklist-*.json`
   belongs to the gate, which sweeps its own past 3 h — a run never deletes one.
 - One fire, one gate pass: a gated run consumes the worklist the gate
   computed, a dispatched session its unit worklist, and neither re-runs the

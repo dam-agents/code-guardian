@@ -1802,6 +1802,78 @@ pr_fx open '[]' "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 run_rp compose-brief 1
 assert_jq '.outcome == "head_moved" and .phase == "compose"' 'compose-brief stops a review whose HEAD moved'
 
+# --- a damaged prepared state is never a moved HEAD (#253) -----------------------
+# docs/review.md → Guarding a running review: a skill subagent wrote the raw
+# REST pull request over $CTX/pr.json — `.head.sha`, no `.head_sha`
+raw_pr_over_state() {
+  jq -n --arg sha "$B1_SHA" '{number:1, state:"open", head:{sha:$sha, ref:"b1"}, base:{ref:"main"}}' > "$(PR_DIR).ctx/pr.json"
+}
+
+setup state_damaged_restored
+run_rp prepare 1
+[ -f "$(PR_DIR).state.json" ] && printf 'ok   %s: prepare keeps a copy of the state outside the ctx directory\n' "$CASE" \
+  || { printf 'FAIL %s: no state copy beside the ctx directory\n' "$CASE"; FAILED=1; }
+raw_pr_over_state
+run_rp collect 1
+assert_jq '.outcome != "head_moved"' 'a damaged state file is not a moved HEAD'
+jq -e --arg s "$B1_SHA" '.head_sha == $s and .kind == "first"' "$(PR_DIR).ctx/pr.json" >/dev/null \
+  && printf 'ok   %s: collect restores the state from its copy\n' "$CASE" \
+  || { printf 'FAIL %s: state not restored: %s\n' "$CASE" "$(head -c 200 "$(PR_DIR).ctx/pr.json")"; FAILED=1; }
+[ -d "$(PR_DIR)" ] && [ -d "$(PR_DIR).out" ] && printf 'ok   %s: the clone and the skill outputs survive\n' "$CASE" \
+  || { printf 'FAIL %s: the workspace was deleted\n' "$CASE"; FAILED=1; }
+grep -q '"event":"review_pr".*restored from the copy' "$WORK"/logs/events-*.jsonl \
+  && printf 'ok   %s: the restore is logged\n' "$CASE" || { printf 'FAIL %s: no restore warning logged\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+[ -e "$(PR_DIR).state.json" ] && { printf 'FAIL %s: abort left the state copy behind\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: cleanup removes the state copy\n' "$CASE"
+
+setup state_damaged_no_copy
+run_rp prepare 1
+raw_pr_over_state; rm -f "$(PR_DIR).state.json"
+run_rp guard 1
+assert_jq '.outcome == "state_damaged"' 'a damaged state with no copy fails closed'
+grep -qE "^\| *1 *\| $B1_SHA .*\| in_progress \|" "$WORK/REVIEWS.md" \
+  && printf 'ok   %s: the lock is kept\n' "$CASE" || { printf 'FAIL %s: the lock row changed: %s\n' "$CASE" "$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")"; FAILED=1; }
+[ -d "$(PR_DIR)" ] && [ -d "$(PR_DIR).out" ] && [ -d "$(PR_DIR).ctx" ] \
+  && printf 'ok   %s: clone, outputs and state are kept\n' "$CASE" || { printf 'FAIL %s: the workspace was deleted\n' "$CASE"; FAILED=1; }
+assert_event 'PR #1 aborted state damaged' 'the run logs a terminal step, so the takeover can take the lock'
+run_rp verify 1
+assert_jq '.outcome == "ok"' 'verify accepts the fail-closed end'
+
+# the fail-closed end still ends the progress signal, on the SHA the lock row keeps
+setup state_damaged_progress '- review_progress: enabled'
+run_rp prepare 1
+raw_pr_over_state; rm -f "$(PR_DIR).state.json"
+run_rp collect 1
+assert_jq '.outcome == "state_damaged"' 'collect on a damaged state with no copy fails closed'
+assert_call "statuses/$B1_SHA -f state=success -f context=cg:review -f description=no review posted - prepared state damaged" \
+  'the fail-closed end writes the terminal success status'
+
+# abort on the same damage restores the prior row instead of deleting it
+setup state_damaged_abort_rereview
+PRIOR="1111111111111111111111111111111111111111"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.kind == "re-review"' 'a re-review is prepared'
+raw_pr_over_state
+run_rp abort 1 "reset"
+assert_jq '.outcome == "aborted"' 'abort on a restored state aborts'
+grep -qE "^\| *1 *\| $PRIOR .*\| awaiting_label \|" "$WORK/REVIEWS.md" \
+  && printf 'ok   %s: the prior row is restored, not deleted\n' "$CASE" \
+  || { printf 'FAIL %s: row: %s\n' "$CASE" "$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")"; FAILED=1; }
+
+# the briefs keep a skill's writes out of the prepared state
+setup state_brief_scratch
+run_rp prepare 1
+B="$(PR_DIR).ctx/briefs/typescript-engineering.md"
+assert_file_contains "$B" "$(PR_DIR).out/typescript-engineering.scratch" 'the brief names the skill its own scratch directory'
+assert_file_lacks "$B" '{{SCRATCH_DIR}}' 'the scratch placeholder is filled'
+[ -d "$(PR_DIR).out/typescript-engineering.scratch" ] && printf 'ok   %s: the scratch directory exists\n' "$CASE" \
+  || { printf 'FAIL %s: no scratch directory\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
 # --- a bookkeeping-only carry is kept, and is never a review scope ---------------
 setup carry_bookkeeping
 cat > "$WORK/reviews/pr-1.carry.json" <<EOF

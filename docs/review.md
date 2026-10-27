@@ -20,7 +20,8 @@ first and the other fields only on the expected value — any other outcome
 carries none of them. Write the payload files (`body.md`,
 `findings.json`, `comments.json`, `meta.json`, `rapid.md`) in the PR's context
 directory, `${TMPDIR:-/tmp}/review-pr-<n>.ctx/`, and pass them by absolute
-path — `post`, `abort` and a `head_moved` guard delete that directory.
+path — `post`, `abort` and a `head_moved` guard delete that directory
+(`state_damaged` keeps it, for the takeover's `prepare` to remove).
 
 Work the entries one PR at a time, inside its hold, in the order of
 [runbook.md](runbook.md) → **Review run** step 5. `prepare` reads what the
@@ -130,7 +131,7 @@ g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
 Every locked entry ends `posted`, `duplicate`, `closed_filed`,
-`closed_discarded`, `aborted` or `head_moved`.
+`closed_discarded`, `aborted`, `head_moved` or `state_damaged`.
 
 **Progress logging.** Each milestone appends a `review_step` event
 ([logging.md](logging.md)). The last event of a PR pins where a stall stopped;
@@ -417,6 +418,11 @@ stops at the first boundary past the move.
 - **Only a complete finding set is carried:** `delta` and `post` carry theirs
   unasked, the earlier guards carry the counters.
 - An unreadable API leaves the review running; Check 2 still gates the post.
+- **The prepared state is checked before it is read.** `prepare` keeps a copy
+  of `$CTX/pr.json` outside `$CTX`; every later command restores a damaged
+  state file from it. With no usable copy the command returns
+  **`outcome: "state_damaged"`**: nothing is released or deleted, and the PR
+  goes to the heartbeat, whose takeover of a dead run takes the lock.
 
 **A comment or an edited description never discards the work.**
 `compose-brief` re-reads the body, comments and reviews, rewrites
@@ -444,8 +450,10 @@ code that moved past its override lets the finding surface normally.
   restores the prior row — deletes clone and state, writes the abort status,
   and logs `aborted <reason>`. Log
   `PR #<n>: <step> failed after retry — aborted, lock released` in the chat UI
-  and continue with the next PR. Never leave an `in_progress` lock behind, and
-  never retry a call twice: the next heartbeat picks the PR up fresh.
+  and continue with the next PR. Never leave an `in_progress` lock behind —
+  except after `state_damaged`, whose lock and paths the takeover of a dead
+  run takes (**Guarding a running review**) — and never retry a call twice:
+  the next heartbeat picks the PR up fresh.
 - **Abort also on** a HEAD that moved, a PR gone draft, a withdrawn re-review
   trigger, or a dedup check unreadable after its retry. A phase guard reports
   the HEAD move as `head_moved`, not `aborted` (**Guarding a running review**).
@@ -463,7 +471,7 @@ Before you declare the run done:
 
 - **Per reviewed PR, mechanical** — chain `&& review-pr.sh verify <n>` onto
   the PR's last `review-pr.sh` command: `post`, `abort`, or the one that
-  returned `head_moved`. It checks the last lock cycle's terminal step,
+  returned `head_moved` or `state_damaged`. It checks the last lock cycle's terminal step,
   milestones, `skill_timing`, row, history file, ledger and cleanup in one
   call. `ok` settles those lines; every `fail` check of `issues` names what to
   repair; `not_locked` means this run took no lock on the PR; `error` names the
