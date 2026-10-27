@@ -20,7 +20,8 @@ first and the other fields only on the expected value — any other outcome
 carries none of them. Write the payload files (`body.md`,
 `findings.json`, `comments.json`, `meta.json`, `rapid.md`) in the PR's context
 directory, `${TMPDIR:-/tmp}/review-pr-<n>.ctx/`, and pass them by absolute
-path — `post`, `abort` and a `head_moved` guard delete that directory.
+path — `post`, `abort` and a `head_moved` guard delete that directory
+(`state_damaged` keeps it, for the takeover's `prepare` to remove).
 
 Work the entries one PR at a time, inside its hold, in the order of
 [runbook.md](runbook.md) → **Review run** step 5. `prepare` reads what the
