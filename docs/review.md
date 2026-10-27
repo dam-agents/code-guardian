@@ -356,7 +356,8 @@ severity + short label + `file:line` — while its description, rationale and
 suggestion block live only in the inline comment. Summary-only findings keep
 their full text here. `post` refuses a section that writes more findings on a
 second line, or more **Fix:** lines, than `findings-json` holds findings not
-carried inline — a ` ```suggestion ` block counts as a second line. One format for every channel (chat UI, GitHub body,
+carried inline — a ` ```suggestion ` block counts as a second line. A complete
+re-review lists every finding in full and is not checked. One format for every channel (chat UI, GitHub body,
 history file).
 
 **`_Limits: …_`** — the conditions this review ran under, as facts, never a

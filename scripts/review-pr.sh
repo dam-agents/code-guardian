@@ -2160,11 +2160,13 @@ cmd_post() {
       || fail "the body drops the limits line — copy it into ### Summary word for word: $lim"
   fi
   # an inline-carried finding is one line in ### Findings: its description, Fix
-  # and suggestion live in the inline comment. Only a summary-only finding, or a
-  # still-present one a complete re-review lists in full, takes more than one
-  # line or a **Fix:** there (docs/review.md → Output format (first reviews))
-  local nfull nmulti nfix
-  nfull="$(jq '[ .[] | select(.status != "fixed" and (.inline != true or .status == "still")) ] | length' "$FINDINGS")"
+  # and suggestion live in the inline comment. Only a summary-only finding takes
+  # more than one line or a **Fix:** there (docs/review.md → Output format (first
+  # reviews)); a complete re-review lists every current finding in full
+  # (docs/review-rereview.md), so it is not checked
+  local nfull=999999 nmulti nfix
+  [ "$(ctx_get '.kind')" = "re-review" ] && [ "$(ctx_get '.full')" = "true" ] \
+    || nfull="$(jq '[ .[] | select(.status != "fixed" and .inline != true) ] | length' "$FINDINGS")"
   read -r nmulti nfix < <(awk '
     /^[[:space:]]*```/ { fence = !fence; if (infind && cur && !cont) { multi++; cont = 1 }; next }
     fence { next }
@@ -2172,8 +2174,10 @@ cmd_post() {
     /^#/ { infind = 0; cur = 0; next }
     !infind { next }
     /\*\*Fix:\*\*/ { fix++ }
-    /^[-*][[:space:]]/ { cur = 1; cont = 0; next }
-    /^[[:space:]]*$/ { next }
+    /^[-*][[:space:]]/ { cur = 1; cont = 0; blank = 0; next }
+    /^[[:space:]]*$/ { blank = 1; next }
+    blank && /^[^[:space:]]/ { cur = 0 }
+    { blank = 0 }
     cur && !cont { multi++; cont = 1 }
     END { printf "%d %d\n", multi, fix }' "$BODY")
   [ "${nmulti:-0}" -le "$nfull" ] && [ "${nfix:-0}" -le "$nfull" ] \

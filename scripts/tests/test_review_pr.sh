@@ -2049,7 +2049,7 @@ grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  ```suggestion\n  if (!x) return\n  ```\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
 assert_jq '.outcome == "error"' 'post refuses a suggestion block under an inline-carried finding'
-printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n\nBoth findings are in the inline comments.\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
 assert_jq '.outcome == "posted"' 'one line per inline-carried finding posts'
 
