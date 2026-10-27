@@ -2053,14 +2053,30 @@ jq -n --arg sha "$B1_SHA" '{total_count:2, check_runs:[
      output:{title:"build failed", summary:"tsc: cannot find name query", text:""}},
     {name:"lint", status:"completed", conclusion:"success", details_url:"", output:{}}]}' \
   | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?per_page=100"
-printf 'line one\nline two\nerror TS2304: cannot find name query\n' \
-  | fx "api repos/acme/widgets/actions/jobs/42/logs"
+printf 'line one\nline two\n\033[31merror TS2304\033[0m: cannot find name query\n' \
+  | fx "api --allow-escape-sequences repos/acme/widgets/actions/jobs/42/logs"
 run_rp ci 1
 assert_jq '.outcome == "ci" and .terminal == true' 'a completed rollup is terminal'
 assert_jq '(.failing | length) == 1 and .failing[0].name == "build"' 'only the failing check is returned'
 assert_jq '.failing[0].evidence_source == "log"' 'the job log is the evidence'
 EV="$(printf '%s' "$OUT" | jq -r '.failing[0].evidence')"
-assert_file_contains "$EV" 'error TS2304' 'the evidence file holds the log tail'
+assert_file_contains "$EV" 'error TS2304: cannot find' 'the evidence file holds the log tail, its colour codes stripped'
+grep -q "$(printf '\033')" "$EV" \
+  && { printf 'FAIL %s: the evidence still carries escape sequences\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no escape sequence in the evidence\n' "$CASE"
+
+# --- ci: a failed log fetch is logged, and the output is the fallback ----------
+setup ci_log_fetch_failed
+add_row 1 "$B1_SHA" "2026-09-01T00:00:00Z" COMMENT done
+jq -n '{total_count:1, check_runs:[{name:"build", status:"completed", conclusion:"failure",
+        details_url:"https://github.com/acme/widgets/actions/runs/9/job/42",
+        output:{title:"build failed", summary:"tsc failed", text:""}}]}' \
+  | fx "api repos/acme/widgets/commits/$B1_SHA/check-runs?per_page=100"
+fx_fail "api --allow-escape-sequences repos/acme/widgets/actions/jobs/42/logs" 1
+fx_err "api --allow-escape-sequences repos/acme/widgets/actions/jobs/42/logs" 'gh: Not Found (HTTP 404)'
+run_rp ci 1
+assert_jq '.failing[0].evidence_source == "output"' 'a failed log fetch falls back to the check output'
+cat "$WORK"/logs/events-*.jsonl 2>/dev/null | grep -q 'job 42 log fetch failed — gh: Not Found' && printf 'ok   %s: the failed fetch keeps its stderr in the event log\n' "$CASE" || { printf 'FAIL %s: no log-fetch event\n' "$CASE"; FAILED=1; }
 
 # --- ci: a running check holds the triage, and costs no log fetch --------------
 setup ci_running
