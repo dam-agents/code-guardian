@@ -347,12 +347,16 @@ setup gate_prescan
 mkdir -p "$FX/tests" "$FX/.github/workflows"
 printf 'it("a", () => { expect(a()).toBe(1); });\nit("b", () => { expect(b()).toBe(2); });\n' > "$FX/tests/a.test.ts"
 printf 'it("old", () => { expect(o()).toBe(0); });\n' > "$FX/tests/old.test.ts"
+printf 'it("c", () => { c(); });\n' > "$FX/tests/c.test.ts"
+printf 'export const d = 1;\n' > "$FX/src/d.ts"
 printf 'name: ci\njobs:\n  t:\n    steps:\n      - run: npm test\n' > "$FX/.github/workflows/ci.yml"
 printf '[tool.coverage.report]\nfail_under = 90\n' > "$FX/pyproject.toml"
 printf '#!/bin/sh\ncmd\n' > "$FX/src/run.sh"
 git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm gated-base
 git -C "$FX" checkout -q b1 && git -C "$FX" "${GIT_ID[@]}" rebase -q main
 printf 'it.skip("a", () => { a(); });\nit("b", () => { expect(b()).toBe(2); });\n' > "$FX/tests/a.test.ts"
+printf 'it.only("c", () => { c(); });\n' > "$FX/tests/c.test.ts"
+printf '// @ts-ignore\nexport const d = 1;\n' > "$FX/src/d.ts"
 git -C "$FX" rm -q "$FX/tests/old.test.ts"
 printf 'name: ci\njobs:\n  t:\n    steps:\n      - run: npm test || true\n' > "$FX/.github/workflows/ci.yml"
 printf '[tool.coverage.report]\nfail_under = 50\n' > "$FX/pyproject.toml"
@@ -373,6 +377,8 @@ gate_ok() { # <jq filter over .gates> <description>
 gate_ok 'any(.id == "skip" and .file == "tests/a.test.ts" and .line == 1)' 'a skipped test is named with its line'
 gate_ok 'any(.id == "assertions-removed" and .file == "tests/a.test.ts" and (has("line") | not))' 'a test file that loses assertions is named once'
 gate_ok 'any(.id == "test-deleted" and .file == "tests/old.test.ts")' 'a deleted test file is named'
+gate_ok 'any(.id == "focus" and .file == "tests/c.test.ts" and .line == 1)' 'a focused test is named with its line'
+gate_ok 'any(.id == "check-disabled" and .file == "src/d.ts" and .line == 1)' 'a disabled type check is named with its line'
 gate_ok 'any(.id == "fail-silenced" and .file == ".github/workflows/ci.yml")' 'a silenced CI step is named'
 gate_ok 'any(.id == "threshold" and .file == "pyproject.toml")' 'a changed coverage threshold is named'
 gate_ok 'all(.file != "src/run.sh")' 'a `|| true` in a script is not a gate'

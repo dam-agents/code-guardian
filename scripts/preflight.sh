@@ -3056,9 +3056,12 @@ if [ "$MODE" = "audit" ]; then
                                    | {number, title: (.title // ""), body: (.body // "")}]' 2>/dev/null)" \
     && [ -n "$MERGED_WEEK" ] && MERGED_READ=true
   [ "$MERGED_READ" = true ] || MERGED_WEEK='[]'
+  # an unparsed closed list leaves `abandoned` unmeasured, never a zero
+  CLOSED_READ=false
   [ "$MERGED_READ" = true ] && CLOSED_WEEK="$(printf '%s' "$merged_raw" | jq -c --arg s "$SINCE_ISO" \
-    '[.[] | select(.merged_at == null and (.closed_at // "") >= $s) | .number]' 2>/dev/null)"
-  [ -n "$CLOSED_WEEK" ] || CLOSED_WEEK='[]'
+    '[.[] | select(.merged_at == null and (.closed_at // "") >= $s) | .number]' 2>/dev/null)" \
+    && [ -n "$CLOSED_WEEK" ] && CLOSED_READ=true
+  [ "$CLOSED_READ" = true ] || CLOSED_WEEK='[]'
   unset merged_raw
   merged_nums="$(printf '%s' "$MERGED_WEEK" | jq -r '.[].number' 2>/dev/null)"
   if [ -n "$merged_nums" ]; then
@@ -3223,13 +3226,13 @@ if [ "$MODE" = "audit" ]; then
   printf '%s' "$CLOSED_WEEK" > "$PF_TMP/closed-week.json"
   ROUNDS="$( { command -v review_records >/dev/null 2>&1 && review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null; } \
     | jq -sc --slurpfile m "$PF_TMP/merged-week.json" --slurpfile c "$PF_TMP/closed-week.json" \
-        --argjson read "$MERGED_READ" "$STATS_JQ"'
+        --argjson read "$MERGED_READ" --argjson cread "$CLOSED_READ" "$STATS_JQ"'
       if ($read | not) then {rounds: {n: 0, median: null}, abandoned: null} else
       ($m[0] // []) as $m | ($c[0] // []) as $c
       | group_by(.pr) as $g
       | { rounds: ([ $g[] | select(.[0].pr | IN($m[])) | length ] | {n: length, median: median(round)}),
           abandoned: ([ $g[] | select(.[0].pr | IN($c[])) | sort_by(.ts) | last
-                        | select(.verdict != "APPROVE") ] | length) } end' 2>/dev/null)"
+                        | select(.verdict != "APPROVE") ] | if $cread then length else null end) } end' 2>/dev/null)"
   case "$ROUNDS" in (''|null) ROUNDS='{"rounds":{"n":0,"median":null},"abandoned":null}';; esac
 
   PROJECT_JSON="$(jq -nc --argjson cov "$COVERAGE" --argjson size "$PR_SIZE" \
