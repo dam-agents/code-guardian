@@ -145,6 +145,66 @@ OUT="$(HOME="$FAKE_HOME" CLAUDECODE=0 bash "$INSTALL" --check 2>>"$STDERR_LOG")"
 if [ -z "$OUT" ]; then printf 'ok   %s: --check silent on another harness\n' "$CASE"
 else printf 'FAIL %s: --check printed "%s" on another harness\n' "$CASE" "$OUT"; FAILED=1; fi
 
+# --- the settings lock (DAM runtime-delivery.md → Writing a file) ------------------
+# another writer holds $SETTINGS.lock: the install waits for it, reads the file
+# only then, and keeps the key that writer landed inside its section
+install_case lock_wait '- github_repo: acme/widgets'
+S="$FAKE_HOME/.claude/settings.json"
+mkdir -p "$FAKE_HOME/.claude"
+echo '{"theme":"dark"}' > "$S"
+# it reads the file as it takes the lock and renames its copy over it a second
+# later: an install that wrote in between would lose its hooks to that copy
+( set -o noclobber; printf '%s:sync' "$BASHPID" > "$S.lock"
+  jq '.env.OTEL_EXPORTER = "otlp"' "$S" > "$S.w"
+  sleep 1
+  mv "$S.w" "$S"
+  rm -f "$S.lock" ) &
+writer=$!
+sleep 0.3
+run_install
+wait "$writer"
+assert_settings '.env.OTEL_EXPORTER == "otlp" and .theme == "dark"' "the other writer's keys survive"
+assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'the install still lands once the lock is free'
+if [ ! -e "$S.lock" ] && [ -z "$(find "$FAKE_HOME/.claude" -maxdepth 1 -name 'settings.json.??????')" ]; then
+  printf 'ok   %s: no lock and no staged copy left behind\n' "$CASE"
+else printf 'FAIL %s: lock or staged copy left in .claude\n' "$CASE"; FAILED=1; fi
+
+# a lock held for the whole wait: the file is not written without it
+install_case lock_held '- github_repo: acme/widgets'
+S="$FAKE_HOME/.claude/settings.json"
+mkdir -p "$FAKE_HOME/.claude"
+echo '{"theme":"dark"}' > "$S"
+printf '%s:sync' "$$" > "$S.lock"
+run_install
+assert_settings '. == {"theme":"dark"}' 'a held lock leaves the file as it is'
+if grep -q 'locked by another writer' "$STDERR_LOG" && [ "$(cat "$S.lock")" = "$$:sync" ]; then
+  printf 'ok   %s: says why on stderr and keeps the other lock\n' "$CASE"
+else printf 'FAIL %s: no stderr line, or the other lock was removed\n' "$CASE"; FAILED=1; fi
+
+# a lock older than 30 s whose holder is gone is broken
+install_case lock_stale '- github_repo: acme/widgets'
+S="$FAKE_HOME/.claude/settings.json"
+mkdir -p "$FAKE_HOME/.claude"
+echo '{}' > "$S"
+bash -c 'exit 0' & dead=$!; wait "$dead"
+printf '%s:sync' "$dead" > "$S.lock"
+touch -d '@'"$(( $(date +%s) - 60 ))" "$S.lock"
+run_install
+assert_settings '[.hooks.Stop[]?.hooks[]?.command] | any(endswith("enforce-review-completion.sh"))' 'a stale lock of a dead writer is broken'
+if [ ! -e "$S.lock" ]; then printf 'ok   %s: own lock released\n' "$CASE"
+else printf 'FAIL %s: lock left behind\n' "$CASE"; FAILED=1; fi
+
+# a settings file that does not parse is kept byte for byte
+install_case broken_json '- github_repo: acme/widgets'
+S="$FAKE_HOME/.claude/settings.json"
+mkdir -p "$FAKE_HOME/.claude"
+printf '{"theme": "dark",\n' > "$S"
+cp "$S" "$SANDBOX/before"
+run_install
+if cmp -s "$S" "$SANDBOX/before" && grep -q 'left unchanged' "$STDERR_LOG" && [ ! -e "$S.lock" ]; then
+  printf 'ok   %s: broken JSON left byte-identical, said on stderr\n' "$CASE"
+else printf 'FAIL %s: broken settings.json changed, or no stderr line\n' "$CASE"; FAILED=1; fi
+
 # --- no procedure names a denied tool --------------------------------------------------
 # the deny list removes a tool from every session: a doc that calls one would
 # fail on a deployed instance
