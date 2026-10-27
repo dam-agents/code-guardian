@@ -99,7 +99,7 @@ to Slack when enabled, and to the chat UI always
 
 **Daily brief** — weekdays in the morning, gated by `daily_brief` and Slack. One
 Slack message of what the merged PRs changed: first the news for the whole team
-by author, explained like release notes, then the technical changes with impact
+by topic, explained like release notes, then the technical changes with impact
 and the risky ones. Weekend merges arrive on Monday; the language is
 `brief_language` ([`docs/brief.md`](docs/brief.md)).
 
@@ -260,7 +260,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `survey_report_findings` | asked with `survey_report: dam` (default `disabled`) | Whether the public survey artifact shows the findings themselves, each code location linked to the commit the pass read, or stays an index of areas and passes. |
 | `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
-| `daily_brief` | asked with Slack (default `disabled`) | Weekday Slack brief of the merged PRs: news by author, then the technical changes (`docs/brief.md`). |
+| `daily_brief` | asked with Slack (default `disabled`) | Weekday Slack brief of the merged PRs: news by topic, then the technical changes (`docs/brief.md`). |
 | `brief_language` | asked with `daily_brief` (default `English`) | The language of the brief. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
