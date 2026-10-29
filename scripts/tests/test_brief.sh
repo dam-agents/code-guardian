@@ -111,7 +111,7 @@ jq -n --arg p "$PRIV" '{user:{login:"alice"}, body_html:("<p><a href=\"x\"><img 
   + "<img src=\"" + $p + "/1/text.png?jwt=t2\" alt=\"text\"></p>")}' | fx "api repos/acme/widgets/pulls/7 $HTML"
 jq -n --arg p "$PRIV" '[{user:{login:"bob"}, body_html:("<img src=\"" + $p + "/1/bob.png?jwt=t3\">")},
   {user:{login:"alice"}, body_html:("<video src=\"" + $p + "/1/rec.mp4?jwt=t4\"></video>")}]' \
-  | fx "api repos/acme/widgets/issues/7/comments?per_page=20 $HTML"
+  | fx "api repos/acme/widgets/issues/7/comments?per_page=100&page=1 $HTML"
 png | fx "api repos/acme/widgets/contents/docs/shot.png?ref=main -H Accept: application/vnd.github.raw"
 png | media_file "$PRIV/1/a.png?jwt=t1&x=1"
 printf 'not an image' | media_file "$PRIV/1/text.png?jwt=t2"
@@ -136,6 +136,29 @@ OUT="$(CG_BRIEF_MEDIA_DIR="$SANDBOX/media" bash "$REPO_ROOT/scripts/brief-media.
 [ ! -e "$SANDBOX/media" ] && printf 'ok   %s: clean removes the media dir\n' "$CASE" \
   || { printf 'FAIL %s: clean removes the media dir\n' "$CASE"; FAILED=1; }
 
+new_case brief_media_comment_page_two
+base_config
+mkdir -p "$SANDBOX/files"
+jq -n '{user:{login:"alice"}, body_html:"<p>no media</p>"}' | fx "api repos/acme/widgets/pulls/7 $HTML"
+jq -n '[range(100)] | map({user:{login:"bob"}, body_html:"<p>hi</p>"})' | fx "api repos/acme/widgets/issues/7/comments?per_page=100&page=1 $HTML"
+jq -n --arg p "$PRIV" '[{user:{login:"alice"}, body_html:("<img src=\"" + $p + "/1/late.png?jwt=t9\">")}]' \
+  | fx "api repos/acme/widgets/issues/7/comments?per_page=100&page=2 $HTML"
+png | media_file "$PRIV/1/late.png?jwt=t9"
+run_media 7
+assert_jq '(.media | length) == 1 and .media[0].pr == 7' 'the author'"'"'s first comment is found past a full page of others'
+
+new_case brief_media_foreign_dir
+base_config
+mkdir -p "$SANDBOX/media" && printf 'keep' > "$SANDBOX/media/own.txt"
+run_media 7
+assert_jq '.outcome == "error" and (.error | test("refusing"))' 'fetch refuses a directory it did not make'
+OUT="$(CG_BRIEF_MEDIA_DIR="$SANDBOX/media" bash "$REPO_ROOT/scripts/brief-media.sh" clean)"
+assert_jq '.outcome == "error"' 'clean refuses a directory it did not make'
+[ -f "$SANDBOX/media/own.txt" ] && printf 'ok   %s: the foreign directory keeps its content\n' "$CASE" \
+  || { printf 'FAIL %s: the foreign directory keeps its content\n' "$CASE"; FAILED=1; }
+OUT="$(CG_BRIEF_MEDIA_DIR="$SANDBOX/absent" bash "$REPO_ROOT/scripts/brief-media.sh" clean)"
+assert_jq '.outcome == "ok"' 'clean of an absent directory succeeds'
+
 new_case brief_media_unreadable
 base_config
 mkdir -p "$SANDBOX/files"
@@ -147,7 +170,7 @@ new_case brief_media_comments_unreadable
 base_config
 mkdir -p "$SANDBOX/files"
 jq -n --arg p "$PRIV" '{user:{login:"alice"}, body_html:("<img src=\"" + $p + "/1/a.png?jwt=t1\">")}' | fx "api repos/acme/widgets/pulls/7 $HTML"
-fx_fail "api repos/acme/widgets/issues/7/comments?per_page=20 $HTML"
+fx_fail "api repos/acme/widgets/issues/7/comments?per_page=100&page=1 $HTML"
 png | media_file "$PRIV/1/a.png?jwt=t1"
 run_media 7
 assert_jq '(.media | length) == 1 and .skipped[0].reason == "comments not readable"' 'a failed comment read is reported, and the body media still come'

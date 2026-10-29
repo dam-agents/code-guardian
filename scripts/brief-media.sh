@@ -11,6 +11,9 @@
 #                            $HOME/brief-media), emptied first
 #   clean                    remove that directory
 #
+# Both delete the directory only when this script made it: it carries the
+# marker file .cg-brief-media. Any other existing path is refused.
+#
 # Prints one JSON object and exits 0: {outcome, dir, media[{pr, path, kind,
 # bytes, alt}], skipped[{pr, host, reason}]}. No URL is printed: an uploaded
 # attachment's URL carries a short-lived token. The GitHub token goes only to
@@ -24,12 +27,22 @@ PER_PR=3          # media per PR
 MAX_TOTAL=5       # media per brief
 MAX_BYTES=52428800  # the platform's attachment cap (50 MB)
 
+MARK=".cg-brief-media"
+
 out() { printf '%s\n' "$1"; exit 0; }
 fail() { out "$(jq -nc --arg e "$1" '{outcome:"error", error:$e}')"; }
 
+# remove $DIR only when it is absent or carries this script's marker
+drop_dir() {
+  [ -e "$DIR" ] || [ -L "$DIR" ] || return 0
+  [ -d "$DIR" ] && [ ! -L "$DIR" ] && [ -f "$DIR/$MARK" ] || return 1
+  rm -rf "$DIR"
+}
+REFUSED="refusing to delete $DIR: brief-media.sh did not make it"
+
 CMD="${1:-}"; shift 2>/dev/null || true
 case "$CMD" in
-  (clean) rm -rf "$DIR"; out '{"outcome":"ok"}';;
+  (clean) drop_dir || fail "$REFUSED"; out '{"outcome":"ok"}';;
   (fetch) ;;
   (*) printf 'usage: %s fetch <work-dir> <pr>… | clean\n' "$0" >&2; exit 2;;
 esac
@@ -45,7 +58,8 @@ HOST="$(refhost "$TARGET_REF")"; REPO="$(refslug "$TARGET_REF")"
 export GH_HOST="$HOST"
 HTML='Accept: application/vnd.github.html+json'
 
-rm -rf "$DIR"; mkdir -p "$DIR" || fail "cannot create $DIR"
+drop_dir || fail "$REFUSED"
+mkdir -p "$DIR" && : > "$DIR/$MARK" || fail "cannot create $DIR"
 MEDIA='[]'; SKIPPED='[]'; TOTAL=0
 
 skip() { # <pr> <url> <reason>
@@ -120,11 +134,17 @@ for n in "$@"; do
   [ "$TOTAL" -lt "$MAX_TOTAL" ] || break
   pr="$(gh_get "repos/$REPO/pulls/$n" -H "$HTML")" || { skip "$n" "" "PR not readable"; continue; }
   author="$(jq -r '.user.login // ""' <<<"$pr")"
-  comments="$(gh_get "repos/$REPO/issues/$n/comments?per_page=20" -H "$HTML")" \
-    || { comments='[]'; skip "$n" "" "comments not readable"; }
-  { jq -r '.body_html // ""' <<<"$pr"
-    jq -r --arg a "$author" '[.[]? | select(.user.login == $a)][0].body_html // ""' <<<"$comments"
-  } | media_tags > "$DIR/.tags"
+  # the author's first comment: pages until it is found
+  first=""; page=1
+  while [ "$page" -le "$GH_PAGES_MAX" ]; do
+    comments="$(gh_get "repos/$REPO/issues/$n/comments?per_page=100&page=$page" -H "$HTML")" \
+      || { skip "$n" "" "comments not readable"; break; }
+    first="$(jq -r --arg a "$author" '[.[]? | select(.user.login == $a)][0].body_html // ""' <<<"$comments")"
+    [ -n "$first" ] && break
+    [ "$(jq 'length' <<<"$comments" 2>/dev/null || echo 0)" -ge 100 ] || break
+    page=$((page+1))
+  done
+  { jq -r '.body_html // ""' <<<"$pr"; printf '%s\n' "$first"; } | media_tags > "$DIR/.tags"
   seen=""; took=0
   while IFS="$(printf '\t')" read -r url alt; do
     [ "$took" -lt "$PER_PR" ] && [ "$TOTAL" -lt "$MAX_TOTAL" ] || break
