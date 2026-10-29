@@ -689,7 +689,10 @@ trigger_live() { # <labels-json> <requested-json> [<prior ts>] → 0 when a re-r
   [ -n "$GUIDE_LABEL" ] && [ -n "${3:-}" ] || return 1
   printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 || return 1
   at="$(label_added_at "$REPO" "$N" "$GUIDE_LABEL")"
-  case "$at" in (''|__api_error__) return 1;; esac
+  case "$at" in
+    ('') return 1;;
+    (__api_error__) logev warn review_pr "PR #$N: label events unreadable (API) — the $GUIDE_LABEL request is not confirmed"; return 1;;
+  esac
   [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$3")" ]
 }
 

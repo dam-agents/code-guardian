@@ -1137,8 +1137,11 @@ if [ "$MODE" = "review" ]; then
       if [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
          && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL"; then
         at="$(label_added_at "$REPO" "$n" "$GUIDE_LABEL")"
-        case "$at" in (''|__api_error__) ;; (*)
-          [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;; esac
+        case "$at" in
+          ('') ;;
+          (__api_error__) log_warn "PR #$n: label events unreadable (API) — a $GUIDE_LABEL request waits for the next heartbeat";;
+          (*) [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;;
+        esac
       fi
 
       if [ "$row_status" = "in_progress" ]; then
