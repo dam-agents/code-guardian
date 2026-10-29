@@ -2517,7 +2517,17 @@ cmd_post() {
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"
   rm -f "$CARRY"        # published: the starting point is the history now
-  write_row "$sha" "$now" "$VERDICT" done
+  # A guide label put on while this review ran was not on the PR at
+  # `prepare`, so this round built no forced guide: the row keeps the lock
+  # time, and the next heartbeat reads the label as newer than the review
+  # (docs/artifact.md → Review guide).
+  local row_at="$now"
+  if [ -n "$GUIDE_LABEL" ] && [ -z "$(guide_label_on)" ] \
+     && printf '%s' "$labels" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1; then
+    row_at="$(ctx_get '.locked_at')"
+    logev info review_pr "PR #$N: $GUIDE_LABEL put on mid-review — the next heartbeat starts the guide round"
+  fi
+  write_row "$sha" "$row_at" "$VERDICT" done
   local c w s took
   c="$(jq '[.[] | select(.severity=="critical" and .status!="fixed")] | length' "$FINDINGS")"
   w="$(jq '[.[] | select(.severity=="warning" and .status!="fixed")] | length' "$FINDINGS")"

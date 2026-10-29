@@ -1040,6 +1040,50 @@ run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' 'a guide label put on after the prior review starts a delta round'
 run_rp abort 1 "reset"
 
+# --- post: a guide label put on after the prior review keeps the round live ----
+setup post_guide_label '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+fx_label_events 1 cg-guide "$(iso_ago 600)"
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'a guide label newer than the prior review is a live trigger at post'
+
+# --- post: a guide label from before the prior review is no trigger -------------
+setup post_guide_label_old '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+fx_label_events 1 cg-guide "$(iso_ago 600)"
+run_rp prepare 1
+fx_label_events 1 cg-guide "$(iso_ago 9000)"
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "aborted" and .reason == "trigger withdrawn"' 'a guide label older than the prior review is no trigger at post'
+
+# --- post: a guide label put on mid-review keeps the lock time on the row -------
+setup post_guide_label_mid_review '- guide_label: cg-guide'
+pr_fx open '[]'
+run_rp prepare 1
+cell() { printf '%s' "$1" | cut -d'|' -f"$2" | tr -d ' '; }   # <row> <field>
+locked="$(cell "$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")" 4)"
+pr_fx open '["cg-guide"]'
+sleep 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the review posts'
+row="$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")"
+[ -n "$locked" ] && [ "$(cell "$row" 4)" = "$locked" ] && [ "$(cell "$row" 6)" = done ] \
+  && printf 'ok   %s: the row keeps the lock time, so the next heartbeat serves the guide label\n' "$CASE" \
+  || { printf 'FAIL %s: row %s, lock time %s\n' "$CASE" "$row" "$locked"; FAILED=1; }
+
 # --- a pull request someone else opened keeps the verdict as the event ----------
 setup post_other_author
 seed_identity 'acme-app[bot]'

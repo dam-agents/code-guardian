@@ -32,7 +32,9 @@ keeps the guide. Put on after the recorded review, it starts a round of its
 own: preflight reads when it was put on and gives the PR a delta re-review with
 `guide_requested: true` — at the reviewed head when there are no new commits
 ([review-rereview.md](review-rereview.md) → **Guide round**). A guide label
-from before the recorded review starts nothing.
+from before the recorded review starts nothing. A guide label put on while a
+review runs: `post` records the lock time as the review time, so the next
+heartbeat starts the guide round.
 
 **Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
 this PR's paths, id and line:
