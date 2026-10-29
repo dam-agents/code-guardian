@@ -496,7 +496,7 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    roster login with a `slack_id`.
 10. **`benchmark`** — the optional monthly self-benchmark, off by default. Ask:
 
-    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 5 synthetic review tasks — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
+    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 8 synthetic review tasks — 5 simple and 3 complex, so the report says whether the model is good enough for each — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
     then ask in turn, one question each, for **`benchmark_judge`** (the judge
@@ -510,7 +510,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
     `off`), offer
     the optional `## Benchmark model prices` table (`docs/benchmark.md` →
-    **Model prices**), and register the schedule in Step 6d. The first
+    **Model prices**) and the optional `## Benchmark sufficiency` table (the
+    bar per task tier; missing = the defaults in `docs/benchmark.md` →
+    **Sufficiency by tier**), and register the schedule in Step 6d. The first
     scheduled run creates the fixture set, and the first scores land on the
     next monthly tick, or sooner on an on-demand ask.
 11. **Ready-to-land nudge** (only when Slack is enabled) — ask:

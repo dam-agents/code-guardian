@@ -47,6 +47,19 @@ assert_jq '.severity_accuracy == 1' 'matched severities agree'
 assert_jq '[.format.findings_json, .format.marker, .format.sections, .format.fix_lines, .format.verdict_consistent] | all' 'format checks pass'
 assert_jq '.length.words_total > 0 and .length.findings == 4' 'length block'
 assert_jq '.ste.sentences > 0' 'ste block'
+assert_jq '.tier == "simple"' 'a manifest without tier scores as simple'
+assert_jq '.recall_hard == null and .recall_easy == 0.667' 'no hard defects: easy recall covers all'
+assert_jq '.difficulty == {easy: {tp: 2, gt: 3}, hard: {tp: 0, gt: 0}}' 'difficulty counts for pooling'
+
+# the same review against a complex manifest with two hard defects
+jq '.tier = "complex" | .defects[1].difficulty = "hard" | .defects[2].difficulty = "hard"' \
+  "$SANDBOX/manifest.json" > "$SANDBOX/m2.json" && mv "$SANDBOX/m2.json" "$SANDBOX/manifest.json"
+run_score first "$SANDBOX/first.md"
+assert_jq '.tier == "complex"' 'the manifest tier is copied'
+assert_jq '.difficulty == {easy: {tp: 1, gt: 1}, hard: {tp: 1, gt: 2}}' 'tp and gt split by difficulty'
+assert_jq '.recall_easy == 1 and .recall_hard == 0.5' 'recall per difficulty'
+run_score rereview "$SANDBOX/first.md"
+assert_jq '.tier == "complex"' 'the rereview carries the tier too'
 
 new_case score_first_degraded
 write_manifest

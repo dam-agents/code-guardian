@@ -262,18 +262,25 @@ if [ "$MODE" = "benchmark" ]; then
   fi
   report_surface benchmark_report EFF_REPORT
   BENCH_DIR="$WORK/benchmark"
-  BENCH_MIN_FIXTURES=5
-  # the active set: every fixture/<slug>/ carrying a manifest (each immutable)
-  BENCH_SLUGS="$(for d in "$BENCH_DIR"/fixture/*/; do
+  # the full set per task tier (docs/benchmark.md → Task tiers)
+  BENCH_MIN_FIXTURES=5; BENCH_MIN_COMPLEX=3
+  # the active set: every fixture/<slug>/ carrying a manifest (each immutable),
+  # with its manifest tier — absent or unreadable reads as simple
+  BENCH_SET="$(for d in "$BENCH_DIR"/fixture/*/; do
     [ -f "${d}manifest.json" ] || continue
-    d="${d%/}"; printf '%s\n' "${d##*/}"
+    t="$(jq -r 'if .tier == "complex" then "complex" else "simple" end' "${d}manifest.json" 2>/dev/null)"
+    d="${d%/}"; printf '%s\t%s\n' "${d##*/}" "${t:-simple}"
   done 2>/dev/null | sort)"
-  BENCH_SLUGS_JSON="$(printf '%s\n' "$BENCH_SLUGS" | jq -R . | jq -s '[.[] | select(length > 0)]')"
+  BENCH_SLUGS_JSON="$(printf '%s\n' "$BENCH_SET" | cut -f1 | jq -R . | jq -s '[.[] | select(length > 0)]')"
   BENCH_COUNT="$(printf '%s' "$BENCH_SLUGS_JSON" | jq length)"
-  if [ "$BENCH_COUNT" -lt "$BENCH_MIN_FIXTURES" ]; then
-    log "benchmark enabled, fixture set incomplete ($BENCH_COUNT/$BENCH_MIN_FIXTURES) — create_fixture due"
+  BENCH_COMPLEX="$(printf '%s\n' "$BENCH_SET" | grep -c '	complex$')"
+  BENCH_SIMPLE=$(( BENCH_COUNT - BENCH_COMPLEX ))
+  if [ "$BENCH_SIMPLE" -lt "$BENCH_MIN_FIXTURES" ] || [ "$BENCH_COMPLEX" -lt "$BENCH_MIN_COMPLEX" ]; then
+    log "benchmark enabled, fixture set incomplete (simple $BENCH_SIMPLE/$BENCH_MIN_FIXTURES, complex $BENCH_COMPLEX/$BENCH_MIN_COMPLEX) — create_fixture due"
     local_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
-      '{action:"create_fixture", existing:$e, min:$m}')"
+      --argjson mc "$BENCH_MIN_COMPLEX" --argjson s "$BENCH_SIMPLE" --argjson c "$BENCH_COMPLEX" \
+      '{action:"create_fixture", existing:$e, min:$m, min_complex:$mc,
+        missing:{simple:([0, $m - $s] | max), complex:([0, $mc - $c] | max)}}')"
   fi
   # run lock: one scored run at a time. The lock is a file the running
   # session writes (first line: <ISO> <nonce>) and removes when it ends,

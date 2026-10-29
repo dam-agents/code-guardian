@@ -26,6 +26,8 @@
 #                   pr.json diff-v1.patch diff-v1-v2.patch all present
 #   manifest        parses; every defect has id/file/class/severity and a
 #                   line_v1 or line_v2; fixed defects carry fix_line_v2
+#   tier            tier, when present, is simple | complex; a complex
+#                   fixture has >= 8 base files and >= 5 hard v1 defects
 #
 # results mode — the shape the report and the monthly gate consume:
 #   json            parses as an object
@@ -41,6 +43,9 @@
 #                   array and rereview.churn numeric (scorer output copied
 #                   whole — a dropped field renders "—" forever, since the
 #                   history is append-only)
+#   tiers           from definition_version 12.9.0: every first carries
+#                   `tier` and `difficulty` (scorer output copied whole) — the
+#                   sufficiency table pools them per tier
 #   judge_key       the run-level judge field is `judge` (not benchmark_judge)
 #   judge_pinned    judge scores only from the pinned judge: any non-null
 #                   fixture `judge` needs a model-id `judge` and a
@@ -154,6 +159,25 @@ validate_fixture() { # <dir>
       ok "manifest[$slug]" "$(jq '.defects | length' "$d/manifest.json") defect(s), all complete"
     fi
 
+    # The task tier (docs/benchmark.md → Task tiers): simple or complex, and a
+    # complex fixture is one in fact — a change across many files whose v1
+    # carries enough hard defects to read hard recall from.
+    bad="$(jq -r '
+      if has("tier") and (.tier | IN("simple", "complex") | not) then "tier is \(.tier | tostring)"
+      elif .tier != "complex" then ""
+      else ([.defects[] | select(.line_v1 != null and .difficulty == "hard")] | length) as $h
+        | if $h < 5 then "complex with \($h) hard v1 defect(s), needs 5" else "" end
+      end' "$d/manifest.json" 2>/dev/null)" || bad="not valid JSON"
+    if [ -z "$bad" ] && [ "$(jq -r '.tier // ""' "$d/manifest.json" 2>/dev/null)" = complex ]; then
+      n="$(find "$d/base" -type f 2>/dev/null | grep -c '')"
+      [ "$n" -ge 8 ] || bad="complex with $n base file(s), needs 8"
+    fi
+    if [ -n "$bad" ]; then
+      fail "tier[$slug]" "$bad; fix: docs/benchmark.md → Task tiers (tier is simple or complex; a complex fixture has ≥ 8 base files and ≥ 5 hard v1 defects)"
+    else
+      ok "tier[$slug]" "tier $(jq -r '.tier // "simple"' "$d/manifest.json")"
+    fi
+
     # Anchors in one file and one tree must sit >= 10 lines apart: the scorer
     # matches on a +/-3 window, so closer anchors overlap and a finding is
     # attributed to the wrong defect. v2 anchors include fix_line_v2, which is
@@ -228,6 +252,17 @@ validate_results() { # <file>
     ] | join("; ") end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail per_fixture "$bad; fix: seconds come from benchmark-phase.sh (never estimated); tokens is null or all five counters; copy the scorer output whole — dropped fields render as — forever" \
                 || ok per_fixture "every fixture carries first+rereview with numeric seconds, well-formed tokens, and whole scorer output"
+
+  bad="$(jq -r '
+    ((.definition_version // "0") | tostring | [splits("[.]") | tonumber? // 0]) as $v
+    | if $v < [12, 9, 0] or (.fixtures | type) != "object" then "" else
+      [ .fixtures | to_entries[] | .key as $s | .value.first | select(type == "object")
+        | (if (.tier // null) | IN("simple", "complex") then empty else "\($s): first.tier missing" end),
+          (if (.difficulty.easy.gt? | type) == "number" and (.difficulty.hard.gt? | type) == "number"
+           then empty else "\($s): first.difficulty missing" end)
+      ] | join("; ") end' "$f" 2>/dev/null)"
+  [ -n "$bad" ] && fail tiers "$bad; fix: copy the scorer output whole — the sufficiency table pools tier and difficulty per tier" \
+                || ok tiers "every first review carries its tier and difficulty counts"
 
   bad="$(jq -r 'if has("benchmark_judge") and (has("judge") | not) then "benchmark_judge" else "" end' "$f" 2>/dev/null)"
   [ -n "$bad" ] && fail judge_key "run-level judge field is '$bad'; fix: the key is 'judge' (report and history read that name)" \

@@ -55,8 +55,8 @@ assert_out_absent 'src=|href="http|@import|fetch\(' 'page stays self-contained (
 if [ "$(printf '%s' "$OUT" | grep -o '<li>' | grep -c '')" = "2" ]; then
   printf 'ok   %s: release-commit subjects listed as bullets\n' "$CASE"
 else printf 'FAIL %s: changes bullet list wrong\n' "$CASE"; FAILED=1; fi
-if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "4" ]; then
-  printf 'ok   %s: all-runs table + version changes + one section per fixture\n' "$CASE"
+if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "5" ]; then
+  printf 'ok   %s: all-runs table + sufficiency + version changes + one section per fixture\n' "$CASE"
 else printf 'FAIL %s: section count wrong\n' "$CASE"; FAILED=1; fi
 missing_tok_row="$(printf '%s' "$OUT" | grep -A1 'model-b' | grep -c '—' || true)"
 if [ "$missing_tok_row" -ge 1 ]; then
@@ -92,6 +92,57 @@ if [ "$model_b_cost" = "0" ]; then
   printf 'ok   %s: an unpriced model renders no cost, never a guess\n' "$CASE"
 else printf 'FAIL %s: model-b row must carry no $ cost\n' "$CASE"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/20260901T060000Z.json" "$SANDBOX/bench-config.md"
+
+new_case report_sufficiency_by_tier
+mkdir -p "$SANDBOX/tiers/results"
+# one configuration, two tiers: simple meets the bar, complex misses recall;
+# a second model's older run has no difficulty counts and too few defects
+cat > "$SANDBOX/tiers/results/20261001T060000Z.json" <<'EOF'
+{"ts":"2026-10-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"high","definition_version":"12.9.0",
+ "fixtures":{
+  "ts-api":{"first":{"tier":"simple","gt":12,"tp":[1,2,3,4,5,6,7,8,9,10,11],"fp":[{"f":1}],"recall":0.917,"precision":0.917,
+     "recall_easy":1,"recall_hard":0.667,"difficulty":{"easy":{"tp":9,"gt":9},"hard":{"tp":2,"gt":3}},"seconds":10,"tokens":null},
+   "rereview":{"tier":"simple","false_fixed":0,"churn":0,"seconds":5,"tokens":null}},
+  "py-cli":{"first":{"tier":"simple","gt":10,"tp":[1,2,3,4,5,6,7,8,9],"fp":[],"recall":0.9,"precision":1,
+     "recall_easy":1,"recall_hard":0.5,"difficulty":{"easy":{"tp":8,"gt":8},"hard":{"tp":1,"gt":2}},"seconds":10,"tokens":null},
+   "rereview":{"tier":"simple","false_fixed":0,"churn":0,"seconds":5,"tokens":null}},
+  "billing":{"first":{"tier":"complex","gt":20,"tp":[1,2,3,4,5,6,7,8,9,10,11,12],"fp":[{"f":1}],"recall":0.6,"precision":0.923,
+     "recall_easy":0.8,"recall_hard":0.2,"difficulty":{"easy":{"tp":11,"gt":15},"hard":{"tp":1,"gt":5}},"seconds":10,"tokens":null},
+   "rereview":{"tier":"complex","false_fixed":0,"churn":0,"seconds":5,"tokens":null}}}}
+EOF
+cat > "$SANDBOX/tiers/results/20260901T060000Z.json" <<'EOF'
+{"ts":"2026-09-01T06:00:00Z","trigger":"scheduled","model":"model-b","effort":"high","definition_version":"12.8.0",
+ "fixtures":{"ts-api":{"first":{"gt":12,"tp":[1,2],"fp":[],"recall":0.167,"precision":1,"seconds":10,"tokens":null},
+   "rereview":{"false_fixed":0,"churn":0,"seconds":5,"tokens":null}}}}
+EOF
+OUT="$(BENCH_CONFIG=/nonexistent bash "$REPORT" index "$SANDBOX/tiers")"
+assert_jq '.[1].tiers.simple | .verdict == "sufficient" and .tp == 20 and .gt == 22 and .fp == 1' 'simple fixtures pool into one sufficient sample'
+assert_jq '.[1].tiers.simple.hard == {tp: 3, gt: 5, recall: 0.6}' 'hard counts pool across the tier'
+assert_jq '.[1].tiers.complex.verdict == "insufficient"' 'the default bar: sufficient for simple tasks, not for complex ones'
+assert_jq '.[0].tiers.simple | .verdict == "few" and .easy == null' 'a run before the counts, with too few defects'
+assert_jq '.[0].tiers.complex == null' 'a run without a complex fixture has no complex verdict'
+cat > "$SANDBOX/tiers-config.md" <<'EOF'
+## Benchmark sufficiency
+
+| tier | recall | precision | min_defects |
+|---|---|---|---|
+| complex | 0.63 | 0.7 | 25 |
+EOF
+OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" index "$SANDBOX/tiers")"
+assert_jq '.[1].tiers.complex.verdict == "few" and .[1].tiers.simple.verdict == "sufficient"' 'the CONFIG bar decides per tier: below min_defects is few'
+sed -i.bak 's/| 0.7 | 25 |/| 0.7 | 10 |/' "$SANDBOX/tiers-config.md"
+OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" index "$SANDBOX/tiers")"
+assert_jq '.[1].tiers.complex.verdict == "borderline"' 'within 0.05 under the bar is borderline'
+sed -i.bak 's/"tier":"complex","false_fixed":0/"tier":"complex","false_fixed":1/' \
+  "$SANDBOX/tiers/results/20261001T060000Z.json"
+OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" index "$SANDBOX/tiers")"
+assert_jq '.[1].tiers.complex | .verdict == "insufficient" and .false_fixed == 1' 'a false-fixed re-review is never sufficient'
+OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" "$SANDBOX/tiers")"
+assert_out_contains '<h2>Sufficiency by task tier</h2>' 'the sufficiency section renders'
+assert_out_contains '✓ sufficient</b><br><span class=sub>rec 0.909 (20/22)' 'a verdict cell carries the pooled counts'
+assert_out_contains '>hard rec</th>' 'the all-runs table carries pooled hard recall'
+assert_out_contains '<h2>billing <span class=tier>complex</span></h2>' 'a fixture section names its tier'
+rm -rf "$SANDBOX/tiers" "$SANDBOX/tiers-config.md"*
 
 new_case report_delta_needs_same_effort
 seed_results
