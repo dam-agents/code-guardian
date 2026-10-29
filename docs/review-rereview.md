@@ -28,6 +28,20 @@ suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
 — write `description edited, no new commits` on that line and let the buckets
 carry the rest. No change in substance → say so in one line.
 
+**Guide round** (`guide_requested: true`): the `guide_label` was put on after
+the recorded review ([artifact.md](artifact.md) → **Review guide**). The scope
+is delta. With no new commits the SHA is the reviewed one: `Previous HEAD` is
+the same SHA — write `guide requested, no new commits` on that line, carry the
+prior findings as `still`, and publish the guide. With new commits it is a
+delta re-review that also publishes the guide.
+
+**Label age:** a label counts by when a person put it on — the newest
+`labeled` event of the PR. A `$REREVIEW_LABEL` or `$REREVIEW_DELTA_LABEL` put
+on before the recorded review was on the PR when that review posted: its
+removal did not succeed, so it is no trigger. Preflight logs it, and the PR
+waits for a person to remove the label and put it on again
+([review-bookkeeping.md](review-bookkeeping.md) → **Trigger removal**).
+
 Both scopes: the prior `findings-json` array is `prior_findings` in the
 prepare output, or the line in `reviews/pr-<n>.md` where no `prepare` ran, so
 this round's findings are written against its anchors and its wording (history

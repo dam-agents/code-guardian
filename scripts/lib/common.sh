@@ -324,6 +324,17 @@ marker_reviewed_at() { # <owner/repo> <n> <marker> <sha> [<reviews file>]
   return 0
 }
 
+# When a person last put <label> on issue or PR <n>: the time of the newest
+# `labeled` event that names it; empty when no event names it;
+# `__api_error__` when the event list had no answer.
+label_added_at() { # <owner/repo> <n> <label>
+  local body
+  body="$(gh_get_all "repos/$1/issues/$2/events?per_page=100")" || { printf '__api_error__'; return 0; }
+  printf '%s' "$body" | jq -r --arg l "$3" \
+    '[.[] | select(.event == "labeled" and .label.name? == $l) | .created_at] | last // empty' 2>/dev/null
+  return 0
+}
+
 # A checkout's `origin` as a `<host>/<owner>/<repo>` reference — https, ssh and
 # scp forms, credentials dropped. The fallback for a missing definition_repo.
 origin_ref() { # <checkout dir>

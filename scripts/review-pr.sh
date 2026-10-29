@@ -677,12 +677,20 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
     body: (.body // "")}' 2>/dev/null
 }
 
-trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger is present
-  local l=1 r=1 d=1
+# A guide label put on after the prior review asks for a round too
+# (docs/artifact.md → Review guide); its label events are read only when no
+# other trigger is present.
+trigger_live() { # <labels-json> <requested-json> [<prior ts>] → 0 when a re-review trigger is present
+  local l=1 r=1 d=1 at
   case "$TRIG" in (label|both) printf '%s' "$1" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && l=0;; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && printf '%s' "$2" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1 && r=0;; esac
   [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
-  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ]
+  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] && return 0
+  [ -n "$GUIDE_LABEL" ] && [ -n "${3:-}" ] || return 1
+  printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 || return 1
+  at="$(label_added_at "$REPO" "$N" "$GUIDE_LABEL")"
+  case "$at" in (''|__api_error__) return 1;; esac
+  [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$3")" ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
@@ -1130,7 +1138,7 @@ cmd_prepare() {
     if [ "$row_status" = "in_progress" ] && [ "$row_verdict" = "RAPID" ]; then mode=closed
     else out "$(jq -nc --arg s "$([ "$merged" = "true" ] && echo MERGED || echo CLOSED)" '{outcome:"skip", reason:("pr " + $s + " — the next heartbeat prunes")}')"; fi
   fi
-  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested"; then
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested" "$row_ts"; then
     out "$(jq -nc '{outcome:"skip", reason:"re-review trigger withdrawn"}')"
   fi
   if [ "$kind" = "re-review" ]; then
@@ -2294,7 +2302,7 @@ cmd_post() {
       '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c, restart:$r, next:$x}')"
   fi
   if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
-  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested"; then
+  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested" "$(ctx_get '.prior.ts // empty')"; then
     release_lock "re-review trigger withdrawn mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"trigger withdrawn"}')"
   fi
 
@@ -2486,11 +2494,13 @@ cmd_post() {
   [ "$EVENT" = "$VERDICT" ] || logev warn review_pr "PR #$N: $VERDICT posted as COMMENT — this account opened the pull request"
 
   # --- trigger removal, stale-approval dismissal ---
-  local label_removed=false dismissed=null tl
+  # a failed removal names its HTTP status: a 403 is a token without the
+  # triage role, which the monitor sends to the operator (github_write_denied)
+  local label_removed=false dismissed=null tl lerr
   for tl in "$REREVIEW_LABEL" ${REREVIEW_DELTA_LABEL:+"$REREVIEW_DELTA_LABEL"}; do
     printf '%s' "$labels" | jq -e --arg x "$tl" 'index($x) != null' >/dev/null 2>&1 || continue
-    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" >/dev/null 2>&1; then label_removed=true
-    else logev warn label_remove "PR #$N: removing $tl did not succeed"; fi
+    if lerr="$(gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" 2>&1 >/dev/null)"; then label_removed=true
+    else logev warn label_remove "PR #$N: removing $tl did not succeed$(printf '%s' "$lerr" | grep -oE 'HTTP [0-9]{3}' | tail -1 | sed 's/^/ (/; s/$/)/')"; fi
   done
   # GitHub clears a review request only when the requested account reviews: a
   # token that posts as another login (a GitHub App) removes it here

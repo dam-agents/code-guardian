@@ -28,9 +28,11 @@ consent the operator gave when they added the row
 brief marks the PR as forced, so the skill's gate passes, and `compose-brief`
 tells the agent to publish whatever its triage. The label changes neither the
 triage nor the verdict. It stays on the PR, so every later round builds or
-keeps the guide. It starts no review: on a PR already reviewed at its head,
-the guide comes with the next round — after new commits or a description
-edit.
+keeps the guide. Put on after the recorded review, it starts a round of its
+own: preflight reads when it was put on and gives the PR a delta re-review with
+`guide_requested: true` — at the reviewed head when there are no new commits
+([review-rereview.md](review-rereview.md) → **Guide round**). A guide label
+from before the recorded review starts nothing.
 
 **Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
 this PR's paths, id and line:

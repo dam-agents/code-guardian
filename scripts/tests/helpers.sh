@@ -95,6 +95,16 @@ fx_body_edited() { # <number> <iso-ts|->
     > "$GH_FIXTURES/graphql_pr_lastedited_$1"
 }
 
+# PR <n>'s issue events: one `labeled` event per <label> <iso-ts> pair
+fx_label_events() { # <number> <label> <iso-ts> [<label> <iso-ts>…]
+  local n="$1" ev='[]'; shift
+  while [ $# -ge 2 ]; do
+    ev="$(printf '%s' "$ev" | jq -c --arg l "$1" --arg t "$2" '. + [{event:"labeled", label:{name:$l}, created_at:$t}]')"
+    shift 2
+  done
+  printf '%s' "$ev" | fx "api repos/acme/widgets/issues/$n/events?per_page=100"
+}
+
 # make the given gh invocation fail with an exit code (default 1) — tests/bin/gh
 fx_fail()      { printf '%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
 # same, but only the next call fails; later calls serve the body fixture

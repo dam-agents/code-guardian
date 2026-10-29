@@ -1027,17 +1027,19 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
   [ -n "$REREVIEW_DELTA_LABEL" ] && TRIG_DESC="$TRIG_DESC or $REREVIEW_DELTA_LABEL"
 
-  add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc guide
     # full: complete-review scope — always true for kind=first; on a re-review
     # true iff the label is the trigger (review-request / on-demand = delta)
     # desc: the trigger is answered by an edited PR body, not by new commits —
     # the diff is unchanged and the description is the new input
+    # guide: the guide label was put on after the recorded review — the round
+    # publishes the review guide (docs/artifact.md)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
       --argjson u "${9:-false}" --argjson c "${10:-false}" --argjson f "${11:-false}" \
-      --argjson d "${12:-false}" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f, description_changed:$d}')" '. + [$e]')"
+      --argjson d "${12:-false}" --argjson g "${13:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f, description_changed:$d, guide_requested:$g}')" '. + [$e]')"
     [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
       && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
     return 0
@@ -1128,6 +1130,31 @@ if [ "$MODE" = "review" ]; then
       row_verdict="$(row_field "$row" 5)"; row_status="$(row_field "$row" 6)"
       prior="$(jq -n --arg sha "$row_sha" --arg ts "$row_ts" --arg v "$row_verdict" '{sha:$sha, ts:$ts, verdict:$v}')"
 
+      # A label counts by when a person put it on (docs/review-rereview.md →
+      # Label age): a trigger label from before the recorded review was on
+      # the PR when that review posted — its removal did not succeed — so it
+      # asks for nothing new; a guide label from after it asks for the guide
+      # now. Only a PR that carries one of them reads its label events.
+      has_guide=0
+      if [ "$row_status" != "in_progress" ]; then
+        for kind_lbl in label delta; do
+          if [ "$kind_lbl" = label ]; then [ "$has_label" -eq 1 ] || continue; lbl="$REREVIEW_LABEL"
+          else [ "$has_delta" -eq 1 ] || continue; lbl="$REREVIEW_DELTA_LABEL"; fi
+          at="$(label_added_at "$REPO" "$n" "$lbl")"
+          case "$at" in (''|__api_error__) continue;; esac
+          if [ "$(iso2epoch "$at")" -lt "$(iso2epoch "$row_ts")" ]; then
+            if [ "$kind_lbl" = label ]; then has_label=0; else has_delta=0; fi
+            log "PR #$n: $lbl was put on at $at, before the review at $row_ts, and is still on — its removal did not succeed (the token needs the triage role); remove it and put it on again to ask for a re-review"
+          fi
+        done
+        if [ -n "$GUIDE_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL"; then
+          at="$(label_added_at "$REPO" "$n" "$GUIDE_LABEL")"
+          case "$at" in (''|__api_error__) ;; (*)
+            [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;; esac
+        fi
+        triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ] || [ "$has_delta" -eq 1 ]; } && triggered=1
+      fi
+
       if [ "$row_status" = "in_progress" ]; then
         age=$(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 60 ))
         if [ "$age" -lt "$LOCK_TTL_MIN" ] && [ "$(holder_sessions "$n" "$row_ts")" != ended ]; then
@@ -1162,8 +1189,13 @@ if [ "$MODE" = "review" ]; then
             | jq -r '.data.repository.pullRequest.lastEditedAt // empty' 2>/dev/null)"
           if [ -n "$body_edited" ] && [ "$(iso2epoch "$body_edited")" -gt "$(iso2epoch "$row_ts")" ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
-              "$([ "$has_label" -eq 1 ] && echo true || echo false)" true
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)" true \
+              "$([ "$has_guide" -eq 1 ] && echo true || echo false)"
             log "PR #$n: $trig present, no new commits since ${row_sha:0:7} but the description was edited $body_edited — re-review due"
+          elif [ "$has_guide" -eq 1 ]; then
+            add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)" false true
+            log "PR #$n: $trig present and $GUIDE_LABEL put on after the review at ${row_sha:0:7} — guide round due"
           else
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
@@ -1172,6 +1204,9 @@ if [ "$MODE" = "review" ]; then
               '{number:$n, label:$l, request:$r, delta_label:$d}')" '. + [$e]')"
             log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
           fi
+        elif [ "$has_guide" -eq 1 ] && [ "$row_status" = "done" ]; then
+          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false false false true
+          log "PR #$n: $GUIDE_LABEL put on after the review at ${row_sha:0:7}, no new commits — guide round due"
         fi
         # CI triage: the review is posted, so a failing check on the reviewed
         # SHA is news the agent can explain. The rollup is read only inside the
@@ -1192,9 +1227,11 @@ if [ "$MODE" = "review" ]; then
         fi
       else
         # new commits since the recorded review
-        if [ "$triggered" -eq 1 ]; then
+        if [ "$triggered" -eq 1 ] || [ "$has_guide" -eq 1 ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
-            "$([ "$has_label" -eq 1 ] && echo true || echo false)"
+            "$([ "$has_label" -eq 1 ] && echo true || echo false)" false \
+            "$([ "$has_guide" -eq 1 ] && echo true || echo false)"
+          [ "$triggered" -eq 1 ] || log "PR #$n: $GUIDE_LABEL put on after the review at ${row_sha:0:7} — delta re-review with the guide due"
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
           log "PR #$n: new commits since last review — awaiting $TRIG_DESC"
