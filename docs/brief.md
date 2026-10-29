@@ -49,8 +49,9 @@ brief.
    images and recordings of each PR body and of the PR author's first
    comment — only the ones GitHub hosts for this repository, at most 3 per PR
    and 5 in all — and prints `media[{pr, path, kind, alt}]`.
-2. Post each file with `mcp__platform-outbound__reply`: `threadTs` and
-   `chatId` from the brief's post result, `attachment.path` = `path`, `text` =
+2. Post each file with `mcp__platform-outbound__reply`: `chatId` and
+   `threadTs` from the brief's post result (`Message sent to chatId <id> as
+   ts <ts>`), `attachment.path` = `path`, `text` =
    `#<n> <topic>: <what it shows>` in `language`. Leave out a file that shows
    nothing of the change (a logo, a diagram of code).
 3. Run `bash "$HOME/scripts/brief-media.sh" clean`.
