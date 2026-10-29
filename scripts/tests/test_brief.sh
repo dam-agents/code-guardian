@@ -143,4 +143,13 @@ fx_fail "api repos/acme/widgets/pulls/7 $HTML"
 run_media 7
 assert_jq '.outcome == "ok" and .media == [] and .skipped[0].reason == "PR not readable"' 'an unreadable PR is skipped, never an error'
 
+new_case brief_media_comments_unreadable
+base_config
+mkdir -p "$SANDBOX/files"
+jq -n --arg p "$PRIV" '{user:{login:"alice"}, body_html:("<img src=\"" + $p + "/1/a.png?jwt=t1\">")}' | fx "api repos/acme/widgets/pulls/7 $HTML"
+fx_fail "api repos/acme/widgets/issues/7/comments?per_page=20 $HTML"
+png | media_file "$PRIV/1/a.png?jwt=t1"
+run_media 7
+assert_jq '(.media | length) == 1 and .skipped[0].reason == "comments not readable"' 'a failed comment read is reported, and the body media still come'
+
 finish

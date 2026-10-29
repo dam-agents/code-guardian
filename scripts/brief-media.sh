@@ -120,9 +120,10 @@ for n in "$@"; do
   [ "$TOTAL" -lt "$MAX_TOTAL" ] || break
   pr="$(gh_get "repos/$REPO/pulls/$n" -H "$HTML")" || { skip "$n" "" "PR not readable"; continue; }
   author="$(jq -r '.user.login // ""' <<<"$pr")"
+  comments="$(gh_get "repos/$REPO/issues/$n/comments?per_page=20" -H "$HTML")" \
+    || { comments='[]'; skip "$n" "" "comments not readable"; }
   { jq -r '.body_html // ""' <<<"$pr"
-    gh_get "repos/$REPO/issues/$n/comments?per_page=20" -H "$HTML" \
-      | jq -r --arg a "$author" '[.[]? | select(.user.login == $a)][0].body_html // ""'
+    jq -r --arg a "$author" '[.[]? | select(.user.login == $a)][0].body_html // ""' <<<"$comments"
   } | media_tags > "$DIR/.tags"
   seen=""; took=0
   while IFS="$(printf '\t')" read -r url alt; do
