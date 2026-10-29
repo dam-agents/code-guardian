@@ -86,6 +86,16 @@ if [ -n "${CURL_MCP_URL:-}" ] && [ "$url" = "$CURL_MCP_URL" ]; then
   exit 0
 fi
 
+# File mode ($CURL_FILES_DIR, brief-media.sh): every argument line goes to
+# $CURL_FILES_DIR/calls; the -o target gets $CURL_FILES_DIR/<url slug> when it
+# exists, and <url slug>.fail makes the download fail (rc 22).
+if [ -n "${CURL_FILES_DIR:-}" ]; then
+  printf '%s\n' "$*" >> "$CURL_FILES_DIR/calls"
+  f="$CURL_FILES_DIR/$(printf '%s' "$url" | tr -c 'A-Za-z0-9._-' '_')"
+  [ -e "$f.fail" ] && exit 22
+  [ -f "$f" ] && [ -n "$out" ] && { cp "$f" "$out"; exit 0; }
+fi
+
 if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")" 2>/dev/null
   printf 'stub file from tests/bin/curl\n' > "$out"
