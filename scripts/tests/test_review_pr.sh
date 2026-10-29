@@ -1585,22 +1585,6 @@ assert_jq '.outcome == "posted" and .dismissed_approval == 5' 'stale approval di
 assert_call 'reviews/5/dismissals -X PUT' 'dismissal call issued'
 
 # --- a refused dismissal is a dismiss warn (monitor: approval_not_revoked) -------
-# --- post: a label removal the token may not do names the HTTP code -----------
-setup post_label_remove_denied
-pr_fx open '["cg-rereview"]'
-run_rp prepare 1
-printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
-printf '[]' > "$SANDBOX/findings.json"
-printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
-fx_fail 'api -X DELETE repos/acme/widgets/issues/1/labels/cg-rereview' 1
-fx_err 'api -X DELETE repos/acme/widgets/issues/1/labels/cg-rereview' 'gh: Must have admin rights to Repository. (HTTP 403)'
-run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "posted" and .label_removed == false' 'the review posts without the removal'
-m="$(jq -r 'select(.event == "label_remove" and .level == "warn") | .msg' "$WORK"/logs/events-*.jsonl 2>/dev/null | tail -1)"
-[ "$m" = 'PR #1: removing cg-rereview did not succeed (HTTP 403)' ] \
-  && printf 'ok   %s: the label_remove warn names the HTTP code the monitor alerts on\n' "$CASE" \
-  || { printf 'FAIL %s: label_remove warn %s\n' "$CASE" "$m"; FAILED=1; }
-
 setup post_dismiss_fail
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — APPROVE\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" APPROVE awaiting_label

@@ -86,22 +86,11 @@ PR="$(gh api --hostname "$H" "repos/$REPO/pulls?state=open&per_page=1" --jq '.[0
 if [ -n "$PR" ]; then
   SHA="$(gh api --hostname "$H" "repos/$REPO/pulls/$PR" --jq '.head.sha // empty' 2>/dev/null)"
   add reviews_write "$REPO" write "$(http "$H" POST "repos/$REPO/pulls/$PR/reviews" '{"event":"BOGUS"}')" "posting reviews"
-  add comments_write "$REPO" write "$(http "$H" POST "repos/$REPO/issues/$PR/comments" '{}')" "comments, issues, mention replies"
+  add comments_write "$REPO" write "$(http "$H" POST "repos/$REPO/issues/$PR/comments" '{}')" "comments, labels, issues, mention replies"
 else
   SHA="$(gh api --hostname "$H" "repos/$REPO/commits/$DEFAULT" --jq '.sha // empty' 2>/dev/null)"
   skip reviews_write "$REPO" "posting reviews" "no open pull request to probe"
-  skip comments_write "$REPO" "comments, issues, mention replies" "no open pull request to probe"
-fi
-# Removing a trigger label needs the triage role, which a comment does not: a
-# user token reads its role from the repository; a GitHub App's installation
-# permissions are not readable with its own token.
-if [ "$KIND" = user ]; then
-  case "$(gh api --hostname "$H" "repos/$REPO" --jq '.permissions.triage // empty' 2>/dev/null)" in
-    (true) st=granted;; (false) st=denied;; (*) st=unknown;; esac
-  PROBES="$(printf '%s' "$PROBES" | jq -c --arg r "$REPO" --arg s "$st" \
-    '. + [{id:"labels_write", repo:$r, kind:"role", http:null, state:$s, needed_by:"removing the re-review labels after a review"}]')"
-else
-  skip labels_write "$REPO" "removing the re-review labels after a review" "a GitHub App shows no repository role — grant Issues or Pull requests write"
+  skip comments_write "$REPO" "comments, labels, issues, mention replies" "no open pull request to probe"
 fi
 if [ -n "$SHA" ]; then
   add statuses_write "$REPO" write "$(http "$H" POST "repos/$REPO/statuses/$SHA" '{"state":"bogus"}')" "review_progress (user token)"
@@ -144,7 +133,6 @@ jq -n --arg l "$LOGIN" --arg k "$KIND" --arg t "$TOKEN" --argjson sc "$SCOPES" -
                        elif st("checks_write") == "granted" then "check_run" else "none" end),
     features: {
       review: need(["repo_read","reviews_write","comments_write"]),
-      trigger_labels: need(["labels_write"]),
       issues: need(["issues_write"]),
       ci_triage: need(["checks_read","actions_read"]),
       auto_merge: need(["checks_read","contents_write"]),

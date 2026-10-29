@@ -2494,13 +2494,11 @@ cmd_post() {
   [ "$EVENT" = "$VERDICT" ] || logev warn review_pr "PR #$N: $VERDICT posted as COMMENT — this account opened the pull request"
 
   # --- trigger removal, stale-approval dismissal ---
-  # a failed removal names its HTTP status: a 403 is a token without the
-  # triage role, which the monitor sends to the operator (github_write_denied)
-  local label_removed=false dismissed=null tl lerr
+  local label_removed=false dismissed=null tl
   for tl in "$REREVIEW_LABEL" ${REREVIEW_DELTA_LABEL:+"$REREVIEW_DELTA_LABEL"}; do
     printf '%s' "$labels" | jq -e --arg x "$tl" 'index($x) != null' >/dev/null 2>&1 || continue
-    if lerr="$(gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" 2>&1 >/dev/null)"; then label_removed=true
-    else logev warn label_remove "PR #$N: removing $tl did not succeed$(printf '%s' "$lerr" | grep -oE 'HTTP [0-9]{3}' | tail -1 | sed 's/^/ (/; s/$/)/')"; fi
+    if gh api -X DELETE "repos/$REPO/issues/$N/labels/$(uri "$tl")" >/dev/null 2>&1; then label_removed=true
+    else logev warn label_remove "PR #$N: removing $tl did not succeed"; fi
   done
   # GitHub clears a review request only when the requested account reviews: a
   # token that posts as another login (a GitHub App) removes it here

@@ -57,11 +57,7 @@ gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$REREVIEW_LABE
 ```
 
 `$REREVIEW_DELTA_LABEL` the same way. `review-pr.sh post` removes both labels
-when the review posts. A removal needs the triage role on the repository: a
-refused removal logs a `label_remove` warn with its HTTP code, and a 403 is a
-`github_write_denied` alert to the operator ([monitor.md](monitor.md)). The
-label then stays on the PR, and preflight no longer reads it as a trigger
-([review-rereview.md](review-rereview.md) → **Label age**).
+when the review posts.
 
 Pending review request — a served request clears itself when `bot_login` posts
 the review. When the token posts as another login (a GitHub App token),

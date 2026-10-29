@@ -1130,29 +1130,15 @@ if [ "$MODE" = "review" ]; then
       row_verdict="$(row_field "$row" 5)"; row_status="$(row_field "$row" 6)"
       prior="$(jq -n --arg sha "$row_sha" --arg ts "$row_ts" --arg v "$row_verdict" '{sha:$sha, ts:$ts, verdict:$v}')"
 
-      # A label counts by when a person put it on (docs/review-rereview.md →
-      # Label age): a trigger label from before the recorded review was on
-      # the PR when that review posted — its removal did not succeed — so it
-      # asks for nothing new; a guide label from after it asks for the guide
-      # now. Only a PR that carries one of them reads its label events.
+      # A guide label put on after the recorded review asks for the guide now
+      # (docs/artifact.md → Review guide); only a PR that carries it reads its
+      # label events.
       has_guide=0
-      if [ "$row_status" != "in_progress" ]; then
-        for kind_lbl in label delta; do
-          if [ "$kind_lbl" = label ]; then [ "$has_label" -eq 1 ] || continue; lbl="$REREVIEW_LABEL"
-          else [ "$has_delta" -eq 1 ] || continue; lbl="$REREVIEW_DELTA_LABEL"; fi
-          at="$(label_added_at "$REPO" "$n" "$lbl")"
-          case "$at" in (''|__api_error__) continue;; esac
-          if [ "$(iso2epoch "$at")" -lt "$(iso2epoch "$row_ts")" ]; then
-            if [ "$kind_lbl" = label ]; then has_label=0; else has_delta=0; fi
-            log "PR #$n: $lbl was put on at $at, before the review at $row_ts, and is still on — its removal did not succeed (the token needs the triage role); remove it and put it on again to ask for a re-review"
-          fi
-        done
-        if [ -n "$GUIDE_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL"; then
-          at="$(label_added_at "$REPO" "$n" "$GUIDE_LABEL")"
-          case "$at" in (''|__api_error__) ;; (*)
-            [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;; esac
-        fi
-        triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ] || [ "$has_delta" -eq 1 ]; } && triggered=1
+      if [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
+         && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL"; then
+        at="$(label_added_at "$REPO" "$n" "$GUIDE_LABEL")"
+        case "$at" in (''|__api_error__) ;; (*)
+          [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;; esac
       fi
 
       if [ "$row_status" = "in_progress" ]; then

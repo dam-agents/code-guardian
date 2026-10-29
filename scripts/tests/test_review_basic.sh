@@ -83,38 +83,6 @@ assert_jq '.reviews_due[0] | .kind == "re-review" and .guide_requested == true a
   'the guide label starts a delta re-review of the new commits'
 assert_file_contains "$WORK/REVIEWS.md" '| done |' 'the row is not flipped to awaiting_label'
 
-# --- a trigger label from before the review, new commits → no re-review --------
-# its removal did not succeed (a token without the triage role): the label
-# was on the PR when that review posted, so it asks for nothing new
-new_case stale_trigger_label
-base_config
-pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
-add_row 1 "$SHA2" "$(iso_ago 600)" COMMENT done
-fx_label_events 1 cg-rereview "$(iso_ago 3600)"
-run_preflight review
-assert_jq '.reviews_due | length == 0' 'a label the last review saw is not a trigger'
-assert_file_contains "$WORK/REVIEWS.md" 'awaiting_label' 'the row waits for a trigger'
-assert_jq '.logs | any(contains("removal did not succeed"))' 'the stuck label is logged'
-
-# --- the same stuck label at the reviewed SHA → no cleanup run -----------------
-new_case stale_trigger_label_same_sha
-base_config
-pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
-add_row 1 "$SHA1" "$(iso_ago 600)" APPROVE done
-fx_label_events 1 cg-rereview "$(iso_ago 3600)"
-run_preflight review
-assert_jq '.label_cleanups_due | length == 0' 'a removal that cannot succeed starts no run'
-assert_jq '.reviews_due | length == 0' 'and no review'
-
-# --- a trigger label put on again after the review → a re-review ---------------
-new_case trigger_label_put_on_again
-base_config
-pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
-add_row 1 "$SHA2" "$(iso_ago 3600)" COMMENT done
-fx_label_events 1 cg-rereview "$(iso_ago 7200)" cg-rereview "$(iso_ago 600)"
-run_preflight review
-assert_jq '.reviews_due[0] | .kind == "re-review" and .full == true' 'the newest labeled event counts'
-
 # --- description edited BEFORE the last review → still just a cleanup ---------
 new_case rereview_description_edited_before
 base_config

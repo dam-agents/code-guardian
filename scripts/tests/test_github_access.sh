@@ -42,7 +42,6 @@ assert_jq '.features.review == "ok" and .features.issues == "ok" and .features.c
 assert_jq '[.probes[] | select(.id == "statuses_write") | .state] == ["denied"]' 'a 403 probe is denied'
 assert_jq '.triggers.review_request == true and .triggers.mention_as == ["@test-bot"] and .triggers.missing == []' 'a user bot_login keeps every trigger'
 assert_jq '.unexpected == []' 'no probe wrote'
-assert_jq '.features.trigger_labels == "unknown"' 'an App role is not readable with its own token'
 jq -e '.login == "acme-app[bot]" and .kind == "app"' "$WORK/GITHUB.json" >/dev/null \
   && printf 'ok   %s: the identity cache is refreshed\n' "$CASE" \
   || { printf 'FAIL %s: GITHUB.json missing or wrong\n' "$CASE"; FAILED=1; }
@@ -68,19 +67,9 @@ target_fx test-bot
 printf 'HTTP/2.0 200 OK\r\nX-OAuth-Scopes: repo, read:org\r\n\r\n{}\n' | fx "$H user -i"
 code_fx 422 "$H -i -X POST repos/acme/widgets/statuses/$SHA --input -"
 code_fx 403 "$H -i -X POST repos/acme/widgets/check-runs --input -"
-printf 'false\n' | fx "$H repos/acme/widgets --jq .permissions.triage // empty"
 run_access
 assert_jq '.identity.kind == "user" and .identity.token == "classic" and .identity.scopes == ["repo","read:org"]' 'a classic token with its scopes'
 assert_jq '.progress_channel == "status"' 'a user token writes commit statuses'
-assert_jq '[.probes[] | select(.id == "labels_write") | .state] == ["denied"] and .features.trigger_labels == "missing" and .features.review == "ok"' 'a read-only role cannot remove the trigger labels'
-
-# --- a user token with the triage role removes the trigger labels -----------------
-new_case access_user_triage
-base_config
-target_fx test-bot
-printf 'true\n' | fx "$H repos/acme/widgets --jq .permissions.triage // empty"
-run_access
-assert_jq '.features.trigger_labels == "ok"' 'the triage role removes the trigger labels'
 
 # --- a bot bot_login serves label triggers only ------------------------------------
 new_case access_bot_login

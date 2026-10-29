@@ -130,8 +130,7 @@ Rules:
 
 | Feature | Needs |
 | --- | --- |
-| reviews, comments | `repo_read`, `reviews_write`, `comments_write` |
-| removing the re-review labels (`trigger_labels`) | `labels_write`: the triage role (user token), Issues or Pull requests write (App) |
+| reviews, comments, labels | `repo_read`, `reviews_write`, `comments_write` |
 | issues for findings of a closed PR | `issues_write` |
 | `review_progress` | `checks_write` (App) or `statuses_write` (user) |
 | `ci_triage` | `checks_read`, `actions_read` |
@@ -152,9 +151,7 @@ A GitHub App needs these repository permissions:
 - Organization members: read, for the reviewer roster.
 
 A user token needs the classic `repo` scope, or the same permissions as a
-fine-grained token (README → **Token scopes**), and an account with the triage
-role (or higher) on the target repository: a read role posts reviews but
-cannot remove the re-review labels.
+fine-grained token (README → **Token scopes**).
 
 ## After a connection change
 

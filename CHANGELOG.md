@@ -13,10 +13,7 @@ they are released history and stay as written.
 
 ## 12.9.0 — 2026-10-29
 
-**Upgrade:** In the direct session, run `bash "$HOME/scripts/github-access.sh"`.
-When `features.trigger_labels` is `missing`, tell the operator that the token's
-account needs the triage role on the target repository, so the agent can remove
-the re-review labels after a review.
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 12.8.0 — 2026-10-27
 
