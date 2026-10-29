@@ -95,14 +95,11 @@ fx_body_edited() { # <number> <iso-ts|->
     > "$GH_FIXTURES/graphql_pr_lastedited_$1"
 }
 
-# PR <n>'s issue events: one `labeled` event per <label> <iso-ts> pair
-fx_label_events() { # <number> <label> <iso-ts> [<label> <iso-ts>…]
-  local n="$1" ev='[]'; shift
-  while [ $# -ge 2 ]; do
-    ev="$(printf '%s' "$ev" | jq -c --arg l "$1" --arg t "$2" '. + [{event:"labeled", label:{name:$l}, created_at:$t}]')"
-    shift 2
-  done
-  printf '%s' "$ev" | fx "api repos/acme/widgets/issues/$n/events?per_page=100"
+# PR <n>'s history file with one review section at <sha7>; `seen` adds the
+# guide-label-seen marker to that section
+history_fx() { # <number> <sha7> [seen]
+  { printf '# PR #%s: plain PR\n\n## PR-local overrides\n\n## Review at %s — %s — COMMENT\n\nx\n\n---\n' "$1" "$2" "$(iso_ago 3600)"
+    [ "${3:-}" = seen ] && printf '<!-- guide-label-seen -->\n'; } > "$WORK/reviews/pr-$1.md"
 }
 
 # make the given gh invocation fail with an exit code (default 1) — tests/bin/gh

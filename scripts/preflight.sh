@@ -1032,8 +1032,8 @@ if [ "$MODE" = "review" ]; then
     # true iff the label is the trigger (review-request / on-demand = delta)
     # desc: the trigger is answered by an edited PR body, not by new commits —
     # the diff is unchanged and the description is the new input
-    # guide: the guide label was put on after the recorded review — the round
-    # publishes the review guide (docs/artifact.md)
+    # guide: no review round saw the guide label yet — the round publishes
+    # the review guide (docs/artifact.md)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
@@ -1130,19 +1130,12 @@ if [ "$MODE" = "review" ]; then
       row_verdict="$(row_field "$row" 5)"; row_status="$(row_field "$row" 6)"
       prior="$(jq -n --arg sha "$row_sha" --arg ts "$row_ts" --arg v "$row_verdict" '{sha:$sha, ts:$ts, verdict:$v}')"
 
-      # A guide label put on after the recorded review asks for the guide now
-      # (docs/artifact.md → Review guide); only a PR that carries it reads its
-      # label events.
+      # A guide label that no review round saw yet asks for the guide now
+      # (docs/artifact.md → Review guide).
       has_guide=0
-      if [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
-         && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL"; then
-        at="$(label_added_at "$REPO" "$n" "$GUIDE_LABEL")"
-        case "$at" in
-          ('') ;;
-          (__api_error__) log_warn "PR #$n: label events unreadable (API) — a $GUIDE_LABEL request waits for the next heartbeat";;
-          (*) [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$row_ts")" ] && has_guide=1;;
-        esac
-      fi
+      [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
+        && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL" \
+        && ! guide_label_seen "$WORK/reviews/pr-$n.md" && has_guide=1
 
       if [ "$row_status" = "in_progress" ]; then
         age=$(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 60 ))
@@ -1184,7 +1177,7 @@ if [ "$MODE" = "review" ]; then
           elif [ "$has_guide" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" false true
-            log "PR #$n: $trig present and $GUIDE_LABEL put on after the review at ${row_sha:0:7} — guide round due"
+            log "PR #$n: $trig present and no review saw $GUIDE_LABEL yet — guide round due"
           else
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
@@ -1195,7 +1188,7 @@ if [ "$MODE" = "review" ]; then
           fi
         elif [ "$has_guide" -eq 1 ] && [ "$row_status" = "done" ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false false false true
-          log "PR #$n: $GUIDE_LABEL put on after the review at ${row_sha:0:7}, no new commits — guide round due"
+          log "PR #$n: no review saw $GUIDE_LABEL yet, no new commits since ${row_sha:0:7} — guide round due"
         fi
         # CI triage: the review is posted, so a failing check on the reviewed
         # SHA is news the agent can explain. The rollup is read only inside the
@@ -1220,7 +1213,7 @@ if [ "$MODE" = "review" ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
             "$([ "$has_label" -eq 1 ] && echo true || echo false)" false \
             "$([ "$has_guide" -eq 1 ] && echo true || echo false)"
-          [ "$triggered" -eq 1 ] || log "PR #$n: $GUIDE_LABEL put on after the review at ${row_sha:0:7} — delta re-review with the guide due"
+          [ "$triggered" -eq 1 ] || log "PR #$n: no review saw $GUIDE_LABEL yet — delta re-review with the guide due"
         elif [ "$row_status" = "done" ]; then
           flip_awaiting_label "$n"
           log "PR #$n: new commits since last review — awaiting $TRIG_DESC"

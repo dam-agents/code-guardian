@@ -143,8 +143,8 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   [artifact.md](artifact.md) → **Review guide**).
 - **`guide_label`** — a GitHub label a human adds to ask for the review guide
   of a PR whatever the review's triage. **Missing = the triage alone
-  decides.** The label stays on the PR and acts at each review round. Put on
-  after the last review, it starts a delta round that publishes the guide
+  decides.** The label stays on the PR and acts at each review round. When no
+  review round saw it yet, it starts a delta round that publishes the guide
   ([artifact.md](artifact.md) → **Review guide**).
 - **`## Watch rules` table** — instance-local "when a PR does X, give a
   heads-up in Y" rules, evaluated during reviews and delivered to a closed set

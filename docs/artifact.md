@@ -28,13 +28,12 @@ consent the operator gave when they added the row
 brief marks the PR as forced, so the skill's gate passes, and `compose-brief`
 tells the agent to publish whatever its triage. The label changes neither the
 triage nor the verdict. It stays on the PR, so every later round builds or
-keeps the guide. Put on after the recorded review, it starts a round of its
-own: preflight reads when it was put on and gives the PR a delta re-review with
-`guide_requested: true` — at the reviewed head when there are no new commits
-([review-rereview.md](review-rereview.md) → **Guide round**). A guide label
-from before the recorded review starts nothing. A guide label put on while a
-review runs: `post` records the lock time as the review time, so the next
-heartbeat starts the guide round.
+keeps the guide. `post` writes `<!-- guide-label-seen -->` into the history
+section of a round that had the label at `prepare`. A label on the PR that the
+newest section does not record starts a round of its own: preflight gives the
+PR a delta re-review with `guide_requested: true` — at the reviewed head when
+there are no new commits ([review-rereview.md](review-rereview.md) → **Guide
+round**). This includes a label put on while a review runs.
 
 **Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
 this PR's paths, id and line:

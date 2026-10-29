@@ -13,7 +13,8 @@ they are released history and stay as written.
 
 ## 12.9.0 — 2026-10-29
 
-**Upgrade:** Nothing — docs are re-read per run.
+**Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each
+open PR that carries the `guide_label` gets one guide round.
 
 ## 12.8.0 — 2026-10-27
 

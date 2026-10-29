@@ -1027,62 +1027,46 @@ jq -e -s '[.[] | .event] == ["APPROVE", "COMMENT"]' "$SANDBOX/gh.log.input" >/de
   && printf 'ok   %s: first APPROVE, then COMMENT\n' "$CASE" \
   || { printf 'FAIL %s: events %s\n' "$CASE" "$(jq -c -s '[.[] | .event]' "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
 
-# --- prepare: a guide label put on after the prior review is a live trigger -----
+# --- prepare: a guide label the last round did not see is a live trigger -------
 setup prepare_guide_label '- guide_label: cg-guide'
 pr_fx open '["cg-guide"]'
-printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n<!-- guide-label-seen -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
-fx_label_events 1 cg-guide "$(iso_ago 9000)"
 run_rp prepare 1
-assert_jq '.outcome == "skip" and .reason == "re-review trigger withdrawn"' 'a guide label the prior review saw asks for nothing'
-fx_label_events 1 cg-guide "$(iso_ago 600)"
+assert_jq '.outcome == "skip" and .reason == "re-review trigger withdrawn"' 'a guide label the last round saw asks for nothing'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 run_rp prepare 1
-assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' 'a guide label put on after the prior review starts a delta round'
+assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' 'a guide label the last round did not see starts a delta round'
 run_rp abort 1 "reset"
 
-# --- post: a guide label put on after the prior review keeps the round live ----
+# --- post: a guide round posts and records that it saw the label ---------------
 setup post_guide_label '- guide_label: cg-guide'
 pr_fx open '["cg-guide"]'
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
-fx_label_events 1 cg-guide "$(iso_ago 600)"
 run_rp prepare 1
 printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "posted"' 'a guide label newer than the prior review is a live trigger at post'
+assert_jq '.outcome == "posted"' 'an unseen guide label is a live trigger at post'
+sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
+  && printf 'ok   %s: the new section records the guide label\n' "$CASE" \
+  || { printf 'FAIL %s: no guide-label-seen marker in the newest section\n' "$CASE"; FAILED=1; }
 
-# --- post: a guide label from before the prior review is no trigger -------------
-setup post_guide_label_old '- guide_label: cg-guide'
-pr_fx open '["cg-guide"]'
-printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
-add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
-fx_label_events 1 cg-guide "$(iso_ago 600)"
-run_rp prepare 1
-fx_label_events 1 cg-guide "$(iso_ago 9000)"
-printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
-printf '[]' > "$SANDBOX/findings.json"
-run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "aborted" and .reason == "trigger withdrawn"' 'a guide label older than the prior review is no trigger at post'
-
-# --- post: a guide label put on mid-review keeps the lock time on the row -------
+# --- post: a guide label put on mid-review is left for the next round ----------
 setup post_guide_label_mid_review '- guide_label: cg-guide'
 pr_fx open '[]'
 run_rp prepare 1
-cell() { printf '%s' "$1" | cut -d'|' -f"$2" | tr -d ' '; }   # <row> <field>
-locked="$(cell "$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")" 4)"
 pr_fx open '["cg-guide"]'
-sleep 1
 printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted"' 'the review posts'
-row="$(grep -E '^\| *1 *\|' "$WORK/REVIEWS.md")"
-[ -n "$locked" ] && [ "$(cell "$row" 4)" = "$locked" ] && [ "$(cell "$row" 6)" = done ] \
-  && printf 'ok   %s: the row keeps the lock time, so the next heartbeat serves the guide label\n' "$CASE" \
-  || { printf 'FAIL %s: row %s, lock time %s\n' "$CASE" "$row" "$locked"; FAILED=1; }
+grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+  && { printf 'FAIL %s: a round without the label at prepare recorded it as seen\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the label stays unseen, so the next heartbeat starts the guide round\n' "$CASE"
 
 # --- a pull request someone else opened keeps the verdict as the event ----------
 setup post_other_author

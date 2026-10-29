@@ -677,23 +677,16 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
     body: (.body // "")}' 2>/dev/null
 }
 
-# A guide label put on after the prior review asks for a round too
-# (docs/artifact.md → Review guide); its label events are read only when no
-# other trigger is present.
-trigger_live() { # <labels-json> <requested-json> [<prior ts>] → 0 when a re-review trigger is present
-  local l=1 r=1 d=1 at
+# A guide label that no review round saw yet asks for a round too
+# (docs/artifact.md → Review guide).
+trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger is present
+  local l=1 r=1 d=1 g=1
   case "$TRIG" in (label|both) printf '%s' "$1" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && l=0;; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && printf '%s' "$2" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1 && r=0;; esac
   [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
-  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] && return 0
-  [ -n "$GUIDE_LABEL" ] && [ -n "${3:-}" ] || return 1
-  printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 || return 1
-  at="$(label_added_at "$REPO" "$N" "$GUIDE_LABEL")"
-  case "$at" in
-    ('') return 1;;
-    (__api_error__) logev warn review_pr "PR #$N: label events unreadable (API) — the $GUIDE_LABEL request is not confirmed"; return 1;;
-  esac
-  [ "$(iso2epoch "$at")" -gt "$(iso2epoch "$3")" ]
+  [ -n "$GUIDE_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 \
+    && ! guide_label_seen "$WORK/reviews/pr-$N.md" && g=0
+  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
@@ -1141,7 +1134,7 @@ cmd_prepare() {
     if [ "$row_status" = "in_progress" ] && [ "$row_verdict" = "RAPID" ]; then mode=closed
     else out "$(jq -nc --arg s "$([ "$merged" = "true" ] && echo MERGED || echo CLOSED)" '{outcome:"skip", reason:("pr " + $s + " — the next heartbeat prunes")}')"; fi
   fi
-  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested" "$row_ts"; then
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested"; then
     out "$(jq -nc '{outcome:"skip", reason:"re-review trigger withdrawn"}')"
   fi
   if [ "$kind" = "re-review" ]; then
@@ -2305,7 +2298,7 @@ cmd_post() {
       '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c, restart:$r, next:$x}')"
   fi
   if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
-  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested" "$(ctx_get '.prior.ts // empty')"; then
+  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested"; then
     release_lock "re-review trigger withdrawn mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"trigger withdrawn"}')"
   fi
 
@@ -2516,18 +2509,11 @@ cmd_post() {
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"
+  # the round saw the guide label at `prepare`: a label put on later still
+  # asks for a round (docs/artifact.md → Review guide)
+  [ -n "$(guide_label_on)" ] && printf '<!-- guide-label-seen -->\n' >> "$WORK/reviews/pr-$N.md"
   rm -f "$CARRY"        # published: the starting point is the history now
-  # A guide label put on while this review ran was not on the PR at
-  # `prepare`, so this round built no forced guide: the row keeps the lock
-  # time, and the next heartbeat reads the label as newer than the review
-  # (docs/artifact.md → Review guide).
-  local row_at="$now"
-  if [ -n "$GUIDE_LABEL" ] && [ -z "$(guide_label_on)" ] \
-     && printf '%s' "$labels" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1; then
-    row_at="$(ctx_get '.locked_at')"
-    logev info review_pr "PR #$N: $GUIDE_LABEL put on mid-review — the next heartbeat starts the guide round"
-  fi
-  write_row "$sha" "$row_at" "$VERDICT" done
+  write_row "$sha" "$now" "$VERDICT" done
   local c w s took
   c="$(jq '[.[] | select(.severity=="critical" and .status!="fixed")] | length' "$FINDINGS")"
   w="$(jq '[.[] | select(.severity=="warning" and .status!="fixed")] | length' "$FINDINGS")"
