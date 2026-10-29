@@ -656,9 +656,10 @@ A tier the table does not name keeps the defaults above. The verdict:
 - **sufficient** — pooled recall and precision meet the bar, and no re-review
   of the tier reported a present defect fixed (`false_fixed` 0);
 - **borderline** — no false-fixed, and both values within 0.05 under the bar;
-- **insufficient** — anything else;
 - **too few defects** — fewer pooled defects than `min_defects`: the sample
-  cannot decide.
+  cannot decide;
+- **insufficient** — anything else. A false-fixed re-review makes the tier
+  insufficient at any sample size.
 
 The cell carries the pooled counts (`rec 0.91 (20/22) · prec 0.95 · hard 3/5`)
 so the reader sees the sample behind the verdict. The verdict and the

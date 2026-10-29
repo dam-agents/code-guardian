@@ -137,6 +137,9 @@ sed -i.bak 's/"tier":"complex","false_fixed":0/"tier":"complex","false_fixed":1/
   "$SANDBOX/tiers/results/20261001T060000Z.json"
 OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" index "$SANDBOX/tiers")"
 assert_jq '.[1].tiers.complex | .verdict == "insufficient" and .false_fixed == 1' 'a false-fixed re-review is never sufficient'
+sed -i.bak 's/| 0.7 | 10 |/| 0.7 | 25 |/' "$SANDBOX/tiers-config.md"
+OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" index "$SANDBOX/tiers")"
+assert_jq '.[1].tiers.complex.verdict == "insufficient"' 'a false-fixed tier under min_defects is insufficient, not few'
 OUT="$(BENCH_CONFIG="$SANDBOX/tiers-config.md" bash "$REPORT" "$SANDBOX/tiers")"
 assert_out_contains '<h2>Sufficiency by task tier</h2>' 'the sufficiency section renders'
 assert_out_contains '✓ sufficient</b><br><span class=sub>rec 0.909 (20/22)' 'a verdict cell carries the pooled counts'

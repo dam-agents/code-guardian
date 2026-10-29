@@ -57,8 +57,9 @@ SUFFICIENCY_JQ='
   def tier_verdict($t):
     . as $s | $bar[$t] as $b
     | if $s == null then null
+      elif $s.false_fixed > 0 then "insufficient"
       elif $s.gt < $b.min_defects then "few"
-      elif $s.false_fixed > 0 or $s.recall == null or $s.precision == null then "insufficient"
+      elif $s.recall == null or $s.precision == null then "insufficient"
       elif $s.recall >= $b.recall and $s.precision >= $b.precision then "sufficient"
       elif $s.recall >= ($b.recall - 0.05) and $s.precision >= ($b.precision - 0.05) then "borderline"
       else "insufficient" end;
