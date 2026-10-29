@@ -871,6 +871,8 @@ EOF
 run_preflight audit
 assert_jq '.stats.findings.new == 3' 'every status:new finding of the window counted'
 assert_jq '.stats.findings.late == 1' 'a new finding an earlier round missed is counted late'
+assert_jq '.stats.findings.late_items == [{pr: 1, sha: "bbbbbbb", ts: .stats.findings.late_items[0].ts, severity: "warning", file: "b.ts", line: 4, summary: "x"}]' \
+  'the missed finding is listed with its PR, review SHA and anchor for the audit to trace'
 assert_jq '.stats.findings.new_by_severity.critical == 1 and .stats.findings.new_by_severity.warning == 1
            and .stats.findings.new_by_severity.suggestion == 1' 'raised findings split by severity'
 assert_jq '.stats.findings.fixed == 1' 'the acceptance counters stay as they were'

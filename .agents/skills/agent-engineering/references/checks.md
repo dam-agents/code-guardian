@@ -182,8 +182,8 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   value a healthy run also produces (`0`, `[]`, "nothing to do", a default
   class, exit 0).
 - **Look for:** `2>/dev/null` with `|| true`, `|| echo`, `// 0`, `// []`,
-  `${x:-0}`; an error branch that exits with the idle code; a metric that
-  defaults to zero when its source is absent; a sanitizer that passes on a
+  `// empty`, `${x:-0}`; an error branch that exits with the idle code; a
+  metric that defaults to zero when its source is absent; a sanitizer that passes on a
   read error.
 - **Check:** *script* `shell` (NOTE); *judgment*. 🔴 when a gate, guard or
   lock opens on the failure.
@@ -238,8 +238,10 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   prune owner; list reads paginate, and a cap is reported as partial.
 - **Look for:** `sleep` near the tool timeout; a loop with no counter;
   `shift 2` without an argument count check; a new append-only file with no
-  trim; a list endpoint without `--paginate`.
-- **Check:** *script* `shell` (pagination); *judgment*.
+  trim; a list endpoint without `--paginate`; a whole read of a list that
+  grows with the item's history (events, comments, timeline) on a per-item
+  or per-run path.
+- **Check:** *script* `shell` (pagination, growing list); *judgment*.
 
 ### D8 🟡 Changed logic is tested
 - **Rule:** a changed branch, fallback or rule has a test that fails when the
@@ -251,8 +253,9 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   test helpers. The bar: every new branch, output field, and list member that
   changes what the agent does or publishes (a redaction term, a gate
   condition) — not a reworded message or comment.
-- **Check:** *script* `tests`, `syntax`, `exec-bit`; *judgment*: would the
-  test fail on the base revision?
+- **Check:** *script* `tests` (also a failure branch whose message no test
+  names), `syntax`, `exec-bit`; *judgment*: would the test fail on the base
+  revision?
 
 ## E. Release and deployment
 
