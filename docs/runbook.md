@@ -111,7 +111,8 @@ repository, organization, project or people.
 - **No other path exists.** On the Claude Code harness a `PreToolUse` hook
   refuses every other issue write on `$DEFINITION_REPO`, and every `gh issue`
   write without `--repo`, with a reason that names the script
-  ([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
+  ([harness-claude-code.md](harness-claude-code.md) → **Adapter**). When the
+  target repo is `$DEFINITION_REPO`, comment writes pass.
 
 ## Session titles
 
