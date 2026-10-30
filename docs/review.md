@@ -114,10 +114,11 @@ e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract: t
    a running review**). Write `body.md` (`### Summary` … `### Verdict` —
    **Output format**), `findings.json`, `meta.json` and, for inline-carried
    findings, `comments.json` (`[{path, line, side, body[, start_line]}]`, each
-   `body` the full text). A guide skill that built or kept a page makes
-   `compose-brief` print a `## Review guide` block: under a `needs-human`
-   triage or the `guide_label`, publish or link the guide as it says and write
-   its one-line section;
+   `body` the full text). A guide skill that built or kept a page, or any guide
+   skill once a guide is published for the PR, makes `compose-brief` print a
+   `## Review guide` block: publish a first guide under a `needs-human` triage
+   or the `guide_label`, bring a published one up to date in every round, as
+   the block says, and write its one-line section;
    on any other outcome drop the section ([artifact.md](artifact.md) → **Review
    guide**). Then `review-pr.sh step <n> composed`, and output the review to the
    chat UI.
@@ -523,8 +524,9 @@ Before you declare the run done:
   enumerated ([finding-form.md](finding-form.md)), mirrored into
   `findings-json`, with its sweep command in `review-meta.checks` and every
   dropped 🟢 in `review-meta.deferred` · `meta.json` carrying a `triage` call
-  ([review-mechanics.md](review-mechanics.md)) · a built or kept review guide
-  linked only under a `needs-human` triage or the `guide_label`, and recorded with `review-pr.sh
+  ([review-mechanics.md](review-mechanics.md)) · a review guide first
+  published only under a `needs-human` triage or the `guide_label`, then
+  brought up to date in every round, and recorded with `review-pr.sh
   guide` before the post ([artifact.md](artifact.md) → **Review guide**) · every delta `ambiguous` pair
   settled before the post · every phase guard run and every `head_moved`
   honoured — restarted once, else left to the heartbeat · a compose-time

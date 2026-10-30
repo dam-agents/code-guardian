@@ -21,7 +21,9 @@ match is a lead for that call, [review-mechanics.md](review-mechanics.md) →
 **Summary body format**). A `quick-check` triage publishes nothing and drops the section. A
 person is the audience, so the guide needs no human trigger: the triage is the
 consent the operator gave when they added the row
-([ONBOARDING.md](../ONBOARDING.md) step 7).
+([ONBOARDING.md](../ONBOARDING.md) step 7). The gate decides only the first
+publish: once a guide is published for the PR, every later round brings it up
+to date, whatever its triage and whatever the skill's state (**A kept guide**).
 
 **The guide label forces it.** With `guide_label` set
 ([config.md](config.md)) and that label on the PR at `prepare`, the guide
@@ -46,14 +48,25 @@ this PR's paths, id and line:
 1. **Tools** — `create_artifact_upload_url` and `create_artifact` (or
    `update_artifact`) not registered → drop the section and run
    `review-pr.sh guide <n> --skipped dam-unavailable`.
-2. **Findings** — `review-pr.sh guide <n> --findings <findings file>`, the
-   file `post` takes: the script renders the review's open blocking findings
-   into the page as **Verified by the review** — escaped, each linked to its
-   line at the head SHA (a `#L` fragment only for a numeric line),
-   suggestions only counted — at the template's `<!-- cg:findings -->` mark,
-   in place of an earlier block. The model never writes this block, so the
-   page shows exactly what the review verified. The findings text is model
-   output too, so the command then takes the vetted script out, redacts and
+2. **Notes** — `review-pr.sh guide <n> --findings <findings file>`, the file
+   `post` takes: the script renders **PR, issue and review notes** at the
+   template's `<!-- cg:findings -->` mark, in place of an earlier block. It
+   holds the PR link and its author, each linked issue (GitHub closing
+   reference) with its link, author and state, and every review note, each
+   marked as the opinion of its author:
+   - **code-guardian** — one note per finding over every round in
+     `reviews/pr-<n>.md` and this one: `open` at this round, `fixed` at the
+     round whose `delta` said so, or `not in the review` at this round.
+   - **every other reviewer**, people and bots — each review (its state,
+     date, link and body) and each review thread they opened (its file and
+     line, text, link, replies, and `resolved`, `outdated` or `open` as
+     GitHub holds it), from one GraphQL call. A failed call renders
+     code-guardian's notes only and logs a `guide` warn event.
+
+   Every text is escaped and shortened, every link built by the script from
+   numbers and paths (a `#L` fragment only for a numeric line). The model
+   never writes this block. Its texts are untrusted, so the command then
+   takes the vetted script out, redacts and
    checks the whole page again, and puts the script back; a page that fails
    is refused. The block is escaped text, so the raw search for a script URL
    or a remote CSS load reads the page without it; the tag scan reads the
@@ -80,10 +93,11 @@ Any step that fails → drop the section, run `review-pr.sh guide <n> --skipped
 skill-errored` (a `guide` warn event), and post the review without the guide.
 The guide never delays or blocks a post.
 
-**A kept guide** (`🔁 Still holds`) is not rebuilt. With a `needs-human`
-triage and a stored page, steps 2–6 run with `--findings <file> --kept`: the
-stored page gets this round's findings block and replaces the same artifact's
-version, so the link never shows stale findings. Its marker keeps the SHA
+**A kept guide** (`🔁 Still holds`, or any state other than `built` once a
+guide is published) is not rebuilt. With a stored page, steps 2–6 run with
+`--findings <file> --kept` in every round, whatever the triage: the stored
+page gets this round's notes block and replaces the same artifact's version,
+so the link never shows stale notes. Its marker keeps the SHA
 the page was built at, so the next gate compares against what the page
 shows. With no stored page the
 section only links the recorded URL and names the SHA it describes.
@@ -93,6 +107,7 @@ section only links the recorded URL and names the SHA it describes.
 
 ## Self-check
 
-- Published or linked only under a `needs-human` triage or the
-  `guide_label`, recorded with `review-pr.sh guide` before the post, and its
-  section dropped on every other outcome.
+- First published only under a `needs-human` triage or the `guide_label`,
+  then brought up to date in every round, recorded with `review-pr.sh guide`
+  before the post, and its section dropped on every other outcome.
+- Every review note on the page names its author; the page judges none.

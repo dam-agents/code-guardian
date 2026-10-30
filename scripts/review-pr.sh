@@ -50,8 +50,8 @@
 #                                          handling, trigger removal, stale-approval
 #                                          dismissal, done row, history, cleanup
 #   guide <n> --findings <file> [--kept]   the review guide (docs/artifact.md → Review
-#   guide <n> --id <id> --url <url>        guide): render the review's open findings
-#   guide <n> --skipped <reason>           into the page (the built one, or with --kept
+#   guide <n> --id <id> --url <url>        guide): render the PR, its issue and every
+#   guide <n> --skipped <reason>           review note into the page (the built one, or with --kept
 #                                          the stored copy), then record the publish —
 #                                          the history marker, the stored copy and the
 #                                          `guide` event — or the skip
@@ -1945,7 +1945,13 @@ cmd_compose_brief() {
             ghtml="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"
             ran="$ran$sec"$'\n'
           else gnone="$gnone$s (a second guide skill), "; fi;;
-        (*) gnone="$gnone$s ($(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")), ";;
+        (*)
+          # a guide published for this PR keeps its record current in every
+          # round, whatever the skill decided (docs/artifact.md → Review guide)
+          if [ -z "$gskill" ] && [ -n "$(guide_marker)" ] && [ -s "$WORK/reviews/pr-artifacts/pr-$N.guide.html" ]; then
+            gskill="$s"; gsec="$sec"; gstate=refresh; gline=""; ghtml=""
+            ran="$ran$sec"$'\n'
+          else gnone="$gnone$s ($(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")), "; fi;;
       esac
       continue
     fi
@@ -2017,7 +2023,7 @@ cmd_compose_brief() {
     [ -n "$sec" ] || continue
     if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
       printf '### %s\n<only when %sthe guide link is in hand: the one 📊 line of **Review guide** below — else drop this section>\n\n' "$sec" \
-        "$([ -n "$(guide_label_on)" ] || printf 'your triage is `needs-human` and ')"
+        "$([ -n "$(guide_label_on)" ] || [ -n "$(guide_marker)" ] || printf 'your triage is `needs-human` and ')"
     else printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"; fi
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
@@ -2070,20 +2076,25 @@ cmd_compose_brief() {
   exit 0
 }
 
-# The publish steps of a built or kept guide, between `meta.json` and `post`
-# (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
-# tools, and the triage it wrote decides whether a person is needed, unless
-# the `guide_label` asks for the guide.
-guide_brief() { # <skill> <section> <built|kept> <line> <html>
+# The publish steps of a built, kept or refreshed guide, between `meta.json`
+# and `post` (docs/artifact.md → Review guide). The agent publishes: only it
+# has the DAM tools. The triage it wrote decides a first publish, unless the
+# `guide_label` asks for the guide; a published guide is refreshed in every
+# round.
+guide_brief() { # <skill> <section> <built|kept|refresh> <line> <html>
   local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge ff store n=1
   gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
   judge="$(printf '%s' "$line" | sed -E 's/^(📊|🔁) *(Guide|Still holds) *— *//; s/\.$//')"
+  [ "$g" = refresh ] && judge="the review notes are brought up to this round"
   ff="$CTX/findings.json"; [ "$(ctx_get '.kind')" = "re-review" ] && ff="$CTX/findings.annotated.json"
   store="$WORK/reviews/pr-artifacts/pr-$N.guide.html"
   printf '\n## Review guide — `%s` %s — docs/artifact.md → Review guide\n\n' "$s" \
-    "$([ "$g" = built ] && printf 'built a page for the human reviewer' || printf 'says the guide at %s still holds' "$gsha")"
-  printf 'Its line: %s\n\n' "$line"
-  if [ -n "$(guide_label_on)" ]; then
+    "$(case "$g" in (built) printf 'built a page for the human reviewer';; (kept) printf 'says the guide at %s still holds' "$gsha";;
+       (*) printf 'built no page; the guide at %s stays and gets this round'"'"'s review notes' "$gsha";; esac)"
+  [ -n "$line" ] && printf 'Its line: %s\n\n' "$line"
+  if [ -n "$gid" ]; then
+    printf 'A guide is published for this PR: bring it up to date in every round, whatever your `meta.json` triage —\n'
+  elif [ -n "$(guide_label_on)" ]; then
     printf 'The `%s` label on the PR asks for the guide: publish it whatever your `meta.json` triage —\n' "$(guide_label_on)"
   else
     printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
@@ -2095,8 +2106,8 @@ guide_brief() { # <skill> <section> <built|kept> <line> <html>
   fi
   printf '%s. The DAM tools `create_artifact_upload_url` and `%s` are not registered → drop the section, then `review-pr.sh guide %s --skipped dam-unavailable`.\n' \
     "$n" "$([ -n "$gid" ] && printf update_artifact || printf create_artifact)" "$N"; n=$((n+1))
-  printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the review'"'"'s open findings go into the page as **Verified by the review**; its `html` is the page to upload.\n' \
-    "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" = kept ] && printf ' --kept')"; n=$((n+1))
+  printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the PR, its issue and every review note go into the page as **PR, issue and review notes**; its `html` is the page to upload.\n' \
+    "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" != built ] && printf ' --kept')"; n=$((n+1))
   printf '%s. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @<html> '"'"'<url>'"'"'`\n' "$n" "$N"; n=$((n+1))
   if [ -n "$gid" ]; then
     printf '%s. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$n" "$gid" "$gurl"
@@ -2104,7 +2115,7 @@ guide_brief() { # <skill> <section> <built|kept> <line> <html>
     printf '%s. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$n" "$N"
   fi; n=$((n+1))
   printf '%s. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker, the stored copy and the `guide` event.\n' "$n" "$N"; n=$((n+1))
-  if [ "$g" = kept ]; then
+  if [ "$g" != built ]; then
     printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — at %s: %s`\n' "$n" "$gsha" "$judge"
   else
     printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — %s`\n' "$n" "$judge"
@@ -2741,34 +2752,132 @@ cmd_verify() {
 }
 
 # ====================================================================== ci ====
-# The review's open findings as the page's "Verified by the review" block,
-# rendered by this script from the findings file `post` takes — escaped, linked
-# to the head SHA, no model in the loop (docs/artifact.md → Review guide).
-findings_block() { # <findings file> <head sha>
-  jq -r --arg base "https://$REPO_HOST/$REPO/blob/$2/" '
+# The page's record block: the PR and its linked issues with their authors, and
+# every review note on the PR with its author and its status — code-guardian's
+# findings over every posted round and this one, and each other reviewer's
+# reviews and review threads as GitHub holds them. Rendered by this script,
+# escaped, linked to the head SHA, no model in the loop: each note is shown as
+# the opinion of its author, never as the page's (docs/artifact.md → Review
+# guide).
+GUIDE_RECORD_Q='query GuideRecord($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
+  author{login}
+  closingIssuesReferences(first:5){nodes{number title state author{login} repository{nameWithOwner}}}
+  reviews(first:100){nodes{databaseId author{login} state submittedAt body}}
+  reviewThreads(first:100){nodes{isResolved isOutdated path line
+    comments(first:1){totalCount nodes{databaseId author{login} body createdAt}}}}}}}'
+# → $CTX/guide.people.json: the PR's author, linked issues, reviews and threads
+# in one call, or `{}` when GitHub does not answer
+guide_people() {
+  gh api graphql -F n="$N" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query="$GUIDE_RECORD_Q" 2>/dev/null \
+    | jq -c '.data.repository.pullRequest | select(type == "object")' > "$CTX/guide.people.json" 2>/dev/null
+  [ -s "$CTX/guide.people.json" ] && return 0
+  printf '{}\n' > "$CTX/guide.people.json"
+  logev warn guide "PR #$N: the linked issue and the other reviews were not read — the guide shows code-guardian's notes only"
+}
+# → $CTX/guide.rounds.json: the findings of every round posted to
+# `reviews/pr-<n>.md`, in order, then this round's
+guide_rounds() { # <findings file>
+  local hist="$WORK/reviews/pr-$N.md"
+  { [ -f "$hist" ] && sed -n -e 's/^## Review at \([0-9a-f]\{7,40\}\) — .*/H \1/p' \
+      -e 's/^.*<!-- findings-json: \(.*\) -->.*$/F \1/p' "$hist"; :; } \
+    | jq -Rn --slurpfile c "$1" --arg sha "$(ctx_get '.head_sha' | cut -c1-7)" '
+      reduce (inputs | select(test("^[HF] "))) as $l ([];
+        if ($l | startswith("H ")) then . + [{sha: $l[2:], findings: []}]
+        elif length > 0 then (length - 1) as $k
+          | .[$k].findings = (($l[2:] | try fromjson catch []) | if type == "array" then . else [] end)
+        else . end)
+      + [{sha: $sha, findings: ($c[0] // [])}]' > "$CTX/guide.rounds.json" 2>/dev/null && return 0
+  # an unreadable history still renders this round's findings
+  logev warn guide "PR #$N: the earlier rounds in reviews/pr-$N.md were not read — the guide shows this round's findings only"
+  jq -c --arg sha "$(ctx_get '.head_sha' | cut -c1-7)" '[{sha: $sha, findings: .}]' "$1" > "$CTX/guide.rounds.json" 2>/dev/null
+}
+record_block() { # <head sha> <people file> <rounds file>
+  jq -nr --slurpfile p "$2" --slurpfile rs "$3" --arg repo "$REPO" --arg web "https://$REPO_HOST/$REPO" \
+    --arg sha "$1" --argjson n "$N" --arg author "$(ctx_get '.author')" --arg m "<!-- $REVIEW_MARKER" \
+    --arg own "$BOT_LOGIN $(token_login 2>/dev/null)" '
     def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;") | gsub("\u0027"; "&#39;");
-    def num: (.line | type) == "number" and .line >= 1;
-    def link: if (.file // "") == "" or (.file | type) != "string" then "" else
-      "<a href=\"" + $base + (.file | split("/") | map(@uri) | join("/"))
-      + (if num then "#L\(.line | floor)" else "" end) + "\">"
-      + ((.file + (if num then ":\(.line | floor)" else "" end)) | esc) + "</a>" end;
-    [ .[] | select((.status // "new") != "fixed") ] as $open
-    | [ $open[] | select(.severity == "critical" or .severity == "warning") ]
-      | sort_by(if .severity == "critical" then 0 else 1 end) as $b
-    | ([ $open[] | select(.severity == "suggestion") ] | length) as $sg
+    def who: "@" + (if (. // "") == "" then "ghost" else . end) | esc;
+    def by($name): "<span class=\"by\">Opinion of " + $name + "</span>";
+    def excerpt: (. // "") | tostring | gsub("\\s+"; " ") | gsub(" ?<!--.*?-->"; "") | ltrimstr(" ") | rtrimstr(" ")
+      | if length > 280 then .[0:280] + "…" else . end | esc;
+    def num($l): ($l | type) == "number" and $l >= 1;
+    def flink($file; $line): if ($file | type) != "string" or $file == "" then "" else
+      "<a href=\"" + $web + "/blob/" + $sha + "/" + ($file | split("/") | map(@uri) | join("/"))
+      + (if num($line) then "#L\($line | floor)" else "" end) + "\">"
+      + (($file + (if num($line) then ":\($line | floor)" else "" end)) | esc) + "</a>" end;
+    def sev: if .severity == "critical" then "🔴 Critical" elif .severity == "warning" then "🟡 Warning" else "🟢 Suggestion" end;
+    def day: (. // "") | tostring | .[0:10] | esc;
+    # code-guardian'"'"'s own accounts: GraphQL names an App bot without "[bot]"
+    ($own | split(" ") | map(select(length > 0) | ascii_downcase | rtrimstr("[bot]"))) as $mine
+    |
+    def ours($login; $body): ((($login // "") | ascii_downcase | rtrimstr("[bot]")) as $l | $mine | index($l) != null)
+      or (($body // "") | contains($m));
+    ($p[0] // {}) as $pr | ($pr | has("reviews")) as $read
+    | ($rs[0] // []) as $rounds | ($rounds | last | .sha // "") as $latest
+    # code-guardian: one note per finding over the rounds — a `still` finding
+    # updates its note, a `fixed` one closes it, a `new` one adds one
+    | (reduce $rounds[] as $r ([];
+        reduce (($r.findings // []) | if type == "array" then .[] else empty end | select(type == "object")) as $f (.;
+          ($f.status // "new") as $s | ($f.file // "" | tostring) as $ff | ($f.summary // "" | tostring) as $fs
+          | [ to_entries[] | select(.value.fixed == null and .value.file == $ff) ] as $c
+          | (if $s == "fixed" then (($c | map(select(.value.summary == $fs)) | first) // ($c | map(select(.value.line == $f.line)) | first))
+             elif $s == "still" then (($c | map(select(.value.line == ($f.prior_line // $f.line))) | first) // ($c | map(select(.value.summary == $fs)) | first))
+             else null end | if . then .key else null end) as $i
+          | if $s == "fixed" then (if $i != null then .[$i].fixed = $r.sha else . end)
+            elif $i != null then .[$i] += {severity: $f.severity, line: $f.line, summary: $fs, fix: $f.fix, also: ($f.also // []), last: $r.sha}
+            else . + [{file: $ff, line: $f.line, severity: $f.severity, summary: $fs, fix: $f.fix, also: ($f.also // []), last: $r.sha, fixed: null}] end)))
+      | map(. + {st: (if .fixed != null then "fixed" elif .last == $latest then "open" else "gone" end)})
+      | sort_by((if .st == "open" then 0 elif .st == "gone" then 1 else 2 end), (if .severity == "critical" then 0 elif .severity == "warning" then 1 else 2 end))
+      as $notes
+    | [ $notes[] | select(.st == "open" and (.severity == "critical" or .severity == "warning")) ] as $b
+    # the other reviewers: their reviews and the threads they opened, without
+    # code-guardian'"'"'s own — by its account, or by the marker of its review body
+    | [ ($pr.reviews.nodes // [])[] | select(type == "object" and .state != "PENDING" and (ours(.author.login; .body) | not)) ] as $revs
+    | [ ($pr.reviewThreads.nodes // [])[] | select(type == "object") | . + {root: (.comments.nodes[0] // null)}
+        | select(.root != null and (ours(.root.author.login; .root.body) | not)) ] as $threads
+    | ([ $revs[] | {a: (.author.login // ""), t: (.submittedAt // "")} ] + [ $threads[] | {a: (.root.author.login // ""), t: (.root.createdAt // "")} ]
+       | group_by(.a) | map({a: .[0].a, t: (map(.t) | min)}) | sort_by(.t) | map(.a) | .[0:15]) as $people
     | "<!-- cg:findings:start -->",
-      "<section class=\"found\" id=\"found\"><style>.found{border-left:4px solid var(--warn,#b45309)}.found ul{margin:6px 0 0;padding-left:18px}.found li{margin:0 0 6px}.found .fx{color:var(--muted,#5f6368);font-size:13px}.found .fok{color:var(--ok,#15803d)}</style>",
-      "<h2>Verified by the review <small class=\"muted\">\($b | length) blocking</small></h2>",
-      (if ($b | length) == 0
-       then "<p class=\"fok\">✅ No blocking finding. The review checked the code; the questions above are for a person.</p>"
-       else "<ul>",
-            ($b[] | "<li data-tip=\"\(.summary | esc)\"><b>\(if .severity == "critical" then "🔴 Critical" else "🟡 Warning" end)</b> \(link) — \(.summary | esc)"
-                    + (if (.also // []) | length > 0 then " <span class=\"fx\">(+\(.also | length) more places)</span>" else "" end)
-                    + (if .fix then "<br><span class=\"fx\">Fix: \(.fix | esc)</span>" else "" end) + "</li>"),
-            "</ul>" end),
-      (if $sg > 0 then "<p class=\"fx\">+\($sg) suggestion(s) in the review.</p>" else empty end),
+      "<section class=\"found\" id=\"found\"><style>.found{border-left:4px solid var(--warn,#b45309)}.found ul{margin:6px 0 0;padding-left:18px}.found li{margin:0 0 6px}.found h3{margin:12px 0 0;font-size:15px}.found .fx{color:var(--muted,#5f6368);font-size:13px}.found .fok{color:var(--ok,#15803d)}.found .by{font-size:12px;border:1px solid currentColor;border-radius:4px;padding:0 4px;margin-right:4px;opacity:.8}.found .st{font-size:12px;color:var(--muted,#5f6368)}.found li.fixed,.found li.gone{opacity:.7}</style>",
+      "<h2>PR, issue and review notes <small class=\"muted\">\($b | length) open blocking from code-guardian</small></h2>",
+      "<p><a href=\"\($web)/pull/\($n)\">PR #\($n)</a> — opened by <b>\(($pr.author.login // $author) | who)</b></p>",
+      (if $read then
+         (($pr.closingIssuesReferences.nodes // []) | map(select(type == "object" and (.number | type) == "number"))) as $iss
+         | if ($iss | length) == 0 then "<p class=\"fx\">No issue is linked to the PR as a closing reference.</p>"
+           else ($iss[] | if ((.repository.nameWithOwner // "") | ascii_downcase) == ($repo | ascii_downcase)
+             then "<p><a href=\"\($web)/issues/\(.number)\">Issue #\(.number)</a> “\(.title // "" | esc)” — opened by <b>\(.author.login | who)</b> · \(.state // "" | ascii_downcase | esc)</p>"
+             else "<p>Issue \(((.repository.nameWithOwner // "") + "#" + (.number | tostring)) | esc) (another repository) “\(.title // "" | esc)” — opened by <b>\(.author.login | who)</b></p>" end) end
+       else "<p class=\"fx\">The linked issue and the reviews of other people were not read at \($sha[0:7]).</p>" end),
+      "<p class=\"fx\">Each note below is the opinion of the person or tool that wrote it. This page does not judge the notes. A status comes from GitHub or from a later code-guardian review.</p>",
+      "<h3>code-guardian — automated review</h3>",
+      (if ($b | length) == 0 then "<p class=\"fok\">\(by("code-guardian")) ✅ No open blocking finding at \($latest | esc).</p>" else empty end),
+      (if ($notes | length) > 0 then
+         "<ul>",
+         ($notes[0:40][] | "<li class=\"\(.st)\" data-tip=\"\(.summary | esc)\">\(by("code-guardian")) <b>\(sev)</b> \(flink(.file; (if .st == "open" then .line else null end))) — \(.summary | esc)"
+           + (if (.also // []) | length > 0 then " <span class=\"fx\">(+\(.also | length) more places)</span>" else "" end)
+           + (if .st == "open" and .fix then "<br><span class=\"fx\">Fix: \(.fix | esc)</span>" else "" end)
+           + " <span class=\"st\">" + (if .st == "fixed" then "✅ fixed — code-guardian review at \(.fixed | esc)"
+               elif .st == "gone" then "not in the code-guardian review at \($latest | esc)" else "open at \($latest | esc)" end) + "</span></li>"),
+         "</ul>",
+         (if ($notes | length) > 40 then "<p class=\"fx\">+\(($notes | length) - 40) more notes in the reviews.</p>" else empty end)
+       else empty end),
+      ($people[] as $a
+       | [ $revs[] | select((.author.login // "") == $a) | select(.state != "COMMENTED" or ((.body // "") | test("\\S"))) ] as $ra
+       | [ $threads[] | select((.root.author.login // "") == $a) ] as $ta
+       | "<h3>\($a | who)</h3>",
+         "<ul>",
+         ($ra | sort_by(.submittedAt // "") | .[0:10][]
+           | "<li>\(by($a | who)) <b>\({"APPROVED": "approved", "CHANGES_REQUESTED": "requested changes", "COMMENTED": "commented", "DISMISSED": "dismissed (approval or change request withdrawn)"}[.state // ""] // (.state // "" | ascii_downcase | esc))</b> — "
+             + (if (.databaseId | type) == "number" then "<a href=\"\($web)/pull/\($n)#pullrequestreview-\(.databaseId)\">review of \(.submittedAt | day)</a>" else "review of \(.submittedAt | day)" end)
+             + ((.body | excerpt) as $x | if $x == "" then "" else ": “\($x)”" end) + "</li>"),
+         ($ta | .[0:25][]
+           | "<li>\(by($a | who)) \(flink(.path; (if .isOutdated then null else .line end))) — “\(.root.body | excerpt)”"
+             + " <span class=\"st\">" + (if .isResolved then "✅ resolved on GitHub" elif .isOutdated then "outdated — the line changed since" else "open" end)
+             + (((.comments.totalCount // 1) - 1) as $k | if $k > 0 then " · \($k) replies" else "" end) + "</span>"
+             + (if (.root.databaseId | type) == "number" then " <a href=\"\($web)/pull/\($n)#discussion_r\(.root.databaseId)\">thread</a>" else "" end) + "</li>"),
+         "</ul>"),
       "</section>",
-      "<!-- cg:findings:end -->"' "$1" 2>/dev/null
+      "<!-- cg:findings:end -->"' 2>/dev/null
 }
 # The block into the page: in place of an earlier block or of the template's
 # `<!-- cg:findings -->` mark on a line of its own (a mark inside an attribute
@@ -2776,7 +2885,8 @@ findings_block() { # <findings file> <head sha>
 # else before </body>.
 render_findings() { # <html> <findings file> <head sha>
   local page blk pre post
-  blk="$(findings_block "$2" "$3")"; [ -n "$blk" ] || return 1
+  guide_people; guide_rounds "$2" || return 1
+  blk="$(record_block "$3" "$CTX/guide.people.json" "$CTX/guide.rounds.json")"; [ -n "$blk" ] || return 1
   page="$(cat "$1")" || return 1
   case "$page" in
     (*'<!-- cg:findings:start -->'*'<!-- cg:findings:end -->'*)

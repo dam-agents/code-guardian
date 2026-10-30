@@ -2429,12 +2429,43 @@ printf '%s' '[{"status":"new","severity":"critical","file":"src/alpha.ts","line"
  {"status":"fixed","severity":"warning","file":"src/gamma.ts","line":1,"summary":"old one","fix":null}]' > "$(PR_DIR).ctx/findings.json"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
 assert_jq '.outcome == "rendered" and .blocking == 1 and .html == "'"$(GUIDE_HTML)"'"' 'the open blocking findings are rendered into the built page'
-assert_file_contains "$(GUIDE_HTML)" 'Verified by the review <small class="muted">1 blocking</small>' 'the block counts the blocking findings'
+assert_file_contains "$(GUIDE_HTML)" 'PR, issue and review notes <small class="muted">1 open blocking from code-guardian</small>' 'the block counts the open blocking findings'
 assert_file_contains "$(GUIDE_HTML)" "href=\"https://github.com/acme/widgets/blob/$B1_SHA/src/alpha.ts#L6\">src/alpha.ts:6</a> — query &lt;script&gt;alert(1)&lt;/script&gt; unbounded" 'a finding links its line at the head SHA, its text escaped'
 assert_file_contains "$(GUIDE_HTML)" 'Fix: add a limit &amp; a cap' 'the fix is escaped'
 assert_file_contains "$(GUIDE_HTML)" '(+1 more places)' 'the sibling locations are counted'
-assert_file_contains "$(GUIDE_HTML)" '+1 suggestion(s) in the review' 'suggestions are counted, not listed'
-assert_file_lacks "$(GUIDE_HTML)" 'old one' 'a fixed finding is not on the page'
+assert_file_contains "$(GUIDE_HTML)" '<span class="by">Opinion of code-guardian</span> <b>🟢 Suggestion</b>' 'a suggestion is listed as code-guardian'"'"'s opinion'
+assert_file_lacks "$(GUIDE_HTML)" 'old one' 'a fixed finding no round reported is not on the page'
+assert_file_contains "$(GUIDE_HTML)" '<a href="https://github.com/acme/widgets/pull/1">PR #1</a> — opened by' 'the block links the PR and names its author'
+assert_file_contains "$(GUIDE_HTML)" 'were not read at' 'with no answer from GitHub the block says what it lacks'
+cat "$WORK"/logs/events-*.jsonl | jq -e 'select(.event=="guide" and .level=="warn") | .msg | test("other reviews were not read")' >/dev/null \
+  && printf 'ok   %s: a failed people read is a guide warn event\n' "$CASE" || { printf 'FAIL %s: no warn event for the people read\n' "$CASE"; FAILED=1; }
+# the PR's issue and every other reviewer, each note as its author's opinion
+printf '%s' '{"data":{"repository":{"pullRequest":{"author":{"login":"alice"},
+ "closingIssuesReferences":{"nodes":[{"number":7,"title":"Add <b>x</b>","state":"OPEN","author":{"login":"bob"},"repository":{"nameWithOwner":"acme/widgets"}},
+   {"number":3,"title":"Far","state":"CLOSED","author":{"login":"eve"},"repository":{"nameWithOwner":"other/repo"}}]},
+ "reviews":{"nodes":[{"databaseId":11,"author":{"login":"carol"},"state":"CHANGES_REQUESTED","submittedAt":"2026-10-29T10:00:00Z","body":"Please fix <!-- x --> the <img src=x>"},
+   {"databaseId":12,"author":{"login":"cg-bot"},"state":"COMMENTED","submittedAt":"2026-10-28T10:00:00Z","body":"own <!-- cg:review headRefOid=abc -->"},
+   {"databaseId":13,"author":{"login":"carol"},"state":"COMMENTED","submittedAt":"2026-10-29T11:00:00Z","body":""}]},
+ "reviewThreads":{"nodes":[{"isResolved":true,"isOutdated":false,"path":"src/alpha.ts","line":4,"comments":{"totalCount":3,"nodes":[{"databaseId":99,"author":{"login":"carol"},"body":"why this?","createdAt":"2026-10-29T10:00:00Z"}]}},
+   {"isResolved":false,"isOutdated":true,"path":"src/beta.ts","line":null,"comments":{"totalCount":1,"nodes":[{"databaseId":98,"author":{"login":"dave"},"body":"nit","createdAt":"2026-10-30T10:00:00Z"}]}},
+   {"isResolved":false,"isOutdated":false,"path":"src/beta.ts","line":2,"comments":{"totalCount":1,"nodes":[{"databaseId":97,"author":{"login":"test-bot"},"body":"code-guardian inline finding","createdAt":"2026-10-28T10:00:00Z"}]}}]}}}}}' \
+  > "$GH_FIXTURES/graphql_guide_record_1"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
+assert_jq '.outcome == "rendered"' 'the block with other reviewers renders'
+assert_file_contains "$(GUIDE_HTML)" '<a href="https://github.com/acme/widgets/issues/7">Issue #7</a> “Add &lt;b&gt;x&lt;/b&gt;” — opened by <b>@bob</b> · open' 'a same-repo issue is linked with its author'
+assert_file_contains "$(GUIDE_HTML)" 'Issue other/repo#3 (another repository)' 'an issue of another repository is named, not linked'
+assert_file_lacks "$(GUIDE_HTML)" 'href="https://github.com/other/repo' 'no link leaves the PR repository'
+assert_file_contains "$(GUIDE_HTML)" '<span class="by">Opinion of @carol</span> <b>requested changes</b> — <a href="https://github.com/acme/widgets/pull/1#pullrequestreview-11">review of 2026-10-29</a>: “Please fix the &lt;img src=x&gt;”' 'a human review is the opinion of its author, escaped'
+assert_file_contains "$(GUIDE_HTML)" '✅ resolved on GitHub · 2 replies</span> <a href="https://github.com/acme/widgets/pull/1#discussion_r99">thread</a>' 'a resolved thread says so and links it'
+assert_file_contains "$(GUIDE_HTML)" '<span class="by">Opinion of @dave</span> <a href="https://github.com/acme/widgets/blob/'"$B1_SHA"'/src/beta.ts">src/beta.ts</a> — “nit” <span class="st">outdated' 'an outdated thread links its file without a line'
+assert_file_lacks "$(GUIDE_HTML)" '@test-bot' 'code-guardian'"'"'s own thread is dropped by its account, its body holds no marker'
+assert_file_lacks "$(GUIDE_HTML)" '@cg-bot' 'code-guardian'"'"'s own reviews come from its findings, not twice'
+assert_file_lacks "$(GUIDE_HTML)" 'were not read at' 'a read that answered says nothing is missing'
+# the rounds in the history: a finding a later delta fixed stays, marked fixed
+printf '# PR #1: alpha PR\n\n## PR-local overrides\n\n\n## Review at aaaaaaa — 2026-10-29T10:00:00Z — REQUEST_CHANGES\n\nbody\n\n<!-- findings-json: [{"status":"new","severity":"warning","file":"src/gamma.ts","line":1,"summary":"old one","fix":null}] -->\n\n---\n' > "$WORK/reviews/pr-1.md"
+run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
+assert_file_contains "$(GUIDE_HTML)" 'old one <span class="st">✅ fixed — code-guardian review at '"${B1_SHA:0:7}" 'a finding a later round fixed stays on the page, marked fixed'
+rm -f "$WORK/reviews/pr-1.md"
 assert_file_lacks "$(GUIDE_HTML)" '<script>alert' 'no script from a finding reaches the page'
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
 [ "$(grep -c 'cg:findings:start' "$(GUIDE_HTML)")" = 1 ] && printf 'ok   %s: a second render replaces the block\n' "$CASE" \
@@ -2644,9 +2675,21 @@ printf '[]' > "$(PR_DIR).ctx/findings.json"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
 assert_jq '.outcome == "rendered" and .blocking == 0' 'the stored page is rendered into'
 KH="$(printf '%s' "$OUT" | jq -r .html)"
-assert_file_contains "$KH" 'No blocking finding' 'no blocking finding says so'
+assert_file_contains "$KH" 'No open blocking finding' 'no blocking finding says so'
 assert_file_lacks "$KH" 'stale block' 'the earlier block is replaced'
 assert_file_contains "$WORK/reviews/pr-artifacts/pr-1.guide.html" 'stale block' 'the stored copy changes only when the publish is recorded'
+# a guide published earlier is brought up to date in every round, whatever
+# the skill says and whatever the triage
+printf '<!doctype html><html><body><main><h1>x</h1>\n<!-- cg:findings -->\n<p class="overview">x</p></main></body></html>\n' > "$WORK/reviews/pr-artifacts/pr-1.guide.html"
+printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt"
+run_rp collect 1
+assert_jq '.skills["review-guide"].guide == "not-needed"' 'the skill built no page'
+run_rp compose-brief 1
+assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json --kept" 'a published guide is refreshed when the skill builds no page'
+assert_out_contains 'update_artifact {id: "art_3"' 'the same artifact gets the new version'
+assert_out_contains 'whatever your `meta.json` triage' 'the refresh does not depend on the triage'
+assert_out_contains '### Human Review Guide' 'the refreshed guide keeps its section'
+assert_out_contains 'at abc1234: the review notes are brought up to this round' 'the section line says what changed'
 # finding text that names a script URL or a remote CSS load is escaped text:
 # the rendered page passes, and the same words outside the block still refuse
 SP='<!doctype html><html><body><main><h1>x</h1>\n<!-- cg:findings -->\n<p class="overview">x</p>%s</main></body></html>\n'

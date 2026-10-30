@@ -171,7 +171,8 @@ Missing lines mean the skill step is not done: do not proceed to posting.
   not run ([review.md](review.md) → **Output format (first reviews)**), are its
   trace.
 - A **guide skill** posts its section only with a page to link: a
-  `needs-human` triage or the `guide_label`, and a guide published or kept. Any other outcome omits
+  `needs-human` triage or the `guide_label` and a guide published or kept,
+  or a guide published in an earlier round. Any other outcome omits
   the section, and the audit line is its whole trace — not a `_Limits:_` entry,
   because the skill ran.
 
@@ -237,11 +238,12 @@ sections.
   attributes, so the model writes no script. A project
   map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
   and is stored in `work/diagrams/`, whatever the page's fate.
-- **Publish.** The review agent renders the review's open findings into the
-  page (`review-pr.sh guide <n> --findings`), then publishes a built page, or
-  refreshes a kept one, only when its own triage is `needs-human` or the PR
-  carries the `guide_label` — the step between `meta.json` and `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
-  guide**).
+- **Publish.** The review agent renders the PR, its issue and every review
+  note into the page (`review-pr.sh guide <n> --findings`), then publishes a
+  first page only when its own triage is `needs-human` or the PR carries the
+  `guide_label`, and refreshes a published one in every round — the step
+  between `meta.json` and `post` that `compose-brief` prints
+  ([artifact.md](artifact.md) → **Review guide**).
 
 ## Verdict integration
 
