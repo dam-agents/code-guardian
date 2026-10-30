@@ -340,7 +340,7 @@ EOF
   # check: secrets       Added lines carry no credential-shaped string
   # check: instance      Added definition lines carry no machine path, e-mail or chat/member id (instance data)
   # check: todo          Added definition lines carry no TODO/FIXME (an agent reads every line as an instruction)
-  # check: shell         Added script lines avoid known traps: mkdir locks, payloads in argv, git clean/add -A, unpaged lists, fail-open defaults, fixed temp paths
+  # check: shell         Added script lines avoid known traps: mkdir locks, payloads in argv, git clean/add -A, unpaged or whole growing lists, fail-open defaults, fixed temp paths
   # check: enforcement   A new absolute rule (never/must/always/only) in prose while no script, test or config changes
   # check: restated      An added Markdown line already stands, word for word, in another file (one home per rule)
   # check: commands      A doc names `scripts/x.sh <mode>` that the script's dispatcher does not have
@@ -386,8 +386,17 @@ EOF
             then out("WARN"; "shell"; "git add of everything: add the named paths, so state and secrets never enter a commit") else empty end),
            (if ($t | test("gh api")) and ($t | test("per_page=|/(pulls|issues|comments|reviews|commits|runs|events)\\b")) and ($t | test("--paginate|page=") | not)
             then out("NOTE"; "shell"; "list read without --paginate: items past the first page are lost silently") else empty end),
-           (if ($t | test("2>[ \t]*/dev/null")) and ($t | test("\\|\\|[ \t]*(echo|printf|true|:)|// *(0|\\[\\]|\"\")|:-0\\}"))
-            then out("NOTE"; "shell"; "error hidden and replaced by a default: a failed read must not look like a real empty or zero answer") else empty end)),
+           (if ($t | test("/(events|timeline|comments|commits|reviews|runs)\\?[^ \"'"'"']*per_page=")) and ($t | test("since=|[?&]page=[0-9]") | not)
+               and (($t | test("--paginate")) or ($t | test("gh api") | not))
+            then out("NOTE"; "shell"; "reads the whole of a list that grows with the item'"'"'s history: on a per-item or per-run path, bound it (since=, a page cap, a cache keyed on the update time)") else empty end),
+           (if ($t | test("2>[ \t]*/dev/null")) and ($t | test("\\|\\|[ \t]*(echo|printf|true|:)|// *(0|\\[\\]|\"\"|empty|null|false)|:-0\\}"))
+            then out("NOTE"; "shell"; "error hidden and replaced by a default: a failed read must not look like a real empty or zero answer") else empty end),
+           # a failure message: its longest literal run, for the test lookup below
+           (select($t | test("(^|[;&|{( \t])(log_?(warn|warning|err|error)|logev[ \t]+(warn|error)|warn|die|fail|abort)[ \t]+"))
+            | [ $t | scan("\"((?:[^\"\\\\]|\\\\.)*)\"") | .[0] | gsub("\\\\.|\\$(\\{[^}]*\\}|\\([^)]*\\)|[A-Za-z_][A-Za-z0-9_]*|[0-9#?@*])"; "\u0001")
+                | split("\u0001")[] | sub("^[ \t:;,.(-]+"; "") | sub("[ \t:;,(-]+$"; "") | select(length >= 12) ]
+            | max_by(length) // empty
+            | ["MSG", $x.f, ($x.n | tostring), .] | join("\t"))),
         (select(($script or ($f | test("\\.md$"))) and ($exempt | not)
            and ($t | test("[\"'"'"'` =(]/tmp/[A-Za-z]")) and ($t | test("mktemp|\\$\\$|RUN_ID|run_id|\\$\\{?[A-Z_]*ID|XXXX") | not))
          | out("NOTE"; "shell"; "fixed /tmp path: two concurrent runs share it, and no sweep may own it; use mktemp or a run-unique name")),
@@ -403,7 +412,7 @@ EOF
         | select($has_code == "0") | group_by(.f)[] | .[:5][]
         | out("NOTE"; "enforcement"; "new rule in prose only: judge whether a silent violation needs a script, test or gate"))
   ' < "$ADDED" > "$TMP/added.out"
-  grep -v '^CMD' "$TMP/added.out" >> "$OUT"
+  grep -vE '^(CMD|MSG)' "$TMP/added.out" >> "$OUT"
   grep '^CMD' "$TMP/added.out" | sort -u | while IFS="$TAB" read -r _ f n s mode; do
     sp="${s#\$HOME/}"
     [ -f "$sp" ] || continue
@@ -425,7 +434,7 @@ EOF
           | ["NOTE", "stale-term", .[0].f, "the change removed `\(.[0].t)`, and it still stands in: \([.[].f] | .[:3] | join(", "))"] | join("\t")' >> "$OUT"
   fi
 
-  # check: tests         A changed script has a test that names it, and the change touches a test
+  # check: tests         A changed script has a test that names it, the change touches a test, and a test names each added failure message
   TEST_RE='(^|/)tests?/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.bats$'
   grep -E "$TEST_RE" "$HEAD_LIST" > "$TMP/tests" || true
   if [ -s "$TMP/tests" ]; then
@@ -437,6 +446,15 @@ EOF
       elif [ -z "$touched" ]; then
         emit "$OUT" NOTE tests "$s" "the script changed and no test did (a test that names it: $named)"
       fi
+    done
+    # an added failure branch: a test that reaches it names its message, or
+    # four words of it in a row
+    grep '^MSG' "$TMP/added.out" | sort -u | while IFS="$TAB" read -r _ f n m; do
+      set -f; set -- $m; set +f
+      if [ $# -lt 4 ]; then printf '%s\n' "$m"
+      else while [ $# -ge 4 ]; do printf '%s %s %s %s\n' "$1" "$2" "$3" "$4"; shift; done; fi > "$TMP/msg.words"
+      tr '\n' '\0' < "$TMP/tests" | xargs -0 grep -qF -f "$TMP/msg.words" -- 2>/dev/null \
+        || emit "$OUT" NOTE tests "$f:$n" "an added failure branch whose message no test names, so no test reaches it: \"$m\""
     done
   fi
 
