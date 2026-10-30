@@ -139,8 +139,8 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   [skills.md](skills.md). Missing or empty → no review skills run (log once).
   A row whose skill is a guide skill — the bundled `review-guide`, in the
   default set — builds a visual page for the human reviewer of a
-  `needs-human` PR and links it from the review; it publishes to the DAM
-  Artifact Library ([skills.md](skills.md) → **Guide skills**,
+  `needs-human` PR and links it from the review, then brings that page up to
+  date in every later round; it publishes to the DAM Artifact Library ([skills.md](skills.md) → **Guide skills**,
   [artifact.md](artifact.md) → **Review guide**).
 - **`guide_label`** — a GitHub label a human adds to ask for the review guide
   of a PR whatever the review's triage. **Missing = the triage alone

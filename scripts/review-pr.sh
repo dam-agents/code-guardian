@@ -2079,10 +2079,11 @@ cmd_compose_brief() {
   exit 0
 }
 
-# The publish steps of a built or kept guide, between `meta.json` and `post`
-# (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
-# tools, and the triage it wrote decides whether a person is needed, unless
-# the `guide_label` asks for the guide.
+# The publish steps of a built, kept or refreshed guide, between `meta.json`
+# and `post` (docs/artifact.md → Review guide). The agent publishes: only it
+# has the DAM tools. The triage it wrote decides a first publish, unless the
+# `guide_label` asks for the guide; a published guide is refreshed in every
+# round.
 guide_brief() { # <skill> <section> <built|kept|refresh> <line> <html>
   local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge ff store n=1
   gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
