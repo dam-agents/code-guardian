@@ -690,10 +690,16 @@ trigger_live() { # <labels-json> <requested-json> <head-sha> → 0 when a re-rev
   [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
   [ -n "$GUIDE_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 \
     && ! guide_label_seen "$WORK/reviews/pr-$N.md" && g=0
-  # the review of this head owes its guide (docs/artifact.md → Review guide)
-  guide_owed "$WORK/reviews/pr-$N.md" \
-    && [ "$(sed -n 's/^## Review at \([0-9a-f]*\) .*/\1/p' "$WORK/reviews/pr-$N.md" | tail -1)" = "$(printf '%s' "${3:-}" | cut -c1-7)" ] && o=0
+  guide_owed_at "${3:-}" && o=0
   [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ] || [ "$o" -eq 0 ]
+}
+
+# The review of this head owes its guide: the newest section is at the head and
+# carries `<!-- guide-owed -->` (docs/artifact.md → Review guide).
+guide_owed_at() { # <head-sha>
+  local f="$WORK/reviews/pr-$N.md"
+  [ -n "${1:-}" ] && guide_owed "$f" \
+    && [ "$(sed -n 's/^## Review at \([0-9a-f]*\) .*/\1/p' "$f" | tail -1)" = "$(printf '%s' "$1" | cut -c1-7)" ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
@@ -1174,7 +1180,7 @@ cmd_prepare() {
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
     --argjson od "$ONDEMAND" --arg run "$me" \
     --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
-    --argjson go "$(guide_owed "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
+    --argjson go "$(guide_owed_at "$sha" && echo true || echo false)" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",

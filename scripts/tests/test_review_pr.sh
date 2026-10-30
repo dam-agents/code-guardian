@@ -2653,6 +2653,14 @@ newest_owes && printf 'ok   %s: a needs-human round without a guide owes one\n' 
 owed_round needs-human 'published no guide'
 newest_owes && { printf 'FAIL %s: the guide round owes a guide again\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the guide round owes nothing further\n' "$CASE"
+# a marker of an older head is not this round's: a triggered round at a moved head owes its own guide
+guide_setup guide_owed_moved_head
+pr_fx open '["cg-rereview"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n\n---\n<!-- guide-owed -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+owed_round needs-human
+assert_jq '.outcome == "posted"' 'the triggered round at the moved head posts'
+newest_owes && printf 'ok   %s: a round at a moved head owes its own guide\n' "$CASE" \
+  || { printf 'FAIL %s: the old marker cleared the debt of a moved head\n' "$CASE"; FAILED=1; }
 
 # no person needed: no page, no section
 guide_setup guide_not_needed

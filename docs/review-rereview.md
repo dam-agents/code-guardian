@@ -15,8 +15,8 @@ The trigger sets the scope:
   and `🔎 Missed earlier` findings; skill sections post in full.
   `findings-json` carries `new`/`still`/`fixed` as found, `late` included.
 - **Review request / `$REREVIEW_DELTA_LABEL` / on-demand ask / a
-  `guide_label` no round saw yet → delta re-review** (`full: false`): the
-  delta only, per the conciseness rules below.
+  `guide_label` no round saw yet / an owed guide → delta re-review**
+  (`full: false`): the delta only, per the conciseness rules below.
 
 **Description-only re-review** (`description_changed: true`): an edited body
 answers the trigger, so the diff and SHA are the reviewed ones. `post` reads
