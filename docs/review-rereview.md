@@ -106,8 +106,8 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   PR and no round saw it yet, so the round answers the label
   ([artifact.md](artifact.md) → **Review guide**). Record each skill you do
   not run with `review-pr.sh collect <n> --skip <skill>`: its audit line is
-  `skipped (base-merge-only)` ([skills.md](skills.md) → **Mandatory — not
-  skippable**). Read the range's
+  `skipped (base-merge-only)` ([skills.md](skills.md) → **Mandatory — one
+  judgement call**). Read the range's
   patches — the compare call of the next bullet, or the clone — where they
   touch the PR's changed code or the code it calls. A base change that breaks
   the PR — a removed or renamed symbol, a changed signature, contract or

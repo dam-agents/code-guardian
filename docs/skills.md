@@ -42,18 +42,20 @@ that SHA. The worklist's `skills` object reports per-skill status:
   install swaps its files in under the skills lock that a benchmark snapshot
   copies under (`scripts/lib/skills.sh`).
 
-## Mandatory — not skippable
+## Mandatory — one judgement call
 
-Running each configured skill per its trigger is not optional, not
-pre-filterable, and not your judgement call: the skill decides what is worth
-reporting, you invoke it and surface the result. The **only** valid skips are
+Running each configured skill per its trigger is not optional and not
+pre-filterable: the skill decides what is worth reporting, you invoke it and
+surface the result. The one skip that is your judgement call is
+`base-merge-only` below. The **only** valid skips are
 `no-matching-files` (extension trigger, empty routed list), `base-merge-only`
 (your call on a re-review range that leaves the PR's own diff unchanged,
 recorded with `collect --skip`,
 [review-rereview.md](review-rereview.md) → **Re-review output**) and the
 technical failures (`install-failed`, `clone-failed`, `skill-errored`). Whatever the PR
 — CI-only, docs-only, trivial — and whatever the previous review held, a
-skill with status `run` runs; a clean-run section is the correct output.
+skill with status `run` runs, except one you record with `collect --skip` on a
+base-merge-only round; a clean-run section is the correct output.
 
 ## Triggers & file routing
 
