@@ -92,6 +92,38 @@ assert_rc 2 'blocked without awk on the PATH'
 run_hook Read 'gh issue create'; assert_rc 0 'another tool passes'
 run_hook Bash ''; assert_rc 0 'an empty command passes'
 
+# --- a self-review instance: the target repo is the definition repo ---------------
+new_case guard_self_review
+base_config '- definition_repo: acme/guardian' '- github_repo: github.com/Acme/Guardian'
+passes 'gh api "repos/acme/guardian/issues/12/comments" -f body=hi' 'a comment on an own PR, slug written out'
+passes 'gh api repos/{owner}/{repo}/issues/12/comments -X POST -f body=hi' 'a comment through {owner}/{repo}'
+passes 'gh api -X PATCH repos/acme/guardian/issues/comments/99 -f body=hi' 'editing an own comment'
+passes 'gh issue comment 12 --body hi' 'gh issue comment without --repo'
+passes 'gh issue comment 12 -R acme/guardian --body hi' 'gh issue comment on the repo'
+passes 'curl -X POST https://api.github.com/repos/acme/guardian/issues/12/comments -d @b.json' 'a curl comment'
+passes 'gh api graphql -f query='"'"'mutation { addComment(input:{subjectId:"x", body:"y"}) { clientMutationId } }'"'" 'the addComment mutation'
+blocked 'gh issue create -R acme/guardian -t x -b y' 'gh issue create still needs the script'
+blocked 'gh issue create -R acme/guardian -t x -b "see gh issue comment 1"' 'a create whose body names the comment verb'
+blocked 'gh issue delete 12 -R acme/guardian --yes # gh issue comment 1' 'a delete that carries the comment verb as text'
+blocked 'X="gh issue comment" gh issue create -t x -b y' 'the comment verb in an assignment before a create'
+passes 'gh issue -R acme/guardian comment 12 -b "gh issue create later"' 'a comment whose body names the create verb'
+blocked 'gh api -X POST repos/acme/guardian/issues -f title=x' 'gh api issue create still needs the script'
+blocked 'gh api -X PATCH repos/acme/guardian/issues/12 -f state=closed' 'closing an issue still needs the script'
+blocked 'gh api repos/acme/guardian/issues/12/comments -f body=x; gh api -X POST repos/acme/guardian/issues -f title=x' 'a create after a comment'
+blocked 'curl -s -X POST "https://api.github.com/repos/acme/guardian/issues/12/comments/../../../issues" -d @b.json' 'a comment-like path with dot segments'
+blocked 'gh api -X POST repos/acme/guardian/issues/12/comments/../../../issues -f title=x' 'gh api over dot segments'
+blocked 'gh api -X POST "repos/acme/guardian/issues/%2e%2e/comments" -f title=x' 'an encoded dot segment'
+blocked 'gh api -X PATCH repos/acme/guardian/issues/12/comments/x -f state=closed' 'a suffix after the comment segment'
+blocked 'gh api -X POST "repos/acme/guardian/issues/$N/comments" -f body=x' 'a variable in place of the number'
+blocked 'gh api -X POST "repos/acme/guardian/issues?x=/issues/1/comments" -f title=x' 'a query that ends in the comment shape'
+blocked 'curl -X POST "https://api.github.com/repos/acme/guardian/issues#/issues/1/comments" -d @b.json' 'a fragment that ends in the comment shape'
+passes 'gh api -X POST "repos/acme/guardian/issues/12/comments?per_page=1" -f body=hi' 'a comment path with a query'
+blocked 'gh api graphql -f query='"'"'mutation { createIssue(input:{repositoryId:"x"}) { issue { id } } }'"'" 'the createIssue mutation'
+case "$ERR" in
+  (*'comments on its PRs and issues pass'*) printf 'ok   %s: stderr says comments pass\n' "$CASE";;
+  (*) printf 'FAIL %s: stderr does not say comments pass: %s\n' "$CASE" "$(printf '%s' "$ERR" | cut -c1-200)"; FAILED=1;;
+esac
+
 # --- the definition repo from $HOME's origin when CONFIG.md lacks the key ----------
 new_case guard_origin_fallback
 base_config

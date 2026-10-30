@@ -17,6 +17,10 @@ they are released history and stay as written.
 each PR with a published guide gets its page brought up to date in every
 round: the PR, its issue and every review note with its author.
 
+## 13.0.1 — 2026-10-30
+
+**Upgrade:** Nothing to run. The migration refreshes the harness hooks.
+
 ## 13.0.0 — 2026-10-30
 
 **Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each
