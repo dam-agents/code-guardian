@@ -14,7 +14,7 @@ definition releases. It writes nothing to GitHub.
 ## Layout (`work/benchmark/`)
 
 ```
-fixture/<slug>/          # one benchmark project (immutable once created); the set holds ≥5
+fixture/<slug>/          # one benchmark project (immutable once created); the set holds ≥5 simple + ≥3 complex
   base/                  # starting tree (the "main" branch)
   head-v1/               # PR state 1 — the seeded-defect version
   head-v2/               # PR state 2 — some defects fixed, some kept, a few new
@@ -38,7 +38,28 @@ column help lives in the `TIPS` dictionary of `benchmark-report.sh`.
 
 A fixture is immutable after creation. A fixture that stops representing the
 target repo's stack gets a new sibling slug alongside it (the set may grow past
-5). Retiring one is an operator decision (**Retiring a fixture set**).
+its minimum). Retiring one is an operator decision (**Retiring a fixture set**).
+
+## Task tiers
+
+The benchmark answers two questions apart: is the configuration good enough
+for **simple** tasks, and is it good enough for **complex** ones. Difficulty
+lives on two axes, both in `manifest.json` only:
+
+- **Task tier** — the fixture's `tier`: `simple` (absent = simple) or
+  `complex`. The set holds **≥ 5 simple and ≥ 3 complex** fixtures.
+  - simple: `base/` 3–6 files, ~150–400 lines; 10–14 v1 defects, 2–3 hard.
+  - complex: `base/` 8–15 files across ≥ 3 modules, ~800–1500 lines; 15–20
+    v1 defects, **≥ 5 hard**; head-v2 fixes interact (one fix moves the
+    precondition of another defect).
+- **Defect difficulty** — `"difficulty": "hard"` on a defect that needs
+  reasoning across files or control flow (a lock released on one path only, an
+  invariant broken two calls away, a unit mismatch between producer and
+  consumer), never a greppable pattern. Every other defect is easy.
+
+The scorer copies the tier and counts `tp`/`gt` per difficulty; the report
+pools each tier over its fixtures (**Sufficiency by tier**). The slug names
+the shape of the change, never its tier: the sub-agents see the slug.
 
 ## Session separation
 
@@ -56,8 +77,10 @@ target repo's stack gets a new sibling slug alongside it (the set may grow past
 
 ## Creating the fixture set (`action: create_fixture`, or operator ask)
 
-The entry carries `existing` (slugs on disk) and `min` (the required set size,
-5). Create the **missing** fixtures only.
+The entry carries `existing` (slugs on disk), `min` and `min_complex` (the
+required count per tier, 5 and 3) and `missing` (`{simple, complex}`: how
+many of each tier to create). Create the **missing** fixtures only, each to its
+tier's spec (**Task tiers**).
 
 **The ground truth lives in `manifest.json` and nowhere else.** `base/`,
 `head-v1/`, `head-v2/`, both patches and `prior-review.md` are Phase-1 inputs,
@@ -75,10 +98,12 @@ catches a labelled defect.
    extension-triggered skill receives ≥ 1 file from ≥ 1 fixture. Name each slug
    after its type (`ts-api`, `react-ui`, `py-cli`, `infra-ci`, `docs-mixed`).
    A later skill-table trigger no fixture covers gets a new fixture the same
-   way.
+   way. A complex fixture is a larger change of one of these shapes — a
+   service with its client and migration, a UI feature across components and
+   state — and sets `"tier": "complex"`.
 2. Generate each `fixture/<slug>/`:
-   - `base/` — 3–6 plausible source files, ~150–400 lines total.
-   - `head-v1/` — base plus 10–14 seeded defects (severities
+   - `base/` — plausible source files at the tier's size (**Task tiers**).
+   - `head-v1/` — base plus the tier's count of seeded defects (severities
      `critical`/`warning`, spread across correctness / security / performance /
      tests / maintainability) plus a few clean-but-suspicious-looking hunks,
      unlabelled: they are what measures false positives.
@@ -87,10 +112,8 @@ catches a labelled defect.
    - Keep defects in one file ≥ 10 lines apart (the scorer matches on a ±3-line
      window) and make each a **distinct pattern**: the sibling sweep merges
      same-class occurrences into one finding.
-   - Mark 2–3 defects per fixture `"difficulty": "hard"` — ones needing
-     reasoning across files or control flow (a lock released on one path only,
-     an invariant broken two calls away, a unit mismatch between producer and
-     consumer), never a greppable pattern. They feed `recall_hard`.
+   - Mark the tier's count of defects `"difficulty": "hard"` (**Task
+     tiers**). They feed `recall_hard`; the rest feed `recall_easy`.
    - A model holding a fixture at `f1 = 1.0` for two consecutive runs has
      saturated it: add a harder sibling slug, and keep the saturated fixture
      for continuity.
@@ -123,15 +146,15 @@ catches a labelled defect.
    Each `FAIL` line carries its own `fix:` instruction. `leak_*` means the
    answers sit in the inputs; `diff_paths` means no finding can ever match the
    manifest.
-8. Report the per-fixture defect tables (id, file:line, class, severity,
-   fixed_in_v2, in_prior_review) plus the validation `PASS` line to the chat
+8. Report the per-fixture defect tables (tier; id, file:line, class,
+   severity, difficulty, fixed_in_v2, in_prior_review) plus the validation `PASS` line to the chat
    UI, log `benchmark fixtures created (<k> new, set now <n>, validated)`, and
    end the run (backup last, as always).
 
 ### `manifest.json`
 
 ```json
-{"fixture": "ts-api", "created": "<ISO>",
+{"fixture": "ts-api", "created": "<ISO>", "tier": "simple",
  "defects": [{"id": "D01", "file": "src/auth.ts", "line_v1": 42, "line_v2": 42,
               "class": "security", "severity": "critical",
               "summary": "token compared with ==",
@@ -139,8 +162,11 @@ catches a labelled defect.
               "difficulty": "hard"}]}
 ```
 
-- `difficulty` is optional and, when present, exactly `"hard"`. It feeds
-  `recall_hard` and nothing else.
+- `tier` is optional and, when present, `simple` or `complex`; a complex
+  fixture has ≥ 8 base files and ≥ 5 hard v1 defects (the validator checks
+  both).
+- `difficulty` is optional and, when present, exactly `"hard"`. It splits
+  recall into `recall_easy` and `recall_hard` and nothing else.
 - Kept in v2 → both lines set, `fixed_in_v2: false`.
 - Fixed in v2 → `line_v2: null`, `fixed_in_v2: true`, plus **`fix_line_v2`**,
   the line the fix landed on in `head-v2` (the scorer's `churn` metric matches
@@ -466,6 +492,10 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
     (one JSON row per run with `cost_usd`; the weights and the price lookup
     live only in that script):
     - the run's **quality index** and per-fixture headline scores;
+    - the **sufficiency line** — the run's verdict per tier with its pooled
+      counts, from `tiers` of the same `index` row (**Sufficiency by
+      tier**), e.g. `simple: sufficient (rec 0.91, 20/22) · complex:
+      insufficient (rec 0.60, 12/20; hard 1/5)`;
     - run totals — seconds, output tokens, estimated cost when the price table
       covers the model (**Model prices**);
     - any non-zero `churn`/`false_fixed`, named (the going-in-circles
@@ -603,6 +633,40 @@ serving it.
   comparability window for the judge columns, and the chat summary says so.
 - An operator's model id in `benchmark_judge` always wins: `pin` refuses, and
   the agent never changes that id.
+
+## Sufficiency by tier
+
+The report's **Sufficiency by task tier** table shows the latest run of each
+configuration (harness, model, effort, isolation) with one verdict per tier:
+all fixtures of the tier pooled into one sample — summed `tp`, `gt` and `fp`
+of the first reviews — and checked against the operator's bar in
+`work/CONFIG.md`:
+
+```markdown
+## Benchmark sufficiency
+
+| tier | recall | precision | min_defects |
+|---|---|---|---|
+| simple | 0.8 | 0.7 | 20 |
+| complex | 0.8 | 0.7 | 20 |
+```
+
+A tier the table does not name keeps the defaults above. The verdict:
+
+- **sufficient** — pooled recall and precision meet the bar, and no re-review
+  of the tier reported a present defect fixed (`false_fixed` 0);
+- **borderline** — no false-fixed, and both values within 0.05 under the bar;
+- **too few defects** — fewer pooled defects than `min_defects`: the sample
+  cannot decide;
+- **insufficient** — anything else. A false-fixed re-review makes the tier
+  insufficient at any sample size.
+
+The cell carries the pooled counts (`rec 0.91 (20/22) · prec 0.95 · hard 3/5`)
+so the reader sees the sample behind the verdict. The verdict and the
+easy/hard recall stay beside the index, never inside it. The bar and the rule
+live in `scripts/lib/sufficiency.sh`; `benchmark-report.sh index` carries them
+per run as `tiers`. Update the table in the direct session like any other
+config change.
 
 ## Model prices (cost column)
 

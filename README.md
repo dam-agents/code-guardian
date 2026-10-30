@@ -121,9 +121,10 @@ average. The history is append-only and the step makes no model call
 ([`docs/trends.md`](docs/trends.md)).
 
 **Model benchmark** — the 1st of the month by default; runs only when the
-`benchmark` key is enabled. The agent replays ≥5 synthetic review fixtures
+`benchmark` key is enabled. The agent replays ≥5 simple and ≥3 complex synthetic review fixtures
 with known seeded defects through its full pipeline, measures time and tokens
-per review, scores each output against the fixture's manifest, and republishes
+per review, scores each output against the fixture's manifest, says per task tier
+whether the configuration is good enough, and republishes
 an accumulated report, kept with full provenance so review quality stays
 comparable across model, harness and definition versions. Unrecorded **trial
 runs** score feature branches during development, several at once
@@ -250,7 +251,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |
 | `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
 | `definition_issues` | asked (default `disabled`) | Whether the agent files anonymous tracking issues on the definition repo — audit-found definition bugs and refused channel requests; `scripts/definition-issue.sh` blocks any draft that names instance data (`docs/runbook.md` → **Definition-repo issues**). |
-| `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 synthetic fixtures with known defects, time and tokens measured per review (`docs/benchmark.md`). |
+| `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 simple and ≥3 complex synthetic fixtures with known defects, time and tokens measured per review, and a verdict per task tier (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | The judge of the LLM-judged quality scores, the same for every run, run through the `claude` CLI (or `pi` on the same model as the fallback) whatever model the reviews use: `auto` = the agent picks it once from the host's models, a model id = the operator's pick, `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
@@ -265,6 +266,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `brief_language` | asked with `daily_brief` (default `English`) | The language of the brief. |
 | `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
+| `## Benchmark sufficiency` table | offered with `benchmark` (optional) | The bar per task tier (recall, precision, minimum defects) for the report's sufficiency verdicts: is the configuration good enough for simple tasks, and for complex ones (`docs/benchmark.md` → **Sufficiency by tier**). |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | The heartbeat's two cadences and the window between them; each interval bounds how long a new PR waits for its run. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that record one history incident (no alert), at most once per UTC day; `0`/`off` disables. |

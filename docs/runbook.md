@@ -227,7 +227,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 
 1. Title the session (**Session titles**), then read
    [benchmark.md](benchmark.md) and perform the entry's action:
-   `create_fixture` tops the fixture set up to ≥5 and ends the run; `run`
+   `create_fixture` tops the fixture set up to ≥5 simple and ≥3 complex and ends the run; `run`
    replays every fixture review in isolated platform sub-agents, scores and
    records them, republishes the report
    and reports the scores in the chat UI. **`scripts/benchmark-validate.sh`

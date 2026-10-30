@@ -248,7 +248,7 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   (`English`, `Czech`). **Missing = `English`.** It sets the brief only;
   every other outward text stays in ASD-STE100.
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
-  monthly self-benchmark: replays ≥5 synthetic review fixtures through the full
+  monthly self-benchmark: replays ≥5 simple and ≥3 complex synthetic review fixtures through the full
   pipeline and scores each output against its known defects; results
   accumulate in `work/benchmark/` ([benchmark.md](benchmark.md)). A run needs
   a non-public `work_repo` and a public definition repo
@@ -276,6 +276,10 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   ([benchmark.md](benchmark.md) → **Model prices**, [monitor.md](monitor.md) →
   **Review anomaly alert**).
   Missing = costs render "—".
+- **`## Benchmark sufficiency` table** — optional bar per task tier (`simple`,
+  `complex`: recall, precision, min_defects) that the report's sufficiency
+  verdicts check ([benchmark.md](benchmark.md) → **Sufficiency by tier**).
+  Missing table or tier = recall 0.8, precision 0.7, min_defects 20.
 
 ### Monitor
 
