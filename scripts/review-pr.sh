@@ -1699,6 +1699,9 @@ cmd_collect() {
     f="$OUT/$s.txt"
     case "$st" in
       (run)
+        # a guide skill that ran answers the guide label whatever its state
+        # (post → guide-label-seen, docs/artifact.md → Review guide)
+        [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/skills.json")" = guide ] && : > "$CTX/guide.answered"
         if [ -s "$f" ] && [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/skills.json")" = guide ]; then
           collect_guide "$s" "$f"
         elif [ -s "$f" ]; then
@@ -2509,11 +2512,12 @@ cmd_post() {
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"
-  # the round had the guide label at `prepare` and reached the guide step —
-  # recorded or skipped with its reason: the label is served. A round that
-  # never ran the guide skill leaves it for the next one (docs/artifact.md →
-  # Review guide).
-  [ -n "$(guide_label_on)" ] && [ -f "$CTX/guide.answered" ] \
+  # the round had the guide label at `prepare` and its guide skill ran, in any
+  # state: the label is served. A round that ran no guide skill leaves it for
+  # the next one; a round at the prior review's SHA is that next one, so it
+  # serves the label in every case (docs/artifact.md → Review guide).
+  [ -n "$(guide_label_on)" ] \
+    && { [ -f "$CTX/guide.answered" ] || [ "$(ctx_get '.prior.sha // empty')" = "$sha" ]; } \
     && printf '<!-- guide-label-seen -->\n' >> "$WORK/reviews/pr-$N.md"
   rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done
@@ -2794,7 +2798,6 @@ cmd_guide() {
   if [ -n "$skipped" ]; then
     case "$skipped" in (dam-unavailable|skill-errored) ;; (*) fail "--skipped takes dam-unavailable or skill-errored";; esac
     logev warn guide "PR #$N: $s skipped ($skipped)"
-    : > "$CTX/guide.answered"   # the round reached the guide step (post → guide-label-seen)
     out "$(jq -nc --arg r "$skipped" '{outcome:"skipped", reason:$r}')"
   fi
   printf '%s' "$id" | grep -qE '^[A-Za-z0-9_-]+$' || fail "--id must be the DAM artifact id"
@@ -2820,7 +2823,6 @@ cmd_guide() {
   fi
   red="$(jq -r --arg s "$s" '.[$s].redactions // 0' "$CTX/collect.json" 2>/dev/null)"
   logev info guide "PR #$N: $s published → DAM $id, ${red:-0} redacted"
-  : > "$CTX/guide.answered"
   out "$(jq -nc --arg i "$id" --arg u "$url" --arg h "$sha7" '{outcome:"recorded", id:$i, url:$u, sha:$h}')"
 }
 

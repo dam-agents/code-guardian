@@ -1039,23 +1039,21 @@ run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' 'a guide label the last round did not see starts a delta round'
 run_rp abort 1 "reset"
 
-# --- post: a guide round posts and records that it saw the label ---------------
-setup post_guide_label '- guide_label: cg-guide'
+# --- post: a round at the prior review's SHA serves the label in every case ----
+setup post_guide_label_same_sha '- guide_label: cg-guide'
 pr_fx open '["cg-guide"]'
-printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
-add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+printf '# PR #1: alpha PR\n\n## Review at %s — %s — COMMENT\n\nx\n' "${B1_SHA:0:7}" "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "$B1_SHA" "$(iso_ago 7200)" COMMENT done
 run_rp prepare 1
-printf '{"review-guide":{"kind":"guide"}}' > "$(PR_DIR).ctx/collect.json"
-run_rp guide 1 --skipped dam-unavailable
-assert_jq '.outcome == "skipped"' 'the round reaches the guide step'
+assert_jq '.outcome == "ready" and .kind == "re-review"' 'an unseen guide label is a live trigger at the reviewed SHA'
 printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "posted"' 'an unseen guide label is a live trigger at post'
+assert_jq '.outcome == "posted"' 'the guide round posts'
 sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
-  && printf 'ok   %s: the new section records the guide label\n' "$CASE" \
-  || { printf 'FAIL %s: no guide-label-seen marker in the newest section\n' "$CASE"; FAILED=1; }
+  && printf 'ok   %s: a same-SHA round records the label even without a guide skill\n' "$CASE" \
+  || { printf 'FAIL %s: no guide-label-seen marker after the same-SHA round\n' "$CASE"; FAILED=1; }
 
 # --- post: a round that never ran the guide skill leaves the label unseen ------
 setup post_guide_label_no_guide '- guide_label: cg-guide'
@@ -2511,6 +2509,30 @@ run_rp collect 1
 assert_jq '.skills["review-guide"].guide == "budget" and (.form_warnings | any(contains("stopped at the")))' 'a budget stop is its own state, with a warning'
 assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=budget)") != null' 'the audit line tells a budget stop from a gate refusal'
 run_rp abort 1 "reset"
+
+# every terminal state of the guide skill serves the guide label at post
+for gs in not-needed budget refused errored; do
+  guide_setup "guide_label_served_$gs" '- guide_label: code-guardian:guide'
+  pr_fx open '["code-guardian:guide"]'
+  run_rp prepare 1
+  mkdir -p "$(PR_DIR).out"
+  case "$gs" in
+    (not-needed) printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt";;
+    (budget) printf '➖ Not built — budget reached.\n' > "$(PR_DIR).out/review-guide.txt";;
+    (refused) printf 'not a guide line\n' > "$(PR_DIR).out/review-guide.txt";;
+    (errored) : ;;
+  esac
+  printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+  run_rp collect 1
+  printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+  printf '[]' > "$SANDBOX/findings.json"
+  printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+  run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+  assert_jq '.outcome == "posted"' "a round whose guide skill ended $gs posts"
+  grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+    && printf 'ok   %s: a guide skill that ended %s serves the label\n' "$CASE" "$gs" \
+    || { printf 'FAIL %s: no guide-label-seen marker after a %s guide\n' "$CASE" "$gs"; FAILED=1; }
+done
 
 # no person needed: no page, no section
 guide_setup guide_not_needed

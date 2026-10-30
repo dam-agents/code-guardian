@@ -208,8 +208,8 @@ separated by `---`. Update the header on a title change. The guide marker
 sits right after the title, overwritten in place by `review-pr.sh guide`
 ([artifact.md](artifact.md)); omit it when no guide was published.
 `<!-- guide-label-seen -->` follows the section of a round that had the
-`guide_label` at `prepare` and recorded its guide or the guide's skip, written
-by `review-pr.sh post`. Watch-rule
+`guide_label` at `prepare` and ran its guide skill, or that ran at the prior
+review's SHA, written by `review-pr.sh post`. Watch-rule
 markers (`<!-- watch-sent: <id> -->`, [watches.md](watches.md)) follow on
 their own lines.
 
