@@ -3,8 +3,8 @@ name: review-guide
 description: >-
   Build a short, picture-first, one-page HTML guide for the person who must
   review a pull request: why a person is needed and where to start, a map of
-  the project with the change marked, the grounded risks and the review's
-  verified findings, then one visual per section — why the PR exists, the
+  the project with the change marked, the grounded risks, and the PR, its
+  issue and every review note with its author, then one visual per section — why the PR exists, the
   dependency chain, the decisions and their alternatives, the problems met
   and how they were solved, where the churn landed, the technical impact, and
   the limits and open points. It decides first whether a person must judge anything and
@@ -162,7 +162,7 @@ pictures, not paragraphs, and the reader goes down only where they want.
 
 | Level | What the reader sees | The pictures |
 |---|---|---|
-| **0 — the PR** (no click) | header chips, **Why a person must look**, **Risks — what to watch**, **Verified by the review**, **Start here**, **Where it lands** | risk cards with a level edge, the review's findings, the project map with the touched nodes marked |
+| **0 — the PR** (no click) | header chips, **Why a person must look**, **Risks — what to watch**, **PR, issue and review notes**, **Start here**, **Where it lands** | risk cards with a level edge, each reviewer's notes with their author and status, the project map with the touched nodes marked |
 | **1 — overview** (no click) | the sections as **closed lines**: name · main point in ≤ 15 plain words, no code marks · badge (`3 to judge`, `2 solved`, `+386 −10`, `breaking`) | the closed page reads as the PR's story |
 | **2 — a section** (open a line) | its main visual and at most about 60 words | before/after, chain, compare cards, timeline, treemap, rings |
 | **3 — zoom in** (a 🔍 zoom) | the parts behind the visual | file tiles sized by churn, component cards with before → after, risk dot and churn bar |
@@ -189,12 +189,13 @@ mini diff. Each zoom starts with a breadcrumb (`Map › <node> › <file>`).
 
 **The first screen answers the reviewer's questions.** Why was it done and
 what does it do — the callout and the map. What must a person decide — the
-callout. What is risky — **Risks — what to watch**. What did the automated
-review already find — **Verified by the review**: code-guardian renders the
-review's open blocking findings into the page where the template's
-`<!-- cg:findings -->` mark sits. Keep the mark; never write findings
-yourself and never restate them as risks. Where to look first — **Start
-here**.
+callout. What is risky — **Risks — what to watch**. Who opened the PR and
+its issue, and what each reviewer said — **PR, issue and review notes**:
+code-guardian renders the links, the authors and every review note with its
+author and status where the template's `<!-- cg:findings -->` mark sits, and
+brings the block up to date in every later round. Keep the mark; never write
+review notes yourself and never restate them as risks. Where to look first —
+**Start here**.
 
 ### Risks from facts
 
@@ -355,9 +356,13 @@ When the brief asks for one, draw it from `assets/project-diagram.svg`:
 
 - **Stay at altitude**: consequences and coupling, not naming, style or
   micro-optimizations.
-- **Describe decisions, ground risks**: present each decision and problem
-  neutrally; name a risk only from a fact (**Risks from facts**). Report a risk
-  the PR itself flags as its authors framed it.
+- **No opinion of the page's own**: state facts with their evidence, and give
+  every judgment its source — the PR author (`author-decisions`, the body), a
+  reviewer (the notes block), or code-guardian's reading (the risks, the
+  `inferred` decisions, why a person must look). Present each decision and
+  problem neutrally; name a risk only from a fact (**Risks from facts**).
+  Report a risk the PR itself flags as its authors framed it. Never call a
+  choice right, wrong, good or bad.
 - **Do not** narrate the diff file by file, decorate (no poem, mascot, emoji
   rows, filler), repeat the review's findings, give a score without its
   rubric, or describe code you did not read.

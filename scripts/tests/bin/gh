@@ -11,6 +11,9 @@ slug="$(printf '%s' "$args" | tr -c 'A-Za-z0-9._-' '_')"
 # multi-line and changes whenever the query is edited, which would silently
 # orphan every fixture named after it.
 case "$args" in
+  (*graphql*GuideRecord*)
+    slug="graphql_guide_record_$(printf '%s' "$args" | tr ' ' '\n' \
+            | grep -E '^n=[0-9]+$' | head -1 | cut -d= -f2)";;
   (*graphql*PruneStates*)
     slug="graphql_prune_states";;
   (*graphql*pullRequest*lastEditedAt*)

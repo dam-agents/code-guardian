@@ -25,7 +25,7 @@ diagram needs a code range:
 Links in the page: `https://{{REPO}}/blob/{{HEAD_SHA}}/<path>#L<a>-L<b>` for code,
 `https://{{REPO}}/pull/{{PR}}/files` for the PR, `https://{{REPO}}/issues/<n>` and
 `https://{{REPO}}/commit/<sha>`. No other link target. Keep the template's
-`<!-- cg:findings -->` mark: code-guardian renders the review's findings there.
+`<!-- cg:findings -->` mark: code-guardian renders the PR, its issue and every review note there.
 
 Do exactly this:
 
