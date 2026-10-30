@@ -74,7 +74,9 @@ api_write() { # <text> — a gh api write to the definition issues; an explicit 
 }
 
 ISSUE_VERB='(^|[[:space:]])gh[[:space:]]+issue([[:space:]]+(-R|--repo)([[:space:]]+|=)?[^[:space:]]+)?[[:space:]]+(create|comment|edit|close|reopen|delete|transfer|pin|unpin|lock|unlock|develop)([[:space:]]|$)'
-ISSUE_COMMENT='(^|[[:space:]])gh[[:space:]]+issue([[:space:]]+(-R|--repo)([[:space:]]+|=)?[^[:space:]]+)?[[:space:]]+comment([[:space:]]|$)'
+# the segment's own subcommand: gh issue first, an optional -R/--repo pair, then
+# comment — the verb text anywhere else in the segment is an argument
+ISSUE_COMMENT='^[[:space:]]*gh[[:space:]]+issue([[:space:]]+(-R|--repo)([[:space:]]+|=)?[^[:space:]]+)?[[:space:]]+comment([[:space:]]|$)'
 REPO_FLAG='(^|[[:space:]])(-R|--repo)'
 REPO_DEF="(^|[[:space:]])(-R|--repo)[[:space:]=]*[\"']?([A-Za-z0-9.-]+/)?$DEF_RE([[:space:]\"']|\$)"
 
