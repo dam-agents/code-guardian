@@ -1249,9 +1249,10 @@ cmd_prepare() {
       && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
   fi
   # own-change gate: a range whose PR diff is byte-identical to the one the last
-  # review digested carries base-branch merges only, so it is not a review round
-  # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
-  # `verify` reads the event's `— base merges only` suffix: steps c and d skipped.
+  # review digested carries base-branch merges only: no skills, the agent reads the
+  # base hunks against the PR's code (docs/review-rereview.md → Re-review output).
+  # No prior digest → the normal round. `verify` reads the event's
+  # `— base merges only` suffix: no fan-out or `verified` milestone is owed.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -2624,7 +2625,7 @@ cmd_verify() {
           $ev[$i:] as $cy
           | [ $cy[] | select(.event == "review_step") | .step ] as $steps
           # prepare logs `… — base merges only` for a range that leaves the PR
-          # diff untouched: steps c and d are skipped (docs/review-rereview.md)
+          # diff untouched: no fan-out or `verified` is owed (docs/review-rereview.md)
           | any($cy[]; .event == "review_pr" and (.step | endswith("base merges only"))) as $base
           | { lock_ts: $ev[$i].ts,
               last: ([ $cy[] | select(.event == "review_step") ] | last),

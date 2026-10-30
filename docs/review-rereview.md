@@ -102,9 +102,9 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   false`, the range holds base-branch merges only. Skip the skills. Read the
   range's hunks in `delta.files[]` that touch the PR's changed code or the
   code it calls: a base change that breaks the PR — a removed or renamed
-  symbol, a changed signature, contract or default — is a `🆕 New` finding
-  (`--fresh` on its `delta` index), verified and swept as in step d, and the
-  round is a normal delta round.
+  symbol, a changed signature, contract or default — is a `🆕 New` finding,
+  verified and swept as in step d (`--fresh` on its index when `delta` lists
+  it in `late[]`).
   Nothing found → carry every open prior finding into the
   block as `🔁 Still present` one-liners, keep the prior verdict, and write
   `Range holds base-branch merges only — no change to this PR's own diff.`
