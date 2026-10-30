@@ -14,9 +14,9 @@ The trigger sets the scope:
   `✅ Fixed` stay one-liners in the block. Inline comments map only `🆕 New`
   and `🔎 Missed earlier` findings; skill sections post in full.
   `findings-json` carries `new`/`still`/`fixed` as found, `late` included.
-- **Review request / `$REREVIEW_DELTA_LABEL` / on-demand ask → delta
-  re-review** (`full: false`): the delta only, per the conciseness rules
-  below.
+- **Review request / `$REREVIEW_DELTA_LABEL` / on-demand ask / a
+  `guide_label` no round saw yet → delta re-review** (`full: false`): the
+  delta only, per the conciseness rules below.
 
 **Description-only re-review** (`description_changed: true`): an edited body
 answers the trigger, so the diff and SHA are the reviewed ones. `post` reads
@@ -27,6 +27,13 @@ reviews**) and redo the review against it: a removed justification no longer
 suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
 — write `description edited, no new commits` on that line and let the buckets
 carry the rest. No change in substance → say so in one line.
+
+**Guide round** (`guide_requested: true`): the `guide_label` is on the PR and
+no review round saw it yet ([artifact.md](artifact.md) → **Review guide**). The scope
+is delta. With no new commits the SHA is the reviewed one: `Previous HEAD` is
+the same SHA — write `guide requested, no new commits` on that line, carry the
+prior findings as `still`, and publish the guide. With new commits it is a
+delta re-review that also publishes the guide.
 
 Both scopes: the prior `findings-json` array is `prior_findings` in the
 prepare output, or the line in `reviews/pr-<n>.md` where no `prepare` ran, so

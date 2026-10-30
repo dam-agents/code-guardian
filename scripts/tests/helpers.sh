@@ -95,6 +95,13 @@ fx_body_edited() { # <number> <iso-ts|->
     > "$GH_FIXTURES/graphql_pr_lastedited_$1"
 }
 
+# PR <n>'s history file with one review section at <sha7>; `seen` adds the
+# guide-label-seen marker to that section
+history_fx() { # <number> <sha7> [seen]
+  { printf '# PR #%s: plain PR\n\n## PR-local overrides\n\n## Review at %s — %s — COMMENT\n\nx\n\n---\n' "$1" "$2" "$(iso_ago 3600)"
+    [ "${3:-}" = seen ] && printf '<!-- guide-label-seen -->\n'; } > "$WORK/reviews/pr-$1.md"
+}
+
 # make the given gh invocation fail with an exit code (default 1) — tests/bin/gh
 fx_fail()      { printf '%s' "${2:-1}" > "$GH_FIXTURES/$(fx_for "$1").rc"; }
 # same, but only the next call fails; later calls serve the body fixture
