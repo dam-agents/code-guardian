@@ -29,7 +29,8 @@ brief marks the PR as forced, so the skill's gate passes, and `compose-brief`
 tells the agent to publish whatever its triage. The label changes neither the
 triage nor the verdict. It stays on the PR, so every later round builds or
 keeps the guide. `post` writes `<!-- guide-label-seen -->` into the history
-section of a round that had the label at `prepare`. A label on the PR that the
+section of a round that had the label at `prepare` and reached the guide step:
+`review-pr.sh guide` recorded the page or its skip. A label on the PR that the
 newest section does not record starts a round of its own: preflight gives the
 PR a delta re-review with `guide_requested: true` — at the reviewed head when
 there are no new commits ([review-rereview.md](review-rereview.md) → **Guide

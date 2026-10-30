@@ -1045,6 +1045,9 @@ pr_fx open '["cg-guide"]'
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
 run_rp prepare 1
+printf '{"review-guide":{"kind":"guide"}}' > "$(PR_DIR).ctx/collect.json"
+run_rp guide 1 --skipped dam-unavailable
+assert_jq '.outcome == "skipped"' 'the round reaches the guide step'
 printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
@@ -1053,6 +1056,19 @@ assert_jq '.outcome == "posted"' 'an unseen guide label is a live trigger at pos
 sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
   && printf 'ok   %s: the new section records the guide label\n' "$CASE" \
   || { printf 'FAIL %s: no guide-label-seen marker in the newest section\n' "$CASE"; FAILED=1; }
+
+# --- post: a round that never ran the guide skill leaves the label unseen ------
+setup post_guide_label_no_guide '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the review posts'
+grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+  && { printf 'FAIL %s: a round without the guide step recorded the label as seen\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the label stays unseen when the guide step did not run\n' "$CASE"
 
 # --- post: a guide label put on mid-review is left for the next round ----------
 setup post_guide_label_mid_review '- guide_label: cg-guide'
