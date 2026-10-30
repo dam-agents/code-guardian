@@ -43,7 +43,7 @@
 #                   array and rereview.churn numeric (scorer output copied
 #                   whole — a dropped field renders "—" forever, since the
 #                   history is append-only)
-#   tiers           from definition_version 12.9.0: every first carries
+#   tiers           from definition_version 12.10.0: every first carries
 #                   `tier` and `difficulty` (scorer output copied whole) — the
 #                   sufficiency table pools them per tier
 #   judge_key       the run-level judge field is `judge` (not benchmark_judge)
@@ -255,7 +255,7 @@ validate_results() { # <file>
 
   bad="$(jq -r '
     ((.definition_version // "0") | tostring | [splits("[.]") | tonumber? // 0]) as $v
-    | if $v < [12, 9, 0] or (.fixtures | type) != "object" then "" else
+    | if $v < [12, 10, 0] or (.fixtures | type) != "object" then "" else
       [ .fixtures | to_entries[] | .key as $s | .value.first | select(type == "object")
         | (if (.tier // null) | IN("simple", "complex") then empty else "\($s): first.tier missing" end),
           (if (.difficulty.easy.gt? | type) == "number" and (.difficulty.hard.gt? | type) == "number"

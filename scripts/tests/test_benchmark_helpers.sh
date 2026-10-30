@@ -98,7 +98,7 @@ mkdir -p "$SANDBOX/tiers/results"
 # one configuration, two tiers: simple meets the bar, complex misses recall;
 # a second model's older run has no difficulty counts and too few defects
 cat > "$SANDBOX/tiers/results/20261001T060000Z.json" <<'EOF'
-{"ts":"2026-10-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"high","definition_version":"12.9.0",
+{"ts":"2026-10-01T06:00:00Z","trigger":"scheduled","model":"model-a","effort":"high","definition_version":"12.10.0",
  "fixtures":{
   "ts-api":{"first":{"tier":"simple","gt":12,"tp":[1,2,3,4,5,6,7,8,9,10,11],"fp":[{"f":1}],"recall":0.917,"precision":0.917,
      "recall_easy":1,"recall_hard":0.667,"difficulty":{"easy":{"tp":9,"gt":9},"hard":{"tp":2,"gt":3}},"seconds":10,"tokens":null},

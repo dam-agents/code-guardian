@@ -248,7 +248,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 
 1. Title the session (**Session titles**), then read [brief.md](brief.md),
    write the brief from the merged PRs of `brief_due` in its `language`, and
-   post it to Slack.
+   post it to Slack, its screenshots in its thread.
 2. Append `brief_due.until` to `work/BRIEF.log` **after** the post succeeded; back up
    `work/` as the very last action.
 

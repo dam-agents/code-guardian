@@ -100,8 +100,9 @@ to Slack when enabled, and to the chat UI always
 **Daily brief** — weekdays in the morning, gated by `daily_brief` and Slack. One
 Slack message of what the merged PRs changed: first the news for the whole team
 by topic, explained like release notes, then the technical changes with impact
-and the risky ones. Weekend merges arrive on Monday; the language is
-`brief_language` ([`docs/brief.md`](docs/brief.md)).
+and the risky ones; screenshots of UI changes follow in its thread. Weekend
+merges arrive on Monday; the language is `brief_language`
+([`docs/brief.md`](docs/brief.md)).
 
 **Codebase survey** — weekly in a quiet hour, gated by `survey`. A review reads
 a diff; a survey reads one area of the repository as it stands, traces its

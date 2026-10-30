@@ -11,14 +11,18 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 12.9.0 — 2026-10-29
+## 12.10.0 — 2026-10-29
 
 **Upgrade:** Nothing to run. The next benchmark tick emits `create_fixture`
 for the 3 missing complex fixtures (existing fixtures stay simple); the run
-after it gives the first sufficiency verdicts per tier. Runs before 12.9.0
+after it gives the first sufficiency verdicts per tier. Runs before 12.10.0
 show "—" for easy and hard recall. Optional: add the `## Benchmark
 sufficiency` table to `work/CONFIG.md` (docs/benchmark.md → **Sufficiency by
 tier**); without it the defaults apply.
+
+## 12.9.0 — 2026-10-29
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 12.8.0 — 2026-10-27
 
