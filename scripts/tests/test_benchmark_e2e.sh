@@ -483,13 +483,13 @@ assert_out_contains 'FAIL isolation:.*without isolation_reason, isolation_approv
 jq '. + {isolation_reason: "spawn refused", isolation_approved: "2026-09-01T05:59:00Z operator"}' "$SANDBOX/bad/r4.json" > "$SANDBOX/bad/r5.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r5.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'ok   isolation' 'an approved in-pod run with its reason validates'
-# from 12.10.0 the sufficiency table needs tier and difficulty in every first
+# from 12.11.0 the sufficiency table needs tier and difficulty in every first
 jq -n '{ts: "2026-11-01T06:00:00Z", trigger: "manual", model: "m", effort: "high",
-        definition_version: "12.10.0", isolation: "platform-subagent",
+        definition_version: "12.11.0", isolation: "platform-subagent",
         fixtures: {"ts-cart": {first: {fp: [], seconds: 100, tokens: null},
                                rereview: {churn: 0, seconds: 90, tokens: null}}}}' > "$SANDBOX/bad/r6.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r6.json"; printf 'rc=%s' "$?")"
-assert_out_contains 'FAIL tiers: ts-cart: first.tier missing; ts-cart: first.difficulty missing' 'a 12.10.0 run without tier counts is rejected'
+assert_out_contains 'FAIL tiers: ts-cart: first.tier missing; ts-cart: first.difficulty missing' 'a 12.11.0 run without tier counts is rejected'
 jq '.fixtures["ts-cart"].first += {tier: "simple", difficulty: {easy: {tp: 1, gt: 2}, hard: {tp: 0, gt: 1}}}' \
   "$SANDBOX/bad/r6.json" > "$SANDBOX/bad/r7.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r7.json"; printf 'rc=%s' "$?")"
