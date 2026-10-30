@@ -101,6 +101,8 @@ so the link never shows stale notes. Its marker keeps the SHA
 the page was built at, so the next gate compares against what the page
 shows. With no stored page the
 section only links the recorded URL and names the SHA it describes.
+This refresh is upkeep of a published page, not a review-content call: the
+agent still decides the triage, the findings and the verdict.
 
 **Retention** — the prune deletes the guide with the PR's other state
 ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
