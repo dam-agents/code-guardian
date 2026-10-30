@@ -26,10 +26,15 @@
 #   suggestions_unmatched  unmatched suggestion predictions (recorded, not FPs)
 #   precision              tp / (tp + fp)   (null when there are no blocking predictions)
 #   recall                 tp / gt          (+ recall_critical / recall_warning per severity)
+#   tier                   the manifest's task tier, simple | complex
+#                          (absent = simple); both modes
 #   recall_hard            recall over defects the manifest marks
 #                          `"difficulty": "hard"` (null when none are marked) —
 #                          the headroom metric: kept OUT of the index so old
 #                          runs stay comparable, reported beside it
+#   recall_easy            recall over the other defects (null when none)
+#   difficulty             {easy: {tp, gt}, hard: {tp, gt}} — the counts behind
+#                          both, so the report pools a tier over fixtures
 #   f1                     harmonic mean of precision and recall (null-safe)
 #   severity_accuracy      share of tp with pred_severity == gt_severity (null when tp = 0)
 #
@@ -184,14 +189,18 @@ if [ "$MODE" = "first" ]; then
     | (if $tpn == 0 then null
        else (($r.tp | map(select(.gt_severity == .pred_severity)) | length) / $tpn) end) as $seva
     | ($gt | map(select(.difficulty == "hard") | .id)) as $hids
-    | {gt: $gtn, tp: $r.tp, fn: $r.fn, fp: $fp,
+    | ([$r.tp[] | select(.id as $i | $hids | index($i))] | length) as $htp
+    | ($hids | length) as $hn
+    | {tier: ($m.tier // "simple"), gt: $gtn, tp: $r.tp, fn: $r.fn, fp: $fp,
        suggestions_unmatched: ($un | map(select(.severity == "suggestion")) | length),
        precision: ($p | r3), recall: ($rec | r3), f1: ($f1 | r3),
        recall_critical: (sevrec($gt; $r.tp; "critical") | r3),
        recall_warning: (sevrec($gt; $r.tp; "warning") | r3),
-       recall_hard: (if ($hids | length) == 0 then null
-                     else (([$r.tp[] | select(.id as $i | $hids | index($i))] | length)
-                           / ($hids | length)) end | r3),
+       recall_hard: (if $hn == 0 then null else ($htp / $hn) end | r3),
+       recall_easy: (if ($gtn - $hn) == 0 then null
+                     else (($tpn - $htp) / ($gtn - $hn)) end | r3),
+       difficulty: {easy: {tp: ($tpn - $htp), gt: ($gtn - $hn)},
+                    hard: {tp: $htp, gt: $hn}},
        severity_accuracy: ($seva | r3)}')"
 else
   SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'
@@ -241,7 +250,8 @@ else
               | map(select(.key as $k | ($ml.used_pi | index($k)) == null) | .value)) as $restN2
     | bmatch($fixSites; ($restN2 | map(select(.severity == "critical" or .severity == "warning"))); false) as $mc
     | ($restN2 | map(select(.severity == "critical" or .severity == "warning")) | length) as $blockrest
-    | {fixed_gt: ($fixedGT | length), still_gt: ($stillGT | length),
+    | {tier: ($m.tier // "simple"),
+       fixed_gt: ($fixedGT | length), still_gt: ($stillGT | length),
        new_gt: ($newGT | length),
        fixed_recall: (frac($mf.hit; $fixedGT | length) | r3),
        still_recall: (frac($ms.hit; $stillGT | length) | r3),

@@ -399,6 +399,23 @@ OUT="$(HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" begin "$SANDBOX/benchma
 assert_out_contains 'phase slug-rereview started' 'the next phase begins once the first ended'
 HOME="$FAKE_HOME" TMPDIR="$SANDBOX" bash "$PHASE" end "$SANDBOX/benchmark-phase-OV" slug-rereview NONCE-OV >/dev/null
 
+new_case e2e_fixture_tier_is_checked
+FIX="$SANDBOX/benchmark/fixture"
+build_clean_fixture "$FIX" ts-cart
+PR_DIR="$SANDBOX/pr-tier"
+build_working_repo "$FIX/ts-cart" "$PR_DIR"
+git -C "$PR_DIR" diff main..pr~1 > "$FIX/ts-cart/diff-v1.patch"
+git -C "$PR_DIR" diff pr~1..pr   > "$FIX/ts-cart/diff-v1-v2.patch"
+OUT="$(bash "$VALIDATE" fixture "$FIX/ts-cart"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   tier\[ts-cart\]: tier simple' 'a manifest without tier is a simple fixture'
+jq '.tier = "complex"' "$FIX/ts-cart/manifest.json" > "$FIX/ts-cart/manifest.tmp" && mv "$FIX/ts-cart/manifest.tmp" "$FIX/ts-cart/manifest.json"
+OUT="$(bash "$VALIDATE" fixture "$FIX/ts-cart"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL tier\[ts-cart\]: complex with [0-4] hard v1 defect(s), needs 5' 'a small fixture marked complex fails'
+assert_out_contains 'rc=1' 'the run would abort on a false complex tier'
+jq '.tier = "hard"' "$FIX/ts-cart/manifest.json" > "$FIX/ts-cart/manifest.tmp" && mv "$FIX/ts-cart/manifest.tmp" "$FIX/ts-cart/manifest.json"
+OUT="$(bash "$VALIDATE" fixture "$FIX/ts-cart"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL tier\[ts-cart\]: tier is hard' 'an unknown tier fails'
+
 new_case e2e_phase_measurement_and_results_validation
 mkdir -p "$SANDBOX/bench/results"
 # a measured phase (no transcript here, so tokens is honestly null)
@@ -466,6 +483,17 @@ assert_out_contains 'FAIL isolation:.*without isolation_reason, isolation_approv
 jq '. + {isolation_reason: "spawn refused", isolation_approved: "2026-09-01T05:59:00Z operator"}' "$SANDBOX/bad/r4.json" > "$SANDBOX/bad/r5.json"
 OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r5.json"; printf 'rc=%s' "$?")"
 assert_out_contains 'ok   isolation' 'an approved in-pod run with its reason validates'
+# from 12.11.0 the sufficiency table needs tier and difficulty in every first
+jq -n '{ts: "2026-11-01T06:00:00Z", trigger: "manual", model: "m", effort: "high",
+        definition_version: "12.11.0", isolation: "platform-subagent",
+        fixtures: {"ts-cart": {first: {fp: [], seconds: 100, tokens: null},
+                               rereview: {churn: 0, seconds: 90, tokens: null}}}}' > "$SANDBOX/bad/r6.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r6.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'FAIL tiers: ts-cart: first.tier missing; ts-cart: first.difficulty missing' 'a 12.11.0 run without tier counts is rejected'
+jq '.fixtures["ts-cart"].first += {tier: "simple", difficulty: {easy: {tp: 1, gt: 2}, hard: {tp: 0, gt: 1}}}' \
+  "$SANDBOX/bad/r6.json" > "$SANDBOX/bad/r7.json"
+OUT="$(bash "$VALIDATE" results "$SANDBOX/bad/r7.json"; printf 'rc=%s' "$?")"
+assert_out_contains 'ok   tiers' 'the scorer output with tier counts validates'
 
 new_case e2e_report_renders_and_normalizes_legacy_shape
 mkdir -p "$SANDBOX/rep/results"
@@ -482,9 +510,9 @@ jq -n '{ts: "2026-08-14T13:42:35Z", trigger: "manual", model: "old-model",
   > "$SANDBOX/rep/results/20260814T134235Z.json"
 OUT="$(bash "$REPORT" "$SANDBOX/rep")"
 assert_out_contains '2 run(s) on record' 'both runs render'
-assert_out_contains '<h2>ts-api</h2>' 'a legacy array run is keyed back to its slug'
-assert_out_absent '<h2>0</h2>' 'no run renders its fixtures as 0,1,2…'
-assert_out_contains '<h2>ts-cart</h2>' 'the current-shape run renders too'
+assert_out_contains '<h2>ts-api <span class=tier>simple</span></h2>' 'a legacy array run is keyed back to its slug'
+assert_out_absent '<h2>0 ' 'no run renders its fixtures as 0,1,2…'
+assert_out_contains '<h2>ts-cart <span class=tier>simple</span></h2>' 'the current-shape run renders too'
 OUT="$(bash "$REPORT" index "$SANDBOX/rep")"
 assert_jq 'length == 2' 'index mode covers both runs'
 assert_jq '.[1].fixtures["ts-cart"] != null' 'index mode keys fixtures by slug'

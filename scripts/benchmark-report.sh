@@ -41,6 +41,12 @@
 # (USD per MTok: input, output, cache_read, cache_write; a row matches the
 # run's model id per docs/benchmark.md → Model prices). No
 # table, no matching row, or no measured tokens → "—", never a guess.
+# The "Sufficiency by task tier" table answers "is this configuration good
+# enough for simple work, and for complex work?": per configuration (harness,
+# model, effort, isolation) its latest run, the fixtures of each manifest tier
+# pooled into one sample, judged against the `## Benchmark sufficiency` bar in
+# work/CONFIG.md (lib/sufficiency.sh — the single home of the bar and the
+# verdict rule). It reads beside the index, never inside it.
 # `BENCH_CONFIG` overrides the CONFIG.md path (tests).
 # `benchmark-report.sh index <dir>` prints the same per-run index (plus cost)
 # as JSON for chat summaries and trial comparisons.
@@ -64,8 +70,10 @@ DIR="${1:-}"
 # so the weekly trend report prices identically. Missing file/section → [].
 CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
 . "$SCRIPT_DIR/lib/prices.sh"
+. "$SCRIPT_DIR/lib/sufficiency.sh"  # sufficiency_json, SUFFICIENCY_JQ
 . "$SCRIPT_DIR/lib/report-tip.sh"   # REPORT_TIP_CSS, REPORT_TIP_JS
 PRICES="$(prices_json "$CONFIG_MD")"
+BAR="$(sufficiency_json "$CONFIG_MD")"
 
 # Tolerant per-file load: one corrupt/truncated results file is skipped with
 # its data alone — it never discards the rest of the history. `fixtures`
@@ -83,8 +91,25 @@ ALL="$(for f in "$DIR"/results/*.json; do
        done | jq -s 'sort_by(.ts // "")')"
 RUNS="$(printf '%s' "$ALL" | jq length)"
 
-JQ_COMMON="$PRICES_JQ"'
+JQ_COMMON="$PRICES_JQ$SUFFICIENCY_JQ"'
   def fmt: if . == null then "—" else tostring end;
+  # one configuration = one harness, model, effort and isolation. The harness
+  # is the first word of harness_version — pi, copilot — (lib/harness.sh);
+  # every other run, the ones before named lines included, is Claude Code. A
+  # run before isolation was recorded ran in-pod: none.
+  def harness_of: (.harness_version // "" | if startswith("pi ") then "pi"
+                   elif startswith("copilot ") then "copilot" else "claude-code" end);
+  def isolation_of: (.isolation // "none");
+  # first-review recall over every fixture of a run for one defect
+  # difficulty, pooled from the scorer counts; null on runs before the counts
+  def run_difficulty($d):
+    [.fixtures // {} | .[] | .first.difficulty[$d]? | select(type == "object")] as $c
+    | if ($c | length) == 0 then null
+      else ratio([$c[].tp] | add; [$c[].gt] | add) end;
+  def run_tiers: [.fixtures // {} | .[]] as $fx
+    | reduce ("simple", "complex") as $t ({};
+        ($fx | tier_stats($t)) as $s
+        | . + {($t): (if $s == null then null else $s + {verdict: ($s | tier_verdict($t))} end)});
   def r3: if . == null then null else (. * 1000 | round) / 1000 end;
   def avg(f): [.[] | f | select(. != null)] as $v
     | if ($v | length) == 0 then null else (($v | add) / ($v | length) | r3) end;
@@ -173,6 +198,11 @@ TIPS='{
 "f1": "Balance of the two errors: 0 to 1, higher is better. 1.0 means the review found every defect and reported nothing false. Read it with prec and rec to see which of the two is weak.",
 "prec": "Precision: the share of the blocking findings that are real, 0 to 1 — higher is better. Low precision means false alarms, and false alarms make the author stop reading the review.",
 "rec": "Recall: the share of the known defects that the review found, 0 to 1 — higher is better. Low recall means defects reach production.",
+"easy": "Recall on the defects the fixture does not mark hard — a local mistake that a careful read of one place finds. 0 to 1, higher is better. Read it beside hard: a high easy and a low hard value means the configuration finds simple mistakes but misses the ones that need reasoning.",
+"easy rec": "Recall on the defects not marked hard, over all fixtures of the run as one sample. 0 to 1, higher is better. A dash means a run before the counts were recorded.",
+"hard rec": "Recall on the defects marked hard (reasoning across files or control flow), over all fixtures of the run as one sample. 0 to 1, higher is better. The gap to easy rec is what the configuration cannot yet do.",
+"simple": "Verdict for simple tasks: small changes in few files. Sufficient means the pooled recall and precision of these fixtures meet the bar in CONFIG.md and no re-review called a present defect fixed. Too few defects means the sample is too small to decide. A re-review that called a present defect fixed makes it insufficient at any sample size.",
+"complex": "Verdict for complex tasks: large changes across many files, with defects that need reasoning across them. Same bar and rule as simple. A configuration sufficient for simple but not for complex tasks fits only small pull requests.",
 "hard": "Recall on the defects the fixture marks hard — they need reasoning across files, not a text pattern. 0 to 1, higher is better. This is the headroom of the configuration. It stays out of the index, so old runs remain comparable.",
 "avg sev": "Severity accuracy, averaged over the fixtures: the share of the correct findings that also got the correct severity. 0 to 1, higher is better. A blocker called a warning lets bad code merge.",
 "sev": "Severity accuracy: the share of the correct findings that also got the correct severity. 0 to 1, higher is better. A blocker called a warning lets bad code merge.",
@@ -202,26 +232,21 @@ JQ_TH='
 '
 
 if [ "$OUT_MODE" = "index" ]; then
-  printf '%s' "$ALL" | jq --argjson prices "$PRICES" "$JQ_COMMON"'
+  printf '%s' "$ALL" | jq --argjson prices "$PRICES" --argjson bar "$BAR" "$JQ_COMMON"'
     [.[] | {ts, trigger, model, effort, isolation: (.isolation // "none"), definition_version,
             index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
-            cost_usd: run_cost,
+            cost_usd: run_cost, tiers: run_tiers,
             fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
   exit 0
 fi
 
-ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
+ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" "$JQ_COMMON"'
   . as $all | to_entries[] | .key as $i | .value as $r
   # deltas compare against the previous run of the SAME harness, model,
   # effort and isolation — a cross-configuration delta would conflate that
   # change with the regression being watched; an "unknown" effort matches
-  # nothing. The harness is the first word of harness_version — pi, copilot —
-  # (lib/harness.sh); every other run, the ones before named lines included,
-  # is Claude Code. A run before isolation was recorded ran in-pod: none.
-  | def harness_of: (.harness_version // "" | if startswith("pi ") then "pi"
-                     elif startswith("copilot ") then "copilot" else "claude-code" end);
-    def isolation_of: (.isolation // "none");
-    (if $r.effort == "unknown" then null
+  # nothing.
+  | (if $r.effort == "unknown" then null
      else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort
                                  and harness_of == ($r | harness_of)
                                  and isolation_of == ($r | isolation_of))] | last
@@ -239,6 +264,8 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
     + "<td class=n>\($fx | length)</td>"
     + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
     + ($fx | avg(.first.f1) | ncell)
+    + ($r | run_difficulty("easy") | ncell)
+    + ($r | run_difficulty("hard") | ncell)
     + ($fx | avg(.first.severity_accuracy) | ncell)
     + ($fx | avg(.rereview.fixed_recall) | ncell)
     + ($fx | avg(.rereview.new_recall) | ncell)
@@ -251,14 +278,15 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" "$JQ_COMMON"'
     + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
     + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td></tr>"')"
 
-FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
+FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
   --argjson tips "$TIPS" "$JQ_COMMON$JQ_TH"'
   . as $all
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
-  | "<h2>\($s | @html)</h2>\n<div class=scroll>\n<table>\n<tr>"
+  | ([$all[] | .fixtures[$s]?.first.tier // empty] | last // "simple") as $tier
+  | "<h2>\($s | @html) <span class=tier>\($tier | @html)</span></h2>\n<div class=scroll>\n<table>\n<tr>"
     + ([ "run", "model", "effort", "index", "judge", "find-acc", "f1", "prec", "rec",
-         "hard", "sev", "fp", "words", "fixed", "new", "churn", "false-fixed",
+         "easy", "hard", "sev", "fp", "words", "fixed", "new", "churn", "false-fixed",
          "late", "sec", "out-tok" ] | map(th(.)) | add)
     + "</tr>\n"
     + ([$all[] | select((.fixtures // {}) | has($s))
@@ -273,6 +301,7 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
           + ($f.first.f1 | ncell)
           + ($f.first.precision | ncell)
           + ($f.first.recall | ncell)
+          + ($f.first.recall_easy | ncell)
           + ($f.first.recall_hard | ncell)
           + ($f.first.severity_accuracy | ncell)
           + ($f.first.fp | if . == null then null else length end | ncell)
@@ -286,6 +315,37 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" \
           + ([$f | .first.tokens.output?, .rereview.tokens.output?] | total(.) | ncell) + "</tr>"]
        | join("\n"))
     + "\n</table>\n</div>"')"
+
+# sufficiency by task tier: one row per configuration, its latest run. A
+# verdict cell carries the pooled counts, so a reader sees the sample size
+# behind it (lib/sufficiency.sh holds the bar and the rule).
+SUFFICIENCY="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
+  --argjson tips "$TIPS" "$JQ_COMMON$JQ_TH"'
+  def vcell($s): if $s == null then "<td class=\"dash\">—</td>"
+    else ({sufficient: ["ok", "✓ sufficient"], borderline: ["mid", "≈ borderline"],
+           insufficient: ["no", "✗ insufficient"], few: ["mid", "too few defects"]}[$s.verdict]) as $v
+      | "<td class=\"v \($v[0])\"><b>\($v[1])</b><br><span class=sub>rec \($s.recall | fmt) (\($s.tp)/\($s.gt))"
+        + " · prec \($s.precision | fmt)"
+        + (if $s.hard == null then "" else " · hard \($s.hard.recall | fmt) (\($s.hard.tp)/\($s.hard.gt))" end)
+        + (if $s.false_fixed > 0 then " · false-fixed \($s.false_fixed)" else "" end)
+        + "</span></td>" end;
+  if length == 0 then "" else
+    group_by([.model // "", .effort // "", harness_of, isolation_of])
+    | map(last) | sort_by(.ts // "") | reverse
+    | "<h2>Sufficiency by task tier</h2>\n<p class=\"meta\">The latest run of each configuration. "
+      + "Every fixture of a tier is pooled into one sample and checked against the bar in CONFIG.md "
+      + "(simple: recall ≥ \($bar.simple.recall), precision ≥ \($bar.simple.precision), ≥ \($bar.simple.min_defects) defects; "
+      + "complex: recall ≥ \($bar.complex.recall), precision ≥ \($bar.complex.precision), ≥ \($bar.complex.min_defects) defects; "
+      + "no false-fixed). Borderline is within 0.05 under the bar.</p>\n"
+      + "<div class=scroll>\n<table>\n<tr>"
+      + ([ "run", "model", "effort", "harness", "isolation", "simple", "complex" ] | map(th(.)) | add)
+      + "</tr>\n"
+      + (map(run_tiers as $t
+             | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
+               + "<td>\(.effort // "—" | @html)</td><td>\(harness_of | @html)</td>"
+               + "<td>\(isolation_of | @html)</td>" + vcell($t.simple) + vcell($t.complex) + "</tr>")
+         | join("\n"))
+      + "\n</table>\n</div>" end')"
 
 # definition releases between tested versions — for development tracking
 VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
@@ -302,7 +362,7 @@ VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
 
 HEAD_ALL="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
   [ "run", "trigger", "model", "effort", "version", "harness", "isolation", "fixtures", "index",
-    "avg f1", "avg sev", "avg fixed", "avg new", "circles", "FPs", "judge",
+    "avg f1", "easy rec", "hard rec", "avg sev", "avg fixed", "avg new", "circles", "FPs", "judge",
     "find-acc", "sec", "out-tok", "est $" ] | map(th(.)) | add')"
 
 GENERATED="$(printf '%s' "$ALL" | jq -r '(last // {}) | .ts // "no runs yet"')"
@@ -368,6 +428,10 @@ td.idx .bar{display:block;height:3px;margin-top:3px;border-radius:2px;
 .d{font-size:.75rem;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
 .d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
 td.dash{color:var(--ink-muted)}
+/* sufficiency verdicts: the word carries the meaning, color only repeats it */
+td.v .sub{font-size:.75rem;color:var(--ink-2);font-variant-numeric:tabular-nums}
+td.v.ok b{color:var(--good)}td.v.no b{color:var(--bad)}td.v.mid b{color:var(--ink-2)}
+.tier{font-size:.75rem;font-weight:400;color:var(--ink-muted)}
 .tbar{display:flex;gap:.5rem;align-items:center;font-size:.8rem;margin:.6rem 0 .35rem}
 .tbar input,.tbar select,.tbar button{font:inherit;padding:.2rem .45rem;
   color:var(--ink);background:var(--surface);
@@ -397,6 +461,7 @@ histories. Full semantics: docs/benchmark.md.</p>
 ${ROWS_ALL}
 </table>
 </div>
+${SUFFICIENCY}
 ${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}
 <script>
