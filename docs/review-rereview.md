@@ -95,7 +95,7 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   a file without `patch` — → `reachable: false`: review at complete depth in
   the delta output format, with ` — unreachable, reviewed the whole PR`
   appended to the `Previous HEAD` line.
-- **A range that does not change the PR's own diff is not a review round.**
+- **A range that does not change the PR's own diff is a reduced round.**
   `prepare` digests the diff it fetched and compares it with the digest the
   last review recorded ([review-mechanics.md](review-mechanics.md) → **Summary
   body format**); equal → `delta.own_change:
@@ -113,8 +113,9 @@ Delta-scope depth ([review.md](review.md) steps c–d):
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR
-  diff arrived with a base-branch merge and is not a candidate; the full PR
-  diff is context for reading them. A description-only re-review has an empty
+  diff arrived with a base-branch merge and is not itself a candidate; a base
+  change that breaks the PR's code is a finding on the PR line it breaks. The
+  full PR diff is context for reading them. A description-only re-review has an empty
   range: candidates, verification, sweep and extension-skill routing all use
   the full PR diff, re-read against the edited body.
 - **Each prior finding is settled at its anchor.** Read every `file:line` of
