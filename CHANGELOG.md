@@ -16,6 +16,10 @@ they are released history and stay as written.
 **Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each
 open PR that carries the `guide_label` gets one guide round.
 
+## 12.11.1 — 2026-10-30
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 12.11.0 — 2026-10-30
 
 **Upgrade:** Nothing to run. The next benchmark tick emits `create_fixture`
