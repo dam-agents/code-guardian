@@ -20,6 +20,10 @@ they are released history and stay as written.
    `precheck` and `sessionTitle`. Idempotent — skip a schedule that already
    says "the recommended scope". No survey schedule → nothing to do.
 
+## 13.0.1 — 2026-10-30
+
+**Upgrade:** Nothing to run. The migration refreshes the harness hooks.
+
 ## 13.0.0 — 2026-10-30
 
 **Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each

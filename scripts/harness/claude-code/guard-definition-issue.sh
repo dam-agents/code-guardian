@@ -37,6 +37,11 @@ DEF="$(cfg definition_repo)"
 [ -n "$DEF" ] || DEF="$(origin_ref "$HOME_DIR")"
 SLUG="$(refslug "$DEF")"
 [ -n "$SLUG" ] || exit 0
+# a self-review instance (target repo = definition repo) comments on its own
+# PRs and issues: comment writes pass, issue writes still need the script
+SELF=0
+TGT="$(refslug "$(cfg github_repo)")"
+[ -n "$TGT" ] && [ "$(printf '%s' "$TGT" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$SLUG" | tr 'A-Z' 'a-z')" ] && SELF=1
 esc() { printf '%s' "$1" | sed 's/[.[\*^$]/\\&/g'; }
 slug_re="$(esc "$SLUG")"; owner_re="$(esc "${SLUG%%/*}")"; name_re="$(esc "${SLUG#*/}")"
 # the definition repo: its slug, a shell variable named after it ($DEF,
@@ -49,25 +54,40 @@ B='[^A-Za-z0-9_.-]'
 Q="[\"'\\\\]*"
 
 m() { printf '%s' "$1" | grep -qiE -- "$2"; } # <text> <ERE>
+# <text> — names a definition issues endpoint; on a self-review instance an
+# endpoint whose path, without its query and fragment, is exactly
+# /issues/<n>/comments or /issues/comments/<id> is a comment, and any other
+# path (dot segments, encoded bytes, suffixes, variables) is an issue
+issues_path() {
+  m "$1" "$ISSUES_RE" || return 1
+  [ "$SELF" = 1 ] || return 0
+  set -- "$(printf '%s' "$1" | grep -oiE -- "$ISSUES_RE[^[:space:]\"'\\\\]*" | sed -E 's/[?#].*$//')"
+  printf '%s\n' "$1" | grep -qiE -- '\.\.|%|/issues/.*/issues' && return 0
+  printf '%s\n' "$1" | grep -qviE -- '/issues/([0-9]+/comments|comments/[0-9]+)$'
+}
 
 GH_API='(^|[[:space:]])gh[[:space:]]+api([[:space:]]|$)'
 API_METHOD_WRITE="(^|[[:space:]])(-X|--method)[[:space:]=]*$Q(POST|PATCH|PUT|DELETE)"
 API_METHOD_GET="(^|[[:space:]])(-X|--method)[[:space:]=]*${Q}GET([\"'[:space:]]|\$)"
 API_FIELDS='(^|[[:space:]])(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|(^|[[:space:]])(-f|-F)[^[:space:]]*='
 api_write() { # <text> — a gh api write to the definition issues; an explicit GET is a read
-  m "$1" "$GH_API" && m "$1" "$ISSUES_RE" || return 1
+  m "$1" "$GH_API" && issues_path "$1" || return 1
   m "$1" "$API_METHOD_WRITE" || { m "$1" "$API_FIELDS" && ! m "$1" "$API_METHOD_GET"; }
 }
 
 ISSUE_VERB='(^|[[:space:]])gh[[:space:]]+issue([[:space:]]+(-R|--repo)([[:space:]]+|=)?[^[:space:]]+)?[[:space:]]+(create|comment|edit|close|reopen|delete|transfer|pin|unpin|lock|unlock|develop)([[:space:]]|$)'
+# the segment's own subcommand: gh issue first, an optional -R/--repo pair, then
+# comment — the verb text anywhere else in the segment is an argument
+ISSUE_COMMENT='^[[:space:]]*gh[[:space:]]+issue([[:space:]]+(-R|--repo)([[:space:]]+|=)?[^[:space:]]+)?[[:space:]]+comment([[:space:]]|$)'
 REPO_FLAG='(^|[[:space:]])(-R|--repo)'
 REPO_DEF="(^|[[:space:]])(-R|--repo)[[:space:]=]*[\"']?([A-Za-z0-9.-]+/)?$DEF_RE([[:space:]\"']|\$)"
 
 CURL='(^|[[:space:]])curl([[:space:]]|$)'
 CURL_WRITE='(^|[[:space:]])(-X|--request)[[:space:]=]*["'"'"']?(POST|PATCH|PUT|DELETE)|(^|[[:space:]])(-d|-F|-T)|(^|[[:space:]])(--data[a-z-]*|--json|--form|--upload-file)([[:space:]=]|$)'
-curl_write() { m "$1" "$CURL" && m "$1" "$ISSUES_RE" && m "$1" "$CURL_WRITE"; }
+curl_write() { m "$1" "$CURL" && issues_path "$1" && m "$1" "$CURL_WRITE"; }
 
 GQL_MUTATION='(^|[^A-Za-z])(createIssue|updateIssue|addComment|closeIssue|reopenIssue|deleteIssue|transferIssue)([^A-Za-z]|$)'
+[ "$SELF" = 1 ] && GQL_MUTATION='(^|[^A-Za-z])(createIssue|updateIssue|closeIssue|reopenIssue|deleteIssue|transferIssue)([^A-Za-z]|$)'
 GQL_REPO='(^|[^A-Za-z])owner([^A-Za-z]|$)|\$\{?[A-Za-z0-9_]*REPO|repos/|(^|[[:space:]])(-R|--repo)'
 gql_write() { # <text> — an issue mutation naming the definition repo, or no repo at all
   m "$1" "$GH_API" && m "$1" 'graphql' && m "$1" "$GQL_MUTATION" || return 1
@@ -80,7 +100,7 @@ gql_write() { # <text> — an issue mutation naming the definition repo, or no r
 reason=""
 while IFS= read -r seg; do
   case "$seg" in (*[gG][hH]*|*[cC][uU][rR][lL]*) ;; (*) continue;; esac
-  if m "$seg" "$ISSUE_VERB"; then
+  if m "$seg" "$ISSUE_VERB" && ! { [ "$SELF" = 1 ] && m "$seg" "$ISSUE_COMMENT"; }; then
     if ! m "$seg" "$REPO_FLAG"; then
       reason="a gh issue write without --repo, which gh resolves to the checkout under \$HOME: the definition repo"
     elif m "$seg" "$REPO_DEF"; then
@@ -107,5 +127,10 @@ if [ -f "$CONFIG" ]; then
     logev warn definition_issue "guard blocked $reason"
   fi
 fi
-printf 'code-guardian: command blocked — %s. An issue on the definition repository (%s) is filed only with `bash "$HOME/scripts/definition-issue.sh" file "<title>" <body-file>`, which applies the definition_issues switch and the instance-data scan before it sends anything (docs/runbook.md → Definition-repo issues). Issues and comments on the target repo are not affected; run a target-repo write as a command of its own.\n' "$reason" "$SLUG" >&2
+if [ "$SELF" = 1 ]; then
+  scope='The target repo is the definition repo here: comments on its PRs and issues pass, every other issue write needs the script.'
+else
+  scope='Issues and comments on the target repo are not affected; run a target-repo write as a command of its own.'
+fi
+printf 'code-guardian: command blocked — %s. An issue on the definition repository (%s) is filed only with `bash "$HOME/scripts/definition-issue.sh" file "<title>" <body-file>`, which applies the definition_issues switch and the instance-data scan before it sends anything (docs/runbook.md → Definition-repo issues). %s\n' "$reason" "$SLUG" "$scope" >&2
 exit 2
