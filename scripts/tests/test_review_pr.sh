@@ -953,6 +953,9 @@ assert_jq '.outcome == "warnings" and (.warnings | any(contains("print each merg
 grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
   && { printf 'FAIL %s: the held post still reached GitHub\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: nothing was posted\n' "$CASE"
+assert_jq '.next | (contains("holding state") and contains("abort"))' 'the held post names its holding state and its ends'
+[ -d "$(PR_DIR).ctx" ] && printf 'ok   %s: the held post keeps its files\n' "$CASE" \
+  || { printf 'FAIL %s: the held post removed its files\n' "$CASE"; FAILED=1; }
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --accept-warnings
 assert_jq '.outcome == "posted" and (.warnings | length) == 1' '--accept-warnings posts the body as it is and names the warning'
 assert_file_contains "$(ls "$WORK"/logs/events-*.jsonl | head -1)" '"event":"post_warnings"' 'a post with accepted warnings is logged'
@@ -2293,7 +2296,8 @@ GB="$(PR_DIR).ctx/briefs/review-guide.md"
 assert_file_contains "$GB" "write the page to \`$(GUIDE_HTML)\`" 'the guide brief names the page path'
 assert_file_contains "$GB" "Time budget: $(sed -n 's/^GUIDE_BUDGET_MIN=\([0-9]*\).*/\1/p' "$RP") minutes" 'the guide brief carries the guide budget'
 assert_file_contains "$GB" 'https://github.com/acme/widgets/blob/'"$B1_SHA" 'the guide brief pins links to the head SHA'
-assert_file_contains "$GB" 'forced: `src/alpha.ts (src/al\*)`' 'a human_review_paths match passes the gate'
+assert_file_contains "$GB" 'lead: `src/alpha.ts (src/al\*)` matches `human_review_paths`' 'a human_review_paths match is a lead for the gate'
+assert_file_lacks "$GB" 'forced: `src/alpha.ts' 'a human_review_paths match does not pass the gate'
 assert_file_contains "$GB" 'no repository map' 'without a profile the guide brief says so'
 assert_file_lacks "$GB" '{{' 'no placeholder left in the guide brief'
 assert_file_lacks "$GB" 'still holds' 'no guide published yet, no keep option'

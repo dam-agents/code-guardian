@@ -37,8 +37,8 @@ area; what you read and report may go past it (**Bounds**).
    `null` when the pass starts at the area's first file.
    **`truncated: true`** means the rest of the area is larger than one pass:
    `files[]` is the part to read now, `remainder` counts the files left.
-   `files[]` is the recommended scope — the caps are the run's cost bound
-   (**Bounds**).
+   `files[]` is the recommended scope: the caps are a recommendation, and a
+   read past them is recorded with `record --past` (**Bounds**).
 2. **Model the threat** before you look for bugs. Read the area's notes
    `work/survey/notes/<slug>.md` when they exist (**Area notes**), then write
    down for this area:

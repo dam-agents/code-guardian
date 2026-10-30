@@ -186,8 +186,8 @@ sections.
 - **Brief.** `prepare` reads the frontmatter of the installed skill and renders
   [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
   instead of the review brief: the diff, the PR context, the context pack, the
-  risk prescan, a `human_review_paths` match or the `guide_label` on the PR
-  (either passes the skill's gate),
+  risk prescan, a `human_review_paths` match (a lead for the skill's gate) and
+  the `guide_label` on the PR (it passes the skill's gate),
   the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`,
   links pinned to the head SHA, and the project diagrams of the touched areas
   marked for this PR, with the areas that have none ([profile.md](profile.md) →

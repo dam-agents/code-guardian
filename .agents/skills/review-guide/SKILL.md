@@ -73,8 +73,10 @@ A person is needed when the PR has at least one of these:
   privacy, concurrency, an irreversible operation, a production rollout;
 - a **trade-off or open point the PR states** (its body, `author-decisions`,
   comments) that someone must accept;
-- a **forced** line in the brief — a changed path under `human_review_paths`,
-  or the `guide_label` a person put on the PR.
+- a **forced** line in the brief — the `guide_label` a person put on the PR.
+
+A **lead** line in the brief — a changed path under `human_review_paths` —
+weighs toward a person; it does not decide the gate alone.
 
 Not needed: a mechanical change (rename, format, imports, constants), docs
 or tests only, a dependency bump with no code change, a small local fix whose

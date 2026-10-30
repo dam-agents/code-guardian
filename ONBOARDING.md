@@ -529,13 +529,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     omit the key. Then, unless the auto-merge question already wrote a list,
     ask:
 
-    > Which paths always need a person (for example `migrations/*, src/auth/*`)? Default: none.
+    > Which paths are sensitive (for example `migrations/*, src/auth/*`)? I name a change there to my triage call and record it, and such a PR never merges on its own. Default: none.
 
     A path list → `human_review_paths: <globs>`; none → omit.
 12. **Codebase survey** — the weekly security pass over one area of the repository
     (`docs/survey.md`). Ask:
 
-    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
+    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run with a recommended scope, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
     default `dam`) and register the schedule in Step 6e. Default off. With
@@ -617,7 +617,7 @@ Final shape:
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; omit = all
-- human_review_paths: migrations/*, src/auth/*   # changed files a person must see; no auto-merge; omit = none
+- human_review_paths: migrations/*, src/auth/*   # sensitive files: a lead for the triage call, recorded; no auto-merge; omit = none
 - survey: enabled                      # weekly security pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled

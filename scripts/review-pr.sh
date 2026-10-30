@@ -1363,12 +1363,12 @@ cmd_prepare() {
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   # a guide skill's brief: its own inputs, output and budget (docs/skills.md →
-  # Guide skills); the forced path, the guide label and the guide already
-  # published feed its gate
+  # Guide skills); the human_review_paths lead, the guide label and the guide
+  # already published feed its gate
   local gtpl gforced="" gprior="" gm fh gl
   gtpl="$(cat "$SCRIPT_DIR/templates/guide-brief.md" 2>/dev/null)"
   fh="$(forced_human_path)"
-  [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
+  [ -n "$fh" ] && gforced=$'\n- lead: `'"$fh"$'` matches `human_review_paths` — weigh it in your gate call; it does not pass the gate alone.'
   gl="$(guide_label_on)"
   [ -n "$gl" ] && gforced="$gforced"$'\n- forced: the `'"$gl"$'` label is on the PR — a person asked for the guide, so the gate is passed.'
   gm="$(guide_marker)"
@@ -2291,7 +2291,7 @@ cmd_post() {
     if [ "$ACCEPT" != true ]; then
       logev info review_pr "PR #$N: post held for $(printf '%s' "$warns" | jq length) content warning(s) — nothing posted"
       out "$(jq -nc --argjson w "$warns" '{outcome:"warnings", warnings:$w,
-        next:"fix the body or findings and rerun post, or rerun post with --accept-warnings to post them as they are — nothing was posted, the lock is kept"}')"
+        next:"a holding state: fix the body or findings and rerun post, rerun post with --accept-warnings to post them as they are, or run abort — nothing was posted, the lock and the files are kept"}')"
     fi
     logev warn post_warnings "PR #$N: posted with --accept-warnings: $(printf '%s' "$warns" | jq -r 'join(" | ")')"
   fi

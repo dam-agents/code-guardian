@@ -114,8 +114,9 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    the exact model id of this session, for the footer; a re-review passes
    `--findings <ctx>/findings.annotated.json`. It first checks the body and
    findings against the format rules below; a mismatch is
-   `outcome: "warnings"` with nothing posted — fix the files, or rerun with
-   `--accept-warnings` to post them as they are. It runs Check 2 and the dedup
+   `outcome: "warnings"` with nothing posted — a holding state: the lock and
+   the files stay until you rerun `post` with the files fixed, rerun it with
+   `--accept-warnings` to post them as they are, or run `abort`. It runs Check 2 and the dedup
    re-check, maps the inline comments
    ([review-mechanics.md](review-mechanics.md) → **Mapping findings to inline
    comments**), posts the payload, removes the served triggers
@@ -124,7 +125,7 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    the `done` row and terminal status, logs `posted <verdict>` and `done`, and
    deletes clone, copies, diff and state — exactly once. Outcomes: `posted`
    (`url`, `event`, `moved_to_summary`, `anchors_nulled`, `warnings`,
-   `label_removed`, `dismissed_approval`) · `warnings` · `aborted` (**Error handling**) · `duplicate` (the
+   `label_removed`, `dismissed_approval`) · `warnings` (held, step f above) · `aborted` (**Error handling**) · `duplicate` (the
    marker is already on GitHub; the row self-heals with its timestamp) ·
    `closed_*` (read [review-urgent.md](review-urgent.md) → **PR closed
    mid-review**). Then evaluate the configured watch rules
@@ -134,7 +135,10 @@ g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
 Every locked entry ends `posted`, `duplicate`, `closed_filed`,
-`closed_discarded`, `aborted`, `head_moved` or `state_damaged`.
+`closed_discarded`, `aborted`, `head_moved` or `state_damaged`. A `warnings`
+outcome is a holding state, not an end: the entry keeps its lock and its
+files until a rerun of `post` (files fixed, or `--accept-warnings`) or
+`abort` ends it.
 
 **Progress logging.** Each milestone appends a `review_step` event
 ([logging.md](logging.md)). The last event of a PR pins where a stall stopped;

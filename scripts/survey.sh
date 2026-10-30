@@ -41,7 +41,7 @@ PROFILE="$WORK/PROFILE.json"
 TMP_ROOT="${TMPDIR:-/tmp}"
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-MAX_FILES=40      # the cost bound of one pass (docs/survey.md → Bounds)
+MAX_FILES=40      # the recommended scope of one pass; a read past it is logged with record --past (docs/survey.md → Bounds)
 MAX_LINES=6000
 
 out()  { printf '%s\n' "$1"; exit 0; }
