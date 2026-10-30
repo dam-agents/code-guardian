@@ -85,8 +85,11 @@ base-merge-only round; a clean-run section is the correct output.
 **Route first.** `review-pr.sh prepare` applies the rule above to the diff's
 file list and returns `skills{}`: per configured skill its status (`run`,
 `no-matching-files`, `clone-failed`), its routed files, its checkout, its brief
-and its prompt. Every skill's arguments are fixed at that point — a subagent
-never derives its own file list.
+and its prompt. The routed list is a proposal: before the fan-out you may
+widen a skill's scope — append paths to the `Routed files` list of its brief —
+when a file outside the list bears on what the skill checks, and log it with
+`review-pr.sh step <n> "widened <skill>: <paths> — <reason>"`. A subagent
+works from the list in its brief.
 
 **Then fan out: one subagent per skill with status `run`, all started at
 once** so they run concurrently, by the subagent mechanism of the harness this
@@ -168,7 +171,8 @@ Missing lines mean the skill step is not done: do not proceed to posting.
   not run ([review.md](review.md) → **Output format (first reviews)**), are its
   trace.
 - A **guide skill** posts its section only with a page to link: a
-  `needs-human` triage or the `guide_label`, and a guide published or kept. Any other outcome omits
+  `needs-human` triage or the `guide_label` and a guide published or kept,
+  or a guide published in an earlier round. Any other outcome omits
   the section, and the audit line is its whole trace — not a `_Limits:_` entry,
   because the skill ran.
 
@@ -190,8 +194,8 @@ sections.
 - **Brief.** `prepare` reads the frontmatter of the installed skill and renders
   [`scripts/templates/guide-brief.md`](../scripts/templates/guide-brief.md)
   instead of the review brief: the diff, the PR context, the context pack, the
-  risk prescan, a `human_review_paths` match or the `guide_label` on the PR
-  (either passes the skill's gate),
+  risk prescan, a `human_review_paths` match (a lead for the skill's gate) and
+  the `guide_label` on the PR (it passes the skill's gate),
   the guide already published for the PR, the page path `$PR_DIR.out/<skill>.html`,
   links pinned to the head SHA, and the project diagrams of the touched areas
   marked for this PR, with the areas that have none ([profile.md](profile.md) →
@@ -234,11 +238,12 @@ sections.
   attributes, so the model writes no script. A project
   map the skill drew in `$PR_DIR.out/<skill>.diagrams/` passes the same checks
   and is stored in `work/diagrams/`, whatever the page's fate.
-- **Publish.** The review agent renders the review's open findings into the
-  page (`review-pr.sh guide <n> --findings`), then publishes a built page, or
-  refreshes a kept one, only when its own triage is `needs-human` or the PR
-  carries the `guide_label` — the step between `meta.json` and `post` that `compose-brief` prints ([artifact.md](artifact.md) → **Review
-  guide**).
+- **Publish.** The review agent renders the PR, its issue and every review
+  note into the page (`review-pr.sh guide <n> --findings`), then publishes a
+  first page only when its own triage is `needs-human` or the PR carries the
+  `guide_label`, and refreshes a published one in every round — the step
+  between `meta.json` and `post` that `compose-brief` prints
+  ([artifact.md](artifact.md) → **Review guide**).
 
 ## Verdict integration
 

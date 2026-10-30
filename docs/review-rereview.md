@@ -68,16 +68,17 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
   was present at <prior short-sha>; the previous review did not report it.`
   A range that is not whole (`age_known: false`) ages nothing.
 - **On a delta re-review a late finding never blocks unless it is 🔴.** The
-  author's round could not see it, so a late 🟡 is graded 🟢: it stays in the
+  author's round could not see it, so grade a late 🟡 as 🟢: it stays in the
   block as `🔎 Missed earlier`, in `### Findings` as a suggestion outside the
-  🟢 budget, and out of the verdict. `delta` regrades it in `annotated` and
-  marks it `demote: true` in `late[]`. `post` reads the late set from that
-  annotated file, whatever findings file you pass, and refuses a 🔴/🟡 at an
-  anchor it grades 🟢. A complete re-review keeps every grade.
+  🟢 budget, and out of the verdict. `late[]` names each late finding's
+  `severity`; regrade it in your `findings.json` (`suggestion`, `fix: null`)
+  and rerun `delta`. `post` warns on a late 🟡 that stays blocking. A
+  complete re-review keeps every grade.
 - **A defect the range causes from another file is new.** When a range change
   outside every anchor makes the finding true — a new caller, a changed
   default — rerun `delta` with `--fresh <index>` for that finding, in the same
-  rerun as any `--settle`.
+  rerun as any `--settle` or regrade. `--settle` takes any matched pair, a
+  `still` one too.
 
 Insert the block between `### Summary` and `### Findings`:
 

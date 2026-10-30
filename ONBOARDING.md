@@ -529,13 +529,13 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     the key. Then, unless the auto-merge question already wrote a list,
     ask:
 
-    > Which paths always need a person (for example `migrations/*, src/auth/*`)? Default: none.
+    > Which paths are sensitive (for example `migrations/*, src/auth/*`)? I name a change there to my triage call and record it, and such a PR never merges on its own. Default: none.
 
     A path list → `human_review_paths: <globs>`; none → omit.
 12. **Codebase survey** — the weekly security pass over one area of the repository
     (`docs/survey.md`). Ask:
 
-    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run, capped, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
+    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run with a recommended scope, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
     default `dam`) and register the schedule in Step 6e. Default off. With
@@ -617,7 +617,7 @@ Final shape:
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; or: all; omit = needs_human
-- human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
+- human_review_paths: migrations/*, src/auth/*   # sensitive files: a lead for the triage call, recorded; no auto-merge; omit = none
 - survey: enabled                      # weekly security pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled
@@ -805,7 +805,7 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 `precheck: bash "$HOME/scripts/precheck.sh" survey`,
 `sessionTitle: Survey the codebase`, `task`:
 
-> Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
+> Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read the files it lists as the recommended scope (a read past them carries a `record --past` reason), write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
 **6f — Agent monitor.** Every instance gets it, without a question: the
 health alerts of `docs/monitor.md`. Create

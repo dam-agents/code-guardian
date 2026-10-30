@@ -3,7 +3,9 @@
 #
 # The agent decides what a review says; this script performs the steps around
 # that decision exactly as docs/review.md and docs/skills.md specify, and
-# refuses when a guard fails. It never composes, drops, or reorders a finding.
+# refuses when an operational guard fails. On review content it reports, warns
+# and records the agent's choice: it never composes, drops, regrades or
+# reorders a finding.
 #
 #   prepare <n> [--eta <s>] [--on-demand]   Check 1 + the PR hold (taken when the
 #                                          run has none) + live-holder re-check, the
@@ -29,10 +31,10 @@
 #                                          fixed / still / new against the prior
 #                                          findings-json, PR-local overrides applied,
 #                                          and the annotated array `post` takes;
-#                                          --settle overrides an ambiguous pair's
-#                                          suggestion by its `index`; --fresh clears
-#                                          a `late` new finding by its `index`;
-#                                          a delta round grades a late 🟡 as 🟢
+#                                          --settle sets any matched pair's class
+#                                          by its `index`; --fresh clears a `late`
+#                                          mark by its `index`; `late[]` names each
+#                                          late finding's severity for the agent
 #   compose-brief <n>                      this PR's compose contract: the body
 #                                          skeleton, the format rules from docs/,
 #                                          its overrides and memory rules, and the
@@ -41,13 +43,15 @@
 #                                          (APPROVE | REQUEST_CHANGES)
 #   post <n> --verdict <V> --body <file> --findings <file> [--comments <file>]
 #                                [--meta <file>] [--closed-issue <id>] [--model <id>]
+#                                [--accept-warnings]
+#                                          content warnings (held unless accepted),
 #                                          Check 2 + dedup re-check, inline
 #                                          eligibility, payload, POST with 422
 #                                          handling, trigger removal, stale-approval
 #                                          dismissal, done row, history, cleanup
 #   guide <n> --findings <file> [--kept]   the review guide (docs/artifact.md → Review
-#   guide <n> --id <id> --url <url>        guide): render the review's open findings
-#   guide <n> --skipped <reason>           into the page (the built one, or with --kept
+#   guide <n> --id <id> --url <url>        guide): render the PR, its issue and every
+#   guide <n> --skipped <reason>           review note into the page (the built one, or with --kept
 #                                          the stored copy), then record the publish —
 #                                          the history marker, the stored copy and the
 #                                          `guide` event — or the skip
@@ -1370,12 +1374,12 @@ cmd_prepare() {
   skills="$(skills_table_json)"
   tpl="$(cat "$SCRIPT_DIR/templates/skill-brief.md" 2>/dev/null)"
   # a guide skill's brief: its own inputs, output and budget (docs/skills.md →
-  # Guide skills); the forced path, the guide label and the guide already
-  # published feed its gate
+  # Guide skills); the human_review_paths lead, the guide label and the guide
+  # already published feed its gate
   local gtpl gforced="" gprior="" gm fh gl
   gtpl="$(cat "$SCRIPT_DIR/templates/guide-brief.md" 2>/dev/null)"
   fh="$(forced_human_path)"
-  [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
+  [ -n "$fh" ] && gforced=$'\n- lead: `'"$fh"$'` matches `human_review_paths` — weigh it in your gate call; it does not pass the gate alone.'
   gl="$(guide_label_on)"
   [ -n "$gl" ] && gforced="$gforced"$'\n- forced: the `'"$gl"$'` label is on the PR — a person asked for the guide, so the gate is passed.'
   [ "$(ctx_get '.guide_owed // false')" = true ] \
@@ -1435,7 +1439,7 @@ cmd_prepare() {
       if [ "$trig" = "always" ]; then
         fblock=$'\nScope: the whole clone (an `always` skill).'
         [ -n "$focus" ] && fblock="$fblock"$' Focus — the files changed since the previous review round; look\nthere first. The rest of the PR was reviewed in that round and stays context:\n'"$focus"
-      else fblock=$'\nRouted files (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')"; fi
+      else fblock=$'\nRouted files — the review\'s scope for this skill (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')"; fi
       brief="$CTX/briefs/$s.md"
       local t="$tpl"
       if [ "$kind" = guide ] && [ -n "$gtpl" ]; then
@@ -1772,12 +1776,12 @@ cmd_collect() {
 # any other matched pair is `ambiguous` and carries the `suggest` the block and
 # the annotated array already apply. An open prior that no `still` finding
 # matched is `fixed`; an unmatched current is `new`. PR-local overrides suppress
-# by file:line (±2) or symbol. `--settle <i>=still|new` replaces the suggestion
-# of the ambiguous pair whose current finding is at index <i> of the agent's
-# array, so one rerun settles every pair in block, buckets and annotated alike.
-# A `new` finding with no anchor in a hunk of the range since the prior review
-# (`age.json`) was already there at the prior SHA: it is `late`, and
-# `--fresh <i>` clears that for a defect the range causes from elsewhere.
+# by file:line (±2) or symbol. `--settle <i>=still|new` sets the class of the
+# matched pair whose current finding is at index <i> of the agent's array —
+# ambiguous or not — so one rerun settles every pair in block, buckets and
+# annotated alike. A `new` finding with no anchor in a hunk of the range since
+# the prior review (`age.json`) was already there at the prior SHA: it is
+# `late`, and `--fresh <i>` clears that mark. The severity stays the agent's.
 # Always writes the annotated array — the agent's
 # own findings with `status` filled in, plus the `fixed` carryovers — so `post`
 # takes a file the agent never has to rewrite.
@@ -1812,9 +1816,8 @@ cmd_delta() {
   age="$(jq -c 'if type == "object" and .known == true then . else null end' "$CTX/age.json" 2>/dev/null)"
   [ -n "$age" ] || age='null'
   local j
-  local full; [ "$(ctx_get '.full')" = true ] && full=true || full=false
   j="$(jq -n --slurpfile c "$cur" --argjson p "$prior" --argjson o "$overrides" --argjson s "$settle" \
-    --argjson a "$age" --argjson fr "$fresh" --argjson full "$full" '
+    --argjson a "$age" --argjson fr "$fresh" '
     def words: (ascii_downcase | gsub("[^a-z0-9 ]";" ") | split(" ") | map(select(length > 3)) | unique);
     def similar($a; $b): (($a|words) as $x | ($b|words) as $y | ($x - ($x - $y) | length) >= 2) or (($a|ascii_downcase) == ($b|ascii_downcase));
     # a finding carries one anchor per location: its own file:line plus every
@@ -1860,20 +1863,15 @@ cmd_delta() {
                end
            end)
         | . + {index: $i, settled: ($s[$i|tostring] // .suggest // .cls), hits: ovr_hits(.f)}
-        # `aged`: late before any --fresh, the set --fresh may name
-        | . + {aged: (.settled == "new" and late(.f; -1))}
-        | . + {late: (.aged and late(.f; $i))}
-        # a late 🟡 on a delta re-review is graded 🟢 (docs/review-rereview.md)
-        | . + {demote: (.late and ($full | not) and .f.severity == "warning")}
-        | if .demote then .f |= (.severity = "suggestion" | .fix = null) else . end ] as $cl
+        | . + {late: (.settled == "new" and late(.f; $i))} ] as $cl
     | [ $cl[] | select((.hits | length) == 0) ] as $rep
-    # --settle takes the indexes `ambiguous[]` lists: reported pairs only
-    | ([ $s | keys[] | tonumber ] - [ $rep[] | select(.cls == "ambiguous") | .index ]) as $bad
-    | ($fr - [ $rep[] | select(.aged) | .index ]) as $badf
+    # --settle takes any pair with a prior to match; --fresh any index of the array
+    | ([ $s | keys[] | tonumber ] - [ $cl[] | select(.prior != null) | .index ]) as $bad
+    | ($fr - [ $cl[] | .index ]) as $badf
     | if ($bad | length) > 0 then {outcome: "error", step: "delta",
-        error: ("--settle names no ambiguous pair at index " + ($bad | map(tostring) | join(", ")) + " — settle only the `ambiguous[].index` values")}
+        error: ("--settle names no matched pair at index " + ($bad | map(tostring) | join(", ")) + " — a finding with no prior match is new")}
       elif ($badf | length) > 0 then {outcome: "error", step: "delta",
-        error: ("--fresh names no late finding at index " + ($badf | map(tostring) | join(", ")) + " — clear only a `late[].index` value")} else .
+        error: ("--fresh names no finding at index " + ($badf | map(tostring) | join(", ")))} else .
     # over every classification, suppressed included: an override hides a
     # finding from the review, it does not fix the defect, so the prior it
     # matches is neither `fixed` nor announced as such
@@ -1884,8 +1882,7 @@ cmd_delta() {
         new:   [ $rep[] | select(.settled == "new")
                  | (.f | del(.late)) + (if .cls == "ambiguous" then {ambiguous: true} else {} end)
                       + (if .late then {late: true} else {} end) ],
-        late:  [ $rep[] | select(.late) | {index: .index, file: .f.file, line: .f.line, summary: .f.summary}
-                 + (if .demote then {demote: true} else {} end) ],
+        late:  [ $rep[] | select(.late) | {index: .index, file: .f.file, line: .f.line, summary: .f.summary, severity: .f.severity} ],
         fixed: $gone,
         ambiguous: [ $rep[] | select(.cls == "ambiguous")
                      | {index: .index, current: .f, prior: .prior, suggest: .suggest, settled: .settled,
@@ -1954,7 +1951,13 @@ cmd_compose_brief() {
             ghtml="$(jq -r --arg s "$s" '.[$s].html // empty' "$CTX/collect.json")"
             ran="$ran$sec"$'\n'
           else gnone="$gnone$s (a second guide skill), "; fi;;
-        (*) gnone="$gnone$s ($(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")), ";;
+        (*)
+          # a guide published for this PR keeps its record current in every
+          # round, whatever the skill decided (docs/artifact.md → Review guide)
+          if [ -z "$gskill" ] && [ -n "$(guide_marker)" ] && [ -s "$WORK/reviews/pr-artifacts/pr-$N.guide.html" ]; then
+            gskill="$s"; gsec="$sec"; gstate=refresh; gline=""; ghtml=""
+            ran="$ran$sec"$'\n'
+          else gnone="$gnone$s ($(jq -r --arg s "$s" '.[$s].guide' "$CTX/collect.json")), "; fi;;
       esac
       continue
     fi
@@ -1968,7 +1971,7 @@ cmd_compose_brief() {
 
   # limits: what this review could not read, as facts for the reader of the
   # posted body (docs/review.md → Output format (first reviews)). The script
-  # composes the sentence and `post` refuses a body without it; nothing to
+  # composes the sentence and `post` warns on a body without it; nothing to
   # report writes no line and no file.
   local limits="" dlines
   [ "$(ctx_get '.clone')" = failed ] && limits="$limits the clone failed — findings come from the diff only."
@@ -2021,12 +2024,12 @@ cmd_compose_brief() {
     printf '<every current finding, per docs/finding-form.md>\n\n'
   fi
   [ "$kind" = "re-review" ] && [ "$full" = "true" ] \
-    || printf '<an inline-carried finding is one line here — severity, short label, `file:line` — its description, Fix line and suggestion only in the inline comment: `post` refuses more>\n\n'
+    || printf '<an inline-carried finding is one line here — severity, short label, `file:line` — its description, Fix line and suggestion only in the inline comment: `post` warns on more>\n\n'
   printf '%s' "$ran" | while IFS= read -r sec; do
     [ -n "$sec" ] || continue
     if [ -n "$gskill" ] && [ "$sec" = "$gsec" ]; then
       printf '### %s\n<only when %sthe guide link is in hand: the one 📊 line of **Review guide** below — else drop this section>\n\n' "$sec" \
-        "$([ -n "$(guide_label_on)" ] || printf 'your triage is `needs-human` and ')"
+        "$([ -n "$(guide_label_on)" ] || [ -n "$(guide_marker)" ] || printf 'your triage is `needs-human` and ')"
     else printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"; fi
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
@@ -2045,7 +2048,7 @@ cmd_compose_brief() {
   if [ "$kind" = "re-review" ]; then
     printf -- '- prior findings: `%s` (%s still open) — write this round against their anchors and wording\n' \
       "$CTX/prior.json" "$(jq '[.[] | select(.status != "fixed")] | length' "$CTX/prior.json" 2>/dev/null || printf 0)"
-    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle the `ambiguous` pairs you change in one rerun with `--settle <index>=still|new`, clear a `late` finding the range causes from elsewhere with `--fresh <index>`, then post that file\n' \
+    printf -- '- findings.json: `review-pr.sh delta %s %s/findings.json` writes `%s` with every `status` filled in — settle the pairs you change in one rerun with `--settle <index>=still|new`, clear a `late` mark the range causes from elsewhere with `--fresh <index>`, grade every `late[]` finding yourself (docs/review-rereview.md), then post that file\n' \
       "$N" "$CTX" "$CTX/findings.annotated.json"
   else
     if jq -e '.reachable' "$CTX/carry.json" >/dev/null 2>&1; then
@@ -2058,7 +2061,7 @@ cmd_compose_brief() {
   printf -- '- sections that post: %s\n' "${seclist:-none}"
   [ -n "$omitted" ] && printf -- '- no section (audit line only): %s\n' "${omitted%, }"
   [ -n "$gnone" ] && printf -- '- no section, no page to link (audit line only): %s\n' "${gnone%, }"
-  [ -n "$limits" ] && printf -- '- the `_Limits:_` line above goes into `### Summary` word for word — `post` refuses a body without it\n'
+  [ -n "$limits" ] && printf -- '- the `_Limits:_` line above goes into `### Summary` word for word — `post` warns on a body without it\n'
   local ovr mem mdue
   ovr="$(prior_overrides | jq -r '.[]' 2>/dev/null | sed 's/^/  /')"
   mem="$(sed -n '/^## Feedback Log/,$d; p' "$WORK/MEMORY.md" 2>/dev/null | grep -E '^- ' | sed 's/^/  /')"
@@ -2068,31 +2071,36 @@ cmd_compose_brief() {
   [ -n "$mdue" ] && [ "$mdue" != "null" ] && printf -- '- area memory for this PR: %s\n' "$mdue"
   printf -- '- meta.json: `{"checks":[{"for":"<summary>","run":"git grep -nE -e '"'"'<ERE>'"'"'","clean":"<what a clean run prints>"}],"deferred":[{"file","line","note"}],"triage":{"class":"needs-human|quick-check","why":"<≤ ~15 words>","verified":"<≤ ~15 words>","minutes":<int>}}` — the portable form of each class sweep, and your call on whether a person must read this PR (docs/review-mechanics.md → Summary body format)\n'
   local fh; fh="$(forced_human_path)"
-  [ -n "$fh" ] && printf -- '- triage is forced to `needs-human`: `%s` matches `human_review_paths` — say in `why` what a person must judge there\n' "$fh"
+  [ -n "$fh" ] && printf -- '- `%s` matches `human_review_paths`: weigh it in your triage call — `post` records the match as `triage.forced`, and a forced PR never auto-merges\n' "$fh"
   [ -n "$gskill" ] && guide_brief "$gskill" "$gsec" "$gstate" "$gline" "$ghtml"
   # the payload lives in $CTX, which `post` deletes: the call runs from $HOME,
   # so the shell never stands in the directory it removes (docs/review.md step f)
   # a re-review posts the file `delta` annotated, a first review its own list
   local pfind="findings.json"; [ "$kind" = "re-review" ] && pfind="findings.annotated.json"
   printf -- '- payload files: write them in `%s/`\n' "$CTX"
-  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json] --model <your exact session model id>` — judge it by `outcome`, never by the exit status\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
+  printf -- '- post: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" post %s --verdict <V> --body %s/body.md --findings %s/%s [--comments %s/comments.json] [--meta %s/meta.json] --model <your exact session model id>` — judge it by `outcome`, never by the exit status; `outcome: "warnings"` posted nothing: fix the files, or add `--accept-warnings` to post them as they are\n' "$N" "$CTX" "$CTX" "$pfind" "$CTX" "$CTX"
   exit 0
 }
 
-# The publish steps of a built or kept guide, between `meta.json` and `post`
-# (docs/artifact.md → Review guide). The agent publishes: only it has the DAM
-# tools, and the triage it wrote decides whether a person is needed, unless
-# the `guide_label` asks for the guide.
-guide_brief() { # <skill> <section> <built|kept> <line> <html>
+# The publish steps of a built, kept or refreshed guide, between `meta.json`
+# and `post` (docs/artifact.md → Review guide). The agent publishes: only it
+# has the DAM tools. The triage it wrote decides a first publish, unless the
+# `guide_label` asks for the guide; a published guide is refreshed in every
+# round.
+guide_brief() { # <skill> <section> <built|kept|refresh> <line> <html>
   local s="$1" sec="$2" g="$3" line="$4" html="$5" gm gid gsha gurl judge ff store n=1
   gm="$(guide_marker)"; gid="${gm%% *}"; gsha="$(printf '%s' "$gm" | cut -d' ' -f2)"; gurl="${gm##* }"
   judge="$(printf '%s' "$line" | sed -E 's/^(📊|🔁) *(Guide|Still holds) *— *//; s/\.$//')"
+  [ "$g" = refresh ] && judge="the review notes are brought up to this round"
   ff="$CTX/findings.json"; [ "$(ctx_get '.kind')" = "re-review" ] && ff="$CTX/findings.annotated.json"
   store="$WORK/reviews/pr-artifacts/pr-$N.guide.html"
   printf '\n## Review guide — `%s` %s — docs/artifact.md → Review guide\n\n' "$s" \
-    "$([ "$g" = built ] && printf 'built a page for the human reviewer' || printf 'says the guide at %s still holds' "$gsha")"
-  printf 'Its line: %s\n\n' "$line"
-  if [ -n "$(guide_label_on)" ]; then
+    "$(case "$g" in (built) printf 'built a page for the human reviewer';; (kept) printf 'says the guide at %s still holds' "$gsha";;
+       (*) printf 'built no page; the guide at %s stays and gets this round'"'"'s review notes' "$gsha";; esac)"
+  [ -n "$line" ] && printf 'Its line: %s\n\n' "$line"
+  if [ -n "$gid" ]; then
+    printf 'A guide is published for this PR: bring it up to date in every round, whatever your `meta.json` triage —\n'
+  elif [ -n "$(guide_label_on)" ]; then
     printf 'The `%s` label on the PR asks for the guide: publish it whatever your `meta.json` triage —\n' "$(guide_label_on)"
   else
     printf 'Your `meta.json` triage decides. `quick-check` → drop the `### %s` section and publish nothing. `needs-human` →\n' "$sec"
@@ -2104,8 +2112,8 @@ guide_brief() { # <skill> <section> <built|kept> <line> <html>
   fi
   printf '%s. The DAM tools `create_artifact_upload_url` and `%s` are not registered → drop the section, then `review-pr.sh guide %s --skipped dam-unavailable`.\n' \
     "$n" "$([ -n "$gid" ] && printf update_artifact || printf create_artifact)" "$N"; n=$((n+1))
-  printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the review'"'"'s open findings go into the page as **Verified by the review**; its `html` is the page to upload.\n' \
-    "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" = kept ] && printf ' --kept')"; n=$((n+1))
+  printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the PR, its issue and every review note go into the page as **PR, issue and review notes**; its `html` is the page to upload.\n' \
+    "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" != built ] && printf ' --kept')"; n=$((n+1))
   printf '%s. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @<html> '"'"'<url>'"'"'`\n' "$n" "$N"; n=$((n+1))
   if [ -n "$gid" ]; then
     printf '%s. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$n" "$gid" "$gurl"
@@ -2113,7 +2121,7 @@ guide_brief() { # <skill> <section> <built|kept> <line> <html>
     printf '%s. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$n" "$N"
   fi; n=$((n+1))
   printf '%s. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker, the stored copy and the `guide` event.\n' "$n" "$N"; n=$((n+1))
-  if [ "$g" = kept ]; then
+  if [ "$g" != built ]; then
     printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — at %s: %s`\n' "$n" "$gsha" "$judge"
   else
     printf '%s. The section is the single line: `📊 [Visual guide for the human reviewer](<shareUrl>) — %s`\n' "$n" "$judge"
@@ -2205,9 +2213,9 @@ dismiss_approvals() {
 # ==================================================================== post ====
 cmd_post() {
   need_ctx
-  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" META="" CLOSED_ISSUE="" MODEL=""
+  local VERDICT="" BODY="" FINDINGS="" COMMENTS="" META="" CLOSED_ISSUE="" MODEL="" ACCEPT=false
   while [ $# -gt 0 ]; do case "$1" in
-    (--model) MODEL="${2:-}"; shift 2;;
+    (--model) MODEL="${2:-}"; shift 2;; (--accept-warnings) ACCEPT=true; shift;;
     (--verdict) VERDICT="${2:-}"; shift 2;; (--body) BODY="${2:-}"; shift 2;; (--findings) FINDINGS="${2:-}"; shift 2;;
     (--comments) COMMENTS="${2:-}"; shift 2;; (--meta) META="${2:-}"; shift 2;;
     (--closed-issue) CLOSED_ISSUE="${2:-}"; shift 2;; (*) shift;; esac; done
@@ -2216,13 +2224,18 @@ cmd_post() {
   [ -f "$FINDINGS" ] && jq -e 'type=="array"' "$FINDINGS" >/dev/null 2>&1 || fail "--findings <file> must be a JSON array"
   [ -z "$COMMENTS" ] || { [ -f "$COMMENTS" ] && jq -e 'type=="array"' "$COMMENTS" >/dev/null 2>&1; } || fail "--comments <file> must be a JSON array"
   [ -z "$META" ] || { [ -f "$META" ] && jq -e 'type=="object"' "$META" >/dev/null 2>&1; } || fail "--meta <file> must be a JSON object"
-  # the limits line `compose-brief` composed must reach the reader. The script
-  # never writes into the body, so a body without it is refused, exactly as a
-  # stale HEAD is (docs/review.md → Output format (first reviews)).
+  # --- content warnings: the body and findings are the agent's. A check below
+  # reports what it sees; the agent fixes the files or reruns with
+  # --accept-warnings to post them as they are (docs/review.md step f) ---
+  local warns='[]'
+  pwarn() { warns="$(printf '%s' "$warns" | jq -c --arg w "$1" '. + [$w]')"; }
+  # the limits line `compose-brief` composed is meant to reach the reader
+  # (docs/review.md → Output format (first reviews)); the script never writes
+  # into the body
   if [ -s "$CTX/limits.txt" ]; then
     local lim; lim="$(cat "$CTX/limits.txt")"
     grep -qF -- "$lim" "$BODY" 2>/dev/null \
-      || fail "the body drops the limits line — copy it into ### Summary word for word: $lim"
+      || pwarn "the body drops the limits line — copy it into ### Summary word for word: $lim"
   fi
   # an inline-carried finding is one line in ### Findings: its description, Fix
   # and suggestion live in the inline comment. Only a summary-only finding takes
@@ -2255,7 +2268,74 @@ cmd_post() {
     [ "$cur" = 1 ] && [ "$cont" = 0 ] && { nmulti=$((nmulti + 1)); cont=1; }
   done < "$BODY"
   [ "$nmulti" -le "$nfull" ] && [ "$nfix" -le "$nfull" ] \
-    || fail "### Findings writes ${nmulti} finding(s) on more than one line and ${nfix} **Fix:** line(s), but findings-json holds ${nfull} finding(s) not carried inline — write each inline-carried finding there as one line (severity, short label, file:line), its description and Fix only in the inline comment"
+    || pwarn "### Findings writes ${nmulti} finding(s) on more than one line and ${nfix} **Fix:** line(s), but findings-json holds ${nfull} finding(s) not carried inline — write each inline-carried finding there as one line (severity, short label, file:line), its description and Fix only in the inline comment"
+  # --- one finding, one place: the body prints no blocking line findings-json
+  # does not hold, the copy of a merged finding in a skill section among them
+  # (docs/review.md → Merging findings across sources)
+  local nblk nbody
+  nblk="$(jq '[ .[] | select((.severity == "critical" or .severity == "warning") and .status != "fixed") ] | length' "$FINDINGS")"
+  nbody="$(grep -cE '^[[:space:]]*[-*][[:space:]]+(🔴|🟡)' "$BODY" || :)"
+  [ "${nbody:-0}" -le "$nblk" ] \
+    || pwarn "the body prints ${nbody} 🔴/🟡 finding line(s) but findings-json holds ${nblk} open blocking finding(s) — print each merged finding once, in ### Findings, and drop its copy from the skill section"
+  # a late 🟡 on a delta re-review is graded by the agent (docs/review-rereview.md
+  # → Re-review output); the late set comes from the file `delta` annotated, so
+  # a posted array without the `late` flag still names its anchors
+  if [ "$(ctx_get '.kind')" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ]; then
+    local lateset='[]' nlate
+    [ -f "$CTX/findings.annotated.json" ] \
+      && lateset="$(jq -c 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+        [ .[] | select(.late == true) | anchors[] ]' "$CTX/findings.annotated.json" 2>/dev/null)"
+    [ -n "$lateset" ] || lateset='[]'
+    nlate="$(jq --argjson L "$lateset" 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
+         [ .[] | select(.severity == "warning" and .status != "fixed"
+           and (.late == true or (anchors | any(. as $a | any($L[]; . == $a))))) ] | length' "$FINDINGS" 2>/dev/null)"
+    [ "${nlate:-0}" -gt 0 ] \
+      && pwarn "${nlate} late 🟡 finding(s) stay blocking on a delta re-review — grade each per docs/review-rereview.md → Re-review output"
+  fi
+
+  # --- anchor check: every findings-json line should exist in the file it names ---
+  # A finding whose anchor does not exist points the author at nothing and can
+  # 422 the POST: it is a warning to fix, and on --accept-warnings the line is
+  # nulled (summary-only) as a fallback the outcome names in `anchors_nulled`;
+  # the finding itself is never dropped (docs/review-mechanics.md → Summary body format).
+  local anchor_bad='[]'
+  if [ -d "$PR_DIR" ]; then
+    local lens
+    lens="$(jq -r '[ .[] | .file, ((.also // [])[]? | .file) ] | map(select(. != null)) | unique | .[]' "$FINDINGS" 2>/dev/null \
+      | while IFS= read -r f; do
+          case "$f" in (''|/*|..|../*|*/..|*/../*) continue;; esac
+          [ -f "$PR_DIR/$f" ] || continue
+          printf '%s\t%s\n' "$f" "$(grep -c '' "$PR_DIR/$f")"
+        done | jq -R 'split("\t") | select(length == 2) | {(.[0]): (.[1] | tonumber)}' | jq -sc 'add // {}')"
+    [ -n "$lens" ] || lens='{}'
+    local FJQ='def ok($a): ($a.file == null) or ($a.line == null) or ($L[$a.file] == null)
+                 or (($a.line >= 1) and ($a.line <= $L[$a.file]));'
+    anchor_bad="$(jq -c --argjson L "$lens" "$FJQ"'
+      [ .[] | . as $f
+        | ({file: $f.file, line: $f.line, summary: $f.summary} | select(ok(.) | not)),
+          (($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line, summary: $f.summary} | select(ok(.) | not)) ]' "$FINDINGS")"
+    if [ "$(printf '%s' "$anchor_bad" | jq length)" -gt 0 ]; then
+      pwarn "$(printf '%s' "$anchor_bad" | jq length) finding anchor(s) not a line of the file named: $(printf '%s' "$anchor_bad" | jq -r 'map("\(.file):\(.line)") | join(", ")') — fix the anchor, or post on purpose and the line is nulled"
+      if [ "$ACCEPT" = true ]; then
+        jq -c --argjson L "$lens" "$FJQ"'
+          map(. as $f
+              | (if ok({file: $f.file, line: $f.line}) then . else .line = null | .inline = false end)
+              | (if (.also // []) == [] then . else .also = [ (.also)[]? | select(type == "object") | select(ok({file: (.file // $f.file), line: .line})) ] end))' \
+          "$FINDINGS" > "$CTX/findings.checked.json" && FINDINGS="$CTX/findings.checked.json"
+        logev warn anchor_invalid "PR #$N: $(printf '%s' "$anchor_bad" | jq length) finding anchor(s) not a line of the file named — nulled on --accept-warnings: $(printf '%s' "$anchor_bad" | jq -r 'map("\(.file):\(.line)") | join(", ")')"
+      fi
+    else anchor_bad='[]'
+    fi
+  fi
+  if [ "$(printf '%s' "$warns" | jq length)" -gt 0 ]; then
+    if [ "$ACCEPT" != true ]; then
+      logev info review_pr "PR #$N: post held for $(printf '%s' "$warns" | jq length) content warning(s) — nothing posted"
+      out "$(jq -nc --argjson w "$warns" '{outcome:"warnings", warnings:$w,
+        next:"a holding state: fix the body or findings and rerun post, rerun post with --accept-warnings to post them as they are, or run abort — nothing was posted, the lock and the files are kept"}')"
+    fi
+    logev warn post_warnings "PR #$N: posted with --accept-warnings: $(printf '%s' "$warns" | jq -r 'join(" | ")')"
+  fi
+
   local sha kind title; sha="$(ctx_get '.head_sha')"; kind="$(ctx_get '.kind')"; title="$(ctx_get '.title')"
   local sha7="${sha:0:7}" now; now="$(now_iso)"
 
@@ -2350,60 +2430,6 @@ cmd_post() {
     fi
   fi
 
-  # --- one finding, one place: the body prints no blocking line findings-json
-  # does not hold, so a skill-section copy of a merged finding is refused, and a
-  # delta re-review keeps no late 🟡 blocking (docs/review.md → Merging findings
-  # across sources, docs/review-rereview.md → Re-review output)
-  local nblk nbody
-  nblk="$(jq '[ .[] | select((.severity == "critical" or .severity == "warning") and .status != "fixed") ] | length' "$FINDINGS")"
-  nbody="$(grep -cE '^[[:space:]]*[-*][[:space:]]+(🔴|🟡)' "$BODY" || :)"
-  [ "${nbody:-0}" -le "$nblk" ] \
-    || fail "the body prints ${nbody} 🔴/🟡 finding line(s) but findings-json holds ${nblk} open blocking finding(s) — print each merged finding once, in ### Findings, and drop its copy from the skill section"
-  # the late set comes from the file `delta` annotated, whatever file the caller
-  # passed: a posted array without the `late` flag still names its anchors
-  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.full')" != "true" ]; then
-    local lateset='[]'
-    [ -f "$CTX/findings.annotated.json" ] \
-      && lateset="$(jq -c 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
-        [ .[] | select(.late == true and .severity == "suggestion") | anchors[] ]' "$CTX/findings.annotated.json" 2>/dev/null)"
-    [ -n "$lateset" ] || lateset='[]'
-    if jq -e --argjson L "$lateset" 'def anchors: . as $f | [{file, line}] + [ (.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line} ];
-         any(.[]; (.severity == "warning" or .severity == "critical")
-         and ((.late == true and .severity == "warning") or (anchors | any(. as $a | any($L[]; . == $a)))))' "$FINDINGS" >/dev/null 2>&1; then
-      fail "a delta re-review keeps a late warning blocking — post the findings file delta annotated, where every late 🟡 is 🟢"
-    fi
-  fi
-
-  # --- anchor check: every findings-json line must exist in the file it names ---
-  # A finding whose anchor does not exist points the author at nothing and can
-  # 422 the POST, so the line is nulled (summary-only) and reported; the finding
-  # itself is never dropped (docs/review-mechanics.md → Summary body format).
-  local anchor_bad='[]'
-  if [ -d "$PR_DIR" ]; then
-    local lens
-    lens="$(jq -r '[ .[] | .file, ((.also // [])[]? | .file) ] | map(select(. != null)) | unique | .[]' "$FINDINGS" 2>/dev/null \
-      | while IFS= read -r f; do
-          case "$f" in (''|/*|..|../*|*/..|*/../*) continue;; esac
-          [ -f "$PR_DIR/$f" ] || continue
-          printf '%s\t%s\n' "$f" "$(grep -c '' "$PR_DIR/$f")"
-        done | jq -R 'split("\t") | select(length == 2) | {(.[0]): (.[1] | tonumber)}' | jq -sc 'add // {}')"
-    [ -n "$lens" ] || lens='{}'
-    local FJQ='def ok($a): ($a.file == null) or ($a.line == null) or ($L[$a.file] == null)
-                 or (($a.line >= 1) and ($a.line <= $L[$a.file]));'
-    anchor_bad="$(jq -c --argjson L "$lens" "$FJQ"'
-      [ .[] | . as $f
-        | ({file: $f.file, line: $f.line, summary: $f.summary} | select(ok(.) | not)),
-          (($f.also // [])[]? | select(type == "object") | {file: (.file // $f.file), line: .line, summary: $f.summary} | select(ok(.) | not)) ]' "$FINDINGS")"
-    if [ "$(printf '%s' "$anchor_bad" | jq length)" -gt 0 ]; then
-      jq -c --argjson L "$lens" "$FJQ"'
-        map(. as $f
-            | (if ok({file: $f.file, line: $f.line}) then . else .line = null | .inline = false end)
-            | (if (.also // []) == [] then . else .also = [ (.also)[]? | select(type == "object") | select(ok({file: (.file // $f.file), line: .line})) ] end))' \
-        "$FINDINGS" > "$CTX/findings.checked.json" && FINDINGS="$CTX/findings.checked.json"
-      logev warn anchor_invalid "PR #$N: $(printf '%s' "$anchor_bad" | jq length) finding anchor(s) not a line of the file named — nulled: $(printf '%s' "$anchor_bad" | jq -r 'map("\(.file):\(.line)") | join(", ")')"
-    fi
-  fi
-
   # --- inline comments: eligibility against the hunk index, cap, priority ---
   local comments='[]' moved='[]'
   if [ -n "$COMMENTS" ]; then
@@ -2445,14 +2471,14 @@ cmd_post() {
   [ -n "$REREVIEW_DELTA_LABEL" ] && rr_delta="$(jq -nc --arg v "$REREVIEW_DELTA_LABEL" '$v')"
   # `triage` is the agent's call on whether a person must read this PR
   # (docs/review-mechanics.md → Summary body format); a changed file under
-  # `human_review_paths` forces `needs-human`, whatever the call said.
+  # `human_review_paths` is recorded beside it in `forced`, the call unchanged.
   local forced; forced="$(forced_human_path)"
   mj="$(jq -nc --slurpfile m "${META:-/dev/null}" --arg d "$(diff_digest)" --arg t "$TRIG" \
     --argjson l "$rr_lbl" --argjson u "$rr_login" --argjson dl "$rr_delta" --arg f "$forced" \
     '(($m[0] // {}) | if type == "object" then . else {} end)
      | ((.triage // null) | if type == "object" then . else null end) as $tr
      | (if $tr == null and $f == "" then null
-        else {class: (if $f == "" and ($tr.class // "") == "quick-check" then "quick-check" else "needs-human" end),
+        else {class: (if ($tr.class // "") == "quick-check" then "quick-check" else "needs-human" end),
               why: (($tr.why // null) | if type == "string" then . else null end),
               verified: (($tr.verified // null) | if type == "string" then . else null end),
               minutes: (($tr.minutes // null) | if type == "number" and . > 0 then (. | floor) else null end)}
@@ -2565,9 +2591,9 @@ cmd_post() {
   cleanup
   out "$(jq -nc --arg v "$VERDICT" --arg id "$rid" --arg u "$url" --argjson m "$moved" --argjson lr "$label_removed" --argjson d "${dismissed:-null}" \
     --argjson c "$c" --argjson w "$w" --argjson s "$s" --argjson took "$took" --argjson ab "${anchor_bad:-[]}" \
-    --arg ev "$EVENT" \
+    --arg ev "$EVENT" --argjson pw "$warns" \
     '{outcome:"posted", verdict:$v, event:$ev, review_id:(if $id=="" then null else ($id|tonumber) end), url:(if $u=="" then null else $u end),
-      moved_to_summary:$m, anchors_nulled:$ab, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
+      moved_to_summary:$m, anchors_nulled:$ab, warnings:$pw, label_removed:$lr, dismissed_approval:$d, counts:{critical:$c, warning:$w, suggestion:$s}, took_minutes:$took}')"
 }
 
 # The first changed file under a `human_review_paths` glob (docs/config.md),
@@ -2741,34 +2767,132 @@ cmd_verify() {
 }
 
 # ====================================================================== ci ====
-# The review's open findings as the page's "Verified by the review" block,
-# rendered by this script from the findings file `post` takes — escaped, linked
-# to the head SHA, no model in the loop (docs/artifact.md → Review guide).
-findings_block() { # <findings file> <head sha>
-  jq -r --arg base "https://$REPO_HOST/$REPO/blob/$2/" '
+# The page's record block: the PR and its linked issues with their authors, and
+# every review note on the PR with its author and its status — code-guardian's
+# findings over every posted round and this one, and each other reviewer's
+# reviews and review threads as GitHub holds them. Rendered by this script,
+# escaped, linked to the head SHA, no model in the loop: each note is shown as
+# the opinion of its author, never as the page's (docs/artifact.md → Review
+# guide).
+GUIDE_RECORD_Q='query GuideRecord($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
+  author{login}
+  closingIssuesReferences(first:5){nodes{number title state author{login} repository{nameWithOwner}}}
+  reviews(first:100){nodes{databaseId author{login} state submittedAt body}}
+  reviewThreads(first:100){nodes{isResolved isOutdated path line
+    comments(first:1){totalCount nodes{databaseId author{login} body createdAt}}}}}}}'
+# → $CTX/guide.people.json: the PR's author, linked issues, reviews and threads
+# in one call, or `{}` when GitHub does not answer
+guide_people() {
+  gh api graphql -F n="$N" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query="$GUIDE_RECORD_Q" 2>/dev/null \
+    | jq -c '.data.repository.pullRequest | select(type == "object")' > "$CTX/guide.people.json" 2>/dev/null
+  [ -s "$CTX/guide.people.json" ] && return 0
+  printf '{}\n' > "$CTX/guide.people.json"
+  logev warn guide "PR #$N: the linked issue and the other reviews were not read — the guide shows code-guardian's notes only"
+}
+# → $CTX/guide.rounds.json: the findings of every round posted to
+# `reviews/pr-<n>.md`, in order, then this round's
+guide_rounds() { # <findings file>
+  local hist="$WORK/reviews/pr-$N.md"
+  { [ -f "$hist" ] && sed -n -e 's/^## Review at \([0-9a-f]\{7,40\}\) — .*/H \1/p' \
+      -e 's/^.*<!-- findings-json: \(.*\) -->.*$/F \1/p' "$hist"; :; } \
+    | jq -Rn --slurpfile c "$1" --arg sha "$(ctx_get '.head_sha' | cut -c1-7)" '
+      reduce (inputs | select(test("^[HF] "))) as $l ([];
+        if ($l | startswith("H ")) then . + [{sha: $l[2:], findings: []}]
+        elif length > 0 then (length - 1) as $k
+          | .[$k].findings = (($l[2:] | try fromjson catch []) | if type == "array" then . else [] end)
+        else . end)
+      + [{sha: $sha, findings: ($c[0] // [])}]' > "$CTX/guide.rounds.json" 2>/dev/null && return 0
+  # an unreadable history still renders this round's findings
+  logev warn guide "PR #$N: the earlier rounds in reviews/pr-$N.md were not read — the guide shows this round's findings only"
+  jq -c --arg sha "$(ctx_get '.head_sha' | cut -c1-7)" '[{sha: $sha, findings: .}]' "$1" > "$CTX/guide.rounds.json" 2>/dev/null
+}
+record_block() { # <head sha> <people file> <rounds file>
+  jq -nr --slurpfile p "$2" --slurpfile rs "$3" --arg repo "$REPO" --arg web "https://$REPO_HOST/$REPO" \
+    --arg sha "$1" --argjson n "$N" --arg author "$(ctx_get '.author')" --arg m "<!-- $REVIEW_MARKER" \
+    --arg own "$BOT_LOGIN $(token_login 2>/dev/null)" '
     def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;") | gsub("\u0027"; "&#39;");
-    def num: (.line | type) == "number" and .line >= 1;
-    def link: if (.file // "") == "" or (.file | type) != "string" then "" else
-      "<a href=\"" + $base + (.file | split("/") | map(@uri) | join("/"))
-      + (if num then "#L\(.line | floor)" else "" end) + "\">"
-      + ((.file + (if num then ":\(.line | floor)" else "" end)) | esc) + "</a>" end;
-    [ .[] | select((.status // "new") != "fixed") ] as $open
-    | [ $open[] | select(.severity == "critical" or .severity == "warning") ]
-      | sort_by(if .severity == "critical" then 0 else 1 end) as $b
-    | ([ $open[] | select(.severity == "suggestion") ] | length) as $sg
+    def who: "@" + (if (. // "") == "" then "ghost" else . end) | esc;
+    def by($name): "<span class=\"by\">Opinion of " + $name + "</span>";
+    def excerpt: (. // "") | tostring | gsub("\\s+"; " ") | gsub(" ?<!--.*?-->"; "") | ltrimstr(" ") | rtrimstr(" ")
+      | if length > 280 then .[0:280] + "…" else . end | esc;
+    def num($l): ($l | type) == "number" and $l >= 1;
+    def flink($file; $line): if ($file | type) != "string" or $file == "" then "" else
+      "<a href=\"" + $web + "/blob/" + $sha + "/" + ($file | split("/") | map(@uri) | join("/"))
+      + (if num($line) then "#L\($line | floor)" else "" end) + "\">"
+      + (($file + (if num($line) then ":\($line | floor)" else "" end)) | esc) + "</a>" end;
+    def sev: if .severity == "critical" then "🔴 Critical" elif .severity == "warning" then "🟡 Warning" else "🟢 Suggestion" end;
+    def day: (. // "") | tostring | .[0:10] | esc;
+    # code-guardian'"'"'s own accounts: GraphQL names an App bot without "[bot]"
+    ($own | split(" ") | map(select(length > 0) | ascii_downcase | rtrimstr("[bot]"))) as $mine
+    |
+    def ours($login; $body): ((($login // "") | ascii_downcase | rtrimstr("[bot]")) as $l | $mine | index($l) != null)
+      or (($body // "") | contains($m));
+    ($p[0] // {}) as $pr | ($pr | has("reviews")) as $read
+    | ($rs[0] // []) as $rounds | ($rounds | last | .sha // "") as $latest
+    # code-guardian: one note per finding over the rounds — a `still` finding
+    # updates its note, a `fixed` one closes it, a `new` one adds one
+    | (reduce $rounds[] as $r ([];
+        reduce (($r.findings // []) | if type == "array" then .[] else empty end | select(type == "object")) as $f (.;
+          ($f.status // "new") as $s | ($f.file // "" | tostring) as $ff | ($f.summary // "" | tostring) as $fs
+          | [ to_entries[] | select(.value.fixed == null and .value.file == $ff) ] as $c
+          | (if $s == "fixed" then (($c | map(select(.value.summary == $fs)) | first) // ($c | map(select(.value.line == $f.line)) | first))
+             elif $s == "still" then (($c | map(select(.value.line == ($f.prior_line // $f.line))) | first) // ($c | map(select(.value.summary == $fs)) | first))
+             else null end | if . then .key else null end) as $i
+          | if $s == "fixed" then (if $i != null then .[$i].fixed = $r.sha else . end)
+            elif $i != null then .[$i] += {severity: $f.severity, line: $f.line, summary: $fs, fix: $f.fix, also: ($f.also // []), last: $r.sha}
+            else . + [{file: $ff, line: $f.line, severity: $f.severity, summary: $fs, fix: $f.fix, also: ($f.also // []), last: $r.sha, fixed: null}] end)))
+      | map(. + {st: (if .fixed != null then "fixed" elif .last == $latest then "open" else "gone" end)})
+      | sort_by((if .st == "open" then 0 elif .st == "gone" then 1 else 2 end), (if .severity == "critical" then 0 elif .severity == "warning" then 1 else 2 end))
+      as $notes
+    | [ $notes[] | select(.st == "open" and (.severity == "critical" or .severity == "warning")) ] as $b
+    # the other reviewers: their reviews and the threads they opened, without
+    # code-guardian'"'"'s own — by its account, or by the marker of its review body
+    | [ ($pr.reviews.nodes // [])[] | select(type == "object" and .state != "PENDING" and (ours(.author.login; .body) | not)) ] as $revs
+    | [ ($pr.reviewThreads.nodes // [])[] | select(type == "object") | . + {root: (.comments.nodes[0] // null)}
+        | select(.root != null and (ours(.root.author.login; .root.body) | not)) ] as $threads
+    | ([ $revs[] | {a: (.author.login // ""), t: (.submittedAt // "")} ] + [ $threads[] | {a: (.root.author.login // ""), t: (.root.createdAt // "")} ]
+       | group_by(.a) | map({a: .[0].a, t: (map(.t) | min)}) | sort_by(.t) | map(.a) | .[0:15]) as $people
     | "<!-- cg:findings:start -->",
-      "<section class=\"found\" id=\"found\"><style>.found{border-left:4px solid var(--warn,#b45309)}.found ul{margin:6px 0 0;padding-left:18px}.found li{margin:0 0 6px}.found .fx{color:var(--muted,#5f6368);font-size:13px}.found .fok{color:var(--ok,#15803d)}</style>",
-      "<h2>Verified by the review <small class=\"muted\">\($b | length) blocking</small></h2>",
-      (if ($b | length) == 0
-       then "<p class=\"fok\">✅ No blocking finding. The review checked the code; the questions above are for a person.</p>"
-       else "<ul>",
-            ($b[] | "<li data-tip=\"\(.summary | esc)\"><b>\(if .severity == "critical" then "🔴 Critical" else "🟡 Warning" end)</b> \(link) — \(.summary | esc)"
-                    + (if (.also // []) | length > 0 then " <span class=\"fx\">(+\(.also | length) more places)</span>" else "" end)
-                    + (if .fix then "<br><span class=\"fx\">Fix: \(.fix | esc)</span>" else "" end) + "</li>"),
-            "</ul>" end),
-      (if $sg > 0 then "<p class=\"fx\">+\($sg) suggestion(s) in the review.</p>" else empty end),
+      "<section class=\"found\" id=\"found\"><style>.found{border-left:4px solid var(--warn,#b45309)}.found ul{margin:6px 0 0;padding-left:18px}.found li{margin:0 0 6px}.found h3{margin:12px 0 0;font-size:15px}.found .fx{color:var(--muted,#5f6368);font-size:13px}.found .fok{color:var(--ok,#15803d)}.found .by{font-size:12px;border:1px solid currentColor;border-radius:4px;padding:0 4px;margin-right:4px;opacity:.8}.found .st{font-size:12px;color:var(--muted,#5f6368)}.found li.fixed,.found li.gone{opacity:.7}</style>",
+      "<h2>PR, issue and review notes <small class=\"muted\">\($b | length) open blocking from code-guardian</small></h2>",
+      "<p><a href=\"\($web)/pull/\($n)\">PR #\($n)</a> — opened by <b>\(($pr.author.login // $author) | who)</b></p>",
+      (if $read then
+         (($pr.closingIssuesReferences.nodes // []) | map(select(type == "object" and (.number | type) == "number"))) as $iss
+         | if ($iss | length) == 0 then "<p class=\"fx\">No issue is linked to the PR as a closing reference.</p>"
+           else ($iss[] | if ((.repository.nameWithOwner // "") | ascii_downcase) == ($repo | ascii_downcase)
+             then "<p><a href=\"\($web)/issues/\(.number)\">Issue #\(.number)</a> “\(.title // "" | esc)” — opened by <b>\(.author.login | who)</b> · \(.state // "" | ascii_downcase | esc)</p>"
+             else "<p>Issue \(((.repository.nameWithOwner // "") + "#" + (.number | tostring)) | esc) (another repository) “\(.title // "" | esc)” — opened by <b>\(.author.login | who)</b></p>" end) end
+       else "<p class=\"fx\">The linked issue and the reviews of other people were not read at \($sha[0:7]).</p>" end),
+      "<p class=\"fx\">Each note below is the opinion of the person or tool that wrote it. This page does not judge the notes. A status comes from GitHub or from a later code-guardian review.</p>",
+      "<h3>code-guardian — automated review</h3>",
+      (if ($b | length) == 0 then "<p class=\"fok\">\(by("code-guardian")) ✅ No open blocking finding at \($latest | esc).</p>" else empty end),
+      (if ($notes | length) > 0 then
+         "<ul>",
+         ($notes[0:40][] | "<li class=\"\(.st)\" data-tip=\"\(.summary | esc)\">\(by("code-guardian")) <b>\(sev)</b> \(flink(.file; (if .st == "open" then .line else null end))) — \(.summary | esc)"
+           + (if (.also // []) | length > 0 then " <span class=\"fx\">(+\(.also | length) more places)</span>" else "" end)
+           + (if .st == "open" and .fix then "<br><span class=\"fx\">Fix: \(.fix | esc)</span>" else "" end)
+           + " <span class=\"st\">" + (if .st == "fixed" then "✅ fixed — code-guardian review at \(.fixed | esc)"
+               elif .st == "gone" then "not in the code-guardian review at \($latest | esc)" else "open at \($latest | esc)" end) + "</span></li>"),
+         "</ul>",
+         (if ($notes | length) > 40 then "<p class=\"fx\">+\(($notes | length) - 40) more notes in the reviews.</p>" else empty end)
+       else empty end),
+      ($people[] as $a
+       | [ $revs[] | select((.author.login // "") == $a) | select(.state != "COMMENTED" or ((.body // "") | test("\\S"))) ] as $ra
+       | [ $threads[] | select((.root.author.login // "") == $a) ] as $ta
+       | "<h3>\($a | who)</h3>",
+         "<ul>",
+         ($ra | sort_by(.submittedAt // "") | .[0:10][]
+           | "<li>\(by($a | who)) <b>\({"APPROVED": "approved", "CHANGES_REQUESTED": "requested changes", "COMMENTED": "commented", "DISMISSED": "dismissed (approval or change request withdrawn)"}[.state // ""] // (.state // "" | ascii_downcase | esc))</b> — "
+             + (if (.databaseId | type) == "number" then "<a href=\"\($web)/pull/\($n)#pullrequestreview-\(.databaseId)\">review of \(.submittedAt | day)</a>" else "review of \(.submittedAt | day)" end)
+             + ((.body | excerpt) as $x | if $x == "" then "" else ": “\($x)”" end) + "</li>"),
+         ($ta | .[0:25][]
+           | "<li>\(by($a | who)) \(flink(.path; (if .isOutdated then null else .line end))) — “\(.root.body | excerpt)”"
+             + " <span class=\"st\">" + (if .isResolved then "✅ resolved on GitHub" elif .isOutdated then "outdated — the line changed since" else "open" end)
+             + (((.comments.totalCount // 1) - 1) as $k | if $k > 0 then " · \($k) replies" else "" end) + "</span>"
+             + (if (.root.databaseId | type) == "number" then " <a href=\"\($web)/pull/\($n)#discussion_r\(.root.databaseId)\">thread</a>" else "" end) + "</li>"),
+         "</ul>"),
       "</section>",
-      "<!-- cg:findings:end -->"' "$1" 2>/dev/null
+      "<!-- cg:findings:end -->"' 2>/dev/null
 }
 # The block into the page: in place of an earlier block or of the template's
 # `<!-- cg:findings -->` mark on a line of its own (a mark inside an attribute
@@ -2776,7 +2900,8 @@ findings_block() { # <findings file> <head sha>
 # else before </body>.
 render_findings() { # <html> <findings file> <head sha>
   local page blk pre post
-  blk="$(findings_block "$2" "$3")"; [ -n "$blk" ] || return 1
+  guide_people; guide_rounds "$2" || return 1
+  blk="$(record_block "$3" "$CTX/guide.people.json" "$CTX/guide.rounds.json")"; [ -n "$blk" ] || return 1
   page="$(cat "$1")" || return 1
   case "$page" in
     (*'<!-- cg:findings:start -->'*'<!-- cg:findings:end -->'*)

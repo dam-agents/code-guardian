@@ -18,6 +18,21 @@ they are released history and stay as written.
 person. Tell the operator, and add `shepherd_scope: all` only on their ask
 (docs/config.md). Reviews posted before this version owe no guide round.
 
+## 13.2.0 — 2026-10-30
+
+**Upgrade:**
+1. Re-register `code-guardian-survey-weekly` when its task text still says
+   "read exactly the files it lists", per ONBOARDING Step 6e: create the
+   corrected schedule, then `delete_schedule` the old id; keep its name, cron,
+   `precheck` and `sessionTitle`. Idempotent — skip a schedule that already
+   says "the recommended scope". No survey schedule → nothing to do.
+
+## 13.1.0 — 2026-10-30
+
+**Upgrade:** Nothing — docs are re-read per run. From the next review round,
+each PR with a published guide gets its page brought up to date in every
+round: the PR, its issue and every review note with its author.
+
 ## 13.0.1 — 2026-10-30
 
 **Upgrade:** Nothing to run. The migration refreshes the harness hooks.
