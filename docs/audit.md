@@ -276,8 +276,9 @@ measurement.
     `late` finding in a file that a delta-scope round did not read is
     expected: delta scope reads the changed files only.
     **Trace every missed finding** — `late_items` lists the week's, newest
-    first (≤ 20). For each, read the PR's review before `sha` and the code
-    at that review's SHA, then name the cause in one line: the class that
+    first (≤ 20; with `late` above 20, report the trace as partial). For
+    each, read the PR's review before `sha` and the code at that review's
+    SHA, then name the cause in one line: the class that
     covers it (a [review.md](review.md) criterion or a skill's catalogue
     class), and why that round missed it — a deterministic lead that does
     not match the code (name the pattern that would), a class absent from

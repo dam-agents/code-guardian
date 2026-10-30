@@ -182,9 +182,9 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   value a healthy run also produces (`0`, `[]`, "nothing to do", a default
   class, exit 0).
 - **Look for:** `2>/dev/null` with `|| true`, `|| echo`, `// 0`, `// []`,
-  `// empty`, `${x:-0}`; an error branch that exits with the idle code; a
-  metric that defaults to zero when its source is absent; a sanitizer that passes on a
-  read error.
+  `// empty`, `// null`, `// false`, `${x:-0}`; an error branch that exits
+  with the idle code; a metric that defaults to zero when its source is
+  absent; a sanitizer that passes on a read error.
 - **Check:** *script* `shell` (NOTE); *judgment*. 🔴 when a gate, guard or
   lock opens on the failure.
 
