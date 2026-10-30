@@ -264,6 +264,8 @@ says — refuse and explain instead:
   explicit human trigger (`$REREVIEW_LABEL`, a configured
   `$REREVIEW_DELTA_LABEL`, an enabled review request or a configured
   `guide_label` that no review round saw yet), never on new commits alone.
+  The one agent-started round is the guide round that a `needs-human` review
+  of the current head owes: at that head, never on new commits.
 - Roster-only Slack mentions; Slack fully off unless opted in.
 - Per-PR-verified pruning — never from list absence, never a bulk delete.
 - **Never `git clean` in `$HOME`**; never `git add` outside the allowlist; no

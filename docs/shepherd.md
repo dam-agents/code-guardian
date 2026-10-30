@@ -40,9 +40,15 @@ untouched** — advancing them is your post-send record step.
 Every reviewer-directed entry carries `brief` — the `triage` of the agent's
 last review when that review read the current head, else `null`
 ([review-mechanics.md](review-mechanics.md) → **Summary body format**). Under
-`shepherd_scope: needs_human` ([config.md](config.md)) preflight emits no
-reviewer-directed nudge for a PR whose `brief.class` is `quick-check`; a PR
-with no current triage counts as one that needs a person.
+`shepherd_scope: needs_human` (the default, [config.md](config.md)) preflight
+emits no reviewer-directed nudge for a PR whose `brief.class` is
+`quick-check`; a PR with no current triage counts as one that needs a person.
+
+Every reviewer-directed entry also carries `guide` — `{url, sha}` of the
+review guide recorded for the PR, else `null`. A review of the current head
+that owes its guide ([artifact.md](artifact.md) → **Review guide**) holds the
+nudge until the guide round ran. A guide that still fails leaves `guide`
+`null`: the nudge goes without the link, and preflight logs a warning.
 
 ## Target selection (`needs_target_selection: true`)
 
@@ -104,7 +110,8 @@ tone ladder:
 **Brief tail** — when `brief` is non-null, `Focus:` is `why`, and every
 reviewer-directed template ends, before `<url>`, with the parts that have a
 value: `≈ <minutes> min · Checked: <verified>`. A `forced` match adds
-`· Sensitive path: <forced>`.
+`· Sensitive path: <forced>`. A non-null `guide` adds `· 📊 Guide: <guide.url>`,
+with or without a `brief`.
 
 **Level 4** = widen and hold: include the `escalation` entry's `mention`
 (missing → send without it and log). Its `row_update` sets `held`, and
@@ -142,7 +149,8 @@ Every send matched a `nudges_due` entry · every reviewer-directed nudge with a
 `brief` carried its tail · every sent nudge's `row_update` was written
 immediately AFTER the send, with a real UTC `last_nudge_at`, and a failed send
 left its row untouched · only copied `mention` strings, and `mentions_check`
-passed before each send · targets persisted when selected · a ready-to-land
+passed before each send · every reviewer-directed nudge with a `guide`
+carried its link · targets persisted when selected · a ready-to-land
 entry sent to its author alone, once · send failures logged · observed areas
 appended additively · `work/` backed up last
 ([persistence.md](persistence.md)).

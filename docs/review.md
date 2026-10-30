@@ -51,8 +51,9 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
      **Clone, credential helper, cleanup**), and renders the per-skill
      worktrees, briefs, context pack and risk prescan.
 
-   The live trigger follows `rereview_trigger`, `rereview_delta_label` and
-   an unseen `guide_label` ([artifact.md](artifact.md) → **Review guide**) and
+   The live trigger follows `rereview_trigger`, `rereview_delta_label`, an
+   unseen `guide_label` and a guide that the review of this head owes
+   ([artifact.md](artifact.md) → **Review guide**), and
    sets the scope: `rereview_label` → `full: true`, else delta
    ([review-rereview.md](review-rereview.md) → **Re-review output**). The
    JSON also carries `kind`, `full`, `urgent`,

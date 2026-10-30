@@ -11,6 +11,13 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.0.0 — 2026-10-30
+
+**Upgrade:** Nothing to run. An instance whose `work/CONFIG.md` has no
+`shepherd_scope` key now sends reviewer nudges only for PRs that need a
+person. Tell the operator, and add `shepherd_scope: all` only on their ask
+(docs/config.md). Reviews posted before this version owe no guide round.
+
 ## 13.2.0 — 2026-10-30
 
 **Upgrade:**

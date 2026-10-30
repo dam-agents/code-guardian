@@ -622,7 +622,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    health_dashboard:(if $hd=="dam" then "dam" else "off" end),
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
-   shepherd_scope:(if $ss=="needs_human" then "needs_human" else "all" end),
+   shepherd_scope:(if $ss=="all" then "all" else "needs_human" end),
    human_review_paths:(if $hp=="" then null else $hp end),
    auto_merge:(if $am=="enabled" and $aml!="" then "enabled" else "disabled" end),
    auto_merge_label:(if $aml=="" then null else $aml end),
@@ -1039,8 +1039,8 @@ if [ "$MODE" = "review" ]; then
     # true iff the label is the trigger (review-request / on-demand = delta)
     # desc: the trigger is answered by an edited PR body, not by new commits —
     # the diff is unchanged and the description is the new input
-    # guide: no review round saw the guide label yet — the round publishes
-    # the review guide (docs/artifact.md)
+    # guide: no review round saw the guide label yet, or the review of this
+    # head owes its guide — the round publishes the review guide (docs/artifact.md)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
@@ -1143,6 +1143,10 @@ if [ "$MODE" = "review" ]; then
       [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
         && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL" \
         && ! guide_label_seen "$WORK/reviews/pr-$n.md" && has_guide=1
+      # a `needs-human` review of this head that published no guide owes one
+      has_owed=0
+      [ "$row_status" = "done" ] && [ "$row_sha" = "$sha" ] \
+        && guide_owed "$WORK/reviews/pr-$n.md" && has_owed=1
 
       if [ "$row_status" = "in_progress" ]; then
         age=$(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 60 ))
@@ -1181,10 +1185,10 @@ if [ "$MODE" = "review" ]; then
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" true \
               "$([ "$has_guide" -eq 1 ] && echo true || echo false)"
             log "PR #$n: $trig present, no new commits since ${row_sha:0:7} but the description was edited $body_edited — re-review due"
-          elif [ "$has_guide" -eq 1 ]; then
+          elif [ "$has_guide" -eq 1 ] || [ "$has_owed" -eq 1 ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" false true
-            log "PR #$n: $trig present and no review saw $GUIDE_LABEL yet — guide round due"
+            log "PR #$n: $trig present and $([ "$has_guide" -eq 1 ] && printf 'no review saw %s yet' "$GUIDE_LABEL" || printf 'the review owes its guide') — guide round due"
           else
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
@@ -1196,6 +1200,9 @@ if [ "$MODE" = "review" ]; then
         elif [ "$has_guide" -eq 1 ] && [ "$row_status" = "done" ]; then
           add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false false false true
           log "PR #$n: no review saw $GUIDE_LABEL yet, no new commits since ${row_sha:0:7} — guide round due"
+        elif [ "$has_owed" -eq 1 ]; then
+          add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false false false true
+          log "PR #$n: the needs-human review at ${row_sha:0:7} published no guide — guide round due"
         fi
         # CI triage: the review is posted, so a failing check on the reviewed
         # SHA is news the agent can explain. The rollup is read only inside the
@@ -1783,10 +1790,10 @@ if [ "$MODE" = "shepherd" ]; then
 
   # Who the reviewer-directed nudges cover (docs/shepherd.md → Scope and brief): every
   # PR, or only the ones my last review says a person must read.
-  SHEP_SCOPE="$(cfg shepherd_scope)"; SHEP_SCOPE="${SHEP_SCOPE:-all}"
+  SHEP_SCOPE="$(cfg shepherd_scope)"; SHEP_SCOPE="${SHEP_SCOPE:-needs_human}"
   case "$SHEP_SCOPE" in
     (all|needs_human) ;;
-    (*) log "shepherd_scope '$SHEP_SCOPE' unknown — treating as all"; SHEP_SCOPE=all;;
+    (*) log "shepherd_scope '$SHEP_SCOPE' unknown — treating as needs_human"; SHEP_SCOPE=needs_human;;
   esac
 
   # My last review's `triage` (docs/review-mechanics.md → Summary body format),
@@ -1983,6 +1990,20 @@ if [ "$MODE" = "shepherd" ]; then
         log "PR #$n: quick check per my review — no reviewer nudge (shepherd_scope: needs_human)"
       fi
     fi
+    # a reviewer-directed nudge links the review guide; one that a guide round
+    # still owes waits for that round (docs/shepherd.md → Scope and brief)
+    guide=""
+    if [ "$due" -eq 1 ] && [ "$nudge_class" = "awaiting_review" ] && [ "$dirty" = "false" ]; then
+      if last_review_section "$n" "$head_sha" | grep -qxF '<!-- guide-owed -->'; then
+        due=0; new_status="${status:-watching}"; next_level="$level"
+        log "PR #$n: guide round due — the reviewer nudge waits for the guide"
+      else
+        guide="$(grep -o '^<!-- artifact-guide: [A-Za-z0-9_-]* [0-9a-f]* https://[^ ]* -->' "$WORK/reviews/pr-$n.md" 2>/dev/null \
+          | head -1 | jq -Rc 'split(" ") | {sha:.[3], url:.[4]}' 2>/dev/null)"
+        [ -z "$guide" ] && [ "$(printf '%s' "$brief" | jq -r '.class // ""' 2>/dev/null)" = "needs-human" ] \
+          && log_warn "PR #$n: no review guide published — the reviewer nudge goes without its link"
+      fi
+    fi
 
     if [ "$due" -eq 1 ]; then
       if [ "$nudge_class" = "ready_to_land" ]; then
@@ -2016,13 +2037,13 @@ if [ "$MODE" = "shepherd" ]; then
         --argjson age "$age_h" --arg c "$nudge_class" --argjson l "$next_level" --argjson r "$ROSTER_JSON" \
         --arg eo "$ESCALATION_OWNER" --arg tg "$targets" \
         --argjson nn "$((nudges+1))" --arg ns "$nudge_status" --argjson conf "$dirty" --argjson br "${brief:-null}" \
-        --argjson cb "$changes_by" \
+        --argjson cb "$changes_by" --argjson gd "${guide:-null}" \
         '[$tg | split(",")[] | gsub("[!* ]"; "") | select(. != "")] as $ts
         | [$ts[] as $x | first($r[] | select(.login == $x))] as $m
         | ($m|length==0 and $c!="changes_requested" and $c!="ready_to_land" and ($conf|not)) as $sel
         | {number:$n, title:$t, author:$a, url:$u, age_hours:$age, class:$c, level:$l, targets:$tg, mentions:$m,
            candidates:(if $sel then [$r[] | select(.login != $a)] else [] end),
-           conflict:$conf, brief:$br, changes_by:$cb, needs_target_selection:$sel,
+           conflict:$conf, brief:$br, guide:$gd, changes_by:$cb, needs_target_selection:$sel,
            escalation:({login:$eo, slack_id:""}
                        + (if $l >= 4 then (first($r[] | select(.login == $eo)) // {}) else {} end)),
            row_update:{nudges:$nn, level:$l, status:$ns}}')" '. + [$e]')"

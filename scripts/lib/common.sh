@@ -332,6 +332,14 @@ guide_label_seen() { # <history file>
     | grep -q '^<!-- guide-label-seen -->$'
 }
 
+# Whether the newest review round in a PR history file owes the review guide:
+# `post` writes `<!-- guide-owed -->` into the section of a `needs-human`
+# round that published no guide (docs/artifact.md → Review guide).
+guide_owed() { # <history file>
+  sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$1" 2>/dev/null \
+    | grep -q '^<!-- guide-owed -->$'
+}
+
 # A checkout's `origin` as a `<host>/<owner>/<repo>` reference — https, ssh and
 # scp forms, credentials dropped. The fallback for a missing definition_repo.
 origin_ref() { # <checkout dir>

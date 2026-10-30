@@ -63,6 +63,27 @@ assert_jq '.reviews_due[0] | .kind == "re-review" and .guide_requested == true a
   'a delta round at the reviewed SHA, flagged for the guide'
 assert_jq '.logs | any(contains("guide round due"))' 'the reason is logged'
 
+# --- a needs-human review that published no guide owes one → a guide round -----
+new_case guide_owed
+base_config
+pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" COMMENT done
+history_fx 1 "${SHA1:0:7}"
+printf '<!-- guide-owed -->\n' >> "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "re-review" and .guide_requested == true and .full == false and .head_sha == "'"$SHA1"'"' \
+  'an owed guide starts a delta round at the reviewed SHA'
+assert_jq '.logs | any(contains("published no guide"))' 'the reason is logged'
+
+new_case guide_owed_new_commits
+base_config
+pr_json 1 "plain PR" '[]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 3600)" COMMENT done
+history_fx 1 "${SHA2:0:7}"
+printf '<!-- guide-owed -->\n' >> "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'a guide owed by an older head starts no review of new commits'
+
 # --- the last review saw the guide label → nothing new -------------------------
 new_case guide_label_seen
 base_config '- guide_label: cg-guide'

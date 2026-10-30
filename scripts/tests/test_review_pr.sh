@@ -2625,6 +2625,43 @@ for gs in not-needed budget refused errored; do
     || { printf 'FAIL %s: no guide-label-seen marker after a %s guide\n' "$CASE" "$gs"; FAILED=1; }
 done
 
+# a needs-human round without a guide owes one; the guide round it starts owes nothing
+# (docs/artifact.md → Review guide)
+owed_round() { # <triage class> [text the guide brief must hold]
+  run_rp prepare 1
+  [ -z "${2:-}" ] || assert_file_contains "$(PR_DIR).ctx/briefs/review-guide.md" "$2" 'the guide round passes the skill gate as forced'
+  mkdir -p "$(PR_DIR).out"
+  printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt"
+  printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+  run_rp collect 1
+  printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+  printf '[]' > "$SANDBOX/findings.json"
+  printf '{"triage":{"class":"%s","why":"a policy change"}}' "$1" > "$SANDBOX/meta.json"
+  printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+  run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --meta "$SANDBOX/meta.json"
+}
+newest_owes() { sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -qxF '<!-- guide-owed -->'; }
+guide_setup guide_owed_quick_check
+owed_round quick-check
+newest_owes && { printf 'FAIL %s: a quick check owes a guide\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: a quick check owes no guide\n' "$CASE"
+guide_setup guide_owed
+owed_round needs-human
+assert_jq '.outcome == "posted"' 'the needs-human round posts'
+newest_owes && printf 'ok   %s: a needs-human round without a guide owes one\n' "$CASE" \
+  || { printf 'FAIL %s: no guide-owed marker\n' "$CASE"; FAILED=1; }
+owed_round needs-human 'published no guide'
+newest_owes && { printf 'FAIL %s: the guide round owes a guide again\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the guide round owes nothing further\n' "$CASE"
+# a marker of an older head is not this round's: a triggered round at a moved head owes its own guide
+guide_setup guide_owed_moved_head
+pr_fx open '["cg-rereview"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n\n---\n<!-- guide-owed -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+owed_round needs-human
+assert_jq '.outcome == "posted"' 'the triggered round at the moved head posts'
+newest_owes && printf 'ok   %s: a round at a moved head owes its own guide\n' "$CASE" \
+  || { printf 'FAIL %s: the old marker cleared the debt of a moved head\n' "$CASE"; FAILED=1; }
+
 # no person needed: no page, no section
 guide_setup guide_not_needed
 run_rp prepare 1

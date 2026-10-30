@@ -292,8 +292,9 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   whatever its kind and whichever phase stopped it.
 - Re-reviews are trigger-gated: `$REREVIEW_LABEL`, `$REREVIEW_DELTA_LABEL`
   when configured, a pending review request for `bot_login` when
-  `rereview_trigger` enables it, or a configured `guide_label` that no review
-  round saw yet. New commits or a description edit alone never
+  `rereview_trigger` enables it, a configured `guide_label` that no review
+  round saw yet, or a review of the current head that owes its guide
+  ([artifact.md](artifact.md) → **Review guide**). New commits or a description edit alone never
   trigger one, any trigger answers, the served triggers are cleared after every
   posted review — the `guide_label` stays on the PR, and the history marker
   `<!-- guide-label-seen -->` records it as served — and untriggered new commits get the one-time `awaiting_label`
