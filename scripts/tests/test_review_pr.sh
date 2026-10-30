@@ -1068,6 +1068,22 @@ grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
   && { printf 'FAIL %s: a round without the guide step recorded the label as seen\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: the label stays unseen when the guide step did not run\n' "$CASE"
 
+# --- post: a round with no guide skill after a served label keeps it served ----
+# (a base-merges-only round runs no skill)
+setup post_guide_label_carried '- guide_label: cg-guide'
+pr_fx open '["cg-guide","cg-rereview"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n<!-- guide-label-seen -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the re-review posts'
+sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
+  && printf 'ok   %s: the served label stays served without a guide skill\n' "$CASE" \
+  || { printf 'FAIL %s: the newest section lost the guide-label-seen marker\n' "$CASE"; FAILED=1; }
+
 # --- post: a guide label put on mid-review is left for the next round ----------
 setup post_guide_label_mid_review '- guide_label: cg-guide'
 pr_fx open '[]'

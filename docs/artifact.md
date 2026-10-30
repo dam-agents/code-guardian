@@ -32,7 +32,9 @@ keeps the guide. `post` writes `<!-- guide-label-seen -->` into the history
 section of a round that had the label at `prepare` and ran its guide skill,
 whatever the skill's state (`built`, `kept`, `not-needed`, `budget`,
 `refused`, or no output). A round at the prior review's SHA writes it in every
-case, so a label starts at most one round of its own. A label on the PR that the
+case, so a label starts at most one round of its own. A round that runs no
+guide skill after a round that served the label writes it too: the label stays
+served. A label on the PR that the
 newest section does not record starts a round of its own: preflight gives the
 PR a delta re-review with `guide_requested: true` — at the reviewed head when
 there are no new commits ([review-rereview.md](review-rereview.md) → **Guide

@@ -1166,9 +1166,11 @@ cmd_prepare() {
     --arg now "$now" --argjson labels "$labels" --argjson lv "$(printf '%s' "$PJ" | jq -c '{additions, deletions, changed_files}')" \
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
     --argjson od "$ONDEMAND" --arg run "$me" \
+    --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
-      on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending"}' > "$CTX/pr.json"
+      on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
+      guide_seen:$gs}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -2516,8 +2518,11 @@ cmd_post() {
   # state: the label is served. A round that ran no guide skill leaves it for
   # the next one; a round at the prior review's SHA is that next one, so it
   # serves the label in every case (docs/artifact.md → Review guide).
+  # A label an earlier round served stays served: a round that runs no guide
+  # skill (base merges only) carries the marker forward.
   [ -n "$(guide_label_on)" ] \
-    && { [ -f "$CTX/guide.answered" ] || [ "$(ctx_get '.prior.sha // empty')" = "$sha" ]; } \
+    && { [ -f "$CTX/guide.answered" ] || [ "$(ctx_get '.prior.sha // empty')" = "$sha" ] \
+         || [ "$(ctx_get '.guide_seen // false')" = true ]; } \
     && printf '<!-- guide-label-seen -->\n' >> "$WORK/reviews/pr-$N.md"
   rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done

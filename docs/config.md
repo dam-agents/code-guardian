@@ -75,7 +75,8 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
 
 - **`rereview_label`** — the GitHub label a human adds to request a **complete**
   re-review of the whole PR (default `code-guardian:rereview`). The other triggers
-  get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
+  — the delta label, a review request, a `guide_label` that no review round
+  saw yet — get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
   output**). First reviews never need it; the agent removes it once the request
   is served. New commits without a trigger flip the tracking row to
   `awaiting_label`.
