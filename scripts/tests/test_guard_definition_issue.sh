@@ -115,6 +115,9 @@ blocked 'gh api -X POST repos/acme/guardian/issues/12/comments/../../../issues -
 blocked 'gh api -X POST "repos/acme/guardian/issues/%2e%2e/comments" -f title=x' 'an encoded dot segment'
 blocked 'gh api -X PATCH repos/acme/guardian/issues/12/comments/x -f state=closed' 'a suffix after the comment segment'
 blocked 'gh api -X POST "repos/acme/guardian/issues/$N/comments" -f body=x' 'a variable in place of the number'
+blocked 'gh api -X POST "repos/acme/guardian/issues?x=/issues/1/comments" -f title=x' 'a query that ends in the comment shape'
+blocked 'curl -X POST "https://api.github.com/repos/acme/guardian/issues#/issues/1/comments" -d @b.json' 'a fragment that ends in the comment shape'
+passes 'gh api -X POST "repos/acme/guardian/issues/12/comments?per_page=1" -f body=hi' 'a comment path with a query'
 blocked 'gh api graphql -f query='"'"'mutation { createIssue(input:{repositoryId:"x"}) { issue { id } } }'"'" 'the createIssue mutation'
 case "$ERR" in
   (*'comments on its PRs and issues pass'*) printf 'ok   %s: stderr says comments pass\n' "$CASE";;

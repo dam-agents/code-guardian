@@ -55,13 +55,15 @@ Q="[\"'\\\\]*"
 
 m() { printf '%s' "$1" | grep -qiE -- "$2"; } # <text> <ERE>
 # <text> — names a definition issues endpoint; on a self-review instance an
-# endpoint that is exactly /issues/<n>/comments or /issues/comments/<id> is a
-# comment, and any other path (dot segments, suffixes, variables) is an issue
+# endpoint whose path, without its query and fragment, is exactly
+# /issues/<n>/comments or /issues/comments/<id> is a comment, and any other
+# path (dot segments, encoded bytes, suffixes, variables) is an issue
 issues_path() {
   m "$1" "$ISSUES_RE" || return 1
   [ "$SELF" = 1 ] || return 0
-  printf '%s' "$1" | grep -oiE -- "$ISSUES_RE[^[:space:]\"'\\\\]*" \
-    | grep -qviE -- '/issues/([0-9]+/comments|comments/[0-9]+)$'
+  set -- "$(printf '%s' "$1" | grep -oiE -- "$ISSUES_RE[^[:space:]\"'\\\\]*" | sed -E 's/[?#].*$//')"
+  printf '%s\n' "$1" | grep -qiE -- '\.\.|%|/issues/.*/issues' && return 0
+  printf '%s\n' "$1" | grep -qviE -- '/issues/([0-9]+/comments|comments/[0-9]+)$'
 }
 
 GH_API='(^|[[:space:]])gh[[:space:]]+api([[:space:]]|$)'

@@ -79,9 +79,11 @@ The pi adapter runs the hook scripts below from pi events
   that repo, by slug or by owner and name, or no repository at all. Reads,
   the target repo's issues and every other tool pass; an unresolved
   definition repo guards nothing. When `github_repo` is the definition repo,
-  comment writes pass (`gh issue comment`, `addComment`, and an endpoint that
-  ends exactly in `issues/<number>/comments` or `issues/comments/<id>`); any
-  other issues path, dot segments and variables included, is an issue write.
+  comment writes pass (`gh issue` with `comment` as its subcommand,
+  `addComment`, and an endpoint whose path, without its query and fragment, is
+  exactly `issues/<number>/comments` or `issues/comments/<id>`); any other
+  issues path, dot segments, encoded bytes and variables included, is an
+  issue write.
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and by every definition migration,
   [persistence.md](persistence.md) → **Definition version & upgrade**;
