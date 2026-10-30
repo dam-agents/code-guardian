@@ -2770,7 +2770,10 @@ guide_rounds() { # <findings file>
         elif length > 0 then (length - 1) as $k
           | .[$k].findings = (($l[2:] | try fromjson catch []) | if type == "array" then . else [] end)
         else . end)
-      + [{sha: $sha, findings: ($c[0] // [])}]' > "$CTX/guide.rounds.json" 2>/dev/null
+      + [{sha: $sha, findings: ($c[0] // [])}]' > "$CTX/guide.rounds.json" 2>/dev/null && return 0
+  # an unreadable history still renders this round's findings
+  logev warn guide "PR #$N: the earlier rounds in reviews/pr-$N.md were not read — the guide shows this round's findings only"
+  jq -c --arg sha "$(ctx_get '.head_sha' | cut -c1-7)" '[{sha: $sha, findings: .}]' "$1" > "$CTX/guide.rounds.json" 2>/dev/null
 }
 record_block() { # <head sha> <people file> <rounds file>
   jq -nr --slurpfile p "$2" --slurpfile rs "$3" --arg repo "$REPO" --arg web "https://$REPO_HOST/$REPO" \
