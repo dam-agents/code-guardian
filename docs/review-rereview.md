@@ -99,17 +99,23 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   `prepare` digests the diff it fetched and compares it with the digest the
   last review recorded ([review-mechanics.md](review-mechanics.md) → **Summary
   body format**); equal → `delta.own_change:
-  false`, the range holds base-branch merges only. Skip the skills. Read the
-  range's hunks in `delta.files[]` that touch the PR's changed code or the
-  code it calls: a base change that breaks the PR — a removed or renamed
-  symbol, a changed signature, contract or default — is a `🆕 New` finding,
-  verified and swept as in step d (`--fresh` on its index when `delta` lists
-  it in `late[]`).
-  Nothing found → carry every open prior finding into the
-  block as `🔁 Still present` one-liners, keep the prior verdict, and write
-  `Range holds base-branch merges only — no change to this PR's own diff.`
-  under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
-  `### Findings`. No prior digest → the normal delta round.
+  false`, the range holds base-branch merges only. No skill runs: each
+  configured skill's audit line is `skipped (base-merge-only)`
+  ([skills.md](skills.md) → **Mandatory — not skippable**). Read the range's
+  patches — the compare call of the next bullet, or the clone — where they
+  touch the PR's changed code or the code it calls. A base change that breaks
+  the PR — a removed or renamed symbol, a changed signature, contract or
+  default — is a `🆕 New` finding on the PR line it breaks, verified and swept
+  as in step d (`--fresh` on its index when `delta` lists it in `late[]`).
+  Settle every prior finding at its anchor, as below, in both outcomes, and
+  write `Range holds base-branch merges only — no change to this PR's own
+  diff.` under the `Previous HEAD` line:
+  - **Nothing found** → `_No new findings at this HEAD._` as `### Findings`;
+    the verdict follows the settled priors.
+  - **A break found** → the break in `### Findings`; the verdict weighs it
+    with the settled priors.
+
+  No prior digest → the normal delta round.
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR

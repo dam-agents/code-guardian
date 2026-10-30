@@ -1984,7 +1984,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: read its base-branch hunks against the PR'"'"'s code; when none breaks it, carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review-rereview.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: run no skill, read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
