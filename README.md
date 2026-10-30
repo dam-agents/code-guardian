@@ -36,8 +36,9 @@ PR what is due:
 
 - Never-reviewed PRs get a first review automatically. Already-reviewed PRs get
   a re-review **only on an explicit trigger** — the `rereview_label`, the
-  optional `rereview_delta_label`, or GitHub's "Re-request review" when
-  `rereview_trigger` enables it. New commits
+  optional `rereview_delta_label`, GitHub's "Re-request review" when
+  `rereview_trigger` enables it, or the optional `guide_label` that no review
+  round saw yet. New commits
   alone just flip the tracking row to `awaiting_label`.
 - Same-HEAD PRs are skipped via `work/REVIEWS.md` plus the remote dedup-marker
   check, with self-heal. Closed and merged PRs are verified per PR and queued

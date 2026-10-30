@@ -289,14 +289,17 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   names the carry (review-rereview.md → **Carried review after a HEAD move**),
   whatever its kind and whichever phase stopped it.
 - Re-reviews are trigger-gated: `$REREVIEW_LABEL`, `$REREVIEW_DELTA_LABEL`
-  when configured, or a pending review request for `bot_login` when
-  `rereview_trigger` enables it. New commits or a description edit alone never
+  when configured, a pending review request for `bot_login` when
+  `rereview_trigger` enables it, or a configured `guide_label` that no review
+  round saw yet. New commits or a description edit alone never
   trigger one, any trigger answers, the served triggers are cleared after every
-  posted review, and untriggered new commits get the one-time `awaiting_label`
+  posted review — the `guide_label` stays on the PR, and the history marker
+  `<!-- guide-label-seen -->` records it as served — and untriggered new commits get the one-time `awaiting_label`
   flip.
 - Configured review skills are never pre-filtered away. Routing is inclusive
   ([skills.md](skills.md) → **Triggers & file routing**), the only accepted
-  skips are `no-matching-files` and technical failures, and their findings are
+  skips are `no-matching-files`, `base-merge-only` and technical failures
+  ([skills.md](skills.md) → **Mandatory — one judgement call**), and their findings are
   reformatted to the finding form and deduplicated against the other sources —
   never dropped or capped, and a blocking one that fails verification is
   regraded to 🟢, never deleted ([review.md](review.md) → **Full-file

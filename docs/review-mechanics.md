@@ -74,7 +74,8 @@ requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
 `label` to add or the `login` to request a review from, `null` where the
 trigger does not use it; you compose the rest in `meta.json` (`post --meta`).
 `checks` — per blocking finding whose **Fix:** is a class rule: `for` is that
-finding's `summary` verbatim, `run` the sweep that verified the class in its
+finding's `summary` verbatim, `run` the sweep that located the class's
+occurrences you confirmed, in its
 portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
 the branch, `-e` in place of `--` — and `clean` what a clean run prints
 (`no hits`, or the locations a hit is correct at); commands that only read,
@@ -206,7 +207,10 @@ alive for `FANOUT_QUIET_MIN` (60) instead; calibrate the value against
 Title header and overrides stay at the top; reviews append below, oldest first,
 separated by `---`. Update the header on a title change. The guide marker
 sits right after the title, overwritten in place by `review-pr.sh guide`
-([artifact.md](artifact.md)); omit it when no guide was published. Watch-rule
+([artifact.md](artifact.md)); omit it when no guide was published.
+`<!-- guide-label-seen -->` follows the section of a round that had the
+`guide_label` at `prepare` and ran its guide skill, or that ran at the prior
+review's SHA, written by `review-pr.sh post`. Watch-rule
 markers (`<!-- watch-sent: <id> -->`, [watches.md](watches.md)) follow on
 their own lines.
 

@@ -4,7 +4,12 @@ Read this file when the worklist's `read_set` names it — `reviews_due`,
 `mentions_due`, `ci_failures_due` or `fixes_due` non-empty — or before an
 on-demand review.
 Preflight decided; you act. `scripts/review-pr.sh` performs the mechanical
-steps and the guards. Rare cases have their own files, read on their trigger:
+steps and the guards. **The review itself is yours:** every finding, its
+verification, its severity and the verdict come from your own reading of the
+code. A command's output — the risk prescan, a `sweep` hit, a file's noise
+class, a `delta` match — is a lead that says where to read. Read the code it
+points at before it adds, drops or changes anything in the review.
+Rare cases have their own files, read on their trigger:
 [review-rereview.md](review-rereview.md),
 [review-urgent.md](review-urgent.md),
 [review-bookkeeping.md](review-bookkeeping.md) and
@@ -46,7 +51,8 @@ a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
      **Clone, credential helper, cleanup**), and renders the per-skill
      worktrees, briefs, context pack and risk prescan.
 
-   The live trigger follows `rereview_trigger` and `rereview_delta_label` and
+   The live trigger follows `rereview_trigger`, `rereview_delta_label` and
+   an unseen `guide_label` ([artifact.md](artifact.md) → **Review guide**) and
    sets the scope: `rereview_label` → `full: true`, else delta
    ([review-rereview.md](review-rereview.md) → **Re-review output**). The
    JSON also carries `kind`, `full`, `urgent`,
@@ -73,6 +79,11 @@ c. **Review the diff** — file by file in `files[]` order: classes `code`,
    `sourcemap`, `generated`) carry no `diff`, are not reviewed as code and get
    one `### Summary` line:
    `_<N> generated/lockfile file(s) not reviewed: <paths, or the classes when more than five>._`
+   The class comes from the path, so check it against each noise file's diff
+   stat. Hand-written code under a noise path is reviewed as code. A lockfile
+   that changes with no changed manifest beside it, or that changes a package
+   source or registry host, gets its section of `$PR_DIR.diff` read under the
+   **Security** criteria.
    Read what does not depend on an earlier result in one call: several
    slices, `context` and `sweep` lookups, `grep` and `sed -n` of the clone go
    into one Bash command or into parallel tool calls of one response.
@@ -82,7 +93,9 @@ c. **Review the diff** — file by file in `files[]` order: classes `code`,
    the change removes or skips; a permission or exposure that the change
    widens.
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
-d. **Run every configured review skill** per [skills.md](skills.md):
+d. **Run every configured review skill** per [skills.md](skills.md) — on a
+   base-merge-only re-review each one is your call
+   ([review-rereview.md](review-rereview.md) → **Re-review output**):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
    status `run`, then `review-pr.sh collect <n>` for the audit lines, form
    warnings and `skill_timing`. Verify every blocking finding, yours and the
@@ -278,7 +291,10 @@ memory entry is written.
 **Sibling sweep** — same pass. For each surviving 🔴/🟡, check the files this PR
 changes for more occurrences of the same defect class:
 `review-pr.sh sweep <n> '<regex>'` returns the hits in changed files and a
-count in untouched code. Report them as **one** finding listing every location,
+count in untouched code. Each hit is a candidate: read it with `context` and
+keep it only where the same defect holds. Read the changed files for the
+occurrences the regex cannot match too — another spelling, another call
+shape. Report the confirmed occurrences as **one** finding listing every location,
 so one fix round closes the class, and carry those locations in the finding's
 `also` ([review-mechanics.md](review-mechanics.md) → **Summary body format**).
 An occurrence in untouched code is a pre-existing problem
@@ -298,7 +314,9 @@ a lint or type check silenced, a coverage threshold changed. Each hit is a
 question: does the PR still test what it changes? A hit that the body or the
 code justifies (a removed feature, a flaky test with an issue) is no finding.
 A hit that lets the changed behavior pass unchecked is 🟡, and 🔴 when it
-opens a release or deploy gate ([finding-form.md](finding-form.md)). A test
+opens a release or deploy gate ([finding-form.md](finding-form.md)). The
+prescan matches patterns: a weakened gate that you find in step c and that
+`gates[]` does not list gets the same question. A test
 whose assertion now expects the new output is the same question: confirm the
 new value is correct from the code, not from the test.
 
@@ -486,10 +504,12 @@ Before you declare the run done:
   observed insights recorded ([preferences.md](preferences.md)) · `memory_due`
   read before reviewing · orientation used for where to look only,
   `verify_live` rows read live, no finding citing the profile or the risk
-  prescan ([profile.md](profile.md)) · every gate hit answered (**Gate
+  prescan ([profile.md](profile.md)) · every script lead read in the code
+  before it shaped the review · every gate hit answered (**Gate
   check**) · noise files excluded with their Summary
-  line · every blocking finding verified, the skills' included, and
-  sibling-swept with its `also` locations, a statement finding claim-swept over
+  line, their classes checked against the diff stat · every blocking finding
+  verified, the skills' included, and
+  sibling-swept with its `also` locations each read and confirmed, a statement finding claim-swept over
   the clone, a design finding checked against the in-tree decision that covers
   its path and counted in the audit note when it settled (**Decision check**)
   · every open 🔴/🟡 carrying a class-rule **Fix:** whose every member is

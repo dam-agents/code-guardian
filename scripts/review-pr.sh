@@ -677,12 +677,16 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
     body: (.body // "")}' 2>/dev/null
 }
 
+# A guide label that no review round saw yet asks for a round too
+# (docs/artifact.md → Review guide).
 trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger is present
-  local l=1 r=1 d=1
+  local l=1 r=1 d=1 g=1
   case "$TRIG" in (label|both) printf '%s' "$1" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && l=0;; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && printf '%s' "$2" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1 && r=0;; esac
   [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
-  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ]
+  [ -n "$GUIDE_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 \
+    && ! guide_label_seen "$WORK/reviews/pr-$N.md" && g=0
+  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
@@ -1162,9 +1166,11 @@ cmd_prepare() {
     --arg now "$now" --argjson labels "$labels" --argjson lv "$(printf '%s' "$PJ" | jq -c '{additions, deletions, changed_files}')" \
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
     --argjson od "$ONDEMAND" --arg run "$me" \
+    --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
-      on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending"}' > "$CTX/pr.json"
+      on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
+      guide_seen:$gs}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -1249,9 +1255,10 @@ cmd_prepare() {
       && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
   fi
   # own-change gate: a range whose PR diff is byte-identical to the one the last
-  # review digested carries base-branch merges only, so it is not a review round
-  # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
-  # `verify` reads the event's `— base merges only` suffix: steps c and d skipped.
+  # review digested carries base-branch merges only: no skills, the agent reads the
+  # base hunks against the PR's code (docs/review-rereview.md → Re-review output).
+  # No prior digest → the normal round. `verify` reads the event's
+  # `— base merges only` suffix: no fan-out or `verified` milestone is owed.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -1684,6 +1691,18 @@ collect_guide() { # <skill> <out file>
 
 cmd_collect() {
   need_ctx
+  # --skip <skill>: a skill the agent chose not to run on a base-merge-only
+  # round — recorded as the agent's choice, never decided here
+  # (docs/review-rereview.md → Re-review output)
+  local skip=' ' a
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--skip) [ -n "${2:-}" ] || fail "usage: collect <n> [--skip <skill>]…"
+        jq -e --arg s "$2" 'has($s)' "$CTX/skills.json" >/dev/null 2>&1 || fail "--skip names no configured skill: $2"
+        skip="$skip$2 "; shift 2;;
+      (*) fail "usage: collect <n> [--skip <skill>]…";;
+    esac
+  done
   head_guard collect
   local lines='[]' warns='[]' results='{}' s st f n files timing="" mt bl fo
   # the skill budget runs from the fan-out `step` recorded; no record, no check
@@ -1691,10 +1710,14 @@ cmd_collect() {
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status' "$CTX/skills.json")"
+    case "$skip" in (*" $s "*) st=base-merge-only;; esac
     files="$(jq -r --arg s "$s" '.[$s].files | length' "$CTX/skills.json")"
     f="$OUT/$s.txt"
     case "$st" in
       (run)
+        # a guide skill that ran answers the guide label whatever its state
+        # (post → guide-label-seen, docs/artifact.md → Review guide)
+        [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/skills.json")" = guide ] && : > "$CTX/guide.answered"
         if [ -s "$f" ] && [ "$(jq -r --arg s "$s" '.[$s].kind // "review"' "$CTX/skills.json")" = guide ]; then
           collect_guide "$s" "$f"
         elif [ -s "$f" ]; then
@@ -1983,7 +2006,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review-rereview.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: running each skill is your call — record a skill you do not run with `collect --skip <skill>`; read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
@@ -2505,6 +2528,16 @@ cmd_post() {
 
   # --- history (the body as posted), done row, terminal status, cleanup ---
   append_history "$sha7" "$now" "$VERDICT" "$CTX/body.posted.md" "$FINDINGS" "" "$kind"
+  # the round had the guide label at `prepare` and its guide skill ran, in any
+  # state: the label is served. A round that ran no guide skill leaves it for
+  # the next one; a round at the prior review's SHA is that next one, so it
+  # serves the label in every case (docs/artifact.md → Review guide).
+  # A label an earlier round served stays served: a round that runs no guide
+  # skill (base merges only) carries the marker forward.
+  [ -n "$(guide_label_on)" ] \
+    && { [ -f "$CTX/guide.answered" ] || [ "$(ctx_get '.prior.sha // empty')" = "$sha" ] \
+         || [ "$(ctx_get '.guide_seen // false')" = true ]; } \
+    && printf '<!-- guide-label-seen -->\n' >> "$WORK/reviews/pr-$N.md"
   rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done
   local c w s took
@@ -2624,7 +2657,7 @@ cmd_verify() {
           $ev[$i:] as $cy
           | [ $cy[] | select(.event == "review_step") | .step ] as $steps
           # prepare logs `… — base merges only` for a range that leaves the PR
-          # diff untouched: steps c and d are skipped (docs/review-rereview.md)
+          # diff untouched: no fan-out or `verified` is owed (docs/review-rereview.md)
           | any($cy[]; .event == "review_pr" and (.step | endswith("base merges only"))) as $base
           | { lock_ts: $ev[$i].ts,
               last: ([ $cy[] | select(.event == "review_step") ] | last),

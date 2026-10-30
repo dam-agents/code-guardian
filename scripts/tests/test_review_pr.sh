@@ -695,7 +695,12 @@ add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '[]'; ahead_fx
 run_rp prepare 1 --on-demand
 assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as base merges only'
-# steps c and d are skipped, so `composed` is the one milestone verify asks for
+assert_jq '.skills["doc-drift"].status == "run"' 'prepare leaves the skills to the agent on a base-merges-only round'
+run_rp collect 1 --skip doc-drift --skip typescript-engineering
+assert_jq '.audit_lines | length > 0 and all(test("skipped \\(base-merge-only\\)$"))' 'collect records the skills the agent chose not to run'
+run_rp collect 1 --skip nope
+assert_jq '.outcome == "error"' 'collect refuses a --skip that names no configured skill'
+# no fan-out or `verified` milestone is owed, so `composed` is the one verify asks for
 run_rp step 1 composed
 printf '### Summary\n%s\n\n### Verdict\nCOMMENT — ok\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)" > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
@@ -703,6 +708,21 @@ run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/f
 assert_jq '.outcome == "posted"' 'the base-merges-only round posts'
 run_rp verify 1
 assert_jq '.checks[] | select(.check == "milestones") | .status == "ok"' 'a base-merges-only round needs no fan-out or verified milestone'
+
+# a carried round keeps the rule: the digest compares the whole PR diff
+setup delta_own_change_carry
+PRIOR="1111111111111111111111111111111111111111"; CARRIED="2222222222222222222222222222222222222222"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+printf '{"sha":"%s","ts":"%s","hops":1,"kind":"re-review","run":"x","findings":[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]}\n' "$CARRIED" "$(iso_ago 600)" \
+  > "$WORK/reviews/pr-1.carry.json"
+pr_fx open '[]'; ahead_fx
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+x"}]}' \
+  | fx "api repos/acme/widgets/compare/$CARRIED...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.carry.reachable == true and .delta.own_change == false' 'a carried base-merges-only round has both ranges'
+assert_jq '.skills["doc-drift"].status == "run"' 'a carried base-merges-only round leaves the skills to the agent'
+run_rp abort 1 "reset"
 
 setup delta_own_change_moved
 PRIOR="1111111111111111111111111111111111111111"
@@ -1035,6 +1055,77 @@ assert_jq '.outcome == "posted" and .verdict == "APPROVE" and .event == "COMMENT
 jq -e -s '[.[] | .event] == ["APPROVE", "COMMENT"]' "$SANDBOX/gh.log.input" >/dev/null \
   && printf 'ok   %s: first APPROVE, then COMMENT\n' "$CASE" \
   || { printf 'FAIL %s: events %s\n' "$CASE" "$(jq -c -s '[.[] | .event]' "$SANDBOX/gh.log.input" 2>/dev/null)"; FAILED=1; }
+
+# --- prepare: a guide label the last round did not see is a live trigger -------
+setup prepare_guide_label '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n<!-- guide-label-seen -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+run_rp prepare 1
+assert_jq '.outcome == "skip" and .reason == "re-review trigger withdrawn"' 'a guide label the last round saw asks for nothing'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' 'a guide label the last round did not see starts a delta round'
+run_rp abort 1 "reset"
+
+# --- post: a round at the prior review's SHA serves the label in every case ----
+setup post_guide_label_same_sha '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+printf '# PR #1: alpha PR\n\n## Review at %s — %s — COMMENT\n\nx\n' "${B1_SHA:0:7}" "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "$B1_SHA" "$(iso_ago 7200)" COMMENT done
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "re-review"' 'an unseen guide label is a live trigger at the reviewed SHA'
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the guide round posts'
+sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
+  && printf 'ok   %s: a same-SHA round records the label even without a guide skill\n' "$CASE" \
+  || { printf 'FAIL %s: no guide-label-seen marker after the same-SHA round\n' "$CASE"; FAILED=1; }
+
+# --- post: a round that never ran the guide skill leaves the label unseen ------
+setup post_guide_label_no_guide '- guide_label: cg-guide'
+pr_fx open '["cg-guide"]'
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the review posts'
+grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+  && { printf 'FAIL %s: a round without the guide step recorded the label as seen\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the label stays unseen when the guide step did not run\n' "$CASE"
+
+# --- post: a round with no guide skill after a served label keeps it served ----
+# (a base-merges-only round runs no skill)
+setup post_guide_label_carried '- guide_label: cg-guide'
+pr_fx open '["cg-guide","cg-rereview"]'
+printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n<!-- guide-label-seen -->\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
+add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
+run_rp prepare 1
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the re-review posts'
+sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$WORK/reviews/pr-1.md" | grep -q '^<!-- guide-label-seen -->$' \
+  && printf 'ok   %s: the served label stays served without a guide skill\n' "$CASE" \
+  || { printf 'FAIL %s: the newest section lost the guide-label-seen marker\n' "$CASE"; FAILED=1; }
+
+# --- post: a guide label put on mid-review is left for the next round ----------
+setup post_guide_label_mid_review '- guide_label: cg-guide'
+pr_fx open '[]'
+run_rp prepare 1
+pr_fx open '["cg-guide"]'
+printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[]' > "$SANDBOX/findings.json"
+printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "posted"' 'the review posts'
+grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+  && { printf 'FAIL %s: a round without the label at prepare recorded it as seen\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: the label stays unseen, so the next heartbeat starts the guide round\n' "$CASE"
 
 # --- a pull request someone else opened keeps the verdict as the event ----------
 setup post_other_author
@@ -2463,6 +2554,30 @@ run_rp collect 1
 assert_jq '.skills["review-guide"].guide == "budget" and (.form_warnings | any(contains("stopped at the")))' 'a budget stop is its own state, with a warning'
 assert_jq '.audit_lines | index("PR #1: review-guide ran (findings=0, guide=budget)") != null' 'the audit line tells a budget stop from a gate refusal'
 run_rp abort 1 "reset"
+
+# every terminal state of the guide skill serves the guide label at post
+for gs in not-needed budget refused errored; do
+  guide_setup "guide_label_served_$gs" '- guide_label: code-guardian:guide'
+  pr_fx open '["code-guardian:guide"]'
+  run_rp prepare 1
+  mkdir -p "$(PR_DIR).out"
+  case "$gs" in
+    (not-needed) printf '➖ Not needed — docs only.\n' > "$(PR_DIR).out/review-guide.txt";;
+    (budget) printf '➖ Not built — budget reached.\n' > "$(PR_DIR).out/review-guide.txt";;
+    (refused) printf 'not a guide line\n' > "$(PR_DIR).out/review-guide.txt";;
+    (errored) : ;;
+  esac
+  printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+  run_rp collect 1
+  printf '### Summary\nx\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+  printf '[]' > "$SANDBOX/findings.json"
+  printf '{"id":79,"html_url":"https://example.test/r/79","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+  run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+  assert_jq '.outcome == "posted"' "a round whose guide skill ended $gs posts"
+  grep -q '^<!-- guide-label-seen -->$' "$WORK/reviews/pr-1.md" \
+    && printf 'ok   %s: a guide skill that ended %s serves the label\n' "$CASE" "$gs" \
+    || { printf 'FAIL %s: no guide-label-seen marker after a %s guide\n' "$CASE" "$gs"; FAILED=1; }
+done
 
 # no person needed: no page, no section
 guide_setup guide_not_needed
