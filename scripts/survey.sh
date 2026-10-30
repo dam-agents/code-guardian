@@ -3,13 +3,18 @@
 #
 # The agent decides what a survey finds; this script performs the steps around
 # that decision. It never judges a file, drops a finding, or chooses an area —
-# preflight chooses the area, the agent reads the files this script lists.
+# preflight proposes the area, this script the files under the caps, and the
+# agent may read past both and records why.
 #
 #   prepare <work-dir> <slug>            clone the default branch, list the
 #                                        area's reviewable files under the caps,
 #                                        after the file the last pass stopped at
-#   record  <work-dir> <slug> <findings> append the pass to the area's file and
-#                                        update the ledger row
+#   record  <work-dir> <slug> <findings> [--last <path>] [--past <reason>]
+#                                        append the pass to the area's file and
+#                                        update the ledger row; --last moves the
+#                                        resume point to the last area file the
+#                                        agent read, --past records why the pass
+#                                        went past the listed files or the area
 #   report  <work-dir>                   the accumulated HTML, on stdout
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0, except
@@ -36,7 +41,7 @@ PROFILE="$WORK/PROFILE.json"
 TMP_ROOT="${TMPDIR:-/tmp}"
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-MAX_FILES=40      # the cost bound of one pass (docs/survey.md → Bounds)
+MAX_FILES=40      # the recommended scope of one pass; a read past it is logged with record --past (docs/survey.md → Bounds)
 MAX_LINES=6000
 
 out()  { printf '%s\n' "$1"; exit 0; }
@@ -162,7 +167,12 @@ fi
 
 # ------------------------------------------------------------------- record --
 if [ "$CMD" = "record" ]; then
-  SLUG="${1:-}"; FINDINGS="${2:-}"
+  SLUG="${1:-}"; FINDINGS="${2:-}"; LAST=""; PAST=""
+  shift 2 2>/dev/null || shift $#
+  while [ $# -gt 0 ]; do case "$1" in
+    (--last) LAST="${2:-}"; shift 2 2>/dev/null || shift;;
+    (--past) PAST="${2:-}"; shift 2 2>/dev/null || shift;;
+    (*) fail "unknown record argument '$1'";; esac; done
   [ -n "$SLUG" ] || fail "no area slug given"
   [ -n "$FINDINGS" ] && [ -f "$FINDINGS" ] || fail "findings file missing"
   jq -e 'type == "array"' "$FINDINGS" >/dev/null 2>&1 || fail "findings must be a JSON array"
@@ -181,8 +191,16 @@ if [ "$CMD" = "record" ]; then
   # the next pass resumes), while the clone is still here
   CLONE="$TMP_ROOT/survey-$SLUG"
   SHA="$(git -C "$CLONE" rev-parse HEAD 2>/dev/null || true)"
-  nfiles="$(nlines "$TMP_ROOT/survey-$SLUG.keep")"
-  last="$(tail -n 1 "$TMP_ROOT/survey-$SLUG.keep" 2>/dev/null)"
+  KEEP="$TMP_ROOT/survey-$SLUG.keep"
+  if [ -n "$LAST" ]; then
+    # the pass covers the area list up to the file the agent read last
+    grep -qxF -- "$LAST" "$TMP_ROOT/survey-$SLUG.files" 2>/dev/null \
+      || fail "--last $LAST is not a file of this pass's area list"
+    while IFS= read -r rel; do printf '%s\n' "$rel"; [ "$rel" = "$LAST" ] && break; done \
+      < "$TMP_ROOT/survey-$SLUG.files" > "$KEEP.tmp" && mv "$KEEP.tmp" "$KEEP"
+  fi
+  nfiles="$(nlines "$KEEP")"
+  last="$(tail -n 1 "$KEEP" 2>/dev/null)"
 
   F="$SDIR/$SLUG.md"
   [ -f "$F" ] || printf '# Survey — %s\n' "$path" > "$F"
@@ -195,8 +213,8 @@ if [ "$CMD" = "record" ]; then
     # the second hyphen of each double hyphen goes in as the JSON escape \u002d:
     # no `-->` ends the comment early, and jq reads it back as a hyphen
     printf '\n<!-- findings-json: %s -->\n' "$(jq -c . "$FINDINGS" | sed 's/--/-\\u002d/g')"
-    printf '<!-- pass-json: %s -->\n' "$(jq -nc --arg sha "$SHA" --argjson n "$nfiles" --arg last "$last" \
-      '{sha:$sha, files:$n, last:(if $last == "" then null else $last end)}' | sed 's/--/-\\u002d/g')"
+    printf '<!-- pass-json: %s -->\n' "$(jq -nc --arg sha "$SHA" --argjson n "$nfiles" --arg last "$last" --arg past "$PAST" \
+      '{sha:$sha, files:$n, last:(if $last == "" then null else $last end)} + (if $past == "" then {} else {past:$past} end)' | sed 's/--/-\\u002d/g')"
   } >> "$F" 2>/dev/null || fail "could not append the pass to $F"
 
   # rewrite the row in place (rows are full of `|`, so sed gets another delimiter)

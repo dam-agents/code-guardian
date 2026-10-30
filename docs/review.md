@@ -126,7 +126,11 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    --findings <ctx>/findings.json [--comments <ctx>/comments.json] [--meta
    <ctx>/meta.json] --model <id>`, as `compose-brief` prints it — `<id>` is
    the exact model id of this session, for the footer; a re-review passes
-   `--findings <ctx>/findings.annotated.json`. It runs Check 2 and the dedup
+   `--findings <ctx>/findings.annotated.json`. It first checks the body and
+   findings against the format rules below; a mismatch is
+   `outcome: "warnings"` with nothing posted — a holding state: the lock and
+   the files stay until you rerun `post` with the files fixed, rerun it with
+   `--accept-warnings` to post them as they are, or run `abort`. It runs Check 2 and the dedup
    re-check, maps the inline comments
    ([review-mechanics.md](review-mechanics.md) → **Mapping findings to inline
    comments**), posts the payload, removes the served triggers
@@ -134,8 +138,8 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    dismisses stale approvals, appends the body to `reviews/pr-<n>.md`, writes
    the `done` row and terminal status, logs `posted <verdict>` and `done`, and
    deletes clone, copies, diff and state — exactly once. Outcomes: `posted`
-   (`url`, `event`, `moved_to_summary`, `anchors_nulled`, `label_removed`,
-   `dismissed_approval`) · `aborted` (**Error handling**) · `duplicate` (the
+   (`url`, `event`, `moved_to_summary`, `anchors_nulled`, `warnings`,
+   `label_removed`, `dismissed_approval`) · `warnings` (held, step f above) · `aborted` (**Error handling**) · `duplicate` (the
    marker is already on GitHub; the row self-heals with its timestamp) ·
    `closed_*` (read [review-urgent.md](review-urgent.md) → **PR closed
    mid-review**). Then evaluate the configured watch rules
@@ -145,7 +149,10 @@ g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
 Every locked entry ends `posted`, `duplicate`, `closed_filed`,
-`closed_discarded`, `aborted`, `head_moved` or `state_damaged`.
+`closed_discarded`, `aborted`, `head_moved` or `state_damaged`. A `warnings`
+outcome is a holding state, not an end: the entry keeps its lock and its
+files until a rerun of `post` (files fixed, or `--accept-warnings`) or
+`abort` ends it.
 
 **Progress logging.** Each milestone appends a `review_step` event
 ([logging.md](logging.md)). The last event of a PR pins where a stall stopped;
@@ -374,7 +381,7 @@ _Limits: <what this review could not read>._
 repeats inline text**: an inline-carried finding appears here as one line —
 severity + short label + `file:line` — while its description, rationale and
 suggestion block live only in the inline comment. Summary-only findings keep
-their full text here. `post` refuses a section that writes more findings on a
+their full text here. `post` warns on a section that writes more findings on a
 second line, or more **Fix:** lines, than `findings-json` holds findings not
 carried inline — on a delta re-review only its `new` ones — and a
 ` ```suggestion ` block counts as a second line. A complete
@@ -386,8 +393,8 @@ score or a confidence: a clone that failed, a skill that did not run or
 stopped at its time budget, a PR context that did not load, a diff past 2000
 lines.
 `review-pr.sh compose-brief` composes the line from this run's own state and
-prints it in the skeleton — nothing to report, no line — and `post` refuses a
-body that drops it.
+prints it in the skeleton — nothing to report, no line — and `post` warns on
+a body that drops it.
 
 **`### For the human reviewer`** — the last section, written when a blocking
 finding comes from a design decision of the PR itself. Three or four sentences
@@ -414,7 +421,7 @@ defect can arrive twice. Compose from all of them together:
   survives; 🔴 and 🟡 are uncapped, 🟢 survive within their budget
   ([finding-form.md](finding-form.md)). Each skill keeps its own
   `findings=<N>` audit line whatever the merge prints ([skills.md](skills.md)).
-  `post` refuses a body that prints more 🔴/🟡 lines than `findings-json`
+  `post` warns on a body that prints more 🔴/🟡 lines than `findings-json`
   holds open blocking findings ([review-mechanics.md](review-mechanics.md) →
   **Summary body format**).
 
@@ -527,7 +534,9 @@ Before you declare the run done:
   its anchor and reported as this review's own, the carry never named · every
   structured-block finding block-swept · every `late`
   finding kept as `🔎 Missed earlier` unless the range causes it (`--fresh`),
-  graded 🟢 on a delta re-review unless 🔴 ·
+  graded 🟢 on a delta re-review unless 🔴 · every `post` warning fixed, or
+  accepted on purpose with `--accept-warnings` · every widened skill scope
+  logged with its reason ·
   skill sections reformatted and merged with no finding lost and none printed
   twice · stale approval
   dismissed when the verdict dropped below APPROVE · every sentence of the

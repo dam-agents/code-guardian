@@ -73,8 +73,10 @@ A person is needed when the PR has at least one of these:
   privacy, concurrency, an irreversible operation, a production rollout;
 - a **trade-off or open point the PR states** (its body, `author-decisions`,
   comments) that someone must accept;
-- a **forced** line in the brief — a changed path under `human_review_paths`,
-  or the `guide_label` a person put on the PR.
+- a **forced** line in the brief — the `guide_label` a person put on the PR.
+
+A **lead** line in the brief — a changed path under `human_review_paths` —
+weighs toward a person; it does not decide the gate alone.
 
 Not needed: a mechanical change (rename, format, imports, constants), docs
 or tests only, a dependency bump with no code change, a small local fix whose
@@ -142,7 +144,8 @@ the code around the change.
   the change or are affected by it (the brief's context pack names the
   dependents), and what a caller sees differently.
 - **Risks** (2–4) — what a person must watch, each grounded in a fact
-  (**Risks from facts** below): the brief's risk prescan and forced paths, a
+  (**Risks from facts** below): the brief's risk prescan, its `lead` line (a
+  `human_review_paths` match) and its `forced` line (the `guide_label`), a
   changed code file the context pack lists with no test, a contract change, an
   open point the PR names.
 - **Rollout and rollback** — how the change reaches users, in order: a

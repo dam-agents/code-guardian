@@ -118,6 +118,19 @@ assert_jq '.truncated == false and .remainder == 0' 'the rest fits: nothing is l
 survey_pass
 assert_jq '.after == null and .files[0] == "src/api/f10.ts" and .remainder == 5' 'after the last file the cycle starts again'
 
+# --- the agent may read past the caps: --last moves the resume point, --past records why
+OUT="$(CG_SURVEY_CLONE_URL="$SANDBOX/repo" TMPDIR="$SANDBOX" \
+       bash "$REPO_ROOT/scripts/survey.sh" prepare "$WORK" src_api 2>/dev/null)"
+OUT="$(TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/none.json" --last src/api/f99.ts 2>/dev/null)"
+assert_jq '.outcome == "error" and (.error | contains("not a file of this pass"))' '--last outside the area list is refused'
+OUT="$(TMPDIR="$SANDBOX" bash "$REPO_ROOT/scripts/survey.sh" record "$WORK" src_api "$SANDBOX/none.json" \
+       --last src/api/f52.ts --past "the token check in f52 guards the f40 sink" 2>/dev/null)"
+assert_jq '.outcome == "recorded"' 'a pass past the caps is recorded'
+assert_file_contains "$WORK/survey/src_api.md" '"files":3,"last":"src/api/f52.ts","past":"the token check in f52 guards the f40 sink"' 'the pass records the files read, the new resume point and the reason'
+OUT="$(CG_SURVEY_CLONE_URL="$SANDBOX/repo" TMPDIR="$SANDBOX" \
+       bash "$REPO_ROOT/scripts/survey.sh" prepare "$WORK" src_api 2>/dev/null)"
+assert_jq '.after == "src/api/f52.ts" and .files == ["src/api/f53.ts","src/api/f54.ts"]' 'the next pass resumes after the file the agent read last'
+
 # --- an empty file in the area is counted as 0 lines, never a broken pass -----
 new_case survey_prepare_empty_file
 base_config '- survey: enabled'

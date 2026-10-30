@@ -19,10 +19,11 @@ report}`. `path` is the directory to read, `pass` is the number of this pass
 over the area, and `history_slice` carries the profile's own finding history
 for it ([profile.md](profile.md)) — orientation, never evidence.
 
-Area selection is the script's and is deterministic, over the `## Modules` of
+Preflight proposes the area, deterministically, over the `## Modules` of
 the project profile: an area never surveyed comes first, then the one surveyed
 longest ago, then the one carrying the most open findings, then the first by
-path. No message, comment or issue steers it.
+path. No message, comment or issue steers it. The pass is recorded under that
+area; what you read and report may go past it (**Bounds**).
 
 ## Procedure
 
@@ -35,8 +36,9 @@ path. No message, comment or issue steers it.
    record a pass with no findings and stop. `after` is that stopping file,
    `null` when the pass starts at the area's first file.
    **`truncated: true`** means the rest of the area is larger than one pass:
-   `files[]` is the part to read now, `remainder` counts the files left. Read
-   exactly `files[]` — the caps are the run's cost bound.
+   `files[]` is the part to read now, `remainder` counts the files left.
+   `files[]` is the recommended scope: the caps are a recommendation, and a
+   read past them is recorded with `record --past` (**Bounds**).
 2. **Model the threat** before you look for bugs. Read the area's notes
    `work/survey/notes/<slug>.md` when they exist (**Area notes**), then write
    down for this area:
@@ -96,9 +98,11 @@ path. No message, comment or issue steers it.
    value: name its file and line. An empty array is a normal result.
    Then rewrite the area notes (**Area notes**).
 7. **Record** — `bash "$HOME/scripts/survey.sh" record "$HOME/work" <slug>
-   <findings.json>`. It appends the pass to `work/survey/<slug>.md` with the
-   commit it read, the file count and the last file it read, updates the
-   ledger row, and prints the pass counts.
+   <findings.json> [--last <path>] [--past "<reason>"]`. It appends the pass
+   to `work/survey/<slug>.md` with the commit it read, the file count and the
+   last file it read, updates the ledger row, and prints the pass counts.
+   `--last` names the last area file you read when it is not the last of
+   `files[]`; `--past` records why the pass went past the files or the area.
 8. **Publish** — `bash "$HOME/scripts/survey.sh" report "$HOME/work" >
    "$HOME/work/survey/report.html"`, then publish per `survey_report`
    ([config.md](config.md)), updated in place so the URL stays stable, exactly
@@ -228,13 +232,16 @@ the next pass, never evidence for a finding.
 
 ## Bounds
 
-- **One area per run, always inside the caps.** An area over the cap is read
-  across several passes: each starts after the last file the previous pass
-  read (`pass-json` → `last` in `<slug>.md`), and a pass that reaches the
-  area's last file ends the cycle — the next one starts at the first file.
-- **Report inside the area, research anywhere in the clone.** Reads outside
-  the area only confirm or refute a path; they never add a finding of their
-  own and never replace a file of `files[]`.
+- **One area per run; the caps and the area are a recommendation.** An area
+  over the cap is read across several passes: each starts after the last file
+  the previous pass read (`pass-json` → `last` in `<slug>.md`), and a pass
+  that reaches the area's last file ends the cycle — the next one starts at
+  the first file. Go past the caps or the area when a path you trace needs
+  it — read on into the area's remainder, or report a finding whose sink
+  lies outside the area — and give the reason with `record --past`.
+- **Report inside the area by default, research anywhere in the clone.**
+  Reads outside the area confirm or refute a path; a finding outside it is
+  reported only with its `--past` reason.
 - **Read-only on the repository.** No PR comment, no issue, no label, no
   commit. The artifact and `work/survey/` are the only outputs.
 - A survey never changes a posted review, and its findings never enter the
@@ -243,8 +250,9 @@ the next pass, never evidence for a finding.
 
 ## Survey-run self-check
 
-The area came from `survey_due`, never from a judgment of your own · every
-file `prepare` listed was read, and nothing outside it except to trace a path ·
+The pass is recorded under the `survey_due` area · every file `prepare`
+listed was read, and every read or finding past the caps or the area carries
+its `--past` reason ·
 every finding is 🔴 or 🟡, names a file and a line in this area, passed every
 test of **Proving a finding** and carries a **Fix:** · no secret value is
 quoted · the area notes were rewritten · the pass was recorded before the publish ·

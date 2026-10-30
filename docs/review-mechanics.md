@@ -59,7 +59,8 @@ otherwise), `inline`, `summary` (≤ ~10 words), `fix` (the **Fix:** line in
 ≤ ~15 words; `null` on `suggestion` and `fixed`). `critical` and `warning` are
 the blocking set, so this line is the machine-readable approval bar the next
 re-review checks against. Every anchor is a real line of the file it names —
-`post` nulls one that is not and reports it. No `--` in the JSON (HTML-comment
+`post` warns on one that is not, and nulls it only when you post with
+`--accept-warnings` (`anchors_nulled`). No `--` in the JSON (HTML-comment
 safety): `post` writes it as `–`. No findings → `[]`. Rapid reviews carry no
 such line. An older line without `fix` or `also` stays valid.
 
@@ -87,10 +88,10 @@ read this PR, for the shepherd ([shepherd.md](shepherd.md) → **Scope and brief
 behavior or a risk the review cannot settle) or `quick-check` (the review
 covered it; a person only confirms), `why` (≤ ~15 words, what the person must
 judge; `null` on a quick check), `verified` (≤ ~15 words, what this review
-already checked), `minutes` (your estimate of a human read). `post` forces
-`needs-human` when a changed file matches `human_review_paths`
-([config.md](config.md)) and records the match in `forced`; an unknown class
-reads as `needs-human`.
+already checked), `minutes` (your estimate of a human read). A changed file
+under `human_review_paths` ([config.md](config.md)) is a lead `compose-brief`
+names for your call; `post` records the match in `forced` and keeps your
+`class`. An unknown or missing class reads as `needs-human`.
 
 ### Mapping findings to inline comments
 

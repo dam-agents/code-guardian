@@ -108,8 +108,8 @@ merges arrive on Monday; the language is `brief_language`
 **Codebase survey** — weekly in a quiet hour, gated by `survey`. A review reads
 a diff; a survey reads one area of the repository as it stands, traces its
 inputs to their dangerous sinks, and reports only the dangerous findings a diff
-structurally cannot show — security holes, data loss, reachable failures. The area is chosen deterministically (never
-surveyed first, then the oldest pass), the pass is capped before it starts, and
+structurally cannot show — security holes, data loss, reachable failures. The area is proposed deterministically (never
+surveyed first, then the oldest pass), the pass gets a recommended scope before it starts, and
 the history accumulates in one artifact with a stable URL
 ([`docs/survey.md`](docs/survey.md)).
 
@@ -256,10 +256,10 @@ what it can and asking for the rest. Per-key semantics are in
 | `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | The judge of the LLM-judged quality scores, the same for every run, run through the `claude` CLI (or `pi` on the same model as the fallback) whatever model the reviews use: `auto` = the agent picks it once from the host's models, a model id = the operator's pick, `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
 | `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
-| `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
+| `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of sensitive files: the review names the match to its triage call and records it, and the PR never auto-merges (`docs/review-mechanics.md` → **Summary body format**). |
 | `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
 | `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
-| `survey` | asked (default `disabled`) | Weekly security pass over one area of the repository — security holes, data loss and reachable failures, traced from input to sink; no suggestion, no refactor (`docs/survey.md`). One area per run, capped, read-only: it never changes code and never posts on a PR. |
+| `survey` | asked (default `disabled`) | Weekly security pass over one area of the repository — security holes, data loss and reachable failures, traced from input to sink; no suggestion, no refactor (`docs/survey.md`). One area per run with a recommended scope, read-only: it never changes code and never posts on a PR. |
 | `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
 | `survey_report_findings` | asked with `survey_report: dam` (default `disabled`) | Whether the public survey artifact shows the findings themselves, each code location linked to the commit the pass read, or stays an index of areas and passes. |
 | `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
