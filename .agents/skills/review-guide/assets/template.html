@@ -192,18 +192,18 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a8f98"/></marker></defs></svg>
 
 <!-- FIRST SCREEN — what, why a person, where to start, where it lands -->
-<h1>PR #{{N}}: {{TITLE}}</h1>
+<h1><a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/pull/{{N}}">PR #{{N}}</a>: {{TITLE}}</h1>
 <div class="chips">
   <span class="chip">head <code>{{SHA7}}</code></span>
   <span class="chip">+{{ADD}} −{{DEL}} · {{FILES}} files</span>
   <span class="chip" title="Effort 1–5: 1 one concern, under 10 min · 2 about 15 min · 3 several parts, about 30 min · 4 cross-module design, about 1 h · 5 more than 1 h or a domain expert">effort {{EFFORT}}/5</span>
   <span class="chip">about {{MINUTES}} min</span>
 </div>
-<div class="why"><strong>Why a person must look</strong>{{WHY — 1–2 sentences: the question(s) only a person can settle}}</div>
+<div class="why"><strong>Why a person must look <small class="muted">· code-guardian's reading</small></strong>{{WHY — 1–2 sentences: the question(s) only a person can settle}}</div>
 <!-- RISKS — 2–4 cards, highest first, each grounded in a fact (see SKILL.md
      → Risks from facts). Level: hi | md | lo. Tag: the kind of fact. -->
 <section class="risks" id="risks">
-  <h2>Risks — what to watch <small class="muted">· {{K}}</small></h2>
+  <h2>Risks — what to watch <small class="muted">· {{K}} · code-guardian's reading of the code</small></h2>
   <div class="rk">
     <div class="hi" data-ref="{{node}}" data-zoom="{{id of the section it concerns, e.g. impact}}" data-tip="{{the evidence in one line}}"><span class="dot hi"></span><b>{{what can go wrong, ≤ 12 words}}</b><span class="tg">{{irreversible | contract | untested | sensitive path | concurrency | security | data | rollout | open point}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{the fact behind it, ≤ 15 words}}</div>
     <div class="md"><span class="dot md"></span><b>{{risk}}</b><span class="tg">{{kind}}</span><br><a href="{{LINK}}">{{path:line}}</a> — {{fact}}</div>
@@ -211,7 +211,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
 </section>
 
 <!-- cg:findings -->
-<!-- code-guardian renders the review's verified findings here; keep the mark. -->
+<!-- code-guardian renders the PR, its issue and every review note with its author here; keep the mark. -->
 
 <p class="start">▶ <b>Start here:</b> <a href="{{LINK to stop 1}}">{{path:line}}</a> — {{what to check there}} · <a href="#decisions">the decisions</a></p>
 
@@ -488,7 +488,7 @@ footer{color:var(--muted);font-size:12px;margin-top:20px}
   </div>
 </details>
 
-<footer>Guide for the human reviewer of <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/pull/{{N}}/files">PR #{{N}}</a> at <code>{{SHA7}}</code>. It shows where to look; the review carries the findings.</footer>
+<footer>Guide for the human reviewer of <a href="https://{{HOST}}/{{OWNER}}/{{REPO}}/pull/{{N}}/files">PR #{{N}}</a> at <code>{{SHA7}}</code>. It shows where to look. Each judgment on it names its source: the PR author, a reviewer, or code-guardian's reading.</footer>
 </main>
 </body>
 </html>

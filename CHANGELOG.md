@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 13.1.0 — 2026-10-30
+
+**Upgrade:** Nothing — docs are re-read per run. From the next review round,
+each PR with a published guide gets its page brought up to date in every
+round: the PR, its issue and every review note with its author.
+
 ## 13.0.1 — 2026-10-30
 
 **Upgrade:** Nothing to run. The migration refreshes the harness hooks.
