@@ -275,6 +275,18 @@ measurement.
     earlier`); a rising share means rounds read too narrow — flag it. A
     `late` finding in a file that a delta-scope round did not read is
     expected: delta scope reads the changed files only.
+    **Trace every missed finding** — `late_items` lists the week's, newest
+    first (≤ 20; with `late` above 20, report the trace as partial). For
+    each, read the PR's review before `sha` and the code at that review's
+    SHA, then name the cause in one line: the class that
+    covers it (a [review.md](review.md) criterion or a skill's catalogue
+    class), and why that round missed it — a deterministic lead that does
+    not match the code (name the pattern that would), a class absent from
+    the catalogue, or a class present that the round did not apply. Report
+    the causes grouped, a pattern or class that repeats first. A missing
+    pattern or class in a definition skill's script or catalogue is a
+    definition finding: file it per [runbook.md](runbook.md) →
+    **Definition-repo issues**.
     Two checks judge the week against the four recorded weeks before it
     ([trends.md](trends.md)), like `verdict_shift`: `findings_shift` — new
     findings of first reviews per 100 changed lines (`findings.density`, a
