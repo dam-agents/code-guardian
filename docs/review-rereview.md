@@ -99,8 +99,9 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   `prepare` digests the diff it fetched and compares it with the digest the
   last review recorded ([review-mechanics.md](review-mechanics.md) → **Summary
   body format**); equal → `delta.own_change:
-  false`, the range holds base-branch merges only. No skill runs: each
-  configured skill's audit line is `skipped (base-merge-only)`
+  false`, the range holds base-branch merges only. No skill runs: `prepare`
+  routes every configured skill to `base-merge-only`, and `review-pr.sh
+  collect <n>` prints its audit line `skipped (base-merge-only)`
   ([skills.md](skills.md) → **Mandatory — not skippable**). Read the range's
   patches — the compare call of the next bullet, or the clone — where they
   touch the PR's changed code or the code it calls. A base change that breaks

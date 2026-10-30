@@ -1404,7 +1404,10 @@ cmd_prepare() {
   local focus=""
   [ "$routable" != "$CTX/files.json" ] \
     && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
-  local SK='{}' s trig files status brief copy fblock kind html
+  local SK='{}' s trig files status brief copy fblock kind html bmo=false
+  # a delta range that leaves the PR's own diff unchanged runs no skill
+  # (docs/review-rereview.md → Re-review output, docs/skills.md → Mandatory)
+  [ "$rangef" = "$CTX/delta.json" ] && jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 && bmo=true
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
@@ -1416,6 +1419,7 @@ cmd_prepare() {
             | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
+    [ "$status" = run ] && [ "$bmo" = true ] && status=base-merge-only
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
     brief=""; copy=""
     if [ "$status" = run ]; then

@@ -695,6 +695,9 @@ add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '[]'; ahead_fx
 run_rp prepare 1 --on-demand
 assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as base merges only'
+assert_jq '[.skills[].status] | length > 0 and all(. == "base-merge-only")' 'a base-merges-only round routes every skill to base-merge-only'
+run_rp collect 1
+assert_jq '.audit_lines | length > 0 and all(test("skipped \\(base-merge-only\\)$"))' 'collect prints the base-merge-only audit line per skill'
 # steps c and d are skipped, so `composed` is the one milestone verify asks for
 run_rp step 1 composed
 printf '### Summary\n%s\n\n### Verdict\nCOMMENT — ok\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)" > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
