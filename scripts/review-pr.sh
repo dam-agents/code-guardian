@@ -1404,10 +1404,18 @@ cmd_prepare() {
   local focus=""
   [ "$routable" != "$CTX/files.json" ] \
     && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
-  local SK='{}' s trig files status brief copy fblock kind html bmo=false
-  # a delta range that leaves the PR's own diff unchanged runs no skill
-  # (docs/review-rereview.md → Re-review output, docs/skills.md → Mandatory)
-  [ "$rangef" = "$CTX/delta.json" ] && jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 && bmo=true
+  local SK='{}' s trig files status brief copy fblock kind html bmo=false gkeep=false
+  # a delta range that leaves the PR's own diff unchanged runs no skill, a carry
+  # range included: the digest compares the whole PR diff with the last posted
+  # review (docs/review-rereview.md → Re-review output, docs/skills.md → Mandatory)
+  jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 && bmo=true
+  # except a guide skill while the guide label is on the PR and no round saw it:
+  # the round still answers the label (docs/artifact.md → Review guide). Without
+  # the guide-label-seen record every round with the label keeps it.
+  if [ "$bmo" = true ] && [ -n "$(guide_label_on)" ]; then
+    gkeep=true
+    declare -F guide_label_seen >/dev/null && guide_label_seen "$WORK/reviews/pr-$N.md" && gkeep=false
+  fi
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
@@ -1419,7 +1427,8 @@ cmd_prepare() {
             | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
-    [ "$status" = run ] && [ "$bmo" = true ] && status=base-merge-only
+    [ "$status" = run ] && [ "$bmo" = true ] && ! { [ "$kind" = guide ] && [ "$gkeep" = true ]; } \
+      && status=base-merge-only
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
     brief=""; copy=""
     if [ "$status" = run ]; then
@@ -1988,7 +1997,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: run no skill, read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: run only the skills `prepare` left at `run` (a guide skill that answers the guide label), read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then

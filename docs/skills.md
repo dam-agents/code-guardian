@@ -48,7 +48,8 @@ Running each configured skill per its trigger is not optional, not
 pre-filterable, and not your judgement call: the skill decides what is worth
 reporting, you invoke it and surface the result. The **only** valid skips are
 `no-matching-files` (extension trigger, empty routed list), `base-merge-only`
-(a re-review range that leaves the PR's own diff unchanged,
+(a re-review range that leaves the PR's own diff unchanged, except a guide
+skill while an unseen `guide_label` is on the PR,
 [review-rereview.md](review-rereview.md) → **Re-review output**) and the
 technical failures (`install-failed`, `clone-failed`, `skill-errored`). Whatever the PR
 — CI-only, docs-only, trivial — and whatever the previous review held, a
@@ -149,7 +150,8 @@ exist in the chat UI:
   a guide skill (**Guide skills**); `diagrams` counts the project maps it
   stored.
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
-- `PR #<n>: <skill> skipped (base-merge-only)` — every skill of a base-merge-only re-review.
+- `PR #<n>: <skill> skipped (base-merge-only)` — every skill of a base-merge-only re-review but
+  a guide skill that answers an unseen `guide_label`.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.
 

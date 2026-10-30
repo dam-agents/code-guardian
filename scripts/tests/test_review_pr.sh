@@ -698,7 +698,7 @@ assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as 
 assert_jq '[.skills[].status] | length > 0 and all(. == "base-merge-only")' 'a base-merges-only round routes every skill to base-merge-only'
 run_rp collect 1
 assert_jq '.audit_lines | length > 0 and all(test("skipped \\(base-merge-only\\)$"))' 'collect prints the base-merge-only audit line per skill'
-# steps c and d are skipped, so `composed` is the one milestone verify asks for
+# no fan-out or `verified` milestone is owed, so `composed` is the one verify asks for
 run_rp step 1 composed
 printf '### Summary\n%s\n\n### Verdict\nCOMMENT — ok\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)" > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
@@ -706,6 +706,21 @@ run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/f
 assert_jq '.outcome == "posted"' 'the base-merges-only round posts'
 run_rp verify 1
 assert_jq '.checks[] | select(.check == "milestones") | .status == "ok"' 'a base-merges-only round needs no fan-out or verified milestone'
+
+# a carried round keeps the rule: the digest compares the whole PR diff
+setup delta_own_change_carry
+PRIOR="1111111111111111111111111111111111111111"; CARRIED="2222222222222222222222222222222222222222"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+printf '{"sha":"%s","ts":"%s","hops":1,"kind":"re-review","run":"x","findings":[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]}\n' "$CARRIED" "$(iso_ago 600)" \
+  > "$WORK/reviews/pr-1.carry.json"
+pr_fx open '[]'; ahead_fx
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+x"}]}' \
+  | fx "api repos/acme/widgets/compare/$CARRIED...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.carry.reachable == true and .delta.own_change == false' 'a carried base-merges-only round has both ranges'
+assert_jq '[.skills[].status] | length > 0 and all(. == "base-merge-only")' 'a carried base-merges-only round runs no skill'
+run_rp abort 1 "reset"
 
 setup delta_own_change_moved
 PRIOR="1111111111111111111111111111111111111111"
@@ -2370,6 +2385,27 @@ run_rp compose-brief 1
 assert_out_contains 'only when the guide link is in hand' 'with the label the section does not wait for the triage'
 assert_out_contains 'The `code-guardian:guide` label on the PR asks for the guide: publish it whatever your `meta.json` triage' 'the label publishes whatever the triage'
 assert_out_absent 'triage decides' 'with the label the triage does not decide'
+run_rp abort 1 "reset"
+
+# a base-merges-only round keeps the guide skill while the guide label is on
+# the PR and no round saw it; every other skill is base-merge-only
+guide_setup guide_base_merge '- guide_label: code-guardian:guide'
+PRIOR="1111111111111111111111111111111111111111"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '["code-guardian:guide"]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.delta.own_change == false and .skills["review-guide"].status == "run"' 'the guide label keeps the guide skill on a base-merges-only round'
+assert_jq '[.skills | to_entries[] | select(.key != "review-guide") | .value.status] | length > 0 and all(. == "base-merge-only")' 'the other skills stay base-merge-only'
+run_rp abort 1 "reset"
+
+guide_setup guide_base_merge_nolabel '- guide_label: code-guardian:guide'
+PRIOR="1111111111111111111111111111111111111111"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+pr_fx open '[]'; ahead_fx
+run_rp prepare 1 --on-demand
+assert_jq '.skills["review-guide"].status == "base-merge-only"' 'without the guide label the guide skill is base-merge-only too'
 run_rp abort 1 "reset"
 
 # a configured guide label that is not on the PR changes nothing
