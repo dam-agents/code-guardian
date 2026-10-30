@@ -16,6 +16,15 @@ they are released history and stay as written.
 **Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each
 open PR that carries the `guide_label` gets one guide round.
 
+## 12.11.0 — 2026-10-30
+
+**Upgrade:** Nothing to run. The next benchmark tick emits `create_fixture`
+for the 3 missing complex fixtures (existing fixtures stay simple); the run
+after it gives the first sufficiency verdicts per tier. Runs before 12.11.0
+show "—" for easy and hard recall. Optional: add the `## Benchmark
+sufficiency` table to `work/CONFIG.md` (docs/benchmark.md → **Sufficiency by
+tier**); without it the defaults apply.
+
 ## 12.10.0 — 2026-10-30
 
 **Upgrade:** Nothing — docs are re-read per run.

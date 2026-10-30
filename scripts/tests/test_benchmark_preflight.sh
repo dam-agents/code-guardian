@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # preflight benchmark mode — gate on `benchmark: enabled`, create_fixture until
-# the set holds 5 fixtures, run with the monthly (27-day) gate fed by
+# the set holds 5 simple and 3 complex fixtures, run with the monthly (27-day) gate fed by
 # scheduled results only, report surface dam | off, purely local
 # (no gh fixtures are seeded: the mode must decide without API calls).
 . "$(dirname "$0")/helpers.sh"
 
-seed_fixture() { # <slug>
+seed_fixture() { # <slug> [tier]
   mkdir -p "$WORK/benchmark/fixture/$1"
-  printf '{"fixture":"%s","defects":[]}' "$1" > "$WORK/benchmark/fixture/$1/manifest.json"
+  jq -n --arg f "$1" --arg t "${2:-}" '{fixture: $f, defects: []} + (if $t == "" then {} else {tier: $t} end)' \
+    > "$WORK/benchmark/fixture/$1/manifest.json"
 }
 
-seed_full_set() { for s in ts-api react-ui py-cli infra-ci docs-mixed; do seed_fixture "$s"; done; }
+seed_full_set() {
+  for s in ts-api react-ui py-cli infra-ci docs-mixed; do seed_fixture "$s"; done
+  for s in billing-service ui-platform deploy-pipeline; do seed_fixture "$s" complex; done
+}
 
 seed_result_json() { # <iso-ts> <trigger>
   mkdir -p "$WORK/benchmark/results"
@@ -36,7 +40,8 @@ base_config '- benchmark: enabled'
 run_preflight benchmark
 assert_jq '.nothing_to_do == false' 'enabled with no fixtures is work'
 assert_jq '.benchmark_due.action == "create_fixture"' 'create_fixture is due'
-assert_jq '.benchmark_due.existing == [] and .benchmark_due.min == 5' 'empty set, target size named'
+assert_jq '.benchmark_due.existing == [] and .benchmark_due.min == 5 and .benchmark_due.min_complex == 3' 'empty set, target size per tier named'
+assert_jq '.benchmark_due.missing == {simple: 5, complex: 3}' 'every fixture of both tiers is missing'
 
 new_case benchmark_partial_set
 base_config '- benchmark: enabled'
@@ -47,6 +52,15 @@ mkdir -p "$WORK/benchmark/fixture/broken"   # no manifest — not part of the se
 run_preflight benchmark
 assert_jq '.benchmark_due.action == "create_fixture"' 'an incomplete set asks for a top-up'
 assert_jq '.benchmark_due.existing | length == 3' 'manifest-less directories are not counted'
+
+new_case benchmark_complex_tier_missing
+base_config '- benchmark: enabled'
+for s in ts-api react-ui py-cli infra-ci docs-mixed; do seed_fixture "$s"; done
+seed_fixture billing-service complex
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "create_fixture"' 'a full simple set without enough complex fixtures asks for a top-up'
+assert_jq '.benchmark_due.missing == {simple: 0, complex: 2}' 'only the missing complex fixtures are asked for'
+assert_jq '.logs | any(contains("complex 1/3"))' 'the tier counts are logged'
 
 # fake claude for the judge check: `auth status` says what $FAKE_AUTH says
 seed_judge_cli() { # <true|false>
@@ -64,7 +78,7 @@ seed_judge_cli true
 run_preflight benchmark
 assert_jq '.benchmark_due.judge_unavailable == null' 'a signed-in judge CLI is ready'
 assert_jq '.benchmark_due.action == "run"' 'a full set makes a run due'
-assert_jq '.benchmark_due.fixtures | length == 5' 'all five fixtures are carried'
+assert_jq '.benchmark_due.fixtures | length == 8' 'all eight fixtures of both tiers are carried'
 assert_jq '.benchmark_due.judge == "pinned-judge-model"' 'judge key is carried'
 assert_jq '.benchmark_due.report == "off"' 'the report surface is carried'
 assert_jq '.benchmark_due.last_run == null' 'no prior run recorded'
