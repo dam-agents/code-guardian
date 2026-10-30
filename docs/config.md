@@ -75,7 +75,8 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
 
 - **`rereview_label`** — the GitHub label a human adds to request a **complete**
   re-review of the whole PR (default `code-guardian:rereview`). The other triggers
-  get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
+  — the delta label, a review request, a `guide_label` that no review round
+  saw yet — get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
   output**). First reviews never need it; the agent removes it once the request
   is served. New commits without a trigger flip the tracking row to
   `awaiting_label`.
@@ -143,8 +144,9 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   [artifact.md](artifact.md) → **Review guide**).
 - **`guide_label`** — a GitHub label a human adds to ask for the review guide
   of a PR whatever the review's triage. **Missing = the triage alone
-  decides.** The label stays on the PR and acts at each review round; it
-  starts no review ([artifact.md](artifact.md) → **Review guide**).
+  decides.** The label stays on the PR and acts at each review round. When no
+  review round saw it yet, it starts a delta round that publishes the guide
+  ([artifact.md](artifact.md) → **Review guide**).
 - **`## Watch rules` table** — instance-local "when a PR does X, give a
   heads-up in Y" rules, evaluated during reviews and delivered to a closed set
   of vetted targets (`chat`, `slack[:<chat-id>]`, `pr-comment`) —

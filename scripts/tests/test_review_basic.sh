@@ -51,6 +51,48 @@ assert_jq '.reviews_due[0] | .kind == "re-review" and .description_changed == tr
 assert_jq '.label_cleanups_due | length == 0' 'the trigger is served, not cleared'
 assert_jq '.logs | any(contains("description was edited"))' 'the reason is logged'
 
+# --- a guide label no review saw, at the reviewed HEAD → a guide round ---------
+new_case guide_label_unseen
+base_config '- guide_label: cg-guide'
+pr_json 1 "plain PR" '[{"name":"cg-guide"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+history_fx 1 "${SHA1:0:7}"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'a guide label no review saw asks for a round'
+assert_jq '.reviews_due[0] | .kind == "re-review" and .guide_requested == true and .full == false and .description_changed == false and .head_sha == "'"$SHA1"'"' \
+  'a delta round at the reviewed SHA, flagged for the guide'
+assert_jq '.logs | any(contains("guide round due"))' 'the reason is logged'
+
+# --- the last review saw the guide label → nothing new -------------------------
+new_case guide_label_seen
+base_config '- guide_label: cg-guide'
+pr_json 1 "plain PR" '[{"name":"cg-guide"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+history_fx 1 "${SHA1:0:7}" seen
+run_preflight review
+assert_jq '.nothing_to_do == true' 'the review already answered the guide label'
+
+# --- a guide label no review saw, new commits, no trigger → a delta round -------
+new_case guide_label_new_commits
+base_config '- guide_label: cg-guide'
+pr_json 1 "plain PR" '[{"name":"cg-guide"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 3600)" COMMENT done
+history_fx 1 "${SHA2:0:7}"
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "re-review" and .guide_requested == true and .full == false and .prior.sha == "'"$SHA2"'"' \
+  'the guide label starts a delta re-review of the new commits'
+assert_file_contains "$WORK/REVIEWS.md" '| done |' 'the row is not flipped to awaiting_label'
+
+# --- the guide label seen, new commits, no trigger → waits for a trigger --------
+new_case guide_label_seen_new_commits
+base_config '- guide_label: cg-guide'
+pr_json 1 "plain PR" '[{"name":"cg-guide"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA2" "$(iso_ago 3600)" COMMENT done
+history_fx 1 "${SHA2:0:7}" seen
+run_preflight review
+assert_jq '.reviews_due | length == 0' 'a seen guide label is no trigger for new commits'
+assert_file_contains "$WORK/REVIEWS.md" 'awaiting_label' 'the row waits for a trigger'
+
 # --- description edited BEFORE the last review → still just a cleanup ---------
 new_case rereview_description_edited_before
 base_config

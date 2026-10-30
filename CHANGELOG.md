@@ -11,7 +11,17 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 12.12.0 — 2026-10-30
+## 13.1.0 — 2026-10-30
+
+**Upgrade:** Nothing — docs are re-read per run.
+
+## 13.0.0 — 2026-10-30
+
+**Upgrade:** Nothing — docs are re-read per run. At the next heartbeat, each
+open PR that carries the `guide_label` gets one guide round.
+
+## 12.11.1 — 2026-10-30
+
 **Upgrade:** Nothing — docs are re-read per run.
 
 ## 12.11.0 — 2026-10-30

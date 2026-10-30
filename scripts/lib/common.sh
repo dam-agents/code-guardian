@@ -324,6 +324,14 @@ marker_reviewed_at() { # <owner/repo> <n> <marker> <sha> [<reviews file>]
   return 0
 }
 
+# Whether the newest review round in a PR history file saw the guide label:
+# `post` writes `<!-- guide-label-seen -->` into the section of a round that
+# had the label at `prepare` (docs/artifact.md → Review guide).
+guide_label_seen() { # <history file>
+  sed -n -e '/^## Review at /h' -e '/^## Review at /!H' -e '${x;p;}' "$1" 2>/dev/null \
+    | grep -q '^<!-- guide-label-seen -->$'
+}
+
 # A checkout's `origin` as a `<host>/<owner>/<repo>` reference — https, ssh and
 # scp forms, credentials dropped. The fallback for a missing definition_repo.
 origin_ref() { # <checkout dir>

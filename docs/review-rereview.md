@@ -14,9 +14,9 @@ The trigger sets the scope:
   `✅ Fixed` stay one-liners in the block. Inline comments map only `🆕 New`
   and `🔎 Missed earlier` findings; skill sections post in full.
   `findings-json` carries `new`/`still`/`fixed` as found, `late` included.
-- **Review request / `$REREVIEW_DELTA_LABEL` / on-demand ask → delta
-  re-review** (`full: false`): the delta only, per the conciseness rules
-  below.
+- **Review request / `$REREVIEW_DELTA_LABEL` / on-demand ask / a
+  `guide_label` no round saw yet → delta re-review** (`full: false`): the
+  delta only, per the conciseness rules below.
 
 **Description-only re-review** (`description_changed: true`): an edited body
 answers the trigger, so the diff and SHA are the reviewed ones. `post` reads
@@ -27,6 +27,13 @@ reviews**) and redo the review against it: a removed justification no longer
 suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
 — write `description edited, no new commits` on that line and let the buckets
 carry the rest. No change in substance → say so in one line.
+
+**Guide round** (`guide_requested: true`): the `guide_label` is on the PR and
+no review round saw it yet ([artifact.md](artifact.md) → **Review guide**). The scope
+is delta. With no new commits the SHA is the reviewed one: `Previous HEAD` is
+the same SHA — write `guide requested, no new commits` on that line, carry the
+prior findings as `still`, and publish the guide. With new commits it is a
+delta re-review that also publishes the guide.
 
 Both scopes: the prior `findings-json` array is `prior_findings` in the
 prepare output, or the line in `reviews/pr-<n>.md` where no `prepare` ran, so
@@ -42,9 +49,14 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
   and carries `suggest` — `still` when the severity matches, else `new` — with
   its `index`, `distance` and `severity_match`. The block and `annotated`
   apply every `suggest` already.
-- **Settle every `ambiguous` pair** before posting: keep its suggestion, or
-  rerun `delta` once with `--settle <index>=<still|new>` for every pair you
-  change. The rerun rebuilds the block, the buckets and `annotated`.
+- **Settle every `ambiguous` pair** before posting. `suggest` compares text
+  and severity only: read both findings at their anchors and decide — the
+  same defect is `still`, a different one is `new`. Rerun `delta` once with
+  `--settle <index>=<still|new>` for every pair where your decision differs.
+  The rerun rebuilds the block, the buckets and `annotated`.
+- **Check the buckets against your own settlement** of each prior at its
+  anchor (below). A prior you settled `still` that the block lists as
+  `fixed` is missing from your array: add it and rerun `delta`.
 - **A `new` finding is aged by the range, not by the prior review.** `prepare`
   writes `age.json` from the compare call — the new-side hunk spans per file
   between the prior marker SHA and HEAD — on every re-review, complete ones
@@ -91,21 +103,39 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   a file without `patch` — → `reachable: false`: review at complete depth in
   the delta output format, with ` — unreachable, reviewed the whole PR`
   appended to the `Previous HEAD` line.
-- **A range that does not change the PR's own diff is not a review round.**
+- **A range that does not change the PR's own diff is a reduced round.**
   `prepare` digests the diff it fetched and compares it with the digest the
   last review recorded ([review-mechanics.md](review-mechanics.md) → **Summary
   body format**); equal → `delta.own_change:
-  false`, the range holds base-branch merges only. Skip steps c and d: no
-  candidates, no skills, no sweep. Carry every open prior finding into the
-  block as `🔁 Still present` one-liners, keep the prior verdict, and write
-  `Range holds base-branch merges only — no change to this PR's own diff.`
-  under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
-  `### Findings`. No prior digest → the normal delta round.
+  false`, the range holds base-branch merges only, a carried round included.
+  `own_change` is a lead: running each skill is your call. The PR's own code
+  did not change, so a skill has nothing new to read unless a base change
+  touches what it checks. Run a guide skill while the `guide_label` is on the
+  PR and no round saw it yet, so the round answers the label
+  ([artifact.md](artifact.md) → **Review guide**). Record each skill you do
+  not run with `review-pr.sh collect <n> --skip <skill>`: its audit line is
+  `skipped (base-merge-only)` ([skills.md](skills.md) → **Mandatory — one
+  judgement call**). Read the range's
+  patches — the compare call of the next bullet, or the clone — where they
+  touch the PR's changed code or the code it calls. A base change that breaks
+  the PR — a removed or renamed symbol, a changed signature, contract or
+  default — is a `🆕 New` finding on the PR line it breaks, verified and swept
+  as in step d (`--fresh` on its index when `delta` lists it in `late[]`).
+  Settle every prior finding at its anchor, as below, in both outcomes, and
+  write `Range holds base-branch merges only — no change to this PR's own
+  diff.` under the `Previous HEAD` line:
+  - **Nothing found** → `_No new findings at this HEAD._` as `### Findings`;
+    the verdict follows the settled priors.
+  - **A break found** → the break in `### Findings`; the verdict weighs it
+    with the settled priors.
+
+  No prior digest → the normal delta round.
 - **Candidates come from the range's hunks only** (`gh api
   "repos/$REPO/compare/<delta.base>...<head-sha>"`, or read them in the clone),
   in files the PR diff touches. A hunk whose added lines are absent from the PR
-  diff arrived with a base-branch merge and is not a candidate; the full PR
-  diff is context for reading them. A description-only re-review has an empty
+  diff arrived with a base-branch merge and is not itself a candidate; a base
+  change that breaks the PR's code is a finding on the PR line it breaks. The
+  full PR diff is context for reading them. A description-only re-review has an empty
   range: candidates, verification, sweep and extension-skill routing all use
   the full PR diff, re-read against the edited body.
 - **Each prior finding is settled at its anchor.** Read every `file:line` of
