@@ -2837,7 +2837,7 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$REVIEWS_AGG" ] || REVIEWS_AGG="$RR_AGG_ZERO"
   else
     # the lib is what defines RR_AGG_ZERO, so this branch carries its own copy
-    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+    REVIEWS_AGG='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"late_items":[],"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
     logev warn review_ledger "lib/review-records.sh unreadable — the week's review counts are reported as zero, not measured"
   fi
   # --- shifts against the recorded weeks (docs/audit.md tasks 24, 28) -------

@@ -10,7 +10,7 @@
 #          bullets:{fixed,still},
 #          suppressed:{overrides,context,decisions,total} | null,
 #          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
-#          findings:[{status,severity,late?}] | null}
+#          findings:[{status,severity} + {late,file,line,summary} when late] | null}
 #
 # `work/REVIEW-LEDGER.jsonl` is append-only and outlives the reviewed PR; the
 # `reviews/pr-<n>.md` history files carry the same sections but only while the
@@ -72,7 +72,7 @@ split("\n")
                             then [ .[] | select(type == "object")
                                    | { status: (.status // "unknown"),
                                        severity: (.severity // "unknown") }
-                                     + (if .late == true then {late: true} else {} end) ]
+                                     + (if .late == true then {late: true, file, line, summary} else {} end) ]
                             else null end)
     else . end)
 | (.secs + (if .cur then [.cur] else [] end))
@@ -127,6 +127,13 @@ RR_AGG_JQ='
         json_reviews: ($r | length),
         new: ([$e[] | select(.status == "new")] | length),
         late: ([$e[] | select(.status == "new" and .late == true)] | length),
+        # each missed finding, newest first, for the audit to trace back to the
+        # round that missed it (docs/audit.md task 28)
+        late_items: ([ $all[] | . as $v | (.findings // [])[]
+                       | select(.status == "new" and .late == true)
+                       | {pr: $v.pr, sha: $v.sha, ts: $v.ts, severity, file: (.file // null),
+                          line: (.line // null), summary: (.summary // null)} ]
+                     | sort_by(.ts) | reverse | .[:20]),
         # findings per changed line (docs/audit.md task 28): first reviews that
         # carry both their findings and the PR size, a PR counted up to 1000
         # lines so one generated file cannot set the week
@@ -168,7 +175,7 @@ RR_AGG_JQ='
 
 # the zero row of RR_AGG_JQ — a week that measured nothing, and the fallback a
 # reader prints when the aggregation itself could not run
-RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
+RR_AGG_ZERO='{"reviews":{"total":0,"first":0,"re_review":0,"prs":0,"approve":0,"comment":0,"request_changes":0,"first_approve":0,"first_request_changes":0,"defs":[]},"findings":{"fixed":0,"still_present":0,"json_reviews":0,"new":0,"late":0,"late_items":[],"density":{"reviews":0,"findings":0,"lines":0},"new_by_severity":{},"by_severity":{}},"suppressed":{"reviews":0,"overrides":0,"context":0,"decisions":0,"total":0},"ste":{"reviews":0,"sentences":0,"sentences_over_20":0,"avg_sentence_words":null,"over_20_share":null}}'
 
 # A posted review in a history file is a `## Review at` section or a
 # findings-json line. The file alone is none: the urgent alert, an artifact or a

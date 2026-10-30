@@ -924,7 +924,16 @@ assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post re
 jq '.[1] |= (.severity = "warning" | del(.late) | .file = "src/gamma.ts" | .line = 9 | .also = [{file: "src/beta.ts", line: 1}])' "$A" > "$SANDBOX/kept-also.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-also.json"
 assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post matches the late set on an also anchor of the posted finding'
-run_rp abort 1 "reset"
+{ printf '### Summary\nx\n%s\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n- 🔴 **Critical:** secret in log (`src/beta.ts:3`)\n- 🔎 **Missed earlier:** capability outside the policy (`src/beta.ts:1`)\n\n### Verdict\nREQUEST_CHANGES\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)"; } > "$SANDBOX/body.md"
+printf '{"id":94,"html_url":"https://example.test/r/94","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$A"
+assert_jq '.outcome == "posted"' 'post takes the annotated file of a delta round'
+jq -e 'select(.pr == 1) | .findings | map(select(.late == true) | {severity, file, summary})
+        == [{severity:"suggestion", file:"src/beta.ts", summary:"capability outside the policy"}, {severity:"critical", file:"src/beta.ts", summary:"secret in log"}]
+        and (map(select(.late == true)) | first.line == 1) and (map(select(.late != true) | keys) | all(. == ["severity","status"]))' \
+  "$WORK/REVIEW-LEDGER.jsonl" >/dev/null \
+  && printf 'ok   %s: the ledger keeps the anchor and summary of a late finding\n' "$CASE" \
+  || { printf 'FAIL %s: ledger row wrong: %s\n' "$CASE" "$(tail -1 "$WORK/REVIEW-LEDGER.jsonl" 2>/dev/null)"; FAILED=1; }
 
 # a finding merged into ### Findings is printed once: a skill-section copy is refused
 setup post_merged_twice
