@@ -495,7 +495,11 @@ run_rp abort 1 "reset"
 setup prepare_gates
 pr_fx open '[]' "$B1_SHA" true
 run_rp prepare 1
-assert_jq '.outcome == "skip" and .reason == "draft"' 'draft skipped'
+assert_jq '.outcome == "skip" and .reason == "draft without a review label"' 'draft without a review label skipped'
+pr_fx open '["cg-rereview"]' "$B1_SHA" true
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "first"' 'draft with the review label is reviewed'
+run_rp abort 1 "reset"
 pr_fx closed
 run_rp prepare 1
 assert_jq '.outcome == "skip" and (.reason | contains("CLOSED"))' 'closed PR skipped for pruning'

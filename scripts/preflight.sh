@@ -752,6 +752,14 @@ OPEN_NONDRAFT="$(printf '%s' "$OPEN_JSON" | jq '[.[] | select(.draft==false) | {
     base_ref: .base.ref, created_at,
     labels: [.labels[]?.name],
     requested: [.requested_reviewers[]?.login], url: .html_url }]')"
+# the review set: every non-draft PR, and a draft only while it carries a
+# review label — `rereview_label` or `rereview_delta_label` (docs/worklist.md)
+OPEN_REVIEW="$(printf '%s' "$OPEN_JSON" | jq --arg l "$REREVIEW_LABEL" --arg d "$REREVIEW_DELTA_LABEL" '[.[]
+  | select(.draft == false or ([.labels[]?.name] | index($l) != null or ($d != "" and index($d) != null))) | {
+    number, title, author: .user.login, head_sha: .head.sha, head_ref: .head.ref,
+    base_ref: .base.ref, created_at, draft: (.draft // false),
+    labels: [.labels[]?.name],
+    requested: [.requested_reviewers[]?.login], url: .html_url }]')"
 OPEN_COUNT="$(printf '%s' "$OPEN_NONDRAFT" | jq length)"
 open_numbers() { printf '%s' "$OPEN_JSON" | jq -r '.[].number'; }   # incl. drafts (never pruned)
 
@@ -1060,11 +1068,11 @@ if [ "$MODE" = "review" ]; then
     > "$PRUNE_STATES"
   for n in $(prune_candidates); do
     if open_numbers | grep -qx "$n"; then
-      # Open, but absent from the non-draft set = turned draft. A draft is never
-      # reviewed, so a lock on it is abandoned work: the agent closes out its
-      # progress status and deletes the row (self-dedup — no row, no reset).
+      # Open, but absent from the review set = a draft with no review label.
+      # Such a draft is not reviewed, so a lock on it is abandoned work: the agent
+      # closes out its progress status and deletes the row (self-dedup — no row, no reset).
       if [ "$PROGRESS" = "enabled" ] \
-         && ! printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson n "$n" 'any(.number == $n)' >/dev/null 2>&1; then
+         && ! printf '%s' "$OPEN_REVIEW" | jq -e --argjson n "$n" 'any(.number == $n)' >/dev/null 2>&1; then
         row="$(row_for "$n")"
         if [ "$(row_field "$row" 6)" = "in_progress" ] \
            && [ $(( (NOW_EPOCH - $(iso2epoch "$(row_field "$row" 4)")) / 60 )) -ge "$LOCK_TTL_MIN" ]; then
@@ -1267,7 +1275,7 @@ if [ "$MODE" = "review" ]; then
         fi
       fi
     fi
-  done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
+  done < <(printf '%s' "$OPEN_REVIEW" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
              ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
 

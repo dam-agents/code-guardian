@@ -55,8 +55,9 @@ for the monitor — for a run whose prompt carries no worklist path. Cadence,
 gate and task text per run: ONBOARDING Step 6.
 
 **The script detects, it never acts** — no GitHub writes, no commits, no
-pushes. It lists open non-draft PRs in one REST call and computes every
-decision:
+pushes. It lists open PRs in one REST call and computes every decision. A
+draft PR is reviewed only while it carries `rereview_label` or
+`rereview_delta_label`; any other draft gets no review decision.
 
 - same-SHA dedup, in-progress locks (50-min TTL; takeover only when the holder
   is also silent — [review-mechanics.md](review-mechanics.md) → **Live

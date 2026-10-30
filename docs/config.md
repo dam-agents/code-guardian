@@ -77,8 +77,9 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   re-review of the whole PR (default `code-guardian:rereview`). The other triggers
   — the delta label, a review request, a `guide_label` that no review round
   saw yet — get a delta re-review ([review-rereview.md](review-rereview.md) → **Re-review
-  output**). First reviews never need it; the agent removes it once the request
-  is served. New commits without a trigger flip the tracking row to
+  output**). First reviews never need it, except on a draft: a draft PR is
+  reviewed only while it carries this label or `rereview_delta_label`. The agent
+  removes it once the request is served. New commits without a trigger flip the tracking row to
   `awaiting_label`.
 - **`rereview_trigger`** — what requests a re-review: `label` |
   `review-request` (a pending GitHub review request for `bot_login`) | `both`.

@@ -112,7 +112,8 @@ check of the commit ([ci-triage.md](ci-triage.md)).
   abort.
 
 **`status_resets_due`** `{number, sha, reason}` — a locked review was abandoned
-with the status left `pending` (`reason: draft`). Write the terminal row above,
+with the status left `pending` (`reason: draft` — the PR is now a draft
+without a review label). Write the terminal row above,
 then **delete the PR's REVIEWS.md row** (`review-pr.sh row <n> --delete`); the
 `reviews/pr-<n>.md` history stays.
 

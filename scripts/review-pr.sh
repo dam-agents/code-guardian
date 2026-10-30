@@ -694,6 +694,12 @@ trigger_live() { # <labels-json> <requested-json> <head-sha> → 0 when a re-rev
   [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ] || [ "$o" -eq 0 ]
 }
 
+# A draft is reviewed only while it carries a review label (docs/worklist.md).
+draft_review_label() { # <labels-json> → 0 when `rereview_label` or `rereview_delta_label` is present
+  printf '%s' "$1" | jq -e --arg l "$REREVIEW_LABEL" --arg d "$REREVIEW_DELTA_LABEL" \
+    'index($l) != null or ($d != "" and index($d) != null)' >/dev/null 2>&1
+}
+
 # The review of this head owes its guide: the newest section is at the head and
 # carries `<!-- guide-owed -->` (docs/artifact.md → Review guide).
 guide_owed_at() { # <head-sha>
@@ -1136,7 +1142,7 @@ cmd_prepare() {
   [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | jq -e --arg x "$URGENT_LABEL" 'index($x) != null' >/dev/null 2>&1 && urgent=true
 
   # --- gates (Check 1) ---
-  [ "$draft" = "true" ] && out "$(jq -nc '{outcome:"skip", reason:"draft"}')"
+  [ "$draft" = "true" ] && ! draft_review_label "$labels" && out "$(jq -nc '{outcome:"skip", reason:"draft without a review label"}')"
   # an on-demand ask for a PR already reviewed at its live HEAD: same-SHA dedup
   # (preflight-driven entries decided this already — an edited description
   # legitimately reviews the same SHA again)
@@ -2408,7 +2414,7 @@ cmd_post() {
     out "$(jq -nc --arg o "$sha7" --arg n "${live_sha:0:7}" --arg x "$nxt" --argjson c "$carried" --argjson r "$restart" \
       '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c, restart:$r, next:$x}')"
   fi
-  if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
+  if [ "$draft" = "true" ] && ! draft_review_label "$labels"; then release_lock "PR is a draft without a review label — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"draft without a review label"}')"; fi
   if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested" "$sha"; then
     release_lock "re-review trigger withdrawn mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"trigger withdrawn"}')"
   fi
