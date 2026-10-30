@@ -1122,13 +1122,15 @@ if [ "$MODE" = "review" ]; then
   [ "$PRUNES_DUE" != "[]" ] && record_nudge_facts
 
   # --- per-open-PR decision ---
-  while IFS=$'\t' read -r n sha ref title author labels requested url; do
+  while IFS=$'\t' read -r n sha ref title author labels requested url draft; do
     has_label=0; [ "$TRIG_LABEL" -eq 1 ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_LABEL" && has_label=1
     has_request=0; [ "$TRIG_REQUEST" -eq 1 ] && printf '%s' "$requested" | tr ',' '\n' | grep -qxF "$BOT_LOGIN" && has_request=1
     # the delta label asks what a review request asks: the changes since the last review
     has_delta=0; [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$REREVIEW_DELTA_LABEL" && has_delta=1
     triggered=0; { [ "$has_label" -eq 1 ] || [ "$has_request" -eq 1 ] || [ "$has_delta" -eq 1 ]; } && triggered=1
     URG=false; [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$URGENT_LABEL" && URG=true
+    # a draft gets its review only: no urgent handling, guide round or CI triage
+    [ "$draft" = true ] && URG=false
 
     # one-time urgent Slack alert (agent sends; marker in the history file is
     # the dedup — written by the agent right after the send, docs/review.md)
@@ -1148,12 +1150,12 @@ if [ "$MODE" = "review" ]; then
       # A guide label that no review round saw yet asks for the guide now
       # (docs/artifact.md → Review guide).
       has_guide=0
-      [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
+      [ "$draft" != true ] && [ "$row_status" != "in_progress" ] && [ -n "$GUIDE_LABEL" ] \
         && printf '%s' "$labels" | tr ',' '\n' | grep -qxF "$GUIDE_LABEL" \
         && ! guide_label_seen "$WORK/reviews/pr-$n.md" && has_guide=1
       # a `needs-human` review of this head that published no guide owes one
       has_owed=0
-      [ "$row_status" = "done" ] && [ "$row_sha" = "$sha" ] \
+      [ "$draft" != true ] && [ "$row_status" = "done" ] && [ "$row_sha" = "$sha" ] \
         && guide_owed "$WORK/reviews/pr-$n.md" && has_owed=1
 
       if [ "$row_status" = "in_progress" ]; then
@@ -1216,7 +1218,7 @@ if [ "$MODE" = "review" ]; then
         # SHA is news the agent can explain. The rollup is read only inside the
         # window and only until the marker exists, which bounds it to the few
         # PRs reviewed in the last day (docs/ci-triage.md).
-        if [ "$CI_TRIAGE" = "enabled" ] && [ "$row_status" = "done" ] \
+        if [ "$CI_TRIAGE" = "enabled" ] && [ "$draft" != true ] && [ "$row_status" = "done" ] \
            && ! grep -qF "<!-- ci-triage: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null \
            && [ $(( (NOW_EPOCH - $(iso2epoch "$row_ts")) / 3600 )) -lt "$CI_TRIAGE_WINDOW_H" ]; then
           ci_runs_json="$(ci_runs "$REPO" "$sha")"
@@ -1277,7 +1279,11 @@ if [ "$MODE" = "review" ]; then
     fi
   done < <(printf '%s' "$OPEN_REVIEW" | jq -r '.[] | [.number, .head_sha, .head_ref, (.title|gsub("\t";" ")), .author,
              ((.labels|join(","))|if .=="" then "-" else . end),
-             ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
+             ((.requested|join(","))|if .=="" then "-" else . end), .url, .draft] | @tsv')
+  # a draft's entry says so: the review runs with no side output (docs/worklist.md)
+  printf '%s' "$OPEN_REVIEW" | jq -c '[.[] | select(.draft) | .number]' > "$PF_TMP/drafts.json"
+  REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --slurpfile d "$PF_TMP/drafts.json" \
+    'map(.draft = (.number as $n | $d[0] | index($n) != null))')"
 
   # urgent entries first (stable sort — non-urgent keep their order)
   REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq 'sort_by(if .urgent then 0 else 1 end)')"

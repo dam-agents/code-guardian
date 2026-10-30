@@ -52,7 +52,8 @@ surface the result. The one skip that is your judgement call is
 (your call on a re-review range that leaves the PR's own diff unchanged,
 recorded with `collect --skip`,
 [review-rereview.md](review-rereview.md) → **Re-review output**) and the
-technical failures (`install-failed`, `clone-failed`, `skill-errored`). Whatever the PR
+technical failures (`install-failed`, `clone-failed`, `skill-errored`); a guide
+skill on a draft PR is skipped `draft`. Whatever the PR
 — CI-only, docs-only, trivial — and whatever the previous review held, a
 skill with status `run` runs, except one you record with `collect --skip` on a
 base-merge-only round; a clean-run section is the correct output.

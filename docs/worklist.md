@@ -57,7 +57,10 @@ gate and task text per run: ONBOARDING Step 6.
 **The script detects, it never acts** — no GitHub writes, no commits, no
 pushes. It lists open PRs in one REST call and computes every decision. A
 draft PR is reviewed only while it carries `rereview_label` or
-`rereview_delta_label`; any other draft gets no review decision.
+`rereview_delta_label`; any other draft gets no review decision. A draft gets
+the review and nothing more: its `reviews_due` entry carries `draft: true`, and
+it gets no urgent handling, no guide round, no guide page, no progress status,
+no watch rule, no CI triage and no Slack message.
 
 - same-SHA dedup, in-progress locks (50-min TTL; takeover only when the holder
   is also silent — [review-mechanics.md](review-mechanics.md) → **Live
@@ -94,7 +97,7 @@ changes", then end the run the same way.
 
 | Key | What it is | Where |
 | --- | --- | --- |
-| `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` / `guide_requested` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md); plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
+| `reviews_due` | PRs to review — `kind` (`first`/`re-review`), `prior`, and the `takeover` / `urgent` / `closed` / `full` / `description_changed` / `guide_requested` / `draft` flags; urgent first. Each entry also carries its inventory: `files[]` (classified; `noise_count`, `files_truncated`), `profile_slice` (rows with `verify_live`), `structure_changed`, `history_slice`, `memory_due`, `skill_routing` | [review.md](review.md), [finding-form.md](finding-form.md), [skills.md](skills.md); plus [review-rereview.md](review-rereview.md) for a `re-review`, [review-urgent.md](review-urgent.md) for `urgent` / `closed`, [watches.md](watches.md) with `config.watch_rules` |
 | `label_cleanups_due` | `{number, label, request, delta_label}` — a trigger with nothing new to review (no new commits **and** no description edit) → clear what it flags | review-bookkeeping.md → **Label bookkeeping** |
 | `selfheals_due` | a remote marker with no local row → write the REVIEWS.md row | review-bookkeeping.md → **Label bookkeeping** |
 | `prunes_due` | PRs verified CLOSED/MERGED → delete their state, review guide included | review-bookkeeping.md → **Pruning** |

@@ -14,7 +14,8 @@ they are released history and stay as written.
 ## 14.1.0 — 2026-10-30
 
 **Upgrade:** Nothing to run. A draft PR that carries `rereview_label` or
-`rereview_delta_label` now gets a review; tell the operator.
+`rereview_delta_label` now gets a review — the review only: no guide, progress
+status, watch rule, CI triage or Slack message. Tell the operator.
 
 ## 14.0.0 — 2026-10-30
 

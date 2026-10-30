@@ -146,7 +146,9 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    `closed_*` (read [review-urgent.md](review-urgent.md) → **PR closed
    mid-review**). Then evaluate the configured watch rules
    ([watches.md](watches.md)), and under `ci_triage: enabled` triage a failing
-   check on the posted SHA ([ci-triage.md](ci-triage.md)).
+   check on the posted SHA ([ci-triage.md](ci-triage.md)). A `draft: true`
+   entry ends at the post: no watch rule, no CI triage, no guide, no Slack
+   ([worklist.md](worklist.md) → **The pre-flight contract**).
 g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 

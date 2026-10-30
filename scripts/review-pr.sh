@@ -633,6 +633,7 @@ progress_write() { # <sha> <state> <description> [target_url]
 }
 progress() { # <state> <description> [target_url] — best-effort (docs/review.md)
   [ "$PROGRESS" = "enabled" ] || return 0
+  [ "$(ctx_get '.draft // false')" = true ] && return 0   # a draft gets its review only
   local sha; sha="$(ctx_get '.head_sha')"; [ -n "$sha" ] && [ "$sha" != "null" ] || return 0
   local desc; desc="$(printf '%s' "$2" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"   # ASCII only, <140 chars
   progress_write "$sha" "$1" "$desc" "${3:-}" \
@@ -1184,13 +1185,13 @@ cmd_prepare() {
     --arg k "$kind" --argjson full "$full" --argjson urgent "$urgent" --arg mode "$mode" --argjson prior "$prior" \
     --arg now "$now" --argjson labels "$labels" --argjson lv "$(printf '%s' "$PJ" | jq -c '{additions, deletions, changed_files}')" \
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
-    --argjson od "$ONDEMAND" --arg run "$me" \
+    --argjson od "$ONDEMAND" --arg run "$me" --arg draft "$draft" \
     --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
     --argjson go "$(guide_owed_at "$sha" && echo true || echo false)" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
-      guide_seen:$gs, guide_owed:$go}' > "$CTX/pr.json"
+      guide_seen:$gs, guide_owed:$go, draft:($draft == "true")}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -1445,6 +1446,8 @@ cmd_prepare() {
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
+    # a draft gets its review only: no guide page (docs/worklist.md)
+    [ "$status" = run ] && [ "$kind" = guide ] && [ "$(ctx_get '.draft // false')" = true ] && status=draft
     brief=""; copy=""
     if [ "$status" = run ]; then
       nrun=$((nrun+1)); copy="$PR_DIR"
@@ -2585,7 +2588,7 @@ cmd_post() {
   # a `needs-human` round with a guide skill that published or linked no guide
   # owes it: preflight gives the PR one guide round at this head. That round
   # owes nothing further (docs/artifact.md → Review guide).
-  [ "$(ctx_get '.guide_owed // false')" = true ] \
+  [ "$(ctx_get '.guide_owed // false')" = true ] || [ "$(ctx_get '.draft // false')" = true ] \
     || [ "$(printf '%s' "$mj" | jq -r '.triage.class // ""' 2>/dev/null)" != needs-human ] \
     || ! jq -e 'any(.[]; (.kind // "review") == "guide")' "$CTX/skills.json" >/dev/null 2>&1 \
     || [ -f "$CTX/guide.recorded" ] \
@@ -3079,6 +3082,7 @@ cmd_hold() {
 # docs/review-bookkeeping.md → Progress signal on GitHub.
 cmd_progress() { # <sha> <state> <description> [target_url]
   [ "$PROGRESS" = "enabled" ] || out '{"outcome":"disabled"}'
+  [ "$(ctx_get '.draft // false')" = true ] && out '{"outcome":"disabled","reason":"draft"}'
   case "${1:-}" in (''|*[!0-9a-f]*) fail "progress: the sha is not hex";; esac
   case "${2:-}" in (pending|success) ;; (*) fail "progress: the state is not pending or success";; esac
   local desc; desc="$(printf '%s' "${3:-}" | tr -cd '\11\12\15\40-\176' | cut -c1-138)"
