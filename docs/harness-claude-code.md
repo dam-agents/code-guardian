@@ -78,7 +78,9 @@ The pi adapter runs the hook scripts below from pi events
   `closeIssue`, `reopenIssue`, `deleteIssue`, `transferIssue`) that names
   that repo, by slug or by owner and name, or no repository at all. Reads,
   the target repo's issues and every other tool pass; an unresolved
-  definition repo guards nothing.
+  definition repo guards nothing. When `github_repo` is the definition repo,
+  comment writes pass (`gh issue comment`, the `issues/<n>/comments` and
+  `issues/comments` endpoints, `addComment`).
 - `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
   run at onboarding Step 1b and by every definition migration,
   [persistence.md](persistence.md) → **Definition version & upgrade**;
