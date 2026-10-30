@@ -106,6 +106,11 @@ blocked 'gh issue create -R acme/guardian -t x -b y' 'gh issue create still need
 blocked 'gh api -X POST repos/acme/guardian/issues -f title=x' 'gh api issue create still needs the script'
 blocked 'gh api -X PATCH repos/acme/guardian/issues/12 -f state=closed' 'closing an issue still needs the script'
 blocked 'gh api repos/acme/guardian/issues/12/comments -f body=x; gh api -X POST repos/acme/guardian/issues -f title=x' 'a create after a comment'
+blocked 'curl -s -X POST "https://api.github.com/repos/acme/guardian/issues/12/comments/../../../issues" -d @b.json' 'a comment-like path with dot segments'
+blocked 'gh api -X POST repos/acme/guardian/issues/12/comments/../../../issues -f title=x' 'gh api over dot segments'
+blocked 'gh api -X POST "repos/acme/guardian/issues/%2e%2e/comments" -f title=x' 'an encoded dot segment'
+blocked 'gh api -X PATCH repos/acme/guardian/issues/12/comments/x -f state=closed' 'a suffix after the comment segment'
+blocked 'gh api -X POST "repos/acme/guardian/issues/$N/comments" -f body=x' 'a variable in place of the number'
 blocked 'gh api graphql -f query='"'"'mutation { createIssue(input:{repositoryId:"x"}) { issue { id } } }'"'" 'the createIssue mutation'
 case "$ERR" in
   (*'comments on its PRs and issues pass'*) printf 'ok   %s: stderr says comments pass\n' "$CASE";;

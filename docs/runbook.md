@@ -268,7 +268,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   literal string in an output is a resolution bug. Name and link the resolved
   target repo freely where the recipient already has it (target-repo reviews,
   comments and issues, chat UI, Slack), never on `$DEFINITION_REPO`, whose
-  issues are anonymous (**Definition-repo issues**).
+  issues are anonymous (**Definition-repo issues**) — unless the target repo
+  is `$DEFINITION_REPO`.
 - A PR merges only through `review-pr.sh merge` on a `merges_due` entry — a
   person's `auto_merge_label` plus every gate of [auto-merge.md](auto-merge.md).
   The agent never adds `auto_merge_label`.

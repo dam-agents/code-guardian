@@ -54,10 +54,14 @@ B='[^A-Za-z0-9_.-]'
 Q="[\"'\\\\]*"
 
 m() { printf '%s' "$1" | grep -qiE -- "$2"; } # <text> <ERE>
-# <text> — on a self-review instance, the text without its comment endpoints
-nocomments() {
-  if [ "$SELF" = 1 ]; then printf '%s' "$1" | sed -E 's#/issues(/[^/[:space:]"'"'"'?]+)?/comments#/comments#g'
-  else printf '%s' "$1"; fi
+# <text> — names a definition issues endpoint; on a self-review instance an
+# endpoint that is exactly /issues/<n>/comments or /issues/comments/<id> is a
+# comment, and any other path (dot segments, suffixes, variables) is an issue
+issues_path() {
+  m "$1" "$ISSUES_RE" || return 1
+  [ "$SELF" = 1 ] || return 0
+  printf '%s' "$1" | grep -oiE -- "$ISSUES_RE[^[:space:]\"'\\\\]*" \
+    | grep -qviE -- '/issues/([0-9]+/comments|comments/[0-9]+)$'
 }
 
 GH_API='(^|[[:space:]])gh[[:space:]]+api([[:space:]]|$)'
@@ -65,7 +69,7 @@ API_METHOD_WRITE="(^|[[:space:]])(-X|--method)[[:space:]=]*$Q(POST|PATCH|PUT|DEL
 API_METHOD_GET="(^|[[:space:]])(-X|--method)[[:space:]=]*${Q}GET([\"'[:space:]]|\$)"
 API_FIELDS='(^|[[:space:]])(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)|(^|[[:space:]])(-f|-F)[^[:space:]]*='
 api_write() { # <text> — a gh api write to the definition issues; an explicit GET is a read
-  m "$1" "$GH_API" && m "$(nocomments "$1")" "$ISSUES_RE" || return 1
+  m "$1" "$GH_API" && issues_path "$1" || return 1
   m "$1" "$API_METHOD_WRITE" || { m "$1" "$API_FIELDS" && ! m "$1" "$API_METHOD_GET"; }
 }
 
@@ -76,7 +80,7 @@ REPO_DEF="(^|[[:space:]])(-R|--repo)[[:space:]=]*[\"']?([A-Za-z0-9.-]+/)?$DEF_RE
 
 CURL='(^|[[:space:]])curl([[:space:]]|$)'
 CURL_WRITE='(^|[[:space:]])(-X|--request)[[:space:]=]*["'"'"']?(POST|PATCH|PUT|DELETE)|(^|[[:space:]])(-d|-F|-T)|(^|[[:space:]])(--data[a-z-]*|--json|--form|--upload-file)([[:space:]=]|$)'
-curl_write() { m "$1" "$CURL" && m "$(nocomments "$1")" "$ISSUES_RE" && m "$1" "$CURL_WRITE"; }
+curl_write() { m "$1" "$CURL" && issues_path "$1" && m "$1" "$CURL_WRITE"; }
 
 GQL_MUTATION='(^|[^A-Za-z])(createIssue|updateIssue|addComment|closeIssue|reopenIssue|deleteIssue|transferIssue)([^A-Za-z]|$)'
 [ "$SELF" = 1 ] && GQL_MUTATION='(^|[^A-Za-z])(createIssue|updateIssue|closeIssue|reopenIssue|deleteIssue|transferIssue)([^A-Za-z]|$)'
