@@ -114,7 +114,7 @@ triage_hist() { # <sha7> <class>
 }
 
 new_case shepherd_brief_all_scope
-shep_setup
+shep_setup '- shepherd_scope: all'
 pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
 triage_hist "${SHA1:0:7}" quick-check
 run_preflight shepherd
@@ -128,6 +128,40 @@ triage_hist "${SHA1:0:7}" quick-check
 run_preflight shepherd
 assert_jq '.nudges_due | length == 0' 'needs_human skips a quick check of this head'
 assert_jq '[.logs[] | select(test("quick check per my review"))] | length == 1' 'the skip is logged'
+
+new_case shepherd_scope_default_needs_human
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" quick-check
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'a missing scope key reads as needs_human'
+
+# docs/shepherd.md → **Scope and brief**: the nudge links the review guide
+new_case shepherd_guide_link
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" needs-human
+sed -i.bak '1a\
+<!-- artifact-guide: g-1 aaaaaaa https://dam.example/a/g-1 -->' "$WORK/reviews/pr-1.md"
+run_preflight shepherd
+assert_jq '.nudges_due[0].guide == {sha:"aaaaaaa", url:"https://dam.example/a/g-1"}' 'the nudge carries the recorded guide'
+
+new_case shepherd_guide_owed_waits
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" needs-human
+printf '<!-- guide-owed -->\n' >> "$WORK/reviews/pr-1.md"
+run_preflight shepherd
+assert_jq '.nudges_due | length == 0' 'a nudge waits for the guide round its review owes'
+assert_jq '[.logs[] | select(test("waits for the guide"))] | length == 1' 'the wait is logged'
+
+new_case shepherd_guide_missing_warns
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+triage_hist "${SHA1:0:7}" needs-human
+run_preflight shepherd
+assert_jq '(.nudges_due | length) == 1 and .nudges_due[0].guide == null' 'a guide that never came leaves the nudge without its link'
+assert_jq '[.logs[] | select(test("goes without its link"))] | length == 1' 'the missing guide is logged'
 
 new_case shepherd_scope_skip_keeps_level
 shep_setup '- shepherd_scope: needs_human'

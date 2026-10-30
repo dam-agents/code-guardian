@@ -523,10 +523,10 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
 
     Then ask about the nudge scope (`docs/shepherd.md` → **Scope and brief**):
 
-    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Quick checks then get no reminder.
+    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Only those, by default: each such nudge links the review guide, and quick checks get no reminder.
 
-    **Only those** → `shepherd_scope: needs_human`; **every PR or no reply** →
-    omit the key. Then, unless the auto-merge question already wrote a list,
+    **Every PR** → `shepherd_scope: all`; **only those or no reply** → omit
+    the key. Then, unless the auto-merge question already wrote a list,
     ask:
 
     > Which paths always need a person (for example `migrations/*, src/auth/*`)? Default: none.
@@ -616,7 +616,7 @@ Final shape:
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
-- shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; omit = all
+- shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; or: all; omit = needs_human
 - human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
 - survey: enabled                      # weekly security pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off

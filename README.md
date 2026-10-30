@@ -77,8 +77,8 @@ nudge. The agent sends each due nudge to the shared Slack channel and records
 it immediately after the send — send-then-record, roster-only mentions
 ([`docs/shepherd.md`](docs/shepherd.md)). A reviewer nudge carries the
 review's triage — estimated minutes, what a person must judge, what was
-checked — and `shepherd_scope: needs_human` skips PRs the review called a
-quick check.
+checked — and the review guide's link; by default
+(`shepherd_scope: needs_human`) it skips PRs the review called a quick check.
 
 **Health monitor** — every 15 minutes; a tick with no alert starts no
 session. `monitor.sh` reads the local logs for model and GitHub outages,
@@ -255,7 +255,7 @@ what it can and asking for the rest. Per-key semantics are in
 | `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 simple and ≥3 complex synthetic fixtures with known defects, time and tokens measured per review, and a verdict per task tier (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | The judge of the LLM-judged quality scores, the same for every run, run through the `claude` CLI (or `pi` on the same model as the fallback) whatever model the reviews use: `auto` = the agent picks it once from the host's models, a model id = the operator's pick, `off` = deterministic scoring only. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
-| `shepherd_scope` | asked with Slack (default `all`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check (`docs/shepherd.md` → **Scope and brief**). |
+| `shepherd_scope` | asked with Slack (default `needs_human`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check; `all` nudges every waiting PR (`docs/shepherd.md` → **Scope and brief**). |
 | `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of files that always make a PR's triage `needs-human` (`docs/review-mechanics.md` → **Summary body format**). |
 | `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
 | `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |

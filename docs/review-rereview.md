@@ -29,7 +29,8 @@ suppresses its finding, an added one now does. `Previous HEAD` is the same SHA
 carry the rest. No change in substance → say so in one line.
 
 **Guide round** (`guide_requested: true`): the `guide_label` is on the PR and
-no review round saw it yet ([artifact.md](artifact.md) → **Review guide**). The scope
+no review round saw it yet, or the review of this head owes its guide
+([artifact.md](artifact.md) → **Review guide**). The scope
 is delta. With no new commits the SHA is the reviewed one: `Previous HEAD` is
 the same SHA — write `guide requested, no new commits` on that line, carry the
 prior findings as `still`, and publish the guide. With new commits it is a

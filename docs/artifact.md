@@ -40,6 +40,16 @@ PR a delta re-review with `guide_requested: true` — at the reviewed head when
 there are no new commits ([review-rereview.md](review-rereview.md) → **Guide
 round**). This includes a label put on while a review runs.
 
+**A `needs-human` round owes the guide.** When a round's triage is
+`needs-human`, a guide skill is configured, and the round neither recorded nor
+linked a guide (the skill's own gate said not needed, its budget ran out, DAM
+was unavailable, a step failed), `post` writes `<!-- guide-owed -->` into its
+history section. With no new commits, preflight gives the PR one guide round
+at the reviewed head (`guide_requested: true`). `prepare` passes the skill's
+gate as forced, and that round owes nothing further. The shepherd holds the
+reviewer nudge until that round ran ([shepherd.md](shepherd.md) → **Scope and
+brief**).
+
 **Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
 this PR's paths, id and line:
 
@@ -96,3 +106,5 @@ section only links the recorded URL and names the SHA it describes.
 - Published or linked only under a `needs-human` triage or the
   `guide_label`, recorded with `review-pr.sh guide` before the post, and its
   section dropped on every other outcome.
+- A `needs-human` round without a guide left `<!-- guide-owed -->` for one
+  guide round, unless it was that guide round itself.

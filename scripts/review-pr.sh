@@ -679,14 +679,17 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
 
 # A guide label that no review round saw yet asks for a round too
 # (docs/artifact.md → Review guide).
-trigger_live() { # <labels-json> <requested-json> → 0 when a re-review trigger is present
-  local l=1 r=1 d=1 g=1
+trigger_live() { # <labels-json> <requested-json> <head-sha> → 0 when a re-review trigger is present
+  local l=1 r=1 d=1 g=1 o=1
   case "$TRIG" in (label|both) printf '%s' "$1" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && l=0;; esac
   case "$TRIG" in (review-request|both) [ -n "$BOT_LOGIN" ] && printf '%s' "$2" | jq -e --arg x "$BOT_LOGIN" 'index($x) != null' >/dev/null 2>&1 && r=0;; esac
   [ -n "$REREVIEW_DELTA_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$REREVIEW_DELTA_LABEL" 'index($x) != null' >/dev/null 2>&1 && d=0
   [ -n "$GUIDE_LABEL" ] && printf '%s' "$1" | jq -e --arg x "$GUIDE_LABEL" 'index($x) != null' >/dev/null 2>&1 \
     && ! guide_label_seen "$WORK/reviews/pr-$N.md" && g=0
-  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ]
+  # the review of this head owes its guide (docs/artifact.md → Review guide)
+  guide_owed "$WORK/reviews/pr-$N.md" \
+    && [ "$(sed -n 's/^## Review at \([0-9a-f]*\) .*/\1/p' "$WORK/reviews/pr-$N.md" | tail -1)" = "$(printf '%s' "${3:-}" | cut -c1-7)" ] && o=0
+  [ "$l" -eq 0 ] || [ "$r" -eq 0 ] || [ "$d" -eq 0 ] || [ "$g" -eq 0 ] || [ "$o" -eq 0 ]
 }
 
 # marker-based dedup at one SHA → GitHub timestamp, "" when absent, __api_error__
@@ -1134,7 +1137,7 @@ cmd_prepare() {
     if [ "$row_status" = "in_progress" ] && [ "$row_verdict" = "RAPID" ]; then mode=closed
     else out "$(jq -nc --arg s "$([ "$merged" = "true" ] && echo MERGED || echo CLOSED)" '{outcome:"skip", reason:("pr " + $s + " — the next heartbeat prunes")}')"; fi
   fi
-  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested"; then
+  if [ "$kind" = "re-review" ] && [ "$mode" = "review" ] && [ "$ONDEMAND" = false ] && ! trigger_live "$labels" "$requested" "$sha"; then
     out "$(jq -nc '{outcome:"skip", reason:"re-review trigger withdrawn"}')"
   fi
   if [ "$kind" = "re-review" ]; then
@@ -1167,10 +1170,11 @@ cmd_prepare() {
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
     --argjson od "$ONDEMAND" --arg run "$me" \
     --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
+    --argjson go "$(guide_owed "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
-      guide_seen:$gs}' > "$CTX/pr.json"
+      guide_seen:$gs, guide_owed:$go}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -1374,6 +1378,8 @@ cmd_prepare() {
   [ -n "$fh" ] && gforced=$'\n- forced: `'"$fh"$'` matches `human_review_paths` — a person must judge this PR, so the gate is passed.'
   gl="$(guide_label_on)"
   [ -n "$gl" ] && gforced="$gforced"$'\n- forced: the `'"$gl"$'` label is on the PR — a person asked for the guide, so the gate is passed.'
+  [ "$(ctx_get '.guide_owed // false')" = true ] \
+    && gforced="$gforced"$'\n- forced: the last review of this head called triage `needs-human` and published no guide — a person must judge this PR, so the gate is passed.'
   gm="$(guide_marker)"
   local gdiag=""
   printf '%s' "$skills" | jq -r '.[].skill' | while IFS= read -r s; do [ "$(skill_kind "$s")" = guide ] && echo y; done | grep -q y \
@@ -2317,7 +2323,7 @@ cmd_post() {
       '{outcome:"aborted", reason:("HEAD moved " + $o + " → " + $n), carried:$c, restart:$r, next:$x}')"
   fi
   if [ "$draft" = "true" ]; then release_lock "PR became draft mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"became draft"}')"; fi
-  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested"; then
+  if [ "$kind" = "re-review" ] && [ "$(ctx_get '.on_demand // false')" != "true" ] && ! trigger_live "$labels" "$requested" "$sha"; then
     release_lock "re-review trigger withdrawn mid-review — discarding"; cleanup; out "$(jq -nc '{outcome:"aborted", reason:"trigger withdrawn"}')"
   fi
 
@@ -2538,6 +2544,15 @@ cmd_post() {
     && { [ -f "$CTX/guide.answered" ] || [ "$(ctx_get '.prior.sha // empty')" = "$sha" ] \
          || [ "$(ctx_get '.guide_seen // false')" = true ]; } \
     && printf '<!-- guide-label-seen -->\n' >> "$WORK/reviews/pr-$N.md"
+  # a `needs-human` round with a guide skill that published or linked no guide
+  # owes it: preflight gives the PR one guide round at this head. That round
+  # owes nothing further (docs/artifact.md → Review guide).
+  [ "$(ctx_get '.guide_owed // false')" = true ] \
+    || [ "$(printf '%s' "$mj" | jq -r '.triage.class // ""' 2>/dev/null)" != needs-human ] \
+    || ! jq -e 'any(.[]; (.kind // "review") == "guide")' "$CTX/skills.json" >/dev/null 2>&1 \
+    || [ -f "$CTX/guide.recorded" ] \
+    || grep -qF '📊 [Visual guide for the human reviewer](' "$CTX/body.posted.md" 2>/dev/null \
+    || printf '<!-- guide-owed -->\n' >> "$WORK/reviews/pr-$N.md"
   rm -f "$CARRY"        # published: the starting point is the history now
   write_row "$sha" "$now" "$VERDICT" done
   local c w s took
@@ -2841,6 +2856,7 @@ cmd_guide() {
       || logev warn guide "PR #$N: the published guide page was not stored — a kept guide cannot refresh its findings"
   fi
   red="$(jq -r --arg s "$s" '.[$s].redactions // 0' "$CTX/collect.json" 2>/dev/null)"
+  : > "$CTX/guide.recorded"
   logev info guide "PR #$N: $s published → DAM $id, ${red:-0} redacted"
   out "$(jq -nc --arg i "$id" --arg u "$url" --arg h "$sha7" '{outcome:"recorded", id:$i, url:$u, sha:$h}')"
 }
