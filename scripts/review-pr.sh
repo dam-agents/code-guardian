@@ -1249,9 +1249,10 @@ cmd_prepare() {
       && logev warn review_pr "PR #$N: delta range $(printf '%s' "$dj" | jq -r '.base[0:7]')...${sha:0:7} unreachable ($(printf '%s' "$dj" | jq -r .status)) — reviewing the whole PR"
   fi
   # own-change gate: a range whose PR diff is byte-identical to the one the last
-  # review digested carries base-branch merges only, so it is not a review round
-  # (docs/review-rereview.md → Re-review output). No prior digest → the normal round.
-  # `verify` reads the event's `— base merges only` suffix: steps c and d skipped.
+  # review digested carries base-branch merges only: no skills, the agent reads the
+  # base hunks against the PR's code (docs/review-rereview.md → Re-review output).
+  # No prior digest → the normal round. `verify` reads the event's
+  # `— base merges only` suffix: no fan-out or `verified` milestone is owed.
   if printf '%s' "$dj" | jq -e '.status == "ahead"' >/dev/null 2>&1; then
     local pdg cdg oc=true
     pdg="$(prior_meta | jq -r '.diff_digest // ""')"; cdg="$(diff_digest)"
@@ -1684,6 +1685,18 @@ collect_guide() { # <skill> <out file>
 
 cmd_collect() {
   need_ctx
+  # --skip <skill>: a skill the agent chose not to run on a base-merge-only
+  # round — recorded as the agent's choice, never decided here
+  # (docs/review-rereview.md → Re-review output)
+  local skip=' ' a
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--skip) [ -n "${2:-}" ] || fail "usage: collect <n> [--skip <skill>]…"
+        jq -e --arg s "$2" 'has($s)' "$CTX/skills.json" >/dev/null 2>&1 || fail "--skip names no configured skill: $2"
+        skip="$skip$2 "; shift 2;;
+      (*) fail "usage: collect <n> [--skip <skill>]…";;
+    esac
+  done
   head_guard collect
   local lines='[]' warns='[]' results='{}' s st f n files timing="" mt bl fo
   # the skill budget runs from the fan-out `step` recorded; no record, no check
@@ -1691,6 +1704,7 @@ cmd_collect() {
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status' "$CTX/skills.json")"
+    case "$skip" in (*" $s "*) st=base-merge-only;; esac
     files="$(jq -r --arg s "$s" '.[$s].files | length' "$CTX/skills.json")"
     f="$OUT/$s.txt"
     case "$st" in
@@ -1983,7 +1997,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: carry the open prior findings as `🔁 Still present`, keep the prior verdict, and write the base-merge line (docs/review-rereview.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: running each skill is your call — record a skill you do not run with `collect --skip <skill>`; read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
@@ -2624,7 +2638,7 @@ cmd_verify() {
           $ev[$i:] as $cy
           | [ $cy[] | select(.event == "review_step") | .step ] as $steps
           # prepare logs `… — base merges only` for a range that leaves the PR
-          # diff untouched: steps c and d are skipped (docs/review-rereview.md)
+          # diff untouched: no fan-out or `verified` is owed (docs/review-rereview.md)
           | any($cy[]; .event == "review_pr" and (.step | endswith("base merges only"))) as $base
           | { lock_ts: $ev[$i].ts,
               last: ([ $cy[] | select(.event == "review_step") ] | last),

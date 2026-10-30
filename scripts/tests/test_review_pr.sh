@@ -695,7 +695,12 @@ add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
 pr_fx open '[]'; ahead_fx
 run_rp prepare 1 --on-demand
 assert_jq '.delta.own_change == false' 'an unchanged PR diff marks the range as base merges only'
-# steps c and d are skipped, so `composed` is the one milestone verify asks for
+assert_jq '.skills["doc-drift"].status == "run"' 'prepare leaves the skills to the agent on a base-merges-only round'
+run_rp collect 1 --skip doc-drift --skip typescript-engineering
+assert_jq '.audit_lines | length > 0 and all(test("skipped \\(base-merge-only\\)$"))' 'collect records the skills the agent chose not to run'
+run_rp collect 1 --skip nope
+assert_jq '.outcome == "error"' 'collect refuses a --skip that names no configured skill'
+# no fan-out or `verified` milestone is owed, so `composed` is the one verify asks for
 run_rp step 1 composed
 printf '### Summary\n%s\n\n### Verdict\nCOMMENT — ok\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)" > "$SANDBOX/body.md"; printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":82,"html_url":"https://example.test/r/82","state":"COMMENTED"}' | fx "$(POST_SLUG)"
@@ -703,6 +708,21 @@ run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/f
 assert_jq '.outcome == "posted"' 'the base-merges-only round posts'
 run_rp verify 1
 assert_jq '.checks[] | select(.check == "milestones") | .status == "ok"' 'a base-merges-only round needs no fan-out or verified milestone'
+
+# a carried round keeps the rule: the digest compares the whole PR diff
+setup delta_own_change_carry
+PRIOR="1111111111111111111111111111111111111111"; CARRIED="2222222222222222222222222222222222222222"
+mk_meta_history "$PRIOR" "$(diff_dg)"
+add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
+printf '{"sha":"%s","ts":"%s","hops":1,"kind":"re-review","run":"x","findings":[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"unbounded query","fix":"add a limit"}]}\n' "$CARRIED" "$(iso_ago 600)" \
+  > "$WORK/reviews/pr-1.carry.json"
+pr_fx open '[]'; ahead_fx
+jq -n '{status:"ahead", files:[{filename:"src/gamma.ts", patch:"@@ -0,0 +1 @@\n+x"}]}' \
+  | fx "api repos/acme/widgets/compare/$CARRIED...$B1_SHA"
+run_rp prepare 1 --on-demand
+assert_jq '.carry.reachable == true and .delta.own_change == false' 'a carried base-merges-only round has both ranges'
+assert_jq '.skills["doc-drift"].status == "run"' 'a carried base-merges-only round leaves the skills to the agent'
+run_rp abort 1 "reset"
 
 setup delta_own_change_moved
 PRIOR="1111111111111111111111111111111111111111"
