@@ -237,8 +237,10 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 ## Survey run (mode `survey`, worklist has `survey_due`)
 
 1. Title the session (**Session titles**), then read [survey.md](survey.md)
-   and read the area the entry names — never one of your own choosing —
-   within the files `scripts/survey.sh prepare` lists.
+   and read the area the entry names, starting with the files
+   `scripts/survey.sh prepare` lists — the recommended scope. A read past
+   them or outside the area carries a `record --past` reason
+   ([survey.md](survey.md) → **Bounds**).
 2. Write only the dangerous findings — 🔴 and 🟡, security first — in the
    review form ([finding-form.md](finding-form.md)), record the pass, then regenerate and republish the accumulated artifact.
    A survey posts nothing on GitHub and changes no code.

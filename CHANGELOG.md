@@ -13,7 +13,12 @@ they are released history and stay as written.
 
 ## 13.1.0 — 2026-10-30
 
-**Upgrade:** Nothing — docs are re-read per run.
+**Upgrade:**
+1. Re-register `code-guardian-survey-weekly` when its task text still says
+   "read exactly the files it lists", per ONBOARDING Step 6e: create the
+   corrected schedule, then `delete_schedule` the old id; keep its name, cron,
+   `precheck` and `sessionTitle`. Idempotent — skip a schedule that already
+   says "the recommended scope". No survey schedule → nothing to do.
 
 ## 13.0.0 — 2026-10-30
 

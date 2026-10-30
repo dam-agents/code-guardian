@@ -144,7 +144,8 @@ the code around the change.
   the change or are affected by it (the brief's context pack names the
   dependents), and what a caller sees differently.
 - **Risks** (2–4) — what a person must watch, each grounded in a fact
-  (**Risks from facts** below): the brief's risk prescan and forced paths, a
+  (**Risks from facts** below): the brief's risk prescan, its `lead` line (a
+  `human_review_paths` match) and its `forced` line (the `guide_label`), a
   changed code file the context pack lists with no test, a contract change, an
   open point the PR names.
 - **Rollout and rollback** — how the change reaches users, in order: a

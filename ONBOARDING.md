@@ -805,7 +805,7 @@ reads a whole area. Create `name: code-guardian-survey-weekly`, cron default
 `precheck: bash "$HOME/scripts/precheck.sh" survey`,
 `sessionTitle: Survey the codebase`, `task`:
 
-> Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read exactly the files it lists, write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
+> Codebase survey. The precheck already ran preflight and found an area due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" survey` yourself. Then follow CLAUDE.md → "Survey run": read docs/survey.md, prepare the area with `scripts/survey.sh prepare`, read the files it lists as the recommended scope (a read past them carries a `record --past` reason), write the findings in the review form, record the pass with `scripts/survey.sh record`, regenerate and republish the accumulated report, and back up work/ (`scripts/work-backup.sh persist`).
 
 **6f — Agent monitor.** Every instance gets it, without a question: the
 health alerts of `docs/monitor.md`. Create
