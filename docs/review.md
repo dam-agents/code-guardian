@@ -92,9 +92,9 @@ c. **Review the diff** — file by file in `files[]` order: classes `code`,
    the change removes or skips; a permission or exposure that the change
    widens.
    Then `review-pr.sh guard <n>` (**Guarding a running review**).
-d. **Run every configured review skill** per [skills.md](skills.md) — a
-   base-merge-only re-review runs none ([review-rereview.md](review-rereview.md)
-   → **Re-review output**):
+d. **Run every configured review skill** per [skills.md](skills.md) — on a
+   base-merge-only re-review each one is your call
+   ([review-rereview.md](review-rereview.md) → **Re-review output**):
    `review-pr.sh step <n> "fanned out (n=<N>)"`, one subagent per skill with
    status `run`, then `review-pr.sh collect <n>` for the audit lines, form
    warnings and `skill_timing`. Verify every blocking finding, yours and the

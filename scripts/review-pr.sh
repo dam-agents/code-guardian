@@ -1404,18 +1404,7 @@ cmd_prepare() {
   local focus=""
   [ "$routable" != "$CTX/files.json" ] \
     && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
-  local SK='{}' s trig files status brief copy fblock kind html bmo=false gkeep=false
-  # a delta range that leaves the PR's own diff unchanged runs no skill, a carry
-  # range included: the digest compares the whole PR diff with the last posted
-  # review (docs/review-rereview.md → Re-review output, docs/skills.md → Mandatory)
-  jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 && bmo=true
-  # except a guide skill while the guide label is on the PR and no round saw it:
-  # the round still answers the label (docs/artifact.md → Review guide). Without
-  # the guide-label-seen record every round with the label keeps it.
-  if [ "$bmo" = true ] && [ -n "$(guide_label_on)" ]; then
-    gkeep=true
-    declare -F guide_label_seen >/dev/null && guide_label_seen "$WORK/reviews/pr-$N.md" && gkeep=false
-  fi
+  local SK='{}' s trig files status brief copy fblock kind html
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
@@ -1427,8 +1416,6 @@ cmd_prepare() {
             | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
       [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
     fi
-    [ "$status" = run ] && [ "$bmo" = true ] && ! { [ "$kind" = guide ] && [ "$gkeep" = true ]; } \
-      && status=base-merge-only
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
     brief=""; copy=""
     if [ "$status" = run ]; then
@@ -1698,6 +1685,18 @@ collect_guide() { # <skill> <out file>
 
 cmd_collect() {
   need_ctx
+  # --skip <skill>: a skill the agent chose not to run on a base-merge-only
+  # round — recorded as the agent's choice, never decided here
+  # (docs/review-rereview.md → Re-review output)
+  local skip=' ' a
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (--skip) [ -n "${2:-}" ] || fail "usage: collect <n> [--skip <skill>]…"
+        jq -e --arg s "$2" 'has($s)' "$CTX/skills.json" >/dev/null 2>&1 || fail "--skip names no configured skill: $2"
+        skip="$skip$2 "; shift 2;;
+      (*) fail "usage: collect <n> [--skip <skill>]…";;
+    esac
+  done
   head_guard collect
   local lines='[]' warns='[]' results='{}' s st f n files timing="" mt bl fo
   # the skill budget runs from the fan-out `step` recorded; no record, no check
@@ -1705,6 +1704,7 @@ cmd_collect() {
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     st="$(jq -r --arg s "$s" '.[$s].status' "$CTX/skills.json")"
+    case "$skip" in (*" $s "*) st=base-merge-only;; esac
     files="$(jq -r --arg s "$s" '.[$s].files | length' "$CTX/skills.json")"
     f="$OUT/$s.txt"
     case "$st" in
@@ -1997,7 +1997,7 @@ cmd_compose_brief() {
       "$(ctx_get 'if .prior.sha then .prior.sha[0:7] else "unknown" end')" "$(ctx_get '.prior.ts // "unknown"')" \
       "$(ctx_get '.prior.verdict // "unknown"')" "$unreach" "$N"
     jq -e '.own_change == false' "$CTX/delta.json" >/dev/null 2>&1 \
-      && printf 'The range changes nothing in this PR'"'"'s own diff: run only the skills `prepare` left at `run` (a guide skill that answers the guide label), read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
+      && printf 'The range changes nothing in this PR'"'"'s own diff: running each skill is your call — record a skill you do not run with `collect --skip <skill>`; read its base-branch patches against the PR'"'"'s code, settle every prior at its anchor, write the base-merge line, and report a break as a new finding (docs/review-rereview.md → Re-review output).\n\n'
   fi
   printf '### Findings\n'
   if [ "$kind" = "re-review" ] && [ "$full" != "true" ]; then
