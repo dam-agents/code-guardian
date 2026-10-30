@@ -17,8 +17,8 @@ fails the run or delays the post.
 
 **The gate is the review's triage.** The page publishes only when the
 `meta.json` triage of this review is `needs-human` (a `human_review_paths`
-match forces it, [review-mechanics.md](review-mechanics.md) → **Summary body
-format**). A `quick-check` triage publishes nothing and drops the section. A
+match is a lead for that call, [review-mechanics.md](review-mechanics.md) →
+**Summary body format**). A `quick-check` triage publishes nothing and drops the section. A
 person is the audience, so the guide needs no human trigger: the triage is the
 consent the operator gave when they added the row
 ([ONBOARDING.md](../ONBOARDING.md) step 7).

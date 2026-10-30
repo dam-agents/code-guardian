@@ -775,7 +775,9 @@ jq -e 'map(.status) == ["still","still","fixed"]' "$A" >/dev/null \
   && printf 'ok   %s: the rerun rewrites the annotated statuses\n' "$CASE" \
   || { printf 'FAIL %s: annotated after --settle wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
 run_rp delta 1 "$SANDBOX/cur.json" --settle 0=new
-assert_jq '.outcome == "error" and (.error | contains("no ambiguous pair at index 0"))' 'a --settle on a settled finding is refused'
+assert_jq '.outcome == "ok" and (.still | length) == 0 and .ambiguous[0].settled == "new"' 'a --settle on a still pair moves it to new'
+run_rp delta 1 "$SANDBOX/cur.json" --settle 1=still
+assert_jq '.outcome == "error" and (.error | contains("no matched pair at index 1"))' 'a --settle on a finding with no prior match is refused'
 run_rp delta 1 "$SANDBOX/cur.json" --settle 2=maybe
 assert_jq '.outcome == "error" and (.error | contains("<index>=still|new"))' 'a --settle value other than still|new is refused'
 run_rp delta 1 "$SANDBOX/cur.json" --settle 2==still
@@ -824,7 +826,7 @@ printf '[{"status":"new","severity":"suggestion","file":"src/gamma.ts","line":2,
 run_rp delta 1 "$SANDBOX/cur-sup-amb.json"
 assert_jq '(.suppressed | length) == 1 and .ambiguous == [] and .fixed == []' 'a suppressed ambiguous pair is not listed and fixes nothing'
 run_rp delta 1 "$SANDBOX/cur-sup-amb.json" --settle 0=new
-assert_jq '.outcome == "error" and (.error | contains("no ambiguous pair at index 0"))' 'a --settle on a suppressed pair is refused'
+assert_jq '.outcome == "ok" and (.suppressed | length) == 1 and .fixed == []' 'a --settle on a suppressed pair keeps it suppressed'
 run_rp abort 1 "reset"
 
 # --- delta: a merged finding matches on any of its `also` anchors ----------------
@@ -890,15 +892,15 @@ jq -e '.[1] | has("late") | not' "$A" >/dev/null \
   && printf 'ok   %s: a cleared finding carries no late flag\n' "$CASE" \
   || { printf 'FAIL %s: --fresh left the flag: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
 run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 7
-assert_jq '.outcome == "error" and (.error | contains("no late finding at index 7"))' 'a --fresh on an index that is not a finding is refused'
+assert_jq '.outcome == "error" and (.error | contains("no finding at index 7"))' 'a --fresh on an index that is not a finding is refused'
 run_rp delta 1 "$SANDBOX/cur-late.json" --fresh 0
-assert_jq '.outcome == "error" and (.error | contains("no late finding at index 0"))' 'a --fresh on a new finding that is not late is refused'
+assert_jq '.outcome == "ok" and (.late | map(.index)) == [1,3]' 'a --fresh on a finding that is not late changes nothing'
 run_rp delta 1 "$SANDBOX/cur-late.json" --fresh x
 assert_jq '.outcome == "error" and (.error | contains("--fresh takes a finding index"))' 'a --fresh value that is not an index is refused'
 run_rp abort 1 "reset"
 
-# a delta re-review grades a late 🟡 as 🟢; a complete one keeps it (above)
-setup delta_late_demote
+# a delta re-review leaves the grade of a late 🟡 to the agent; post warns while it blocks
+setup delta_late_grade
 PRIOR="1111111111111111111111111111111111111111"
 late_history "$PRIOR"
 add_row 1 "$PRIOR" "$(iso_ago 7200)" COMMENT awaiting_label
@@ -909,25 +911,28 @@ run_rp prepare 1 --on-demand
 assert_jq '.outcome == "ready"' 'the on-demand delta round is prepared'
 printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"},{"status":"new","severity":"warning","file":"src/beta.ts","line":1,"inline":true,"summary":"capability outside the policy","fix":"drop the capability"},{"status":"new","severity":"critical","file":"src/beta.ts","line":3,"inline":true,"summary":"secret in log","fix":"redact it"}]' > "$SANDBOX/cur-dem.json"
 run_rp delta 1 "$SANDBOX/cur-dem.json"
-assert_jq '(.late | map({index, demote: (.demote // false)})) == [{index:1,demote:true},{index:2,demote:false}]' 'a late warning is demoted on a delta round, a late critical is not'
+assert_jq '(.late | map({index, severity})) == [{index:1,severity:"warning"},{index:2,severity:"critical"}]' 'late[] names each late finding with its severity'
 A="$(PR_DIR).ctx/findings.annotated.json"
-jq -e '.[0].severity == "warning" and .[1].severity == "suggestion" and .[1].fix == null and .[1].late == true and .[2].severity == "critical"' "$A" >/dev/null \
-  && printf 'ok   %s: annotated carries the late warning as a suggestion\n' "$CASE" \
+jq -e '.[0].severity == "warning" and .[1].severity == "warning" and .[1].fix == "drop the capability" and .[1].late == true and .[2].severity == "critical"' "$A" >/dev/null \
+  && printf 'ok   %s: annotated keeps the agent grade of a late warning\n' "$CASE" \
   || { printf 'FAIL %s: annotated wrong: %s\n' "$CASE" "$(cat "$A")"; FAILED=1; }
 { printf '### Summary\nx\n%s\n\n### Findings\n- 🔴 **Critical:** secret in log (`src/beta.ts:3`)\n- 🟡 **Warning:** capability outside the policy (`src/beta.ts:1`)\n\n### Verdict\nREQUEST_CHANGES\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)"; } > "$SANDBOX/body.md"
-jq '.[1].severity = "warning"' "$A" > "$SANDBOX/kept-late.json"
-run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-late.json"
-assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post refuses a delta round that keeps a late warning blocking'
-jq '.[1].severity = "warning" | del(.[1].late)' "$A" > "$SANDBOX/kept-unflagged.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$A"
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("late 🟡")))' 'post warns on a delta round that keeps a late warning blocking'
+grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
+  && { printf 'FAIL %s: the held post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: nothing was posted\n' "$CASE"
+jq 'del(.[1].late)' "$A" > "$SANDBOX/kept-unflagged.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-unflagged.json"
-assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post reads the late set from annotated, not from the posted array'
-jq '.[1] |= (.severity = "warning" | del(.late) | .file = "src/gamma.ts" | .line = 9 | .also = [{file: "src/beta.ts", line: 1}])' "$A" > "$SANDBOX/kept-also.json"
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("late 🟡")))' 'post reads the late set from annotated, not from the posted array'
+jq '.[1] |= (del(.late) | .file = "src/gamma.ts" | .line = 9 | .also = [{file: "src/beta.ts", line: 1}])' "$A" > "$SANDBOX/kept-also.json"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/kept-also.json"
-assert_jq '.outcome == "error" and (.error | contains("late warning"))' 'post matches the late set on an also anchor of the posted finding'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("late 🟡")))' 'post matches the late set on an also anchor of the posted finding'
 { printf '### Summary\nx\n%s\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n- 🔴 **Critical:** secret in log (`src/beta.ts:3`)\n- 🔎 **Missed earlier:** capability outside the policy (`src/beta.ts:1`)\n\n### Verdict\nREQUEST_CHANGES\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)"; } > "$SANDBOX/body.md"
 printf '{"id":94,"html_url":"https://example.test/r/94","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
-run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$A"
-assert_jq '.outcome == "posted"' 'post takes the annotated file of a delta round'
+jq '.[1] |= (.severity = "suggestion" | .fix = null)' "$A" > "$SANDBOX/graded.json"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/graded.json"
+assert_jq '.outcome == "posted" and .warnings == []' 'post takes the late warning the agent graded as a suggestion'
 jq -e 'select(.pr == 1) | .findings | map(select(.late == true) | {severity, file, summary})
         == [{severity:"suggestion", file:"src/beta.ts", summary:"capability outside the policy"}, {severity:"critical", file:"src/beta.ts", summary:"secret in log"}]
         and (map(select(.late == true)) | first.line == 1) and (map(select(.late != true) | keys) | all(. == ["severity","status"]))' \
@@ -943,10 +948,13 @@ printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing 
 printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
 printf '{"id":93,"html_url":"https://example.test/r/93","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "error" and (.error | contains("print each merged finding once"))' 'post refuses a body that prints a merged finding twice'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("print each merged finding once")))' 'post warns on a body that prints a merged finding twice'
 grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
-  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  && { printf 'FAIL %s: the held post still reached GitHub\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: nothing was posted\n' "$CASE"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --accept-warnings
+assert_jq '.outcome == "posted" and (.warnings | length) == 1' '--accept-warnings posts the body as it is and names the warning'
+assert_event 'post_warnings' 'a post with accepted warnings is logged'
 run_rp abort 1 "reset"
 
 # a range that is not whole (force-pushed away) cannot age a finding: nothing is late
@@ -1094,7 +1102,7 @@ grep -q 'requested_reviewers' "$SANDBOX/gh.log" \
   && { printf 'FAIL %s: bot_login removed a request its own review clears\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: no request removal when the token is bot_login\n' "$CASE"
 
-# --- post: triage passes through, and human_review_paths forces needs-human -------
+# --- post: triage passes through, and human_review_paths is recorded as forced ----
 # docs/review-mechanics.md → Summary body format (`triage`)
 triage_post() { # <case> <meta-json> [config line]
   setup "$1" ${3:+"$3"}
@@ -1110,7 +1118,7 @@ triage_post post_triage_quick '{"triage":{"class":"quick-check","why":null,"veri
 assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"quick-check","why":null,"verified":"tests, error paths","minutes":5}' 'the triage call reaches review-meta as written'
 
 triage_post post_triage_forced '{"triage":{"class":"quick-check","minutes":5}}' '- human_review_paths: `docs/*`, src/al*'
-assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"needs-human",.*"forced":"src/alpha.ts (src/al\*)"' 'a file under human_review_paths forces needs-human and names the match'
+assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"quick-check",.*"forced":"src/alpha.ts (src/al\*)"' 'a file under human_review_paths keeps the agent class and records the match'
 
 triage_post post_triage_unknown_class '{"triage":{"class":"skip","minutes":"soon"}}'
 assert_file_contains "$WORK/reviews/pr-1.md" '"triage":{"class":"needs-human","why":null,"verified":null,"minutes":null}' 'an unknown class reads as needs-human and a non-number minutes as null'
@@ -1173,7 +1181,7 @@ add_row 1 "$B1_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" - awaiting_label
 run_rp verify 1
 assert_jq '.outcome == "issues" and (.checks[] | select(.check == "row") | .status == "fail" and (.detail | contains("not older than the lock")))' 'a row written after the lock is no released lock'
 
-# --- post: anchors that are not a line of the file they name are nulled ----------
+# --- post: anchors that are not a line of the file they name are reported --------
 setup post_anchor_check
 run_rp prepare 1
 printf '### Summary\nAdds query().\n\n### Findings\n- 🔴 **Critical:** unbounded query (`src/alpha.ts:6`)\n\n### Verdict\nREQUEST_CHANGES — fix it\n' > "$SANDBOX/body.md"
@@ -1181,7 +1189,9 @@ printf '### Summary\nAdds query().\n\n### Findings\n- 🔴 **Critical:** unbound
 printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"also":[{"file":"src/alpha.ts","line":400}],"inline":true,"summary":"unbounded query","fix":"add a limit"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":999,"inline":true,"summary":"past the end","fix":"drop it"},{"status":"new","severity":"warning","file":"src/ghost.ts","line":5,"inline":false,"summary":"not in the clone","fix":"keep it"}]' > "$SANDBOX/findings.json"
 printf '{"id":78,"html_url":"https://example.test/r/78","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "posted"' 'a bad anchor never blocks the post'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("src/alpha.ts:400") and contains("src/alpha.ts:999")))' 'a bad anchor is reported for the agent to fix'
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --accept-warnings
+assert_jq '.outcome == "posted"' 'a bad anchor posted on purpose is nulled as the fallback'
 assert_jq '.anchors_nulled | length == 2' 'both impossible anchors are reported'
 assert_jq '[.anchors_nulled[].line] | sort == [400, 999]' 'the reported anchors are the out-of-range ones'
 assert_file_contains "$WORK/reviews/pr-1.md" '"summary":"past the end"' 'the finding itself is never dropped'
@@ -1996,17 +2006,17 @@ assert_out_contains '"status": "new"' 'a first review posts every finding as new
 assert_out_contains 'post [0-9]* .* --findings [^ ]*review-pr-1.ctx/findings.json' 'a first review posts its own findings list'
 assert_out_contains 'none' 'no overrides and no memory read as none'
 assert_out_contains 'sections that post: Documentation Check, TypeScript Review' 'the section list names what will post'
-assert_out_absent 'triage is forced' 'no human_review_paths, no forced triage'
+assert_out_absent 'matches `human_review_paths`' 'no human_review_paths, no match named'
 run_rp abort 1 "reset"
 
-# a changed file under human_review_paths: the brief says the triage is forced
+# a changed file under human_review_paths: the brief names the match for the triage call
 setup compose_brief_forced '- human_review_paths: `docs/*`, src/al*'
 run_rp prepare 1
 run_rp compose-brief 1
-assert_out_contains 'triage is forced to `needs-human`: `src/alpha.ts (src/al\*)`' 'the brief names the file that forces needs-human'
+assert_out_contains '`src/alpha.ts (src/al\*)` matches `human_review_paths`: weigh it in your triage call' 'the brief names the matching file as a lead'
 run_rp abort 1 "reset"
 
-# a file moved out of a human_review_paths glob still forces needs-human
+# a file moved out of a human_review_paths glob still matches
 setup compose_brief_forced_rename '- human_review_paths: src/lo*'
 seq 1 20 > "$FX/src/long.ts"
 git -C "$FX" add -A && git -C "$FX" "${GIT_ID[@]}" commit -qm more-base
@@ -2018,7 +2028,7 @@ git -C "$FX" checkout -q main
 pr_fx open '[]' "$B1_SHA"; ctx_fx
 run_rp prepare 1
 run_rp compose-brief 1
-assert_out_contains 'triage is forced to `needs-human`: `src/long.ts (src/lo\*)`' 'a pure rename out of the glob still forces needs-human'
+assert_out_contains '`src/long.ts (src/lo\*)` matches `human_review_paths`' 'a pure rename out of the glob still matches'
 run_rp abort 1 "reset"
 
 # --- compose-brief: the conversation that moved since the lock --------------------
@@ -2102,11 +2112,11 @@ printf '### Summary\nAdds query().\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.m
 printf '[]' > "$SANDBOX/findings.json"
 printf '{"id":91,"html_url":"https://example.test/r/91","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "error" and (.error | test("limits line"))' 'post refuses a body that drops the limits line'
+assert_jq '.outcome == "warnings" and (.warnings | any(test("limits line")))' 'post warns on a body that drops the limits line'
 grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
-  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  && { printf 'FAIL %s: the held post still reached GitHub\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: nothing was posted\n' "$CASE"
-assert_file_contains "$WORK/REVIEWS.md" '| 1 | .* | in_progress |' 'the lock survives the refusal'
+assert_file_contains "$WORK/REVIEWS.md" '| 1 | .* | in_progress |' 'the lock survives the warning'
 { printf '### Summary\nAdds query().\n'; cat "$(PR_DIR).ctx/limits.txt"; printf '\n### Verdict\nCOMMENT\n'; } > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
 assert_jq '.outcome == "posted"' 'the body that carries the line posts'
@@ -2123,19 +2133,19 @@ printf '[{"path":"src/alpha.ts","line":1,"side":"RIGHT","body":"🟡 missing gua
 printf '{"id":94,"html_url":"https://example.test/r/94","state":"COMMENTED"}' | fx "$(POST_SLUG)"
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n  **Fix:** use 0\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
-assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'post refuses a Findings section that repeats the inline text'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("write each inline-carried finding there as one line")))' 'post warns on a Findings section that repeats the inline text'
 grep -q 'pulls/1/reviews -X POST' "$SANDBOX/gh.log" \
-  && { printf 'FAIL %s: the refused post still reached GitHub\n' "$CASE"; FAILED=1; } \
+  && { printf 'FAIL %s: the held post still reached GitHub\n' "$CASE"; FAILED=1; } \
   || printf 'ok   %s: nothing was posted\n' "$CASE"
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  ```suggestion\n  if (!x) return\n  ```\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
-assert_jq '.outcome == "error"' 'post refuses a suggestion block under an inline-carried finding'
+assert_jq '.outcome == "warnings"' 'post warns on a suggestion block under an inline-carried finding'
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n- 🟡 **Warning:** wrong default (`src/alpha.ts:2`)\n\nBoth findings are in the inline comments.\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json" --comments "$SANDBOX/comments.json"
 assert_jq '.outcome == "posted"' 'one line per inline-carried finding posts'
 
 # a complete re-review lists every current finding in full (docs/review-rereview.md):
-# its multi-line inline finding posts; the same body on a delta round is refused
+# its multi-line inline finding posts; the same body on a delta round is warned on
 setup post_full_rereview_full_text
 printf '# PR #1: alpha PR\n\n## Review at aaaaaaa — %s — COMMENT\n\nx\n' "$(iso_ago 7200)" > "$WORK/reviews/pr-1.md"
 add_row 1 "0000000000000000000000000000000000000000" "$(iso_ago 7200)" COMMENT awaiting_label
@@ -2156,10 +2166,10 @@ assert_jq '.kind == "re-review" and .full == false' 'on demand prepares a delta 
 printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
 printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:1`)\n  The call reads the value before the check.\n  **Fix:** guard it\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'a delta re-review repeating the inline text is refused'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("write each inline-carried finding there as one line")))' 'a delta re-review repeating the inline text is warned on'
 printf '[{"status":"still","severity":"warning","file":"src/beta.ts","line":null,"inline":false,"summary":"stale doc","fix":"update it"},{"status":"new","severity":"warning","file":"src/alpha.ts","line":1,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
 run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
-assert_jq '.outcome == "error" and (.error | contains("write each inline-carried finding there as one line"))' 'a still summary-only finding the delta body does not print raises no allowance'
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("write each inline-carried finding there as one line")))' 'a still summary-only finding the delta body does not print raises no allowance'
 run_rp abort 1 "reset"
 
 # the brief prints the one-line rule except on a complete re-review

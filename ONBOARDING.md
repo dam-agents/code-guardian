@@ -617,7 +617,7 @@ Final shape:
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; omit = all
-- human_review_paths: migrations/*, src/auth/*   # changed files that always need a person; omit = none
+- human_review_paths: migrations/*, src/auth/*   # changed files a person must see; no auto-merge; omit = none
 - survey: enabled                      # weekly security pass over one area; omit = disabled
 - survey_report: dam                   # survey artifact surface: dam (default) | off
 - survey_report_findings: disabled     # findings on the public survey artifact; omit = disabled

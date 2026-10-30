@@ -199,8 +199,9 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   conflict and ready-to-land nudges are never filtered.
 - **`human_review_paths`** — comma-separated shell globs (`*` crosses `/`),
   for example `` `migrations/*, src/auth/*` ``. **Missing = none.** A PR that
-  changes a matching file always records triage `needs-human`
-  ([review-mechanics.md](review-mechanics.md) → **Summary body format**) and
+  changes a matching file has the match named to the reviewing agent's triage
+  call and recorded in `triage.forced`
+  ([review-mechanics.md](review-mechanics.md) → **Summary body format**), and
   never auto-merges.
 - **`escalation_owner`** — roster login widened to at nudge level 4, and the
   fallback DM target of the monitor's alerts (`monitor_owner`, **Monitor**).

@@ -80,8 +80,11 @@ skill with status `run` runs; a clean-run section is the correct output.
 **Route first.** `review-pr.sh prepare` applies the rule above to the diff's
 file list and returns `skills{}`: per configured skill its status (`run`,
 `no-matching-files`, `clone-failed`), its routed files, its checkout, its brief
-and its prompt. Every skill's arguments are fixed at that point — a subagent
-never derives its own file list.
+and its prompt. The routed list is a proposal: before the fan-out you may
+widen a skill's scope — append paths to the `Routed files` list of its brief —
+when a file outside the list bears on what the skill checks, and log it with
+`review-pr.sh step <n> "widened <skill>: <paths> — <reason>"`. A subagent
+works from the list in its brief.
 
 **Then fan out: one subagent per skill with status `run`, all started at
 once** so they run concurrently, by the subagent mechanism of the harness this
