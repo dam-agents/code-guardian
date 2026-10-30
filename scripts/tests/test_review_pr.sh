@@ -2433,7 +2433,7 @@ printf '%s' '{"data":{"repository":{"pullRequest":{"author":{"login":"alice"},
    {"databaseId":13,"author":{"login":"carol"},"state":"COMMENTED","submittedAt":"2026-10-29T11:00:00Z","body":""}]},
  "reviewThreads":{"nodes":[{"isResolved":true,"isOutdated":false,"path":"src/alpha.ts","line":4,"comments":{"totalCount":3,"nodes":[{"databaseId":99,"author":{"login":"carol"},"body":"why this?","createdAt":"2026-10-29T10:00:00Z"}]}},
    {"isResolved":false,"isOutdated":true,"path":"src/beta.ts","line":null,"comments":{"totalCount":1,"nodes":[{"databaseId":98,"author":{"login":"dave"},"body":"nit","createdAt":"2026-10-30T10:00:00Z"}]}},
-   {"isResolved":false,"isOutdated":false,"path":"src/beta.ts","line":2,"comments":{"totalCount":1,"nodes":[{"databaseId":97,"author":{"login":"cg-bot"},"body":"x <!-- cg:review -->","createdAt":"2026-10-28T10:00:00Z"}]}}]}}}}}' \
+   {"isResolved":false,"isOutdated":false,"path":"src/beta.ts","line":2,"comments":{"totalCount":1,"nodes":[{"databaseId":97,"author":{"login":"test-bot"},"body":"code-guardian inline finding","createdAt":"2026-10-28T10:00:00Z"}]}}]}}}}}' \
   > "$GH_FIXTURES/graphql_guide_record_1"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json"
 assert_jq '.outcome == "rendered"' 'the block with other reviewers renders'
@@ -2443,6 +2443,7 @@ assert_file_lacks "$(GUIDE_HTML)" 'href="https://github.com/other/repo' 'no link
 assert_file_contains "$(GUIDE_HTML)" '<span class="by">Opinion of @carol</span> <b>requested changes</b> — <a href="https://github.com/acme/widgets/pull/1#pullrequestreview-11">review of 2026-10-29</a>: “Please fix the &lt;img src=x&gt;”' 'a human review is the opinion of its author, escaped'
 assert_file_contains "$(GUIDE_HTML)" '✅ resolved on GitHub · 2 replies</span> <a href="https://github.com/acme/widgets/pull/1#discussion_r99">thread</a>' 'a resolved thread says so and links it'
 assert_file_contains "$(GUIDE_HTML)" '<span class="by">Opinion of @dave</span> <a href="https://github.com/acme/widgets/blob/'"$B1_SHA"'/src/beta.ts">src/beta.ts</a> — “nit” <span class="st">outdated' 'an outdated thread links its file without a line'
+assert_file_lacks "$(GUIDE_HTML)" '@test-bot' 'code-guardian'"'"'s own thread is dropped by its account, its body holds no marker'
 assert_file_lacks "$(GUIDE_HTML)" '@cg-bot' 'code-guardian'"'"'s own reviews come from its findings, not twice'
 assert_file_lacks "$(GUIDE_HTML)" 'were not read at' 'a read that answered says nothing is missing'
 # the rounds in the history: a finding a later delta fixed stays, marked fixed

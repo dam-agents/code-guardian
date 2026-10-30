@@ -2777,7 +2777,8 @@ guide_rounds() { # <findings file>
 }
 record_block() { # <head sha> <people file> <rounds file>
   jq -nr --slurpfile p "$2" --slurpfile rs "$3" --arg repo "$REPO" --arg web "https://$REPO_HOST/$REPO" \
-    --arg sha "$1" --argjson n "$N" --arg author "$(ctx_get '.author')" --arg m "<!-- $REVIEW_MARKER" '
+    --arg sha "$1" --argjson n "$N" --arg author "$(ctx_get '.author')" --arg m "<!-- $REVIEW_MARKER" \
+    --arg own "$BOT_LOGIN $(token_login 2>/dev/null)" '
     def esc: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\""; "&quot;") | gsub("\u0027"; "&#39;");
     def who: "@" + (if (. // "") == "" then "ghost" else . end) | esc;
     def by($name): "<span class=\"by\">Opinion of " + $name + "</span>";
@@ -2790,6 +2791,11 @@ record_block() { # <head sha> <people file> <rounds file>
       + (($file + (if num($line) then ":\($line | floor)" else "" end)) | esc) + "</a>" end;
     def sev: if .severity == "critical" then "🔴 Critical" elif .severity == "warning" then "🟡 Warning" else "🟢 Suggestion" end;
     def day: (. // "") | tostring | .[0:10] | esc;
+    # code-guardian'"'"'s own accounts: GraphQL names an App bot without "[bot]"
+    ($own | split(" ") | map(select(length > 0) | ascii_downcase | rtrimstr("[bot]"))) as $mine
+    |
+    def ours($login; $body): ((($login // "") | ascii_downcase | rtrimstr("[bot]")) as $l | $mine | index($l) != null)
+      or (($body // "") | contains($m));
     ($p[0] // {}) as $pr | ($pr | has("reviews")) as $read
     | ($rs[0] // []) as $rounds | ($rounds | last | .sha // "") as $latest
     # code-guardian: one note per finding over the rounds — a `still` finding
@@ -2809,10 +2815,10 @@ record_block() { # <head sha> <people file> <rounds file>
       as $notes
     | [ $notes[] | select(.st == "open" and (.severity == "critical" or .severity == "warning")) ] as $b
     # the other reviewers: their reviews and the threads they opened, without
-    # code-guardian'"'"'s own, which carry its marker
-    | [ ($pr.reviews.nodes // [])[] | select(type == "object" and .state != "PENDING" and (((.body // "") | contains($m)) | not)) ] as $revs
+    # code-guardian'"'"'s own — by its account, or by the marker of its review body
+    | [ ($pr.reviews.nodes // [])[] | select(type == "object" and .state != "PENDING" and (ours(.author.login; .body) | not)) ] as $revs
     | [ ($pr.reviewThreads.nodes // [])[] | select(type == "object") | . + {root: (.comments.nodes[0] // null)}
-        | select(.root != null and (((.root.body // "") | contains($m)) | not)) ] as $threads
+        | select(.root != null and (ours(.root.author.login; .root.body) | not)) ] as $threads
     | ([ $revs[] | {a: (.author.login // ""), t: (.submittedAt // "")} ] + [ $threads[] | {a: (.root.author.login // ""), t: (.root.createdAt // "")} ]
        | group_by(.a) | map({a: .[0].a, t: (map(.t) | min)}) | sort_by(.t) | map(.a) | .[0:15]) as $people
     | "<!-- cg:findings:start -->",
