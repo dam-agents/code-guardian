@@ -2607,7 +2607,7 @@ append_ledger() { # sha7 ts verdict body-file findings kind
       findings: [ (($f[0] // []) | if type == "array" then .[] else empty end)
                   | select(type == "object")
                   | { status: (.status // "unknown"), severity: (.severity // "unknown") }
-                    + (if .late == true then {late: true} else {} end) ] }' 2>/dev/null)"
+                    + (if .late == true then {late: true, file, line, summary} else {} end) ] }' 2>/dev/null)"
   [ -n "$row" ] && printf '%s\n' "$row" >> "$LEDGER" 2>/dev/null \
     || logev warn review_ledger "PR #$N: the ledger row for the review at $1 was not written"
 }

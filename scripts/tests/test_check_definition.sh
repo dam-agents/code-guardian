@@ -201,6 +201,26 @@ has 'NOTE	tests	scripts/gate.sh	the script changed and no test did' "a changed s
 has "FAIL	skills	.agents/skills/demo/SKILL.md	front matter name 'other' != directory 'demo'" "a skill name that is not its directory"
 has 'FAIL	skills	.agents/skills/demo/SKILL.md	no description' "a skill with no description"
 
+new_def missed_leads
+mkdir -p "$DEF/scripts/tests"
+printf '#!/usr/bin/env bash\nbash ../gate.sh check\nassert_contains "events unreadable for the gate run"\n' > "$DEF/scripts/tests/test_gate.sh"
+g add -A >/dev/null && g commit -qm tests
+g checkout -qb change
+cat >> "$DEF/scripts/gate.sh" <<'EOF'
+body="$(gh_get_all "repos/$1/issues/$2/events?per_page=100")" || exit 1
+at="$(printf '%s' "$body" | jq -r '[.[] | .created_at] | last // empty' 2>/dev/null)"
+[ -n "$at" ] || log_warn "PR #$2: label events unreadable (API) — the request waits"
+[ -n "$at" ] || log_warn "PR #$2: the label events unreadable for the gate run, again"
+gh api --paginate "repos/$1/issues/$2/comments?per_page=100&since=$S"
+EOF
+g commit -qam change
+check --base main
+has 'NOTE	shell	scripts/gate.sh:5	reads the whole of a list that grows' "a whole growing list read through a wrapper"
+lacks 'shell	scripts/gate.sh:9	reads the whole' "a list read bounded by since="
+has 'NOTE	shell	scripts/gate.sh:6	error hidden' "a failed parse that reads as no event (// empty)"
+has 'NOTE	tests	scripts/gate.sh:7	an added failure branch whose message no test names' "a failure branch no test reaches"
+lacks 'tests	scripts/gate.sh:8	an added failure branch' "a failure message four words of which a test names"
+
 new_def kit_manifest
 cat > "$DEF/kit.yaml" <<'EOF'
 id: agent
