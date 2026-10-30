@@ -484,8 +484,8 @@ code that moved past its override lets the finding surface normally.
   except after `state_damaged`, whose lock and paths the takeover of a dead
   run takes (**Guarding a running review**) — and never retry a call twice:
   the next heartbeat picks the PR up fresh.
-- **Abort also on** a HEAD that moved, a draft without a review label, a withdrawn re-review
-  trigger, or a dedup check unreadable after its retry. A phase guard reports
+- **Abort also on** a HEAD that moved, a draft without a review label, a
+  withdrawn re-review trigger, or a dedup check unreadable after its retry. A phase guard reports
   the HEAD move as `head_moved`, not `aborted` (**Guarding a running review**).
 - **422 line-not-in-diff** → `post` moves every inline comment to the summary
   and retries the POST once (`moved_to_summary`, reason
