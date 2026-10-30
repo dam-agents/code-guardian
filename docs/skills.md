@@ -52,7 +52,8 @@ surface the result. The one skip that is your judgement call is
 (your call on a re-review range that leaves the PR's own diff unchanged,
 recorded with `collect --skip`,
 [review-rereview.md](review-rereview.md) → **Re-review output**) and the
-technical failures (`install-failed`, `clone-failed`, `skill-errored`). Whatever the PR
+technical failures (`install-failed`, `clone-failed`, `skill-errored`); a guide
+skill on a draft PR is skipped `draft`. Whatever the PR
 — CI-only, docs-only, trivial — and whatever the previous review held, a
 skill with status `run` runs, except one you record with `collect --skip` on a
 base-merge-only round; a clean-run section is the correct output.
@@ -84,8 +85,8 @@ base-merge-only round; a clean-run section is the correct output.
 
 **Route first.** `review-pr.sh prepare` applies the rule above to the diff's
 file list and returns `skills{}`: per configured skill its status (`run`,
-`no-matching-files`, `clone-failed`), its routed files, its checkout, its brief
-and its prompt. The routed list is a proposal: before the fan-out you may
+`no-matching-files`, `clone-failed`, `draft` for a guide skill on a draft PR),
+its routed files, its checkout, its brief and its prompt. The routed list is a proposal: before the fan-out you may
 widen a skill's scope — append paths to the `Routed files` list of its brief —
 when a file outside the list bears on what the skill checks, and log it with
 `review-pr.sh step <n> "widened <skill>: <paths> — <reason>"`. A subagent
@@ -157,6 +158,7 @@ exist in the chat UI:
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
 - `PR #<n>: <skill> skipped (base-merge-only)` — a skill you chose not to run on a
   base-merge-only re-review (`collect --skip`).
+- `PR #<n>: <skill> skipped (draft)` — a guide skill on a draft PR.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.
 

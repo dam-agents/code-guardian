@@ -10,7 +10,8 @@ of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
 Nothing else is changeable from those surfaces.
 
 1. Resolve the PR reference (number or URL; a mention's own PR when none is
-   named) and `gh pr view` it. Not found / closed / draft → reply so, done.
+   named) and `gh pr view` it. Not found / closed / a draft without
+   `$REREVIEW_LABEL` or `$REREVIEW_DELTA_LABEL` → reply so, done.
 2. `review-pr.sh prepare <n> --on-demand` — it takes the PR's hold when this
    run has none. `stand_down` (another run holds or reviews the PR) → reply
    "review already running", done. A stale, silent lock is taken over — log

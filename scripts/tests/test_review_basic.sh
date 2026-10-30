@@ -14,7 +14,46 @@ run_preflight review
 assert_jq '.nothing_to_do == false' 'run has work'
 assert_jq '.reviews_due | length == 1' 'exactly one review due'
 assert_jq '.reviews_due[0] | .number == 1 and .kind == "first" and .takeover == false and .urgent == false and .closed == false' 'first review, no flags'
+assert_jq '.reviews_due[0].draft == false' 'a non-draft entry says draft false'
 assert_jq '.read_set == ["docs/review.md","docs/finding-form.md","docs/skills.md","work/MEMORY.md","work/LESSONS.md"]' 'a plain first review reads the core set and no rare-case file'
+
+# --- a draft without a review label → no review decision ---------------------
+new_case draft_without_label
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "draft PR" '[]' "$SHA1" | jq '.draft = true' | open_prs_fx
+run_preflight review
+assert_jq '.nothing_to_do == true and .reviews_due == []' 'a draft without a review label is not reviewed'
+
+# --- a draft with the review label → first review ----------------------------
+new_case draft_with_label
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "draft PR" '[{"name":"cg-rereview"}]' "$SHA1" | jq '.draft = true' | open_prs_fx
+run_preflight review
+assert_jq '.reviews_due | length == 1 and .[0].number == 1 and .[0].kind == "first"' 'a draft with rereview_label gets its first review'
+
+# --- a draft gets the review only: no urgent alert, no guide round -------------
+new_case draft_review_only
+base_config '- urgent_label: cg-urgent' '- slack_notifications: enabled' '- guide_label: cg-guide'
+pr_json 1 "draft PR" '[{"name":"cg-rereview"},{"name":"cg-urgent"},{"name":"cg-guide"}]' "$SHA1" | jq '.draft = true' | open_prs_fx
+run_preflight review
+assert_jq '.reviews_due[0] | .draft == true and .urgent == false and .guide_requested == false' 'a draft entry is flagged and has no urgent or guide flag'
+assert_jq '.urgent_alerts_due == []' 'a draft sends no urgent Slack alert'
+
+# --- a reviewed draft at the same head with the guide label → no guide round ---
+new_case draft_no_guide_round
+base_config '- guide_label: cg-guide'
+pr_json 1 "draft PR" '[{"name":"cg-guide"}]' "$SHA1" | jq '.draft = true' | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" COMMENT done
+run_preflight review
+assert_jq '.nothing_to_do == true and .reviews_due == []' 'the guide label alone does not review a draft'
+
+# --- a draft with the delta label, new commits → delta re-review ---------------
+new_case draft_with_delta_label
+base_config '- rereview_delta_label: cg-delta'
+pr_json 1 "draft PR" '[{"name":"cg-delta"}]' "$SHA2" | jq '.draft = true' | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" COMMENT awaiting_label
+run_preflight review
+assert_jq '.reviews_due[0] | .kind == "re-review" and .full == false' 'a draft with the delta label gets a delta re-review'
 
 # --- reviewed at live HEAD, no trigger → nothing ----------------------------
 new_case same_sha_done

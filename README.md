@@ -31,8 +31,8 @@ scheduled session carries a title that says what it does — `Review PR #1457`,
 
 **Review heartbeat** — every 5 minutes, around the clock by default. An
 optional active window checks every 15 minutes in the quiet hours outside it.
-`preflight.sh review` lists open non-draft PRs in one REST call and decides per
-PR what is due:
+`preflight.sh review` lists open PRs in one REST call — a draft only while it
+carries a review label — and decides per PR what is due:
 
 - Never-reviewed PRs get a first review automatically. Already-reviewed PRs get
   a re-review **only on an explicit trigger** — the `rereview_label`, the

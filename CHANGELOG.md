@@ -11,6 +11,12 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.1.0 — 2026-10-30
+
+**Upgrade:** Nothing to run. A draft PR that carries `rereview_label` or
+`rereview_delta_label` now gets a review — the review only: no guide, progress
+status, watch rule, CI triage or Slack message. Tell the operator.
+
 ## 14.0.0 — 2026-10-30
 
 **Upgrade:** Nothing to run. An instance whose `work/CONFIG.md` has no

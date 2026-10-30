@@ -36,7 +36,8 @@ review needs from the live PR; from the entry it takes the `number` and, under
 a. **Prepare** — `review-pr.sh prepare <n>` (`--eta <eta_seconds>` under
    `review_progress: enabled`, `--on-demand` for an on-demand review). Check 1
    against the live PR gives `outcome`:
-   - `skip` — draft; closed, unless a `RAPID` lock still owes the full review
+   - `skip` — a draft without a review label
+     ([worklist.md](worklist.md) → **The pre-flight contract**); closed, unless a `RAPID` lock still owes the full review
      (mode `closed`, [review-urgent.md](review-urgent.md) → **PR closed
      mid-review**); a `re-review` whose trigger is gone; an on-demand ask at
      an already-reviewed HEAD.
@@ -145,7 +146,9 @@ f. **Post** — `review-pr.sh post <n> --verdict <VERDICT> --body <ctx>/body.md
    `closed_*` (read [review-urgent.md](review-urgent.md) → **PR closed
    mid-review**). Then evaluate the configured watch rules
    ([watches.md](watches.md)), and under `ci_triage: enabled` triage a failing
-   check on the posted SHA ([ci-triage.md](ci-triage.md)).
+   check on the posted SHA ([ci-triage.md](ci-triage.md)). A `draft: true`
+   entry ends at the post: no watch rule, no CI triage, no guide, no Slack
+   ([worklist.md](worklist.md) → **The pre-flight contract**).
 g. **Any other end of a PR** — a transient failure after its retry, a decision
    not to post — `review-pr.sh abort <n> <reason>` (**Error handling**).
 
@@ -481,8 +484,8 @@ code that moved past its override lets the finding surface normally.
   except after `state_damaged`, whose lock and paths the takeover of a dead
   run takes (**Guarding a running review**) — and never retry a call twice:
   the next heartbeat picks the PR up fresh.
-- **Abort also on** a HEAD that moved, a PR gone draft, a withdrawn re-review
-  trigger, or a dedup check unreadable after its retry. A phase guard reports
+- **Abort also on** a HEAD that moved, a draft without a review label, a
+  withdrawn re-review trigger, or a dedup check unreadable after its retry. A phase guard reports
   the HEAD move as `head_moved`, not `aborted` (**Guarding a running review**).
 - **422 line-not-in-diff** → `post` moves every inline comment to the summary
   and retries the POST once (`moved_to_summary`, reason

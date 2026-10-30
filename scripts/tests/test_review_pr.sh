@@ -495,7 +495,11 @@ run_rp abort 1 "reset"
 setup prepare_gates
 pr_fx open '[]' "$B1_SHA" true
 run_rp prepare 1
-assert_jq '.outcome == "skip" and .reason == "draft"' 'draft skipped'
+assert_jq '.outcome == "skip" and .reason == "draft without a review label"' 'draft without a review label skipped'
+pr_fx open '["cg-rereview"]' "$B1_SHA" true
+run_rp prepare 1
+assert_jq '.outcome == "ready" and .kind == "first" and .draft == true' 'draft with the review label is reviewed, flagged as a draft'
+run_rp abort 1 "reset"
 pr_fx closed
 run_rp prepare 1
 assert_jq '.outcome == "skip" and (.reason | contains("CLOSED"))' 'closed PR skipped for pruning'
@@ -2393,6 +2397,14 @@ assert_file_contains "$GB" 'no repository map' 'without a profile the guide brie
 assert_file_lacks "$GB" '{{' 'no placeholder left in the guide brief'
 assert_file_lacks "$GB" 'still holds' 'no guide published yet, no keep option'
 assert_file_lacks "$(PR_DIR).ctx/briefs/doc-drift.md" 'write the page' 'a review skill keeps the review brief'
+run_rp abort 1 "reset"
+
+# a draft gets its review only: the guide skill is skipped, the review skill runs
+guide_setup guide_draft
+pr_fx open '["cg-rereview"]' "$B1_SHA" true
+run_rp prepare 1
+assert_jq '.draft == true and .skills["review-guide"].status == "draft" and .skills["review-guide"].brief == null' 'a draft skips the guide skill'
+assert_jq '.skills["doc-drift"].status == "run"' 'a draft still runs the review skills'
 run_rp abort 1 "reset"
 
 guide_setup guide_built
