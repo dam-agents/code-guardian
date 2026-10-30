@@ -74,7 +74,8 @@ requested: `trigger` (`rereview_trigger`, [config.md](config.md)) with the
 `label` to add or the `login` to request a review from, `null` where the
 trigger does not use it; you compose the rest in `meta.json` (`post --meta`).
 `checks` — per blocking finding whose **Fix:** is a class rule: `for` is that
-finding's `summary` verbatim, `run` the sweep that verified the class in its
+finding's `summary` verbatim, `run` the sweep that located the class's
+occurrences you confirmed, in its
 portable form — `git grep -nE -e '<ERE>'` as it runs in a plain checkout of
 the branch, `-e` in place of `--` — and `clean` what a clean run prints
 (`no hits`, or the locations a hit is correct at); commands that only read,

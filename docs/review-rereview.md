@@ -42,9 +42,14 @@ the `fixed` / `still` / `new` buckets, the `suppressed` overrides, the
   and carries `suggest` — `still` when the severity matches, else `new` — with
   its `index`, `distance` and `severity_match`. The block and `annotated`
   apply every `suggest` already.
-- **Settle every `ambiguous` pair** before posting: keep its suggestion, or
-  rerun `delta` once with `--settle <index>=<still|new>` for every pair you
-  change. The rerun rebuilds the block, the buckets and `annotated`.
+- **Settle every `ambiguous` pair** before posting. `suggest` compares text
+  and severity only: read both findings at their anchors and decide — the
+  same defect is `still`, a different one is `new`. Rerun `delta` once with
+  `--settle <index>=<still|new>` for every pair where your decision differs.
+  The rerun rebuilds the block, the buckets and `annotated`.
+- **Check the buckets against your own settlement** of each prior at its
+  anchor (below). A prior you settled `still` that the block lists as
+  `fixed` is missing from your array: add it and rerun `delta`.
 - **A `new` finding is aged by the range, not by the prior review.** `prepare`
   writes `age.json` from the compare call — the new-side hunk spans per file
   between the prior marker SHA and HEAD — on every re-review, complete ones
@@ -94,8 +99,13 @@ Delta-scope depth ([review.md](review.md) steps c–d):
   `prepare` digests the diff it fetched and compares it with the digest the
   last review recorded ([review-mechanics.md](review-mechanics.md) → **Summary
   body format**); equal → `delta.own_change:
-  false`, the range holds base-branch merges only. Skip steps c and d: no
-  candidates, no skills, no sweep. Carry every open prior finding into the
+  false`, the range holds base-branch merges only. Skip the skills. Read the
+  range's hunks in `delta.files[]` that touch the PR's changed code or the
+  code it calls: a base change that breaks the PR — a removed or renamed
+  symbol, a changed signature, contract or default — is a `🆕 New` finding
+  (`--fresh` on its `delta` index), verified and swept as in step d, and the
+  round is a normal delta round.
+  Nothing found → carry every open prior finding into the
   block as `🔁 Still present` one-liners, keep the prior verdict, and write
   `Range holds base-branch merges only — no change to this PR's own diff.`
   under the `Previous HEAD` line, with `_No new findings at this HEAD._` as
