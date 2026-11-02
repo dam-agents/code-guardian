@@ -6,15 +6,14 @@ flagged `urgent` or `closed`, or `urgent_alerts_due` non-empty — and when
 
 ## Urgent PRs — rapid-first delivery
 
-`urgent_label` (missing = off) names a **human-managed** label — the agent
-never adds or removes it. While it is on a PR, every due review of it runs
-rapid-first: preflight flags the entry `urgent: true` and orders it first,
-Check 1 re-verifies the label and reviews normally when it is gone.
+While `urgent_label` ([config.md](config.md)) is on a PR, every due review of
+it runs rapid-first: preflight flags the entry `urgent: true` and orders it
+first; Check 1 re-verifies the label and reviews normally when it is gone.
 
-**Immediate Slack alert (`urgent_alerts_due`, once per PR).** Preflight emits
-`{number, title, author, url}` for every open urgent PR whose history file
-lacks an `urgent-announced` marker, only under
-`slack_notifications: enabled`. Send these **before any PR work**:
+**Immediate Slack alert (`urgent_alerts_due`, once per PR).** Under
+`slack_notifications: enabled` preflight emits `{number, title, author, url}`
+for every open urgent PR whose history file lacks an `urgent-announced`
+marker. Send these **before any PR work**:
 
 1. `mcp__platform-outbound__send_channel_message`, addressed to the channel
    alone — the alert carries no @-mention: `🚨 **<bot_display_name>** — URGENT:
@@ -27,14 +26,13 @@ lacks an `urgent-announced` marker, only under
 3. Log `PR #<n>: urgent alert sent`.
 
 **Phase 1 — rapid preliminary review**, right after `prepare` returns, before
-orientation and skills. Optimize for delivery speed.
+orientation and skills, optimized for delivery speed.
 
 1. Review the diff only (`$PR_DIR.diff`; on a re-review prefer the range since
-   the prior review) for **🔴 Critical findings only**. On a re-review, a 🔴
-   of `prepare`'s `prior_findings` or `carry` that the range does not fix
-   counts too and is listed.
-   The verdict is `APPROVE` when there is none, `REQUEST_CHANGES` otherwise —
-   🟡 and the check rollup never hold the rapid verdict.
+   the prior review) for **🔴 Critical findings only**; on a re-review a 🔴 of
+   `prepare`'s `prior_findings` or `carry` that the range does not fix counts
+   and is listed too. The verdict is `APPROVE` when there is none,
+   `REQUEST_CHANGES` otherwise — 🟡 and the check rollup never hold it.
 2. Write `rapid.md`, body only, no inline comments:
 
    ```
@@ -55,26 +53,26 @@ orientation and skills. Optimize for delivery speed.
    at the reviewed SHA (`already_posted` → go to phase 2), posts one review with
    `event: <V>` (`COMMENT` on a PR the token's login opened —
    [github-access.md](github-access.md) → **Own pull request**) and the
-   marker appended, sets the REVIEWS.md verdict cell to
-   `RAPID` with a fresh timestamp (status stays `in_progress`), logs `rapid
-   posted`, and writes the progress status. A `REQUEST_CHANGES` dismisses the
-   agent's standing approvals of the PR
-   ([review-rereview.md](review-rereview.md) → **Revoking a stale approval**).
+   marker appended, sets the REVIEWS.md verdict cell to `RAPID` with a fresh
+   timestamp (status stays `in_progress`), logs `rapid posted`, and writes the
+   progress status. A `REQUEST_CHANGES` dismisses the agent's standing
+   approvals ([review-rereview.md](review-rereview.md) → **Revoking a stale
+   approval**).
 
 **Phase 2 — the full review, immediately after** — the normal sequence from
 [review.md](review.md) step b, skills and the full approval bar included. The
-`:rapid` marker is invisible to the normal dedup, so the full review posts as
-usual; a verdict below `APPROVE` revokes the rapid approval. Watch rules
-evaluate once, after it. A rapid post is **never** terminal. A died run is
-recovered by the stale-lock takeover: the `RAPID` row makes `prepare` return
-`rapid_posted: true`, and the next run skips phase 1.
+normal dedup ignores the `:rapid` marker; a full verdict below `APPROVE`
+revokes the rapid approval. Watch rules evaluate once, after it. A rapid post
+is **never** terminal. A died run is recovered by the stale-lock takeover: the
+`RAPID` row makes `prepare` return `rapid_posted: true`, and the next run
+skips phase 1.
 
 ## PR closed mid-review — findings become an issue
 
 Applies to **every** review. `post` finding the PR `CLOSED`/`MERGED` at Check 2
 posts no review. Its `scope` is `blocking` (🔴 and 🟡) when the PR merged and
-carries a standing rapid approval at the reviewed HEAD — it merged on critical
-checks alone — and `critical` (🔴) otherwise. The outcome says what is left:
+carries a standing rapid approval at the reviewed HEAD, and `critical` (🔴)
+otherwise. The outcome says what is left:
 
 - **`closed_discarded`** — no finding in `scope`. The lock is released as on a
   Check 2 abort; log `PR #<n>: closed mid-review — discarded (no <scope>
@@ -94,14 +92,14 @@ checks alone — and `critical` (🔴) otherwise. The outcome says what is left:
 **Crash recovery.** A closed PR whose row is an `in_progress` lock with verdict
 `RAPID` arrives as a review entry flagged `closed: true`, not as a prune.
 `prepare` runs it in mode `closed` — lock refreshed with verdict `RAPID`, no
-clone, no skills (the branch may be gone), Check 1's closed and trigger gates
-waived — then review the diff and `post`.
+clone, no skills, Check 1's closed and trigger gates waived — then review the
+diff and `post`.
 
 ## Self-check
 
 - **Urgent entries** — rapid review posted or dedup-skipped **before** the full
-  one, `APPROVE` exactly when it has no 🔴; `RAPID` row and `rapid posted` step
+  one, `APPROVE` exactly when it has no 🔴; `RAPID` row and `rapid posted`
   recorded; a full verdict below `APPROVE` revoked the rapid approval; terminal
-  only on the full review, the closed-PR issue, or an abort. **Closed
-  entries** — no review posted, the `scope` findings in one deduped issue
-  assigned to the author.
+  only on the full review, the closed-PR issue, or an abort.
+- **Closed entries** — no review posted, the `scope` findings in one deduped
+  issue assigned to the author.

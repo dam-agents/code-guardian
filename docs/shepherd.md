@@ -7,22 +7,21 @@ Read this file on every **shepherd run** whose worklist has a non-empty
 every open non-draft PR from **independent reviews** (not the bot, not the
 author; only `APPROVED` silences, `CHANGES_REQUESTED` flips to author-directed
 mode, a bare `COMMENTED` counts as awaiting), applied the 24 h age gate, the
-20 h per-PR cooldown and the ≥2-day escalation tick, reset the ladder — but
-never the clock — on class transitions, kept `held` rows held, flagged merge
-conflicts (`conflict: true`; such nudges are author-directed), decided whether
-an approved PR is ready to land (**Ready to land**, under
-`merge_ready_nudge: enabled`), and updated the ledger's bookkeeping columns.
-A PR whose reviews could not be read at all is **deferred**: no class, no
-nudge, its ledger row carried over verbatim. **Rows with a due nudge were left
-untouched** — advancing them is your post-send record step.
+20 h per-PR cooldown and the ≥2-day escalation tick, reset the ladder (never
+the clock) on class transitions, kept `held` rows held, flagged merge
+conflicts (`conflict: true`, author-directed), decided **Ready to land**
+(under `merge_ready_nudge: enabled`), and updated the ledger's bookkeeping
+columns. A PR whose reviews could not be read is **deferred**: no class, no
+nudge, its row carried over verbatim. **Rows with a due nudge are left for
+your post-send record step.**
 
 ## Hard rules
 
 - **Send only what is in `nudges_due`, at most once each.** Per entry, **send
   first**, then **immediately** apply its `row_update` (`nudges`, `level`,
   `status`) plus `last_nudge_at` = the current UTC time to the PR's ledger row.
-  A failed send leaves the row untouched and is logged (chat UI + `nudge_send`
-  error event — [logging.md](logging.md)); the next sweep re-emits it.
+  A failed send leaves the row untouched and is logged (chat UI +
+  `nudge_send` error event); the next sweep re-emits it.
 - **Roster-only tagging.** Every `<@…>` token is a `mention` string copied
   verbatim from the entry (`mentions`, `candidates`, `escalation`) — never
   composed; no `<!…>` broadcast (`here`, `channel`, `everyone`, a group). A
@@ -45,18 +44,17 @@ emits no reviewer-directed nudge for a PR whose `brief.class` is
 `quick-check`; a PR with no current triage counts as one that needs a person.
 
 Every reviewer-directed entry also carries `guide` — `{url, sha}` of the
-review guide recorded for the PR, else `null`. A review of the current head
-that owes its guide ([artifact.md](artifact.md) → **Review guide**) holds the
-nudge until the guide round ran. A guide that still fails leaves `guide`
-`null`: the nudge goes without the link, and preflight logs a warning.
+PR's recorded review guide, else `null`. A review of the current head that
+owes its guide ([artifact.md](artifact.md) → **Review guide**) holds the nudge
+until the guide round ran; a guide that still fails leaves `guide` `null`
+(the nudge goes without the link, preflight logs a warning).
 
 ## Target selection (`needs_target_selection: true`)
 
-The entry is reviewer-directed and none of its targets is mentionable. Pick
-**2 of the entry's `candidates`** (1 if that is all there is; the mentionable
-roster minus the author) and mark them `*` — a Slack-only suggestion, never
-requested on GitHub; with no candidate, send without mentions and persist
-nothing:
+None of the reviewer-directed entry's targets is mentionable. Pick **2 of its
+`candidates`** (the mentionable roster minus the author; 1 if that is all)
+and mark them `*` — a Slack-only suggestion, never requested on GitHub; no
+candidate → send without mentions and persist nothing:
 
 - Build keywords from the PR title plus changed paths and extensions
   (`gh api "repos/$REPO/pulls/<n>/files?per_page=100" --jq '[.[].filename]'`).
@@ -119,29 +117,26 @@ preflight emits no further nudge until the class changes.
 
 ## Expertise auto-refinement
 
-While you are awake for a shepherd run: for each worklist PR authored by a
-roster member, derive area keywords from its title plus changed paths and
-**append** genuinely new ones to that member's "Observed areas" in
-`work/DEVELOPERS.md`. Dedup, keep them short, never touch seed expertise — it
-is operator-authored.
+For each worklist PR authored by a roster member, derive area keywords from
+its title plus changed paths and **append** new ones (deduped, short) to that
+member's "Observed areas" in `work/DEVELOPERS.md`. Never touch the
+operator-authored seed expertise.
 
 ## PR facts (`work/PR-EVENTS.jsonl`)
 
-Each sweep appends one line per fact the first time it sees it, and never
-rewrites one: `first_review` (the earliest independent review, dated by its
-own `submitted_at`, with the hours from `eligible_since`) and `conflict`
-(dated by the sweep that saw it). `nudged` (ts = the row's `last_nudge_at`,
-with its `level`) is written once per nudge the agent recorded, by the next
-sweep or before a prune. The weekly audit counts project health from this file
-([audit.md](audit.md) → task 33); it outlives the ledger row a prune deletes.
+Each sweep appends one line per fact the first time it sees it, never
+rewriting one: `first_review` (the earliest independent review, dated by its
+`submitted_at`, with the hours from `eligible_since`), `conflict` (dated by
+the sweep that saw it), and `nudged` (ts = the row's `last_nudge_at`, with its
+`level`; written once per recorded nudge by the next sweep or before a prune).
+The file outlives pruned ledger rows; the audit reads it ([audit.md](audit.md)
+→ task 33).
 
 ## Ledger & history
 
-`work/SHEPHERD.md` is table-only — no narrative (per-sweep history goes to
-`work/SHEPHERD.log`, append-only, never loaded into context). Preflight
-maintains the bookkeeping columns; your ledger writes are exactly two: the
-post-send `row_update`, and persisting selected targets into the `reviewers`
-cell.
+`work/SHEPHERD.md` is table-only (per-sweep history goes to the append-only
+`work/SHEPHERD.log`, never loaded into context). Your ledger writes are exactly
+two: the post-send `row_update`, and selected targets into `reviewers`.
 
 ## Shepherd-run self-check
 

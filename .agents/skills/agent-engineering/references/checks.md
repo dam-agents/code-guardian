@@ -34,9 +34,9 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
 - **Rule:** the docs, task texts, templates and invariants the agent reads in
   one run give one order for one situation. A rule keeps its scope when a
   doc is moved, split or condensed.
-- **Look for:** a new rule whose subject another file treats with the
-  opposite modality (keep vs drop, never vs always); a procedure changed
-  while the schedule task text or brief that instructs the same step is not;
+- **Look for:** a new rule another file treats with the opposite modality
+  (keep vs drop, never vs always); a procedure changed while the task text or
+  brief that instructs the same step is not;
   a new invariant broader than the defect it answers; a qualifier (*when*,
   *instead*, *in X*) lost in a move; a new action that an existing hard
   invariant forbids; a new procedure that breaks the question or pacing rule
@@ -52,8 +52,8 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   or the pull request.
 - **Look for:** *because*, *since*, *previously*, *instead of*, *not X but*,
   *to avoid*, failure stories, a reason given twice.
-- **Check:** *script* `todo`; *judgment*. 🟡 when the agent can act on the stated reason or
-  over-apply the prohibition.
+- **Check:** *script* `todo`; *judgment*. 🟡 when the agent can act on the
+  stated reason or over-apply the prohibition.
 
 ### A4 🟡 Every rule is on its reader's load path
 - **Rule:** a rule lives in a file that the reader who needs it loads — every
@@ -65,8 +65,8 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   uses; a read set that drops a doc a run still depends on; a `SKILL.md`
   whose front matter has no description or a name other than its directory,
   so no harness lists it.
-- **Check:** *script* `orphan-doc`, `skills`; *judgment*: follow the links from each
-  entry file and brief to the new rule.
+- **Check:** *script* `orphan-doc`, `skills`; *judgment*: follow the links
+  from each entry file and brief to the new rule.
 
 ### A5 🟡 Every reference resolves
 - **Rule:** links, anchors, `<file>.md → **Label**` references, backticked
@@ -250,9 +250,8 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   siblings.
 - **Look for:** a script hunk with no test hunk; a test whose fixture never
   reaches the new path or already holds the new value; stderr hidden inside
-  test helpers. The bar: every new branch, output field, and list member that
-  changes what the agent does or publishes (a redaction term, a gate
-  condition) — not a reworded message or comment.
+  test helpers. The bar: every new branch, output field and list member that
+  changes what the agent does or publishes — not a reworded message.
 - **Check:** *script* `tests` (also a failure branch whose message no test
   names), `syntax`, `exec-bit`; *judgment*: would the test fail on the base
   revision?

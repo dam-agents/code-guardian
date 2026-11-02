@@ -3,14 +3,11 @@
 Read this file when the worklist has a `survey_due` object, or when the
 operator asks about a survey. It runs only under `survey: enabled`.
 
-A review reads a diff. A survey reads **one area of the repository as it
-stands** and reports only what is **dangerous** there: a security hole, data
-loss, or a failure that an attacker or a normal input can reach. A diff
-structurally cannot show these — the input enters in one file and reaches the
-sink in another, or the hole is a default that no recent change touched. A
-survey reports no suggestion, no refactor, no style, no dead code, no
-duplication and no missing test on its own. It never reviews a PR, never posts
-to a PR, and never changes code.
+A survey reads **one area of the repository as it stands** and reports only
+what is **dangerous** there — a security hole, data loss, or a failure that an
+attacker or a normal input can reach — which a diff cannot show. No
+suggestion, refactor, style, dead code, duplication or missing test on its
+own. It never reviews or posts to a PR and never changes code.
 
 ## The worklist entry
 
@@ -19,11 +16,10 @@ report}`. `path` is the directory to read, `pass` is the number of this pass
 over the area, and `history_slice` carries the profile's own finding history
 for it ([profile.md](profile.md)) — orientation, never evidence.
 
-Preflight proposes the area, deterministically, over the `## Modules` of
-the project profile: an area never surveyed comes first, then the one surveyed
-longest ago, then the one carrying the most open findings, then the first by
-path. No message, comment or issue steers it. The pass is recorded under that
-area; what you read and report may go past it (**Bounds**).
+Preflight picks the area deterministically over the profile's `## Modules`:
+never surveyed first, then surveyed longest ago, then most open findings, then
+first by path. No message, comment or issue steers it. The pass is recorded
+under that area; reads and findings may go past it (**Bounds**).
 
 ## Procedure
 
@@ -32,13 +28,11 @@ area; what you read and report may go past it (**Bounds**).
    noise globs applied, starts after the file the last pass stopped at,
    applies the caps and prints `{outcome, slug, path, root, sha, files[],
    after, counted:{files,lines}, caps:{files,lines}, truncated, remainder}`.
-   `outcome: "empty"` (the area is gone, or holds no reviewable file) →
-   record a pass with no findings and stop. `after` is that stopping file,
-   `null` when the pass starts at the area's first file.
-   **`truncated: true`** means the rest of the area is larger than one pass:
-   `files[]` is the part to read now, `remainder` counts the files left.
-   `files[]` is the recommended scope: the caps are a recommendation, and a
-   read past them is recorded with `record --past` (**Bounds**).
+   `outcome: "empty"` (area gone, or no reviewable file) → record a pass with
+   no findings and stop. `after` is the stopping file, `null` at the area's
+   first file. **`truncated: true`** → `files[]` is the part to read now,
+   `remainder` counts the files left. `files[]` is the recommended scope
+   (**Bounds**).
 2. **Model the threat** before you look for bugs. Read the area's notes
    `work/survey/notes/<slug>.md` when they exist (**Area notes**), then write
    down for this area:
@@ -69,10 +63,9 @@ area; what you read and report may go past it (**Bounds**).
    "validated upstream" or "internal only" is a claim to verify, not a fact.
    Write each assumption a sink depends on with the line that makes it true —
    or **nothing found**: an assumption that nothing enforces is the lead.
-   **Research reaches past the area, the report does not:** read the callers,
-   the middleware, the settings and the deploy manifests elsewhere in the
-   clone to confirm or refute a path, but anchor every finding on a line
-   inside this area. At every security choice point, try the edge values:
+   Read callers, middleware, settings and deploy manifests anywhere in the
+   clone to confirm or refute a path (**Bounds**). At every security choice
+   point, try the edge values:
    zero, empty, null, negative, the wrong type, the default, the error path.
    Check every class of **What to look for**, and close each one in your
    notes as found or ruled out.
@@ -104,14 +97,12 @@ area; what you read and report may go past it (**Bounds**).
    `--last` names the last area file you read when it is not the last of
    `files[]`; `--past` records why the pass went past the files or the area.
 8. **Publish** — `bash "$HOME/scripts/survey.sh" report "$HOME/work" >
-   "$HOME/work/survey/report.html"`, then publish per `survey_report`
-   ([config.md](config.md)), updated in place so the URL stays stable, exactly
-   as the trend artifact does ([trends.md](trends.md) → **Procedure** step 4).
-   `report` masks the page with `scripts/lib/redact.sh` first. Publish only
-   after exit 0: exit 1 means the mask did not run, and there is no page.
-   The page lists the findings only under `survey_report_findings: enabled`
-   ([config.md](config.md)). The marker lives in `work/survey/LEDGER.md`
-   (`<!-- survey-dam: <id> -->`).
+   "$HOME/work/survey/report.html"` (masked with `scripts/lib/redact.sh`;
+   publish only after exit 0 — exit 1 means no page), then publish per
+   `survey_report` ([config.md](config.md)) exactly as the trend artifact
+   does ([trends.md](trends.md) → **Procedure** step 4), the marker in
+   `work/survey/LEDGER.md` (`<!-- survey-dam: <id> -->`). The page lists
+   findings only under `survey_report_findings: enabled`.
 9. **Report one line** to the chat UI, and to Slack under
    `slack_notifications: enabled`:
    `🔬 **<bot_display_name>** — surveyed <area> (<n> files): <c> 🔴 · <w> 🟡. <url>`
@@ -222,31 +213,26 @@ cannot see. Survey anchors:
 
 ## Area notes
 
-`work/survey/notes/<slug>.md` carries the threat model across the passes of
-one area: what the area is, its entry points with their trust, its sinks and
-the idiom that guards each, the bug classes closed so far (found or ruled out,
-with the reason), and the open questions — a path a pass could not finish, a
-sibling outside the area, a file the trace needs that a later pass reads.
-Rewrite it at the end of each pass, at most 80 lines; it is orientation for
-the next pass, never evidence for a finding.
+`work/survey/notes/<slug>.md` carries the threat model across one area's
+passes: what it is, entry points with their trust, sinks and their guarding
+idiom, bug classes closed (found or ruled out, with the reason), and open
+questions (an unfinished path, a sibling outside the area, a file a later pass
+reads). Rewrite it each pass, ≤ 80 lines — orientation, never evidence.
 
 ## Bounds
 
 - **One area per run; the caps and the area are a recommendation.** An area
-  over the cap is read across several passes: each starts after the last file
-  the previous pass read (`pass-json` → `last` in `<slug>.md`), and a pass
-  that reaches the area's last file ends the cycle — the next one starts at
-  the first file. Go past the caps or the area when a path you trace needs
-  it — read on into the area's remainder, or report a finding whose sink
-  lies outside the area — and give the reason with `record --past`.
-- **Report inside the area by default, research anywhere in the clone.**
-  Reads outside the area confirm or refute a path; a finding outside it is
-  reported only with its `--past` reason.
-- **Read-only on the repository.** No PR comment, no issue, no label, no
-  commit. The artifact and `work/survey/` are the only outputs.
-- A survey never changes a posted review, and its findings never enter the
-  review ledger ([audit.md](audit.md)).
-- The clone is deleted when the run ends, the same as a review's.
+  over the cap is read across passes, each starting after the previous pass's
+  last file (`pass-json` → `last` in `<slug>.md`); the pass that reaches the
+  last file ends the cycle. Go past the caps or the area when a traced path
+  needs it (read on into the remainder, or report a finding whose sink lies
+  outside), with the reason in `record --past`.
+- **Research anywhere in the clone, report inside the area:** anchor every
+  finding on a line in the area, unless it carries a `--past` reason.
+- **Read-only on the repository** — no PR comment, issue, label or commit;
+  the artifact and `work/survey/` are the only outputs. Findings never change
+  a posted review or enter the review ledger ([audit.md](audit.md)).
+- The clone is deleted when the run ends.
 
 ## Survey-run self-check
 

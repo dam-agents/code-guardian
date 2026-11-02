@@ -18,16 +18,15 @@ content**):
 Handle a PR's entries inside its hold, in worklist order, before its review
 ([runbook.md](runbook.md) → **Review run**, step 5).
 
-Preflight scans the comments updated since the floor in
+Preflight scans comments updated since the floor in
 `work/.mention-scan-since`, newest first, at most **three pages of 100** per
-surface, and emits the authors `mention_authors` admits
-([config.md](config.md)), logging the count it left out; a fuller window logs
-the oldest `created_at` it reached. The floor is never older than 7 days
-(day-rounded, also the value for a missing or invalid marker). A scan in which
-both surfaces answered every page and the candidate set parsed sets the next
-floor to the scan start − 15 min, or the earlier `created_at` of a comment it
-emitted or whose check did not answer, so an entry without a ledger row is
-scanned again.
+surface, emits the authors `mention_authors` admits ([config.md](config.md))
+and logs the count it left out (a fuller window logs the oldest `created_at`
+reached). The floor is never older than 7 days (day-rounded; also the value
+for a missing or invalid marker). A scan whose surfaces answered every page
+and whose candidate set parsed sets the next floor to the scan start − 15 min,
+or the earlier `created_at` of a comment it emitted or whose check did not
+answer, so an entry without a ledger row is scanned again.
 
 ## Dedup ledger — `work/MENTIONS.md`
 
@@ -47,8 +46,8 @@ Create the file with this header when missing:
 ran. The weekly audit trims rows older than 14 days, except `body-<n>` rows
 ([logging.md](logging.md) → **Retention**).
 
-`mentions_due` is a snapshot, and another run may have handled an entry since.
-Immediately before each reply, re-read the ledger:
+`mentions_due` is a snapshot; immediately before each reply, re-read the
+ledger:
 
 ```sh
 grep -qE "^\| *<comment_id> *\|" "$WORK/MENTIONS.md" && echo handled
@@ -112,7 +111,5 @@ entry.
 ## Self-check
 
 - Handled inside the PR's hold, before its review; ledger row immediately
-  after each entry's actions; every entry terminal (`feedback + reply` /
-  `answer` / `review` / `no-action` / `send-failed`) with its
-  `mention_handled` event; every explicit correction stored and named in the
-  reply.
+  after each entry's actions; every entry terminal with its `mention_handled`
+  event; every explicit correction stored and named in the reply.

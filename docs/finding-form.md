@@ -3,11 +3,10 @@
 The shape every finding takes, whoever writes it — the diff review
 ([review.md](review.md)), a skill subagent's reformat ([skills.md](skills.md) →
 **Invocation & audit log**), the benchmark reviewer
-([benchmark.md](benchmark.md)), the survey ([survey.md](survey.md)). The
-shape, the severity bar, the approval bar and the conciseness rules bind every
-writer; bullets marked *review only* apply when the review itself is composed.
-Wording follows ASD-STE100 ([review.md](review.md) → **Criteria & review
-style**).
+([benchmark.md](benchmark.md)), the survey ([survey.md](survey.md)). Every
+rule binds every writer except those marked *review only*, which apply when the
+review itself is composed. Wording follows ASD-STE100 ([review.md](review.md)
+→ **Criteria & review style**).
 
 One finding is one line, plus a **Fix:** line when it blocks; paths are
 repo-relative:
@@ -24,13 +23,13 @@ line alone.
 
 - 🔴 **Critical** — a reachable path gives a wrong result, a security hole, or
   data loss. Grade by the worst consequence on that path, not by how likely
-  its trigger is. Once the trigger and the consequence are shown,
-  these are 🔴 whatever condition the trigger needs: a secret
-  or credential written to a log or an output; a weakened authentication or
-  cryptographic check; a permission wider than the task needs; untrusted
-  input in a shell command, a query or a path without escaping; shared state
-  written and read concurrently without synchronization; a release or deploy
-  gate that a failure can pass; unbounded concurrency or resource use.
+  its trigger is. Once the trigger and the consequence are shown, these are
+  🔴 whatever condition the trigger needs: a secret or credential written to
+  a log or an output; a weakened authentication or cryptographic check; a
+  permission wider than the task needs; untrusted input in a shell command, a
+  query or a path without escaping; shared state written and read
+  concurrently without synchronization; a release or deploy gate that a
+  failure can pass; unbounded concurrency or resource use.
 - 🟡 **Warning** — a real defect with a bounded blast radius: a conditional
   path, degraded behavior, or changed logic with no test. Usually 🟡: a UI
   state or guard defect that loses no data, a stale cache or memoized value,
@@ -51,29 +50,27 @@ defect is 🟢, whoever reported it. A freshness stamp, an enumeration count and
 a diagram never block on their own.
 
 **The approval bar.** 🔴 and 🟡 are blocking: they hold the verdict below
-`APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
-carries the fix that resolves it, so the bar reads off the findings themselves.
-*Review only:* any 🔴 → `REQUEST_CHANGES`, else any 🟡 → `COMMENT`, else
-`APPROVE` — over your findings and every skill section together.
+`APPROVE` until they are resolved. 🟢 never blocks. *Review only:* any 🔴 →
+`REQUEST_CHANGES`, else any 🟡 → `COMMENT`, else `APPROVE` — over your
+findings and every skill section together.
 
 **Blocking findings are complete and uncapped.** Report every 🔴 and 🟡 that
-survives verification, however many that is. A first review is the complete
-list of what is wrong with the PR.
+survives verification; a first review is the complete list of what is wrong
+with the PR.
 
 **🟢 budget per review: 3 when the review carries no 🔴 and no 🟡, otherwise
 1.** The budget counts every 🟢 the review prints — `### Findings` and skill
 sections together — and keeps the strongest. A late 🟡 graded 🟢 on a delta
-re-review is outside it ([review-rereview.md](review-rereview.md)). *Review only:* what it dropped is
-counted in `### Summary`, `_N suggestion(s) dropped under the 🟢 budget._`, so
-a section that reported 🟢 never reads as clean.
+re-review is outside it ([review-rereview.md](review-rereview.md)). *Review
+only:* count what it dropped in `### Summary`: `_N suggestion(s) dropped under
+the 🟢 budget._`
 
-**One finding carries every location.** A finding merged by the sibling sweep
+**One finding carries every location.** A finding merged by a sweep
 ([review.md](review.md) → **Sibling sweep**) names each location in its text and
 lists them all in `also` ([review-mechanics.md](review-mechanics.md) → **Summary
 body format**). A **Fix:** that reads as a rule — *every*, *each*, *all* —
-carries that complete list, because the fix round works the locations and not
-the sentence. Cannot enumerate → narrow the **Fix:** to the locations you
-verified.
+carries that complete list; cannot enumerate → narrow the **Fix:** to the
+locations you verified.
 
 **A predicate finding names its grammar, not its shapes.** When the defect is
 an incomplete predicate, allowlist or parser over a format — a block that
@@ -81,20 +78,19 @@ passes as pure, a line kind the mapping drops — the **Fix:** names the
 format's every line or token kind and says: accept only what the mapping
 uses, treat the rest as free text. The shapes you found are examples in the
 description, never the list the fix works. Its `checks` entry `clean` names
-every kind with the mapping field it reaches or `free text`, so the fix round
-writes one test over all kinds, not one per shape found.
+every kind with the mapping field it reaches or `free text`.
 
 **Concise by default (all reviews, all channels):**
 
 - One finding = what is wrong, why it matters, where — in 1–2 sentences. No
   essays, no restated diff context, no hedging filler.
-- Every 🔴 and 🟡 carries a **Fix:** line: the remedy that resolves the
-  finding, in 1–2 sentences, stated as a rule for the whole defect class, with
-  its scope named when more than one place is affected. A finding whose remedy
-  you cannot state is not verified — drop it. *Review only:* the Fix line sits
-  with the description (the inline comment when the finding is inline-carried,
-  `### Findings` otherwise), above any ` ```suggestion ` block — `post`
-  refuses an inline-carried finding's Fix line in `### Findings`.
+- Every 🔴 and 🟡 carries a **Fix:** line: the remedy, in 1–2 sentences,
+  stated as a rule for the whole defect class, its scope named when more than
+  one place is affected. A finding whose remedy you cannot state is not
+  verified — drop it. *Review only:* the Fix line sits with the description
+  (the inline comment when inline-carried, `### Findings` otherwise), above
+  any ` ```suggestion ` block — `post` refuses an inline-carried finding's Fix
+  line in `### Findings`.
 - Findings anchor to this PR's diff. A pre-existing problem spotted in passing
   is at most one 🟢 line suggesting a separate issue.
 - 🟢 only when the improvement is substantial. Style nits, micro-refactors and
