@@ -94,7 +94,7 @@ base-merge-only round; a clean-run section is the correct output.
 
 **Route first.** `review-pr.sh prepare` applies the rule above to the diff's
 file list and returns `skills{}`: per configured skill its status (`run`,
-`no-matching-files`, `clone-failed`, `draft` for a guide skill on a draft PR),
+`no-matching-files`, `no-linked-issue`, `clone-failed`, `draft` for a guide skill on a draft PR),
 its routed files, its checkout, its brief and its prompt. The routed list is a proposal: before the fan-out you may
 widen a skill's scope — append paths to the `Routed files` list of its brief —
 when a file outside the list bears on what the skill checks, and log it with

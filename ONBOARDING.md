@@ -649,7 +649,7 @@ Final shape:
 
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
-| issue-fit | acme/code-guardian | always | Issue Fit |
+| issue-fit | acme/code-guardian | issue | Issue Fit |
 | review-guide | acme/code-guardian | always | Human Review Guide |
 | doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
 | typescript-engineering | dam-agents/dam | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |
