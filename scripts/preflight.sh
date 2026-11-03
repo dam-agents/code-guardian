@@ -586,7 +586,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
-  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
+  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" --arg aar "$(cfg approve_after_rounds)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
   --arg db2 "$(cfg daily_brief)" --arg bl "$(cfg brief_language)" \
@@ -604,6 +604,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    guide_label:(if $gl=="" then null else $gl end),
+   approve_after_rounds:(if ($aar|test("^[1-9][0-9]*$")) then ($aar|tonumber) else null end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), monitor_owner:(if $mo=="" then null else $mo end),

@@ -455,8 +455,9 @@ Before you declare the run done:
   `head_moved` honoured, a compose-time context change folded in · every
   `post` warning fixed or accepted on purpose · skill audit lines complete,
   widened scopes logged, sections merged with no finding lost or doubled ·
-  served trigger label removed, stale approval dismissed · every sentence
-  inside the 20-word bar.
+  served trigger label removed, stale approval dismissed · from round
+  `approve_after_rounds` on, no open 🔴 → APPROVE · every sentence inside the
+  20-word bar.
 - **Style** — findings concise and diff-anchored, 🟢 within budget
   ([finding-form.md](finding-form.md)); re-review scope matched the trigger;
   `### For the human reviewer` written when due, free of files, lines and

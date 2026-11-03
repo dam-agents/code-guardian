@@ -91,6 +91,11 @@ exception (`benchmark_judge`).
   Publishes each review's progress as a check run or a commit status on the
   reviewed SHA (`context` = `review_marker`); best-effort
   (review-bookkeeping.md → **Progress signal on GitHub**).
+- **`approve_after_rounds`** — a positive integer N. **Missing = off.** From the
+  N-th review round of a PR on, no open 🔴 → `APPROVE`, its 🟡 still listed
+  ([finding-form.md](finding-form.md) → **The approval bar**). A round is one
+  posted review of this agent on the PR; the urgent rapid pass is not a round.
+  🔴 still blocks; auto-merge still needs no open 🟡 ([auto-merge.md](auto-merge.md)).
 - **`ci_triage`** — `enabled` | `disabled`. **Missing = `disabled`.** After a
   review posts, a failing check on the reviewed SHA gets one comment naming the
   probable cause and the smallest fix ([ci-triage.md](ci-triage.md)).

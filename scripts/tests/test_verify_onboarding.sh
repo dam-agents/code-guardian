@@ -286,6 +286,19 @@ assert_out 'FAIL config-auto_merge ' 'names the switch'
 assert_out 'FAIL config-auto_merge_method' 'names the method'
 assert_out 'FAIL config-auto_merge_max_lines' 'names the cap'
 
+new_case approve_after_rounds_values
+seed_home; seed_memory; seed_lessons
+verify_config '- approve_after_rounds: 3'
+run_verify
+assert_out 'ok +config-approve_after_rounds' 'a positive round limit is valid'
+assert_not_out "warn config-keys .*'approve_after_rounds'" 'the round limit is a known key'
+
+new_case approve_after_rounds_zero
+seed_home; seed_memory; seed_lessons
+verify_config '- approve_after_rounds: 0'
+run_verify
+assert_out 'FAIL config-approve_after_rounds' 'a zero round limit fails'
+
 new_case auto_merge_without_label
 seed_home; seed_memory; seed_lessons
 verify_config '- auto_merge: enabled'

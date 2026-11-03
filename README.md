@@ -132,6 +132,7 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `rereview_delta_label` | asked (default off) | Label that requests a **delta** re-review. |
 | `urgent_label` | asked with the labels (default off) | Human-managed label for rapid-first reviews (`docs/review-urgent.md` → **Urgent PRs**). |
 | `review_progress` | asked (default `disabled`) | Progress check run or commit status on the PR (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). |
+| `approve_after_rounds` | asked (default off) | From this review round on, no open 🔴 approves; auto-merge still needs no open 🟡 (`docs/finding-form.md` → **The approval bar**). |
 | `ci_triage` | asked (default `disabled`) | One comment explaining a failing check (`docs/ci-triage.md`). |
 | `review_dispatch` | asked (default `enabled`) | Each PR after a heartbeat's first runs in its own session (`docs/worklist.md` → **Dispatch**). |
 | `session_awareness` | defaulted to `enabled` | Platform session list for holds, dispatch and HEAD signals (`docs/sessions.md`). |

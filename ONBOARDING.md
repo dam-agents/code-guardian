@@ -389,6 +389,7 @@ A failure is not blocking: tell the operator to create it manually.
      | Key | Default | Home, and what to mention |
      | --- | --- | --- |
      | `review_progress` | `disabled` | `docs/review-bookkeeping.md` → **Progress signal on GitHub** — a check run or a commit status per `progress_channel`, always `success` when it finishes, named after `review_marker` |
+     | `approve_after_rounds` | off | `docs/finding-form.md` → **The approval bar** — 🔴 still blocks, auto-merge still needs no open 🟡; write it only for a positive integer |
      | `ci_triage` | `disabled` | `docs/ci-triage.md` — one comment on a failing check; it only reads and explains |
      | `review_dispatch` | `enabled` | `docs/worklist.md` → **Dispatch** — each extra PR's session pays its own session prefix |
      | `mention_replies` | `enabled` | `docs/mentions.md` — comments addressed to **<bot_login>** |
@@ -544,6 +545,7 @@ Final shape:
 - agent_fixes: enabled                 # admin opt-in only; omit = disabled (docs/agent-fixes.md)
 - agent_fix_label: code-guardian:fix  # human-managed label that asks for one fix round
 - review_progress: enabled             # progress check on the PR; omit = disabled
+- approve_after_rounds: 3              # from this review round on, no 🔴 = APPROVE, 🟡 listed; omit = off
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
 - session_awareness: enabled           # platform session list + HEAD signals (docs/sessions.md); omit = enabled

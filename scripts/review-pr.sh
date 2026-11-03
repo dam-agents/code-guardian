@@ -183,6 +183,9 @@ case "$TRIG" in (label|review-request|both) ;; (*) TRIG=label;; esac
 PROGRESS="$(cfg review_progress)"; PROGRESS="${PROGRESS:-disabled}"
 HUMAN_PATHS="$(cfg human_review_paths | tr -d '`')"
 GUIDE_LABEL="$(cfg guide_label)"   # a person asks for the review guide (docs/artifact.md)
+# the review round from which no open 🔴 means APPROVE (docs/finding-form.md → approval bar)
+APPROVE_AFTER="$(cfg approve_after_rounds)"
+case "$APPROVE_AFTER" in (''|*[!0-9]*|0*) APPROVE_AFTER="";; esac
 # lib/paths.sh is optional: unreadable, no path forces a triage
 . "$SCRIPT_DIR/lib/paths.sh" 2>/dev/null || path_glob_match() { return 1; }
 DEF_REF="$(cfg definition_repo)"
@@ -1141,6 +1144,13 @@ cmd_prepare() {
   case "$row_status" in (done|awaiting_label)
     prior="$(jq -nc --arg s "$row_sha" --arg t "$row_ts" --arg v "$row_verdict" --arg st "$row_status" '{sha:$s, ts:$t, verdict:$v, status:$st}')";; esac
   [ -n "$URGENT_LABEL" ] && printf '%s' "$labels" | jq -e --arg x "$URGENT_LABEL" 'index($x) != null' >/dev/null 2>&1 && urgent=true
+  # this round's number — the posted reviews of this PR on record, plus one —
+  # read only while `approve_after_rounds` is set
+  local round=null
+  if [ -n "$APPROVE_AFTER" ]; then
+    round="$(review_records "$WORK/reviews" "$LEDGER" "" 2>/dev/null | jq -s --argjson n "$N" '[ .[] | select(.pr == $n) ] | length + 1' 2>/dev/null)"
+    case "$round" in (''|*[!0-9]*) round=null; logev warn review_pr "PR #$N: the review records were not read — no round number for approve_after_rounds";; esac
+  fi
 
   # --- gates (Check 1) ---
   [ "$draft" = "true" ] && ! draft_review_label "$labels" && out "$(jq -nc '{outcome:"skip", reason:"draft without a review label"}')"
@@ -1188,10 +1198,12 @@ cmd_prepare() {
     --argjson od "$ONDEMAND" --arg run "$me" --arg draft "$draft" \
     --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
     --argjson go "$(guide_owed_at "$sha" && echo true || echo false)" \
+    --argjson round "$round" --arg aa "$APPROVE_AFTER" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
-      guide_seen:$gs, guide_owed:$go, draft:($draft == "true")}' > "$CTX/pr.json"
+      guide_seen:$gs, guide_owed:$go, draft:($draft == "true"),
+      round:$round, approve_after_rounds:(if $aa=="" then null else ($aa|tonumber) end)}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -2048,6 +2060,9 @@ cmd_compose_brief() {
     else printf '### %s\n<that skill'"'"'s findings, or its clean-run line>\n\n' "$sec"; fi
   done
   printf '### Verdict\n<APPROVE | REQUEST_CHANGES | COMMENT> — <one sentence>\n\n'
+  local round cap; round="$(ctx_get '.round // empty')"; cap="$(ctx_get '.approve_after_rounds // empty')"
+  [ -n "$round" ] && [ -n "$cap" ] && [ "$round" -ge "$cap" ] \
+    && printf 'This is review round %s and `approve_after_rounds` is %s: with no open 🔴 the verdict is APPROVE, every open 🟡 stays listed, and the verdict sentence names the round limit (docs/finding-form.md → **The approval bar**).\n\n' "$round" "$cap"
 
   printf '## findings.json — docs/review-mechanics.md → Summary body format\n\n'
   doc_section review-mechanics.md '### Summary body format' \
@@ -2292,6 +2307,15 @@ cmd_post() {
   nbody="$(grep -cE '^[[:space:]]*[-*][[:space:]]+(🔴|🟡)' "$BODY" || :)"
   [ "${nbody:-0}" -le "$nblk" ] \
     || pwarn "the body prints ${nbody} 🔴/🟡 finding line(s) but findings-json holds ${nblk} open blocking finding(s) — print each merged finding once, in ### Findings, and drop its copy from the skill section"
+  # the round limit (docs/finding-form.md → The approval bar): from round
+  # `approve_after_rounds` on, a review with no open 🔴 approves
+  local round cap ncrit
+  round="$(ctx_get '.round // empty')"; cap="$(ctx_get '.approve_after_rounds // empty')"
+  if [ -n "$round" ] && [ -n "$cap" ] && [ "$round" -ge "$cap" ] && [ "$VERDICT" != APPROVE ]; then
+    ncrit="$(jq '[ .[] | select(.severity == "critical" and .status != "fixed") ] | length' "$FINDINGS")"
+    [ "${ncrit:-1}" -eq 0 ] \
+      && pwarn "this is review round ${round} and approve_after_rounds is ${cap}: no 🔴 is open, so the verdict is APPROVE with every open 🟡 listed — post --verdict APPROVE"
+  fi
   # a late 🟡 on a delta re-review is graded by the agent (docs/review-rereview.md
   # → Re-review output); the late set comes from the file `delta` annotated, so
   # a posted array without the `late` flag still names its anchors
