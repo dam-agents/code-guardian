@@ -513,16 +513,7 @@ STALL_ALERT_THRESHOLD="$(cfg_count stall_alert_threshold 4)"
 MODEL_ALERT_THRESHOLD="$(cfg_count model_alert_threshold 2)"
 GITHUB_ALERT_THRESHOLD="$(cfg_count github_alert_threshold 2)"
 CLASSIFIER_ALERT_THRESHOLD="$(cfg_count classifier_alert_threshold 20)"
-ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
-case "$ANOMALY_FACTOR" in
-  (off|none) ANOMALY_FACTOR=0;;
-  ('') ANOMALY_FACTOR=4;;
-  (*) # 0 or a number of 1 or more, printed as a JSON number
-      ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
-        | jq -R 'tonumber | select(. == 0 or . >= 1)' 2>/dev/null)"
-      if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
-      else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
-esac
+anomaly_factor_read
 ANOMALY_MIN_SAMPLES=10     # baseline reviews of one model before the audit's review-shape medians apply
 # Review cadence (docs/config.md). The crons themselves live
 # in the platform scheduler (ONBOARDING Step 6a); the only thing read here is
@@ -595,7 +586,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
-  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" \
+  --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" --arg aar "$(cfg approve_after_rounds)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
   --arg db2 "$(cfg daily_brief)" --arg bl "$(cfg brief_language)" \
@@ -613,6 +604,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    mention_replies:(if $mr=="" then "enabled" else $mr end),
    mention_authors:(if $ma=="anyone" then "anyone" else "collaborators" end),
    guide_label:(if $gl=="" then null else $gl end),
+   approve_after_rounds:(if ($aar|test("^[1-9][0-9]*$")) then ($aar|tonumber) else null end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), monitor_owner:(if $mo=="" then null else $mo end),

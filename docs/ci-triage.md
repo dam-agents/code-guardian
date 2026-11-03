@@ -4,15 +4,15 @@ Read this file when the worklist has a non-empty `ci_failures_due`, and at the
 end of a review whose PR has a failing check ([review.md](review.md) →
 **Per-PR review sequence** step f). It runs only under `ci_triage: enabled`.
 
-The agent reads the failed job's evidence and posts one comment that names the
-probable cause and the smallest fix. It **reads and explains, it never acts**:
-no re-run, no label, no commit, and it never changes a posted verdict.
+The agent posts one comment naming the probable cause and the smallest fix.
+It **reads and explains, it never acts**: no re-run, no label, no commit, no
+change to a posted verdict.
 
 ## When it fires
 
-The rollup skips the agent's own progress signal, the check named
-`review_marker` (`scripts/lib/ci-rollup.sh`). The same procedure, marker and
-comment serve both paths, so a commit is triaged at most once:
+The rollup skips the agent's own check named `review_marker`
+(`scripts/lib/ci-rollup.sh`). Both paths share procedure, marker and comment,
+so a commit is triaged at most once:
 
 - **At the end of a review** — after the review posts and the watch rules are
   evaluated, for the SHA that was reviewed.
@@ -26,9 +26,8 @@ comment serve both paths, so a commit is triaged at most once:
 1. `review-pr.sh ci <n> [--sha <sha>]` returns
    `{sha, terminal, failing:[{name, conclusion, url, evidence}]}`. `evidence`,
    for the first three failing checks, is a file path: the failing job's log
-   tail with its colour codes stripped, else the check run's own output, else `null`. **`terminal: false` or
-   `error` → stop.** No comment, no marker; a later heartbeat reads the rollup
-   again.
+   tail with its colour codes stripped, else the check run's own output, else
+   `null`. **`terminal: false` or `error` → stop**, no comment, no marker.
 2. Read every `evidence` file. For each failing check name the **probable
    cause** and the **smallest fix**. Evidence with no diagnosable cause — an
    infrastructure error, a cancelled job, an empty log — gets no block; when no

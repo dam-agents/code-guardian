@@ -15,22 +15,22 @@ file per UTC day), one JSON object per line:
 - **ts** — exact UTC write time, ms precision where the platform's `date`
   supports it.
 - **run** — the run identifier: `LOG_RUN_ID` env (the harness hooks) →
-  harness session id (`CLAUDE_CODE_SESSION_ID`, `PI_SESSION_ID`) → `CG_RUN_ID` → start time +
-  pid. Groups all lines of one run.
+  harness session id (`CLAUDE_CODE_SESSION_ID`, `PI_SESSION_ID`) →
+  `CG_RUN_ID` → start time + pid. Groups all lines of one run.
   - **The fire's id** — `<mode>-<UTC stamp>-<pid>`, minted by the gate and
-    exported as `CG_RUN_ID` to its pass (`preflight.sh`, or `monitor.sh`): the
-    `precheck` line and the whole pass log under it, the worklist is
-    `cg-worklist-<id>.json`, and every prompt that starts a session ends with
-    `run: <id>` ([worklist.md](worklist.md) → **The schedule gate**). A
-    dispatched session's id is `<id>-pr<n>`, its unit worklist's name.
+    exported as `CG_RUN_ID` to its pass: it names the `precheck` line and the
+    pass log under it and the worklist `cg-worklist-<id>.json`, and every
+    prompt that starts a session ends with `run: <id>`
+    ([worklist.md](worklist.md) → **The schedule gate**). A dispatched
+    session's id is `<id>-pr<n>`, its unit worklist's name.
   - **The session passes it on**: every shell command that runs a
     `$HOME/scripts/` script starts with `export CG_RUN_ID=<id>;`; a run with no
     `run:` line (the audit, the direct session) sets one id for the session,
     `<job>-<UTC yyyymmddThhmmssZ>`. A harness with no session id runs each
     command in a fresh shell, so `review-pr.sh` refuses every subcommand
     without a run id.
-  - Where the harness has a session id it wins: a gated fire is a pair, the gate's id
-    and the session's, matched on `job` and on the minute the gate's
+  - Where the harness has a session id it wins: a gated fire is a pair, the
+    gate's id and the session's, matched on `job` and on the minute the gate's
     `precheck` event names.
 - **job** — `review` | `shepherd` | `audit` | `benchmark` | `survey` | `brief` |
   `monitor` | `session` (from `LOG_JOB`).
@@ -39,12 +39,11 @@ file per UTC day), one JSON object per line:
 - **event** — a short machine-groupable token (`heartbeat`, `preflight`,
   `gh_api`, `skill_install`, `skill_timing`, `tool_failure`, `tool_use`,
   `review_step`, `review_incomplete`, `progress_status`, `mention_handled`,
-  `guide`, `diagram`, `stall_rate`, `review_cost`,
-  `review_anomaly`, `classifier_block`, `api_failure`,
-  `adapter_failure`,
-  `monitor`, `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`,
-  `log_cleanup`, `profile`, `dispatch`, `dispatch_refused`, `dispatch_skipped`, `state_lock`, …).
-  The audit groups recurring errors by it.
+  `guide`, `diagram`, `stall_rate`, `review_cost`, `review_anomaly`,
+  `classifier_block`, `api_failure`, `adapter_failure`, `monitor`,
+  `monitor_alert_sent`, `monitor_direct`, `health`, `pod_boot`, `log_cleanup`,
+  `profile`, `dispatch`, `dispatch_refused`, `dispatch_skipped`, `state_lock`,
+  …). The audit groups recurring errors by it.
 - **msg** — the human-readable message or error.
 
 Writer: `scripts/log.sh` — source it, then `logev <level> <event> <msg>`. It
@@ -60,12 +59,11 @@ hand-rolled line matches exactly:
 - **File** — `work/logs/events-<UTC YYYY-MM-DD>.jsonl` for the write day. No
   other name is ever read.
 - **Object** — the seven fields above, one line, no trailing comma; `event` and
-  `msg` are strings; `run` is this run's id (**run** above).
+  `msg` are strings; `run` is this run's id.
 - **`review_step` `msg`** — `PR #<n> [<sha-short>] <step>`, the sha optional.
   `{"pr":42,"step":"done"}`, or `type` in place of `event`, parses as nothing.
-- **`guide` `msg`** — the same shape for the review guide,
-  `PR #<n>: <skill> published → DAM <id>, <R> redacted` or
-  `PR #<n>: <skill> skipped (<reason>)`, written by `review-pr.sh guide`;
+- **`guide` `msg`** — `PR #<n>: <skill> published → DAM <id>, <R> redacted`
+  or `PR #<n>: <skill> skipped (<reason>)`, written by `review-pr.sh guide`;
   the audit counts it per PR as `stats.guides`
   ([artifact.md](artifact.md) → **Review guide**).
 
@@ -80,57 +78,52 @@ every exec re-resolves its toolchain (~250 ms against ~17 ms).
 `mise bin-paths`, cached in `work/.cache/toolpaths`) and shadows it with a
 function calling the binary directly.
 
-- **`PATH` is never modified.** The offline suite stubs `gh` by prepending
-  `scripts/tests/bin`, and a tool already resolving outside `*/shims/*` (test
-  stub, operator override, fixed image) is left untouched.
+- **`PATH` is never modified.** A tool already resolving outside `*/shims/*`
+  (test stub in `scripts/tests/bin`, operator override, fixed image) is left
+  untouched.
 - Unresolvable tools keep working through the shim; nothing here fails a run.
-- `toolpath_shimmed` backs the audit's `tool_shims` check, and it reports what
-  `toolpath_init` saw **before** it shadowed anything, so the check keeps
-  warning while the workaround is active. **The real fix belongs in the pod
-  image** (real bin dirs ahead of the shim dir on `PATH`); this is a workaround
-  for an environment defect
+- `toolpath_shimmed` backs the audit's `tool_shims` check and reports what
+  `toolpath_init` saw **before** shadowing, so the check keeps warning while
+  the workaround is active. **The real fix belongs in the pod image** (real
+  bin dirs ahead of the shim dir on `PATH`)
   ([self-modification.md](self-modification.md) §5a).
 
 ## Who writes what
 
-1. **`scripts/preflight.sh`** (automatic) — sources log.sh with
-   `LOG_JOB=<mode>`: one `heartbeat` summary per run (`key=value` pairs, the
-   worklist's item count per kind, which the audit's wake-up count reads —
-   [audit.md](audit.md) task 26), every worklist `log` line
-   (`preflight`, info), and the errors it would otherwise swallow —
-   unresolvable repo or API-list failures (`preflight`, error), silent GitHub
-   API failures at decision sites (`gh_api`, warn), skill install failures
-   (`skill_install`, error), and once per pod start a `pod_boot` info (an
-   ephemeral `/tmp` sentinel is absent iff the pod restarted since the last
-   run; a fire on a cold pod is normal). Detect-only, never gating behavior. A run with no matching
-   `heartbeat`/session activity after a `pod_boot` is a restart that
-   interrupted work. `scripts/precheck.sh` adds one `precheck` line per gate
-   pass, and `scripts/monitor.sh` (`LOG_JOB=monitor`) its own `heartbeat`
+1. **`scripts/preflight.sh`** (automatic, `LOG_JOB=<mode>`) — one `heartbeat`
+   summary per run (`key=value` pairs, the worklist's item count per kind,
+   which the audit's wake-up count reads — [audit.md](audit.md) task 26),
+   every worklist `log` line (`preflight`, info), and the errors it would
+   otherwise swallow: unresolvable repo or API-list failures (`preflight`,
+   error), silent GitHub API failures at decision sites (`gh_api`, warn),
+   skill install failures (`skill_install`, error), and once per pod start a
+   `pod_boot` info (an ephemeral `/tmp` sentinel is absent iff the pod
+   restarted since the last run; a fire on a cold pod is normal). A run with
+   no matching `heartbeat`/session activity after a `pod_boot` is a restart
+   that interrupted work. `scripts/precheck.sh` adds one `precheck` line per
+   gate pass, and `scripts/monitor.sh` (`LOG_JOB=monitor`) its own `heartbeat`
    summary and alert events ([monitor.md](monitor.md)).
 2. **Harness adapter** (automatic) — every **failed tool call** becomes a
    `tool_failure` error event: tool name, truncated input, and the fullest
    error context available (`tool_response`, then error/stderr/stdout fields,
-   then the raw payload), so a failure is never logged as bare `null`.
-   Exception: read-only inspect commands
-   (`grep`/`rg`/`ls`/`find`/`test`/`command`/`stat`) answer "no match" with a
-   non-zero exit, and land as info `tool_use` events instead, keeping the
-   `failures[]` triage on real failures. The match is on the **basename of the
-   command that set the exit status** — the last element of a `&&`/`;`/`|`
-   chain — so `/usr/bin/grep …` and `cd … && grep …` are recognised.
-   Under `log_level: debug`, successful external calls (Bash `gh`/`git`/`curl`,
-   `mcp__*` tools) also land as `tool_use` debug events with a truncated
-   result. At session end one **`tokens`** event records the run's API usage
-   (`input=… output=… cache_read=… cache_creation=… msgs=… model=…`, summed
-   from the session transcript and its subagents' transcripts, deduped by
-   message id, then `subagents=<n>`, the transcript's wall time `secs=<n>`
-   and, when n > 0, the subagents' share as
-   `sub_tokens=in:…,out:…,cr:…,cw:…`); the run's other events name its job
-   ([trends.md](trends.md) → **Runs**). A resumed session ends again with its
-   cumulative totals, so a run's last `tokens` event is its usage. A session
-   that called the Agent tool and has no subagent transcript beside its own
-   (`<session>/subagents/*.jsonl`) also logs one warn
-   **`tokens_subagents_missing`**: the subagents' usage is then outside the
-   event, and the audit's warn count shows it. Best-effort: a hard-crashed
+   then the raw payload) — never a bare `null`. Read-only inspect commands
+   (`grep`/`rg`/`ls`/`find`/`test`/`command`/`stat`) that answer "no match"
+   with a non-zero exit land as info `tool_use` events instead; the match is
+   on the **basename of the command that set the exit status** — the last
+   element of a `&&`/`;`/`|` chain — so `/usr/bin/grep …` and
+   `cd … && grep …` are recognised. Under `log_level: debug`, successful
+   external calls (Bash `gh`/`git`/`curl`, `mcp__*` tools) also land as
+   `tool_use` debug events with a truncated result. At session end one
+   **`tokens`** event records the run's API usage (`input=… output=…
+   cache_read=… cache_creation=… msgs=… model=…`, summed from the session's
+   and its subagents' transcripts, deduped by message id, then
+   `subagents=<n>`, the transcript's wall time `secs=<n>` and, when n > 0,
+   the subagents' share as `sub_tokens=in:…,out:…,cr:…,cw:…`); the run's
+   other events name its job ([trends.md](trends.md) → **Runs**). A resumed
+   session ends again with its cumulative totals, so a run's last `tokens`
+   event is its usage. A session that called the Agent tool and has no
+   subagent transcript beside its own (`<session>/subagents/*.jsonl`) also
+   logs one warn **`tokens_subagents_missing`**. Best-effort: a hard-crashed
    session has no tokens event.
 3. **`scripts/review-pr.sh`** (automatic) — the review milestones its
    subcommands perform: `locked`, `cloned` (`prepare`), `locked (refresh, …)`
@@ -164,10 +157,9 @@ measured ([audit.md](audit.md) → tasks 27, 29), and in 24 h without one the
 health dashboard reports sessions as not measured ([health.md](health.md) →
 **Service status**).
 
-Each harness has one file with what is specific to it — detection, run id,
+Read the file of the harness this session runs on — detection, run id,
 subagents, skill invocation, tool names, the adapter's parts and the duties
-that fall back to the agent where it has none. Read the file of the harness
-this session runs on:
+that fall back to the agent:
 
 | Harness | File | Adapter |
 |---------|------|---------|
@@ -182,10 +174,11 @@ for the scripts that differ per harness.
 ## Retention
 
 The audit run (`preflight.sh audit`, script-side) cleans up, keeping at least
-14 days:
+14 days, and logs itself (`log_cleanup`, info); older logs stay recoverable
+from the work repo's history:
 
-- `work/logs/events-*.jsonl` older than 14 days are deleted — with the weekly
-  cadence a file is 14–21 days old when it dies.
+- `work/logs/events-*.jsonl` older than 14 days are deleted (14–21 days old
+  at the weekly cadence).
 - `work/HEARTBEAT.log` and `work/SHEPHERD.log` are trimmed in place to the last
   14 days; unparseable lines are kept.
 - `work/MENTIONS.md` ([mentions.md](mentions.md)) is trimmed to rows younger
@@ -193,13 +186,10 @@ The audit run (`preflight.sh audit`, script-side) cleans up, keeping at least
   PR's description is scanned at any age — until the PR's prune deletes it
   ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).
 - `work/REVIEW-LEDGER.jsonl` ([review-mechanics.md](review-mechanics.md) →
-  **Review ledger**) is trimmed to rows younger than **180 days** — it outlives
-  the reviewed PR, and the trend backfill reads back over past weeks.
-- `work/PR-EVENTS.jsonl` ([shepherd.md](shepherd.md) → **PR facts**) is trimmed
-  to the same **180 days**, for the same reason.
+  **Review ledger**) and `work/PR-EVENTS.jsonl` ([shepherd.md](shepherd.md) →
+  **PR facts**) are trimmed to rows younger than **180 days** — they outlive
+  the PR, and the trend backfill reads back over past weeks.
 - `work/AUDIT.log` is exempt (one line per week).
-- The cleanup logs itself (`log_cleanup`, info). With `work/` git-backed, older
-  logs stay recoverable from the work repo's history.
 - The monitor's pass trims its own records: `work/health/`
   ([health.md](health.md)), `work/MONITOR.json` and `work/REVIEW-USAGE.jsonl`
   ([monitor.md](monitor.md)).
@@ -230,8 +220,8 @@ jq -c -R 'fromjson? // empty' "work/logs/events-$(date -u +%Y-%m-%d).jsonl" \
 ### Reading skill timings
 
 `skill:<name> done` is derived from the subagent tool call **returning**, so a
-parallel fan-out stamps every skill within milliseconds of the collection and
-carries no per-skill duration — differencing those events measures nothing.
-Read the phase from `review_step` `fanned out (n=<N>)` → `verified` →
-`posted`, and per-skill finish times from the `skill_timing` event
-([review.md](review.md) → **Progress logging**).
+parallel fan-out stamps every skill within milliseconds of the collection —
+differencing those events measures nothing. Read the phase from
+`review_step` `fanned out (n=<N>)` → `verified` → `posted`, and per-skill
+finish times from the `skill_timing` event ([review.md](review.md) →
+**Progress logging**).

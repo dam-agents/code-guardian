@@ -34,10 +34,6 @@ direct() { OUT="$(mcp_env bash "$DIRECT" "$@" 2>>"$STDERR_LOG")"; }
 monitor() { OUT="$(mcp_env bash "$REPO_ROOT/scripts/monitor.sh" "$@" 2>>"$STDERR_LOG")"; }
 calls() { jq -s --arg t "${1:-send_channel_message}" '[.[] | select(.method == "tools/call" and .params.name == $t)] | length' "$SANDBOX/mcp.log"; }
 sent_text() { jq -rs '[.[] | select(.params.name == "send_channel_message")] | last | .params.arguments.text' "$SANDBOX/mcp.log"; }
-check_eq() { # <actual> <expected> <description>
-  if [ "$1" = "$2" ]; then printf 'ok   %s: %s\n' "$CASE" "$3"
-  else printf 'FAIL %s: %s\n     got:  %s\n     want: %s\n' "$CASE" "$3" "$1" "$2"; FAILED=1; fi
-}
 alerts() { cat > "$SANDBOX/alerts.json"; }
 
 # --- the exact text of every template ---------------------------------------------

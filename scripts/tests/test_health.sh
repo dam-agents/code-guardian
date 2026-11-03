@@ -37,10 +37,6 @@ lacks() { # <file> <grep -E pattern> <description>
   if grep -qE -- "$2" "$1"; then printf 'FAIL %s: %s (%s found)\n' "$CASE" "$3" "$2"; FAILED=1
   else printf 'ok   %s: %s\n' "$CASE" "$3"; fi
 }
-check_eq() { # <actual> <expected> <description>
-  if [ "$1" = "$2" ]; then printf 'ok   %s: %s\n' "$CASE" "$3"
-  else printf 'FAIL %s: %s (got %s, want %s)\n' "$CASE" "$3" "$1" "$2"; FAILED=1; fi
-}
 # an instant early in the last full hour, so every event lands in one hour row
 AGO=$(( $(date -u +%s) % 3600 + 1800 ))
 H="$(iso_ago "$AGO")"; H="${H:0:13}"

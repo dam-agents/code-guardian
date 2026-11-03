@@ -4,12 +4,6 @@
 # the author-association gate (mention_authors), the scan floor marker.
 . "$(dirname "$0")/helpers.sh"
 
-# scan window start without a marker — MUST mirror preflight.sh (7 days back,
-# day-rounded)
-msince() {
-  local s=$(( $(date -u +%s) - 7*86400 ))
-  printf '%sT00:00:00Z' "$(date -u -d "@$s" +%Y-%m-%d 2>/dev/null || date -u -r "$s" +%Y-%m-%d)"
-}
 MS="$(msince)"
 
 # ASSOC (default MEMBER) is the author_association the comment carries

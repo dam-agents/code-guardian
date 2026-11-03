@@ -985,6 +985,38 @@ assert_jq '.outcome == "posted" and (.warnings | length) == 1' '--accept-warning
 assert_file_contains "$(ls "$WORK"/logs/events-*.jsonl | head -1)" '"event":"post_warnings"' 'a post with accepted warnings is logged'
 run_rp abort 1 "reset"
 
+# approve_after_rounds: from that round on, no open 🔴 means APPROVE — the
+# brief names the round and post warns on another verdict
+setup approve_after_rounds
+pr_fx open '["cg-rereview"]'
+printf -- '- approve_after_rounds: 2\n' >> "$WORK/CONFIG.md"
+printf '{"pr":1,"ts":"2026-10-01T00:00:00Z","sha":"1111111","kind":"first","verdict":"COMMENT"}\n' > "$WORK/REVIEW-LEDGER.jsonl"
+run_rp prepare 1
+jq -e '.round == 2 and .approve_after_rounds == 2' "$(PR_DIR).ctx/pr.json" >/dev/null \
+  && printf 'ok   %s: prepare records round 2 against the limit\n' "$CASE" \
+  || { printf 'FAIL %s: round not recorded: %s\n' "$CASE" "$(cat "$(PR_DIR).ctx/pr.json")"; FAILED=1; }
+run_rp compose-brief 1
+assert_out_contains 'This is review round 2 and `approve_after_rounds` is 2' 'the brief names the round limit at the verdict'
+printf '### Summary\nAdds query().\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n\n### Verdict\nCOMMENT\n' > "$SANDBOX/body.md"
+printf '[{"status":"new","severity":"warning","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+printf '{"id":94,"html_url":"https://example.test/r/94","state":"COMMENTED"}' | fx "$(POST_SLUG)"
+run_rp post 1 --verdict COMMENT --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome == "warnings" and (.warnings | any(contains("approve_after_rounds is 2")))' 'post warns on COMMENT past the round limit with no 🔴'
+printf '[{"status":"new","severity":"critical","file":"src/alpha.ts","line":6,"inline":true,"summary":"missing guard","fix":"guard it"}]' > "$SANDBOX/findings.json"
+sed -i.bak 's/🟡 \*\*Warning:\*\*/🔴 **Critical:**/' "$SANDBOX/body.md"
+run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/findings.json"
+assert_jq '.outcome != "warnings" or (.warnings | any(contains("approve_after_rounds")) | not)' 'an open 🔴 keeps the verdict below APPROVE past the limit'
+run_rp abort 1 "reset"
+
+# without the key no round is read and nothing changes
+setup approve_after_rounds_off
+pr_fx open '["cg-rereview"]'
+run_rp prepare 1
+jq -e '.round == null and .approve_after_rounds == null' "$(PR_DIR).ctx/pr.json" >/dev/null \
+  && printf 'ok   %s: no key, no round\n' "$CASE" \
+  || { printf 'FAIL %s: round read without the key\n' "$CASE"; FAILED=1; }
+run_rp abort 1 "reset"
+
 # a range that is not whole (force-pushed away) cannot age a finding: nothing is late
 setup delta_late_unknown
 PRIOR="1111111111111111111111111111111111111111"

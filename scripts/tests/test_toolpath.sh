@@ -19,10 +19,6 @@ printf '#!/usr/bin/env bash\nprintf SHIM_WIDGET\n' > "$SHIMS/widget"
 printf '#!/usr/bin/env bash\n[ "$1" = bin-paths ] && printf "%%s\\n" "%s"\n' "$REAL" > "$SANDBOX/bin/mise"
 chmod +x "$REAL/widget" "$SHIMS/widget" "$SANDBOX/bin/mise"
 
-ok()   { printf 'ok   %s: %s\n' "$CASE" "$1"; }
-bad()  { printf 'FAIL %s: %s\n' "$CASE" "$1"; RC=1; }
-is()   { [ "$2" = "$3" ] && ok "$1" || bad "$1 (got '$2', want '$3')"; }
-RC=0
 
 # run a snippet with the fake pod on PATH and a fresh WORK_DIR
 inlib() { # <work-dir> <snippet>
@@ -106,4 +102,4 @@ is 'PATH is not modified' \
    "$(inlib "$SANDBOX/w9" 'printf %s "$PATH"')" \
    "$SANDBOX/bin:$SHIMS:/usr/sbin:/usr/bin:/bin"
 
-exit "$RC"
+finish

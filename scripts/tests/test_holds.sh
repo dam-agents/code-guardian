@@ -7,11 +7,6 @@
 SHA1="1111111111111111111111111111111111111111"
 RP="$REPO_ROOT/scripts/review-pr.sh"
 
-# scan window start — MUST mirror preflight.sh (7 days back, day-rounded)
-msince() {
-  local s=$(( $(date -u +%s) - 7*86400 ))
-  printf '%sT00:00:00Z' "$(date -u -d "@$s" +%Y-%m-%d 2>/dev/null || date -u -r "$s" +%Y-%m-%d)"
-}
 MS="$(msince)"
 ic_comment() { # <id> <body> <issue-number>
   jq -n --argjson id "$1" --arg b "$2" --argjson n "$3" \

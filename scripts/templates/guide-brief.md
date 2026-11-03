@@ -41,14 +41,13 @@ Do exactly this:
 
 Write only `{{OUT_FILE}}`, `{{HTML_FILE}}`, a map the diagram block above
 orders, and a scratch file only under `{{SCRATCH_DIR}}`. Every input above,
-and every other file the review prepared, is read-only: a file written over it
-breaks the review that launched you.
+and every other file the review prepared, is read-only.
 
-Cost: this guide runs on every reviewed PR, so it must be cheap. Decide the gate
-from the diff stat, the PR context and the signals above before you open a file.
-Read code ranges, never whole large files; never run a build, a test, an install
-or a history walk past the commit list above. Reuse a project diagram before you
-draw one. Fill the skill's `assets/template.html` once — no second pass.
+Cost: this guide runs on every reviewed PR. Decide the gate from the diff stat,
+the PR context and the signals above before you open a file. Read code ranges,
+never whole large files; run no build, test, install or history walk past the
+commit list above. Reuse a project diagram before you draw one. Fill the
+skill's `assets/template.html` once — no second pass.
 
 No circling: whatever fails or comes back empty gets one retry, then you continue
 without it. A command whose result is already known is not re-run.

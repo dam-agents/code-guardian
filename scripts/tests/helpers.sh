@@ -60,10 +60,16 @@ seed_identity() { # <login> [previous-login]
      + (if $p == "" then {} else {previous:{login:$p, kind:"user"}, changed_at:$t} end)' > "$WORK/GITHUB.json"
 }
 
+# mention scan window start without a marker — MUST mirror preflight.sh
+# (7 days back, day-rounded)
+msince() {
+  local s=$(( $(date -u +%s) - 7*86400 ))
+  printf '%sT00:00:00Z' "$(date -u -d "@$s" +%Y-%m-%d 2>/dev/null || date -u -r "$s" +%Y-%m-%d)"
+}
+
 # a mention of the bot on PR #1 puts the PR into this run's mentions_due
 mention_on_pr1() {
-  local s=$(( $(date -u +%s) - 7*86400 )) ms
-  ms="$(date -u -d "@$s" +%Y-%m-%d 2>/dev/null || date -u -r "$s" +%Y-%m-%d)T00:00:00Z"
+  local ms; ms="$(msince)"
   jq -n '[{id:501, user:{login:"alice", type:"User"}, author_association:"MEMBER", body:"@test-bot please look again",
           created_at:"2026-08-07T09:00:00Z", html_url:"https://example.test/c/501",
           issue_url:"https://api.github.com/repos/acme/widgets/issues/1"}]' \
@@ -211,5 +217,15 @@ assert_out_absent() { # <grep -E pattern> <description> — $OUT lacks pattern
     printf 'ok   %s: %s\n' "$CASE" "$2"
   fi
 }
+
+check_eq() { # <actual> <expected> <description>
+  if [ "$1" = "$2" ]; then printf 'ok   %s: %s\n' "$CASE" "$3"
+  else printf 'FAIL %s: %s\n     got:  %s\n     want: %s\n' "$CASE" "$3" "$1" "$2"; FAILED=1; fi
+}
+
+# one-line checks for the library unit tests
+ok()  { printf 'ok   %s: %s\n' "$CASE" "$1"; }
+bad() { printf 'FAIL %s: %s\n' "$CASE" "$1"; FAILED=1; }
+is()  { [ "$2" = "$3" ] && ok "$1" || bad "$1 (got '$2', want '$3')"; }
 
 finish() { exit "$FAILED"; }
