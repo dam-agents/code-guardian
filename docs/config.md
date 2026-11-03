@@ -138,6 +138,11 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
 
 - **`## Review skills` table** — the per-PR review skills; semantics in
   [skills.md](skills.md). Missing or empty → no review skills run (log once).
+  The **trigger** cell is `always`, `issue`, or an extension list
+  (`.ts,.js`). `issue` runs the skill only on a PR that names an issue it
+  closes; without one the skill is skipped `no-linked-issue`. An unknown value
+  reads as an extension list, so no file matches it and the skill never runs
+  (verify-onboarding rejects it).
   A row whose skill is a guide skill — the bundled `review-guide`, in the
   default set — builds a visual page for the human reviewer of a
   `needs-human` PR and links it from the review, then brings that page up to

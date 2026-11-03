@@ -682,6 +682,17 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
     body: (.body // "")}' 2>/dev/null
 }
 
+# The PR names an issue it closes: a closing keyword with a `#<n>` or an issue
+# URL in the body, or a head branch that starts with an issue number. This is
+# what an `issue` skill keys on (docs/skills.md → Triggers & file routing) —
+# read from the PR payload, with no API call of its own.
+pr_links_issue() { # <body> <head-ref> → 0 when the PR names an issue it closes
+  printf '%s\n' "${1:-}" \
+    | grep -qiE '(^|[^A-Za-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*(#[0-9]+|[A-Za-z0-9._/-]*/issues/[0-9]+)' \
+    && return 0
+  printf '%s\n' "${2:-}" | grep -qE '^[0-9]+[-_/]'
+}
+
 # A guide label that no review round saw yet asks for a round too
 # (docs/artifact.md → Review guide).
 trigger_live() { # <labels-json> <requested-json> <head-sha> → 0 when a re-review trigger is present
@@ -1132,6 +1143,8 @@ cmd_prepare() {
   sha="$(printf '%s' "$PJ" | jq -r .head_sha)"; ref="$(printf '%s' "$PJ" | jq -r .head_ref)"; base="$(printf '%s' "$PJ" | jq -r .base_ref)"
   title="$(printf '%s' "$PJ" | jq -r .title)"; author="$(printf '%s' "$PJ" | jq -r .author)"; head_repo="$(printf '%s' "$PJ" | jq -r .head_repo)"
   labels="$(printf '%s' "$PJ" | jq -c .labels)"; requested="$(printf '%s' "$PJ" | jq -c .requested)"
+  local linked=false
+  pr_links_issue "$(printf '%s' "$PJ" | jq -r .body)" "$ref" && linked=true
 
   local row row_status row_verdict row_sha row_ts kind=first full=true urgent=false mode=review prior=null
   row="$(row_for)"; row_status="$(row_field "$row" 6)"; row_verdict="$(row_field "$row" 5)"; row_sha="$(row_field "$row" 3)"; row_ts="$(row_field "$row" 4)"
@@ -1187,11 +1200,11 @@ cmd_prepare() {
     --argjson rapid "$([ "$lock_verdict" = "RAPID" ] && echo true || echo false)" \
     --argjson od "$ONDEMAND" --arg run "$me" --arg draft "$draft" \
     --argjson gs "$(guide_label_seen "$WORK/reviews/pr-$N.md" && echo true || echo false)" \
-    --argjson go "$(guide_owed_at "$sha" && echo true || echo false)" \
+    --argjson go "$(guide_owed_at "$sha" && echo true || echo false)" --argjson li "$linked" \
     '{number:($n|tonumber), head_sha:$sha, head_ref:$ref, base_ref:$base, title:$t, author:$a, kind:$k, full:$full,
       urgent:$urgent, mode:$mode, prior:$prior, locked_at:$now, labels:$labels, changes:$lv, rapid_posted:$rapid,
       on_demand:$od, run:(if $run=="" then null else $run end), clone:"pending",
-      guide_seen:$gs, guide_owed:$go, draft:($draft == "true")}' > "$CTX/pr.json"
+      guide_seen:$gs, guide_owed:$go, linked_issue:$li, draft:($draft == "true")}' > "$CTX/pr.json"
   ctx_save
   logstep "${sha:0:7} locked"
   [ -n "$ETA" ] && case "$ETA" in (*[!0-9]*) ETA="";; esac
@@ -1429,7 +1442,8 @@ cmd_prepare() {
       && [ "$(jq length "$CTX/files.delta.json" 2>/dev/null || echo 0)" -gt 0 ] \
       && routable="$CTX/files.delta.json"
   fi
-  # `always` skills keep the whole clone; on a range, its files are their focus
+  # `always` and `issue` skills keep the whole clone; on a range, its files are
+  # their focus
   local focus=""
   [ "$routable" != "$CTX/files.json" ] \
     && focus="$(jq -r ".[] | select($reviewable) | \"- \" + .path" "$routable" 2>/dev/null)"
@@ -1439,22 +1453,29 @@ cmd_prepare() {
     trig="$(printf '%s' "$skills" | jq -r --arg s "$s" '.[] | select(.skill==$s) | .trigger')"
     kind="$(skill_kind "$s")"; html=""
     files='[]'; status=run
-    if [ "$trig" != "always" ]; then
-      files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
-        | [ .[] | select('"$reviewable"') | .path
-            | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
-      [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files
-    fi
+    case "$trig" in
+      # an `issue` skill runs only for a PR that names the issue it closes
+      (issue) [ "$linked" = true ] || status=no-linked-issue;;
+      (always) ;;
+      (*)
+        files="$(jq -c --arg t "$trig" '($t | split(",") | map(gsub("\\s";"") | select(length>0))) as $exts
+          | [ .[] | select('"$reviewable"') | .path
+              | select((split("/") | last | if contains(".") then "." + (split(".") | last) else "" end) as $e | $exts | index($e) != null) ]' "$routable")"
+        [ "$(printf '%s' "$files" | jq length)" -eq 0 ] && status=no-matching-files;;
+    esac
     [ "$status" = run ] && [ "$clone" != ok ] && status=clone-failed
     # a draft gets its review only: no guide page (docs/worklist.md)
     [ "$status" = run ] && [ "$kind" = guide ] && [ "$(ctx_get '.draft // false')" = true ] && status=draft
     brief=""; copy=""
     if [ "$status" = run ]; then
       nrun=$((nrun+1)); copy="$PR_DIR"
-      if [ "$trig" = "always" ]; then
-        fblock=$'\nScope: the whole clone (an `always` skill).'
-        [ -n "$focus" ] && fblock="$fblock"$' Focus — the files changed since the previous review round; look\nthere first. The rest of the PR was reviewed in that round and stays context:\n'"$focus"
-      else fblock=$'\nRouted files — the review\'s scope for this skill (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')"; fi
+      case "$trig" in
+        (always|issue)
+          if [ "$trig" = "issue" ]; then fblock=$'\nScope: the whole clone (an `issue` skill — this PR names an issue it closes).'
+          else fblock=$'\nScope: the whole clone (an `always` skill).'; fi
+          [ -n "$focus" ] && fblock="$fblock"$' Focus — the files changed since the previous review round; look\nthere first. The rest of the PR was reviewed in that round and stays context:\n'"$focus";;
+        (*) fblock=$'\nRouted files — the review\'s scope for this skill (paths relative to the working directory):\n'"$(printf '%s' "$files" | jq -r '.[] | "- " + .')";;
+      esac
       brief="$CTX/briefs/$s.md"
       local t="$tpl"
       if [ "$kind" = guide ] && [ -n "$gtpl" ]; then

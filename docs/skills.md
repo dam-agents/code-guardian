@@ -48,7 +48,8 @@ Running each configured skill per its trigger is not optional and not
 pre-filterable: the skill decides what is worth reporting, you invoke it and
 surface the result. The one skip that is your judgement call is
 `base-merge-only` below. The **only** valid skips are
-`no-matching-files` (extension trigger, empty routed list), `base-merge-only`
+`no-matching-files` (extension trigger, empty routed list), `no-linked-issue`
+(`issue` trigger, the PR names no issue it closes), `base-merge-only`
 (your call on a re-review range that leaves the PR's own diff unchanged,
 recorded with `collect --skip`,
 [review-rereview.md](review-rereview.md) → **Re-review output**) and the
@@ -63,6 +64,14 @@ base-merge-only round; a clean-run section is the correct output.
 - **`always`** — runs on every reviewed PR, against the whole clone with the
   base ref `origin/<baseRefName>` for diffing; on a reachable range below, the
   range's routable files are its focus.
+- **`issue`** — runs iff the PR names an issue it closes: a closing keyword
+  (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`,
+  `resolved`) with `#<n>` or an issue URL in the body, or a head branch that
+  starts with an issue number. `prepare` reads this from the PR payload it
+  already holds — no extra API call. The run is against the whole clone, like
+  `always`. Use it for a skill whose subject is the issue, such as the bundled
+  `issue-fit`; on a PR with no such issue the skill is skipped
+  `no-linked-issue` and costs nothing.
 - **extension list** (for example `.ts,.js`) — runs iff ≥1 changed file routes
   to it, and receives the routed file list (paths relative to `$PR_DIR`) plus
   the base branch. The changed-file list is the reviewed scope's: the diff at
@@ -150,12 +159,13 @@ divert the run.
 Before posting any review, exactly **one audit line per configured skill** must
 exist in the chat UI:
 
-- `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
+- `PR #<n>: <skill> ran (findings=<N>)` — `always` or `issue` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
 - `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|budget|refused>[, diagrams=<N>])` —
   a guide skill (**Guide skills**); `diagrams` counts the project maps it
   stored.
 - `PR #<n>: <skill> skipped (no-matching-files)` — extension triggers only.
+- `PR #<n>: <skill> skipped (no-linked-issue)` — `issue` trigger only.
 - `PR #<n>: <skill> skipped (base-merge-only)` — a skill you chose not to run on a
   base-merge-only re-review (`collect --skip`).
 - `PR #<n>: <skill> skipped (draft)` — a guide skill on a draft PR.

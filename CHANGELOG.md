@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.2.0 — 2026-11-03
+
+**Upgrade:** Nothing to run. A `## Review skills` row can now take the trigger
+`issue`: the skill runs only for a PR that names an issue it closes, and is
+skipped `no-linked-issue` on every other PR, with no subagent and no cost.
+Tell the operator. To save that work on issue-less PRs, change an issue-shaped
+row — the bundled `issue-fit` — from `always` to `issue`
+(docs/skills.md → **Triggers & file routing**). verify-onboarding now rejects
+an unknown trigger value.
+
 ## 14.1.0 — 2026-10-30
 
 **Upgrade:** Nothing to run. A draft PR that carries `rereview_label` or

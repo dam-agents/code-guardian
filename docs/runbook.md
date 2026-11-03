@@ -301,7 +301,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   flip.
 - Configured review skills are never pre-filtered away. Routing is inclusive
   ([skills.md](skills.md) → **Triggers & file routing**), the only accepted
-  skips are `no-matching-files`, `base-merge-only`, a guide skill's `draft`
+  skips are `no-matching-files`, `no-linked-issue`, `base-merge-only`, a guide
+  skill's `draft`
   and technical failures ([skills.md](skills.md) → **Mandatory — one
   judgement call**), and their findings are
   reformatted to the finding form and deduplicated against the other sources —

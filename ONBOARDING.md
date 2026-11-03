@@ -459,6 +459,9 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
    - An empty table is valid — plain reviews only.
+   - Triggers: `always` (every reviewed PR), `issue` (only a PR that names an
+     issue it closes — the right trigger for `issue-fit`), or an extension
+     list such as `.ts,.js` (`docs/skills.md` → **Triggers & file routing**).
    - **The review guide row** — in the default set, **on**. Say it once with
      the table, because the guide is public by link:
 

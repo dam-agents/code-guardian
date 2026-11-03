@@ -2870,4 +2870,50 @@ run_rp collect 1
 assert_jq '.skills["review-guide"].diagrams.refused == [{"id":"c-src","why":"a comment opener inside an attribute value or a raw-text element"}]' 'a map with a comment opener in a quoted value is refused'
 run_rp abort 1 "reset"
 
+# --- the `issue` trigger: the skill runs only for a PR that names an issue -----
+# (docs/skills.md → Triggers & file routing)
+issue_config() { # [extra config lines…]
+  base_config "$@" '' '## Review skills' '' \
+    '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+    '| doc-drift | harness | always | Documentation Check |' \
+    '| issue-fit | harness | issue | Issue Fit |'
+}
+issue_setup() { # <case> [extra config lines…]
+  new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; issue_config "${@:2}"; pr_fx; ctx_fx
+  CLONE_SRC=""; : > "$SANDBOX/gh.log"
+}
+pr_fx_body() { # <body> <head-ref> — the live PR with this body and branch
+  jq -n --arg sha "$B1_SHA" --arg b "$1" --arg ref "$2" \
+    '{state:"open", merged:false, draft:false, title:"alpha PR", user:{login:"alice"}, body:$b,
+      head:{sha:$sha, ref:$ref, repo:{full_name:"acme/widgets"}}, base:{ref:"main"}, labels:[],
+      requested_reviewers:[], additions:3, deletions:1, changed_files:3}' \
+    | fx 'api repos/acme/widgets/pulls/1'
+}
+
+issue_setup issue_trigger_unlinked
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "no-linked-issue" and .skills["issue-fit"].brief == null' 'a PR with no issue skips the issue skill'
+assert_jq '.skills["issue-fit"].workdir == null and .skills["doc-drift"].status == "run"' 'a skipped issue skill gets no checkout; the always skill still runs'
+[ -d "$(PR_DIR).s-issue-fit" ] && { printf 'FAIL %s: a checkout was made for a skipped issue skill\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no checkout for a skipped issue skill\n' "$CASE"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+assert_jq '.audit_lines | index("PR #1: issue-fit skipped (no-linked-issue)") != null' 'the audit line names the skip'
+assert_jq '.skills["issue-fit"].status == "no-linked-issue"' 'collect keeps the skip'
+run_rp abort 1 "reset"
+
+issue_setup issue_trigger_closing_keyword
+pr_fx_body 'Adds query(), closes #12.' b1
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "run" and .skills["issue-fit"].files == []' 'a closing keyword runs the issue skill over the whole clone'
+assert_file_contains "$(PR_DIR).ctx/briefs/issue-fit.md" 'an `issue` skill' 'the brief says why the skill runs'
+run_rp abort 1 "reset"
+
+issue_setup issue_trigger_branch_number
+git -C "$FX" branch 123-add-retries b1      # the clone fetches the PR's head branch
+pr_fx_body 'Adds query()' '123-add-retries'
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "run"' 'a head branch that starts with an issue number runs the issue skill'
+run_rp abort 1 "reset"
+
 finish
