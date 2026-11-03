@@ -543,7 +543,8 @@ Before you declare the run done:
   logged with its reason ·
   skill sections reformatted and merged with no finding lost and none printed
   twice · stale approval
-  dismissed when the verdict dropped below APPROVE · every sentence of the
+  dismissed when the verdict dropped below APPROVE · from round
+  `approve_after_rounds` on, no open 🔴 → APPROVE · every sentence of the
   posted prose inside the 20-word bar (**The sentence bar is 20 words**).
 - **Style** — findings concise and diff-anchored, inline text never repeated in
   the summary; every verified 🔴/🟡 reported, 🟢 within budget
