@@ -5,26 +5,20 @@ itself with a sentinel, and every step is idempotent, so a failed run is safe
 to re-run from the top.
 
 After onboarding, `/home/agent` is the definition repo (`origin`, resolved in
-Step 0) and `/home/agent/work` a plain data directory of runtime state,
-git-ignored by it and backed up to `work_repo` when configured
+Step 0) and `/home/agent/work` a git-ignored data directory of runtime state
 (`docs/persistence.md` → **Two stores: shared live state + durable backup**).
 
-**Created from the starter kit.** A platform that offers this definition as a
-kit ([`kit.yaml`](kit.yaml)) grants the connections, seeds the definition into
-`$HOME` and registers the schedules before the first turn. Onboarding runs the
-same steps over that instance: it reads the seeded checkout instead of asking
-for a URL (Step 0.3), and reconciles the registered schedules with the
-operator's configuration (Step 6). Everything else — `work/`, `CONFIG.md`, the
-roster, the labels, the review state, the sentinel — exists only after this
-run. A hand-made agent starts on an empty volume and gets all of it from the
-steps below.
+**Created from the starter kit.** A kit-created instance ([`kit.yaml`](kit.yaml))
+already has the connections, the seeded checkout in `$HOME` and the schedules.
+Onboarding runs the same steps over it: it reads the seeded checkout instead of
+asking for a URL (Step 0.3) and reconciles the registered schedules (Step 6).
+Everything else exists only after this run.
 
-**Questions to the operator — one per message.** Ask each question of this
-runbook as a message of its own, wait for the answer, then ask the next. A
-follow-up (the label after a yes, the paths after a scope) is a question of
-its own. Each question states its default, so a short reply is enough. A value
-this runbook reads without asking — from a backup, a seeded checkout or a
-default it writes — needs no message.
+**Questions to the operator — one per message.** Ask each question as a
+message of its own and wait for the answer; a follow-up (the label after a yes,
+the paths after a scope) is a question of its own. Each question states its
+default. A value read without asking — from a backup, a seeded checkout or a
+default — needs no message.
 
 ## Guard — skip if already onboarded
 
@@ -37,8 +31,7 @@ fi
 
 Sentinel exists → **stop here**: onboarding runs once per volume.
 
-Then route git auth through `gh` for every authenticated host (idempotent;
-preflight re-runs it before every review):
+Then route git auth through `gh` for every authenticated host (idempotent):
 
 ```bash
 gh auth setup-git
@@ -46,10 +39,9 @@ gh auth setup-git
 
 ## Step 0 — Prerequisites & repository resolution
 
-Every repo reference below — definition, target, work backup, skill sources —
-is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
-(`docs/config.md`). `$DEF_HOST` / `$REPO_HOST` denote the host of a reference;
-`gh api --hostname` targets one explicitly.
+Every repo reference below is `[<host>/]<owner>/<repo>` (`docs/config.md`).
+`$DEF_HOST` / `$REPO_HOST` denote the host of a reference; `gh api --hostname`
+targets one explicitly.
 
 1. **Sanity check:** `gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login`,
    else `gh api user --jq .login`, must succeed — it prints the bot login,
@@ -59,8 +51,7 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
    **operator-only** to fix (`gh auth login --hostname <host>`), so report and
    stop.
 
-   Then verify the commands, which the weekly audit re-checks (`cli_deps`).
-   Step 4's access check reads the token's permissions:
+   Then verify the commands, which the weekly audit re-checks (`cli_deps`):
 
    ```bash
    for c in gh jq git sed grep cut tr date find; do command -v "$c" >/dev/null || echo "MISSING: $c"; done
@@ -69,22 +60,20 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
 
    - A missing **command** blocks onboarding: report and stop — the pod
      cannot install packages. `awk`, `diff` and a login-shell `python3` are
-     **not** required anywhere in this definition.
+     **not** required.
    - A `SHIMMED:` line does **not** block (`docs/logging.md` → **Tool path
-     resolution**): report it as a pod-image fix; the audit's `tool_shims`
-     check warns until it lands.
+     resolution**): report it as a pod-image fix.
 2. **Work backup repository** — ask once, do not block:
 
    > Where should I keep a durable backup of my state (config, memory, review history)? Give me the repo as `[host/]owner/repo` — an empty one for a new agent, or the existing backup to continue a previous agent — or say "local-only" and the state lives on this volume alone.
 
    A reference → validate it
    (`gh api --hostname "<host>" "repos/<owner/repo>" --jq '.full_name + " " + (.visibility // (.private | if . == true then "private" elif . == false then "public" else empty end))'`)
-   — a **public** repository, or one whose visibility does not read, is
-   refused: ask for a private one, since the backup holds all of `work/` (the
-   audit's `work_repo_visibility` check) — and
-   `export WORK_REPO="<[host/]owner/repo>"` for Step 3a, which persists it as
-   `work_repo`. "Local-only", or no reply → leave `$WORK_REPO` empty and tell
-   the operator the state is not recoverable if the volume is lost.
+   — refuse a **public** repository, or one whose visibility does not read, and
+   ask for a private one (the audit's `work_repo_visibility` check) — and
+   `export WORK_REPO="<[host/]owner/repo>"` for Step 3a. "Local-only", or no
+   reply → leave `$WORK_REPO` empty and tell the operator the state is not
+   recoverable if the volume is lost.
 
    Then read the backup's configuration — it decides whether this is a
    **restore**:
@@ -94,12 +83,12 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
      -H 'Accept: application/vnd.github.raw' 2>/dev/null
    ```
 
-   A file → this is a restore: tell the operator which agent continues (its
+   A file → a restore: tell the operator which agent continues (its
    `github_repo` and `bot_login`), and take `definition_repo`,
    `definition_branch` and `github_repo` from it in 0.3 and 0.4. A bare
    reference in it that does not resolve on `github.com` names the host the
    previous volume's `GH_HOST` supplied — ask for it and use the reference
-   host-qualified from here on (`docs/config.md`). No file → a new agent.
+   host-qualified from here on. No file → a new agent.
 3. **Definition repo & branch** — on a restore, the backup's
    `definition_repo` and `definition_branch`. Otherwise derive the **host**,
    `OWNER/REPO` and the branch from the URL of this runbook as the operator
@@ -114,39 +103,33 @@ is `[<host>/]<owner>/<repo>`, so each may live on a different GitHub host
                                                      # use the remote default
    ```
 
-   Neither a URL nor a seeded checkout → ask. Validate with
+   Neither → ask. Validate with
    `gh api --hostname "<host>" "repos/<owner/repo>" --jq .full_name` and
    `export DEF_HOST="<host>" DEFINITION_REPO="<owner/repo>"`. Then
    `export DEF_BRANCH="<branch from the URL or the checkout, else main>"` and
    validate it exists (`gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO/branches/$DEF_BRANCH" --jq .name`)
    — invalid → say so and ask, never fall back silently. Both are persisted in
-   Step 4 and drive the outer-repo `origin`, updates, definition PRs and the
-   review footer.
+   Step 4.
 4. **Target repository** — on a restore, the backup's `github_repo`, without
    asking. Otherwise ask:
 
    > Which GitHub repository should I review? Please give me the `owner/repo` slug (e.g. `acme/widgets`), prefixed with the host if it is not `github.com` (e.g. `github.example.com/acme/widgets`).
 
    Validate the reference the same way — on failure explain and ask again, never
-   continue unvalidated — then export the split the steps below use:
+   continue unvalidated — then
    `export REPO_HOST="<host>" REPO="<owner/repo>" GH_HOST="$REPO_HOST"`.
-   When `$REPO_HOST` is not `github.com`, persist it for the fresh shells every
-   later run uses: append `export GH_HOST=<host>` to `~/.bashrc` if that line
-   is absent. The durable copy — the **only** one the runtime reads — goes to
-   `work/CONFIG.md` (`github_repo:`) in Step 4.
+   When `$REPO_HOST` is not `github.com`, append `export GH_HOST=<host>` to
+   `~/.bashrc` if that line is absent. The durable copy — the **only** one the
+   runtime reads — goes to `work/CONFIG.md` (`github_repo:`) in Step 4.
 
 ## Step 1 — Make `/home/agent` the definition repo (safely, at HOME root)
 
-`/home/agent` is `$HOME`: it holds secrets (`.ssh`, `.claude`, `.config`) and
-`work/`. The repo's allowlist `.gitignore` — `/*`, then re-include only the
-definition files — is what makes a repo at `$HOME` safe. Do **not**
-`git clone` into `$HOME` (it needs an empty dir); init, fetch and hard-reset
-instead, which never touches untracked files.
-
-`$DEF_BRANCH` is the branch this instance runs from — Step 0.3's, else `main`
-(`docs/persistence.md` → **Tracked branch**). The commands below are
-idempotent, and move a kit-created instance from the kit's pinned commit onto
-it.
+`/home/agent` is `$HOME` and holds secrets (`.ssh`, `.claude`, `.config`) and
+`work/`; the repo's allowlist `.gitignore` is what makes a repo there safe. Do
+**not** `git clone` into `$HOME`; init, fetch and hard-reset instead, which
+never touches untracked files. `$DEF_BRANCH` is Step 0.3's, else `main`
+(`docs/persistence.md` → **Tracked branch**); the commands also move a
+kit-created instance from the kit's pinned commit onto it.
 
 ```bash
 cd /home/agent
@@ -169,24 +152,18 @@ git branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2>/dev/null || t
 
 ## Step 1b — Harness adapter (tool-call logging, completion enforcement)
 
-Register the harness hooks — failed tool calls and per-run token usage into the
-structured events log, plus the `Stop` hook that refuses a stop leaving a
-review mid-pipeline — the auto-mode classifier rules, the deny list of unused
-tools and the `review-skill` subagent type
-(`docs/harness-claude-code.md` → **Adapter**), and link the pi extension that
-runs the same hooks in pi sessions (`docs/harness-pi.md` → **Adapter**):
+Register the harness hooks, classifier rules, tool deny list and `review-skill`
+subagent type (`docs/harness-claude-code.md` → **Adapter**), and link the pi
+extension (`docs/harness-pi.md` → **Adapter**):
 
 ```bash
 bash "$HOME/scripts/harness/claude-code/install.sh"
 bash "$HOME/scripts/harness/pi/install.sh"
 ```
 
-Idempotent; each prints a notice and exits 0 where its harness is absent,
-and the agent then logs tool failures manually.
+Idempotent; each prints a notice and exits 0 where its harness is absent.
 
 ## Step 2 — Confirm `work/` is invisible to the outer repo
-
-Confirm the allowlist `.gitignore` hides `work/` and the HOME secrets:
 
 ```bash
 cd /home/agent
@@ -200,8 +177,7 @@ fix `.gitignore` before continuing**. Do not write the sentinel.
 
 **3a — a work backup repo was named** → restore prior state from it.
 `work-backup.sh` reads the remote from `work/CONFIG.md`, so the key is written
-**before** the restore and again after it, in case the restored copy predates
-the key:
+before the restore and again after it:
 
 ```bash
 if [ -n "$WORK_REPO" ]; then
@@ -220,9 +196,8 @@ fi
 `RESTORE_RC` decides the path (`docs/persistence.md` → **Backup & restore**):
 
 - `0` — restored and verified. Skip 3b; Step 7 finishes the restore.
-- `2` — the remote holds no agent state: it is empty, or it has no
-  `CONFIG.md` (for example only a README). A new agent: fall through to 3b; the
-  first end-of-run `persist` creates the initial backup.
+- `2` — the remote holds no agent state (empty, or no `CONFIG.md`). A new
+  agent: fall through to 3b.
 - `1` — the restore failed. **Stop**: report the output to the operator and
   re-run onboarding once the remote is reachable. Never seed templates over a
   backup that exists.
@@ -316,10 +291,9 @@ fi
 
 ## Step 4 — Configure the agent (`work/CONFIG.md`, interactive)
 
-Every instance-specific value lives in `work/CONFIG.md` — exact key semantics
-in `docs/config.md`, which you read first. Gather the values below in order,
-one question per message (**Questions to the operator** above), then write
-the file in exactly the shape of the **Final shape** example. Then run
+Read `docs/config.md` first — it holds every key's semantics. Gather the values
+below in order, one question per message, then write the file in exactly the
+shape of the **Final shape** example. Then run
 `bash "$HOME/scripts/verify-onboarding.sh"`, apply what it reports, and show
 the file to the operator.
 
@@ -339,25 +313,24 @@ config, `review_marker` least of all. Two exceptions: a reference Step 0.2
 host-qualified replaces its bare form, and a restored `bot_login` that differs
 from Step 0.1 is shown to the operator, who picks the one that applies.
 
+**Labels:** a label named below is validated on the target repo, or created —
+`gh label create "<label>" --repo "$REPO" --description "<description>" --color FBCA04`.
+A failure is not blocking: tell the operator to create it manually.
+
 1. **`github_repo`** — always write the resolved target reference, with its
-   host whenever any configured host is not `github.com` (`docs/config.md`;
-   the same holds for every reference below). Write **`work_repo`** too when
-   Step 0.2 named one (Step 3a already added it).
+   host whenever any configured host is not `github.com` (the same holds for
+   every reference below). Write **`work_repo`** too when Step 0.2 named one.
 2. **`definition_repo`** and **`definition_branch`** — always write both Step
-   0.3 values, `definition_branch` even when it is `main`, so the tracked
-   branch is explicit.
-3. **`bot_login`** — the login from Step 0.1. Confirm with the operator,
-   stating the consequence:
+   0.3 values, `definition_branch` even when it is `main`.
+3. **`bot_login`** — the login from Step 0.1. Confirm with the operator:
 
    > I'll act as GitHub user **<login>** — reviews will be posted and signed by this account. If this is a personal account, consider a dedicated machine/bot account instead.
 
    A login ending in `[bot]` is a GitHub App, which a person cannot assign or
    request. Ask which user account people use for that; it becomes
-   `bot_login`. The App login needs no key (`docs/github-access.md`). No such
-   account → `bot_login` is the App login: people mention it as `@<slug>`, and
-   the labels of item 6 and item 7 stand in for the review request and the
-   assignment (`docs/github-access.md` → **Triggers by identity**).
-
+   `bot_login`. No such account → `bot_login` is the App login, mentioned as
+   `@<slug>`, and the labels of item 6 and item 7 stand in for the review
+   request and the assignment (`docs/github-access.md` → **Triggers by identity**).
 4. **`bot_display_name`** — ask: *What name should I sign my reviews with?
    (Default: `Code Guardian`.)*
 5. **`review_marker`** — the dedup-marker prefix
@@ -367,96 +340,69 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    > Has this agent (or a predecessor bot) already posted reviews on the target repo? If yes, give me the exact marker prefix it used — reusing it keeps the old reviews visible to deduplication. If no, I'll use `code-guardian:review`.
 
    ⚠️ Tell the operator the value is **immutable once the first review is
-   posted**: changing it later would make every past review invisible to
-   dedup.
+   posted**.
 6. **Labels and per-review delivery**, each asked in turn:
    - **`rereview_label`** — default `code-guardian:rereview`. Ask:
 
      > First reviews are automatic, but re-reviews after new commits run **only** on request — mainly a label someone adds to the PR, which requests a complete review of the whole PR; I remove it once the review is posted. Which label name should I watch for? (Default: `code-guardian:rereview`.)
 
-     Label missing on the target repo → create it:
-     `gh label create "<label>" --repo "$REPO" --description "Request a code-guardian re-review" --color FBCA04`.
-     A failure is not blocking: tell the operator to create it manually.
+     Validate or create it (description `Request a code-guardian re-review`).
    - **`rereview_trigger`** — `label` (default) | `review-request` (GitHub's
      "Re-request review" on **<bot_login>**; needs the bot as a repo
      collaborator) | `both`. Write the key only when the answer differs from
-     `label`. A GitHub App `bot_login` cannot be requested: skip the question.
-   - **`rereview_delta_label`** — optional. Ask, and recommend it for a GitHub
-     App `bot_login`, which has no review request:
+     `label`. A GitHub App `bot_login`: skip the question.
+   - **`rereview_delta_label`** — optional; recommend it for a GitHub App
+     `bot_login`. Ask:
 
      > Do you want a second label that requests a review of only the changes since my last review? It is smaller and faster than the full re-review. (Default: no label. Suggested name: `code-guardian:delta`.)
 
-     A yes → write the key, and validate or create the label like the
-     re-review label (description `Request a code-guardian delta re-review`).
-   - **`urgent_label`** — an optional, human-managed label that makes a PR's
-     due reviews jump the queue and arrive rapid-first — a rapid pass without a
-     critical finding approves the PR — plus one Slack alert
-     under `slack_notifications: enabled` (`docs/review-urgent.md` → **Urgent
-     PRs**). Default off (omit the key); suggested name `code-guardian:urgent`.
-     A named label is validated or created like the re-review label.
+     A yes → write the key and validate or create the label (description
+     `Request a code-guardian delta re-review`).
+   - **`urgent_label`** — optional rapid-first reviews for a labeled PR
+     (`docs/review-urgent.md` → **Urgent PRs**). Default off (omit the key);
+     suggested name `code-guardian:urgent`, validated or created.
    - **`auto_merge`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
-     > I can merge a small PR myself when a person adds a label to it, my review of its current commit approved it as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no path you mark as sensitive (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that?
+     > I can merge a small PR myself when a person labels it, my review approved its current commit as a quick check, GitHub reports it mergeable with every required check and review satisfied, and it touches no `.github/` file and no sensitive path (`docs/auto-merge.md`). Branch protection still applies. Do you, as the admin of this repository, allow that?
 
      **Yes from the admin** → `auto_merge: enabled`, then ask in turn, one
      question each: the label (suggested `code-guardian:automerge`) →
-     `auto_merge_label` (validated or created like the re-review label); the most changed lines (default 100) →
-     `auto_merge_max_lines`; the merge method (default squash) →
-     `auto_merge_method`; the sensitive paths (for example
+     `auto_merge_label` (validated or created); the most changed lines
+     (default 100) → `auto_merge_max_lines`; the merge method (default squash)
+     → `auto_merge_method`; the sensitive paths (for example
      `migrations/*, src/auth/*`) → `human_review_paths: <globs>`. Write a
      value only when it differs from its default; no paths → omit. Anyone
      else, or no reply → omit the keys.
    - **`agent_fixes`** — asked of the **repository admin** only; default off
      (omit the keys). Ask:
 
-     > When a person adds a label to a PR, I can fix the blocking findings of my own last review and push one commit to the PR branch — never to a fork, never past a commit someone else pushed meanwhile (`docs/agent-fixes.md`). I remove the label when I start, and a person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that?
+     > When a person labels a PR, I can fix the blocking findings of my last review and push one commit to the PR branch — never to a fork, never past a commit pushed meanwhile (`docs/agent-fixes.md`). A person still reviews my commit: such a PR never auto-merges. Do you, as the admin of this repository, allow that?
 
      **Yes from the admin** → `agent_fixes: enabled`, then ask for the label
-     (suggested `code-guardian:fix`) → `agent_fix_label` (validated or created
-     like the re-review label).
-     Anyone else, or no reply → omit the keys.
-   - **`review_progress`** — whether a review's progress shows on the PR as a
-     check run or a commit status, per `progress_channel`
-     (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Mention that the status is always `success` when it finishes,
-     so it never blocks a merge, and that its name in the checks list is the
-     `review_marker`.
-     Default `disabled`; write the key only on a yes.
-   - **`approve_after_rounds`** — after how many review rounds of a PR a
-     review approves when no 🔴 is open, its 🟡 still listed
-     (`docs/finding-form.md` → **The approval bar**). Mention that 🔴 still
-     blocks and that auto-merge still needs no open 🟡. Default off; write the
-     key only for a positive integer.
-   - **`ci_triage`** — whether a failing check on a reviewed commit gets one
-     comment naming the probable cause and the smallest fix
-     (`docs/ci-triage.md`). Mention that it only reads and explains: no job is
-     restarted and no verdict changes. Default `disabled`; write the key only
-     on a yes.
-   - **`review_dispatch`** — whether a heartbeat that finds several PRs starts
-     every PR after its first at once, each in a one-time session of its own
-     (`docs/worklist.md` → **Dispatch**). Mention that each such session pays
-     its own session prefix. Default `enabled`; write the key only for
-     `disabled`.
-   - **`mention_replies`** — GitHub comments that @-mention **<bot_login>**, or
-     reply in its inline review threads, get handled every heartbeat:
-     questions answered, review feedback recorded to memory, review requests
-     served (`docs/mentions.md`). Default `enabled`; write the key only for
-     `disabled`.
-   - **`mention_authors`** — whose mentions are handled: `collaborators`
-     (repository owners, members and collaborators) | `anyone`. Default
-     `collaborators`; write the key only for `anyone`.
-   - **`project_profile`** — the generated map of the reviewed repository that
-     every review and skill subagent starts from, kept current by a structural
-     fingerprint (`docs/profile.md`). Default `enabled`; write the key only for
-     `disabled`.
+     (suggested `code-guardian:fix`) → `agent_fix_label` (validated or
+     created). Anyone else, or no reply → omit the keys.
+   - Then the switches below, one question each: say what the key does in one
+     line from its home, and write the key only when the answer differs from
+     the default.
+
+     | Key | Default | Home, and what to mention |
+     | --- | --- | --- |
+     | `review_progress` | `disabled` | `docs/review-bookkeeping.md` → **Progress signal on GitHub** — a check run or a commit status per `progress_channel`, always `success` when it finishes, named after `review_marker` |
+     | `approve_after_rounds` | off | `docs/finding-form.md` → **The approval bar** — 🔴 still blocks, auto-merge still needs no open 🟡; write it only for a positive integer |
+     | `ci_triage` | `disabled` | `docs/ci-triage.md` — one comment on a failing check; it only reads and explains |
+     | `review_dispatch` | `enabled` | `docs/worklist.md` → **Dispatch** — each extra PR's session pays its own session prefix |
+     | `mention_replies` | `enabled` | `docs/mentions.md` — comments addressed to **<bot_login>** |
+     | `mention_authors` | `collaborators` | `docs/config.md` — `collaborators` (owners, members, collaborators) or `anyone` |
+     | `project_profile` | `enabled` | `docs/profile.md` — the generated repository map |
 7. **Review skills + `guide_label`** — fully config-driven
    (`docs/skills.md`); **each skill carries its own `source`** (`harness`, or
    the `[host/]owner/repo` it installs from). Present the default public set —
    the example below, where `issue-fit` and `review-guide` ship in this
    definition repo, so their `source` is the instance's `definition_repo` — and
    let the operator adjust rows, triggers and sources. A skill kept in the
-   reviewed repository gets `github_repo` as its `source`, and it must be on
-   that repository's default branch (`docs/skills.md` → **Where a skill lives**).
+   reviewed repository gets `github_repo` as its `source`, on that repository's
+   default branch (`docs/skills.md` → **Where a skill lives**).
    **Validate every row before writing:**
    - Repo-sourced rows:
      `gh api "repos/<source>/contents/.agents/skills/<skill>"` must succeed;
@@ -467,21 +413,20 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    - **The review guide row** — in the default set, **on**. Say it once with
      the table, because the guide is public by link:
 
-     > The default set includes **Human Review Guide**: when my review decides that a person must judge a PR, the review links a short visual guide — why a person is needed, a map of the project with the change marked, the dependency chain, the decisions, the problems met, where the churn landed and the impact. It runs beside the other review skills in a few minutes. I publish it to the DAM Artifact Library; anyone with its link can open it, and it shows code from the PR. Say "no guide" to drop the row.
+     > The default set includes **Human Review Guide**: when my review decides that a person must judge a PR, the review links a short visual guide — why a person is needed, the change on a project map, the decisions, the risks and the impact. I publish it to the DAM Artifact Library; anyone with its link can open it, and it shows code from the PR. Say "no guide" to drop the row.
 
-     The row is `| review-guide | <definition_repo> | always | Human Review Guide |`
-     (the skill ships in this definition repo), right after `issue-fit` so its
-     link line sits high in the review. "No guide" → drop the row.
+     The row is `| review-guide | <definition_repo> | always | Human Review Guide |`,
+     right after `issue-fit`. "No guide" → drop the row.
    - With the review guide row, **`guide_label`** — optional. Ask:
 
      > Do you want a label that asks for the review guide even when my review finds no need for a person? (Default: no label. Suggested name: `code-guardian:guide`.)
 
-     A yes → write the key, and validate or create the label like the
-     re-review label (description `Request a code-guardian review guide`).
+     A yes → write the key and validate or create the label (description
+     `Request a code-guardian review guide`).
 8. **`slack_notifications`** — strictly opt-in; it gates the shepherd nudging.
    Ask:
 
-   > Do you want Slack notifications? When enabled, I watch how long each open PR waits for human review and nudge reviewers/authors in the shared Slack channel, escalating over time. It needs a Slack connection and a developer roster — I'll walk you through building one.
+   > Do you want Slack notifications? I then nudge reviewers and authors in the shared Slack channel when a PR waits for human review, escalating over time. It needs a Slack connection and a developer roster, which we build next.
 
    **No, or no reply** → `disabled`; enabling it later in chat re-runs this
    item, the roster, item 9 and Step 6b. **Yes** → `enabled`, then build the
@@ -491,44 +436,39 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
    (nudge level 4)? Pick one person from the roster.* It must be a roster login
    **with a `slack_id`**. Then ask:
 
-   > Should my monitor send its health alerts — a model or GitHub outage, a silent review schedule, a failing backup — to <owner> as a Slack DM on its own, without a model session? They then arrive even when the model API is down or a classifier refuses the send. The message is built from fixed templates only (`docs/monitor.md` → **Direct delivery**).
+   > Should my monitor send its health alerts — a model or GitHub outage, a silent review schedule, a failing backup — to <owner> as a Slack DM on its own, from fixed templates and without a model session, so they arrive during a model outage (`docs/monitor.md` → **Direct delivery**)?
 
    **Yes** → `monitor_slack_direct: enabled`; **no, or no reply** → omit the
    key. Then ask: *Should those monitor DMs go to <owner>, or to a different
    roster member — the agent's admin, when that is not <owner>?*
-   **<owner>, or no reply** → omit `monitor_owner` (missing =
-   `escalation_owner`); **another member** → `monitor_owner: <login>`, a
-   roster login with a `slack_id`.
+   **<owner>, or no reply** → omit `monitor_owner`; **another member** →
+   `monitor_owner: <login>`, a roster login with a `slack_id`.
 10. **`benchmark`** — the optional monthly self-benchmark, off by default. Ask:
 
-    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 8 synthetic review tasks — 5 simple and 3 complex, so the report says whether the model is good enough for each — different project types, generated from your repo's stack and the configured skills — through my full review pipeline, score each output against known seeded defects, measure the time and tokens each review takes, and keep every result in `work/benchmark/`, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`). An accumulated report with the complete comparison table is republished after every run.
+    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 8 synthetic review tasks (5 simple, 3 complex) generated from your repo's stack and the configured skills through my full review pipeline, score each output against known seeded defects, measure time and tokens, and republish an accumulated report, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`).
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
-    then ask in turn, one question each, for **`benchmark_judge`** (the judge
-    of the LLM-judged quality scores, the same for every run, run through the
-    `claude` CLI whatever model the reviews use; recommended answer `auto` =
-    I pick it once from this host's models, `docs/benchmark.md` →
-    **Choosing the judge**; a model id = the operator's pick; `off`, or no
-    answer, omits the key: a missing key is `off`, deterministic scoring
-    only; run `bash "$HOME/scripts/benchmark-judge.sh" check <id or auto>` and
-    give the operator the reason it prints, if any — signing the claude CLI in
-    is the operator's; a `pi` CLI is the fallback) and **`benchmark_report`** (`dam` default /
-    `off`), offer
-    the optional `## Benchmark model prices` table (`docs/benchmark.md` →
-    **Model prices**) and the optional `## Benchmark sufficiency` table (the
-    bar per task tier; missing = the defaults in `docs/benchmark.md` →
-    **Sufficiency by tier**), and register the schedule in Step 6d. The first
-    scheduled run creates the fixture set, and the first scores land on the
-    next monthly tick, or sooner on an on-demand ask.
+    then ask in turn, one question each:
+    - **`benchmark_judge`** — recommended answer `auto` (`docs/benchmark.md` →
+      **Choosing the judge**), a model id, or `off`; `off` or no answer omits
+      the key. Run `bash "$HOME/scripts/benchmark-judge.sh" check <id or auto>`
+      and give the operator the reason it prints, if any — signing the claude
+      CLI in is the operator's.
+    - **`benchmark_report`** — `dam` (default) / `off`.
+    - Offer the optional `## Benchmark model prices` table (`docs/benchmark.md`
+      → **Model prices**) and `## Benchmark sufficiency` table
+      (`docs/benchmark.md` → **Sufficiency by tier**).
+
+    Register the schedule in Step 6d.
 11. **Ready-to-land nudge** (only when Slack is enabled) — ask:
 
-    > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line saying it is ready to land. Once per approval, to the author. Without it an approved PR goes quiet, which reads the same as still waiting. Turn it on?
+    > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line to the author saying it is ready to land, once per approval. Turn it on?
 
     **Yes** → `merge_ready_nudge: enabled`; default off.
 
     Then ask about the nudge scope (`docs/shepherd.md` → **Scope and brief**):
 
-    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something (design, architecture, a risk I cannot settle)? Only those, by default: each such nudge links the review guide, and quick checks get no reminder.
+    > Should I nudge reviewers about every waiting PR, or only about PRs where my review says a person must judge something? Only those, by default.
 
     **Every PR** → `shepherd_scope: all`; **only those or no reply** → omit
     the key. Then, unless the auto-merge question already wrote a list,
@@ -537,29 +477,22 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     > Which paths are sensitive (for example `migrations/*, src/auth/*`)? I name a change there to my triage call and record it, and such a PR never merges on its own. Default: none.
 
     A path list → `human_review_paths: <globs>`; none → omit.
-12. **Codebase survey** — the weekly security pass over one area of the repository
-    (`docs/survey.md`). Ask:
+12. **Codebase survey** (`docs/survey.md`). Ask:
 
-    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes (injection, broken access control, leaked secrets, weak crypto), data loss and failures an attacker or a normal input can reach. No suggestion, no refactor. One area per run with a recommended scope, and the history accumulates in one artifact. It never changes code and never posts on a PR. Turn it on?
+    > Once a week, in a quiet hour, I can read **one area of the repo as it stands** — not a diff — and report only the dangerous findings a diff cannot show: security holes, data loss and reachable failures. The history accumulates in one artifact; I never change code and never post on a PR. Turn it on?
 
     **Yes** → `survey: enabled`, ask for the report surface (`survey_report`,
     default `dam`) and register the schedule in Step 6e. Default off. With
     `survey_report: dam`, ask:
 
-    > The survey artifact is public to anyone with its URL. Shall it show the findings themselves — severity, summary, fix and a link to the code — or stay an index of areas and passes? A finding on it is a disclosure of a weak point. Default: **index only**.
+    > The survey artifact is public to anyone with its URL. Shall it show the findings themselves — a disclosure of each weak point — or stay an index of areas and passes? Default: **index only**.
 
     Findings → `survey_report_findings: enabled`; otherwise omit.
-13. **Daily brief** (only when Slack is enabled; `docs/brief.md`). Ask:
+13. **Review cadence** — `active_hours`, `active_days`,
+    `review_interval_active`, `review_interval_quiet` (`docs/config.md`; the
+    crons in Step 6a). Ask:
 
-    > Every weekday morning (06:00 UTC by default) I can post one Slack message: what the PRs merged since the last brief changed — news for the whole team by topic, explained like release notes, then the technical changes with impact and the risky ones. Weekend merges arrive on Monday; a day with no merge sends nothing. Turn it on, and in which language? Default: off, English.
-
-    **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
-    English), and register the schedule in Step 6g.
-14. **Review cadence** — `active_hours`, `active_days`,
-    `review_interval_active`, `review_interval_quiet` (semantics in
-    `docs/config.md`; the crons themselves in Step 6a). Ask:
-
-    > I check for new PRs every 5 minutes, around the clock; a check that finds nothing starts no session and costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want fewer checks outside them; I then check every 15 minutes there, so a PR opened at night waits up to 15 minutes.
+    > I check for new PRs every 5 minutes, around the clock; an idle check costs no model call. Default: **24/7**. Name working hours and days (for example Mon–Fri 08–21, platform timezone) only if you want checks every 15 minutes outside them.
 
     Write all four keys explicitly, even at the default. Validate before
     writing: both intervals must be divisors of 60
@@ -568,23 +501,26 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
     schedules, with the keys left at their 24/7 values. For a window, tell the
     operator that a PR opened in a quiet hour, an urgent one included, waits up
     to `review_interval_quiet` minutes.
-15. **`definition_issues`** — whether the agent files tracking issues on the
-    definition repo (`docs/runbook.md` → **Definition-repo issues**). First
-    read the repo's visibility:
+14. **Daily brief** (only when Slack is enabled; `docs/brief.md`). Ask:
+
+    > Every weekday morning (06:00 UTC by default) I can post one Slack message on what the PRs merged since the last brief changed — team news by topic, then the technical and risky changes. Turn it on, and in which language? Default: off, English.
+
+    **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
+    English), and register the schedule in Step 6g.
+15. **`definition_issues`** (`docs/runbook.md` → **Definition-repo issues**).
+    First read the repo's visibility:
     `gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO" --jq '.private'`
     (`false` = public). Ask, with the visibility filled in:
 
-    > When my weekly audit finds a bug in my own definition, or someone in a channel asks for a change only you can make, I can open a tracking issue on the definition repo **<definition_repo>** (<public|private>). Every such issue is anonymous: it names only the part of my definition that fails and the fix — never this repository, its owner, people, PR numbers, code or any other detail of this installation — and a script blocks any draft that names one. Without it the findings stay in the audit report and in this chat. Turn it on? (Default: off.)
+    > When my weekly audit finds a bug in my own definition, or someone in a channel asks for a change only you can make, I can open a tracking issue on the definition repo **<definition_repo>** (<public|private>). Every such issue is anonymous — it names only my definition and the fix, never a detail of this installation, and a script blocks any draft that does. Turn it on? (Default: off.)
 
     **Yes** → `definition_issues: enabled`; **no, or no reply** →
-    `definition_issues: disabled`. Always write the key, so the choice is
-    explicit.
-16. **`health_dashboard`** — the health dashboard (`docs/health.md`). Ask:
+    `definition_issues: disabled`. Always write the key.
+16. **`health_dashboard`** (`docs/health.md`). Ask:
 
-    > I keep a technical history for 90 days — schedule ticks, sessions, model and GitHub failures, classifier refusals, errors per hour — and a list of incidents. I can publish it as one dashboard in the DAM Artifact Library, with the state of each service, updated in place when a state changes or every 3 hours, with no model call. Anyone with its link can open it. Turn it on?
+    > I keep 90 days of hourly technical history and a list of incidents. I can publish them as one health dashboard in the DAM Artifact Library, updated in place with no model call. Anyone with its link can open it. Turn it on?
 
-    **Yes** → `health_dashboard: dam`; **no, or no reply** → omit the key. The
-    history is kept either way.
+    **Yes** → `health_dashboard: dam`; **no, or no reply** → omit the key.
 
 Final shape:
 
@@ -675,13 +611,12 @@ The roster is the **only** set of people the agent may ever @-mention
    people.
 2. **Draft the roster** — display names via
    `gh api "users/<login>" --jq '.name // .login'`; seed a few expertise
-   keywords from each member's recent PRs in `$REPO`. Rough is fine —
-   the agent appends "Observed areas" over time, and only the operator edits
-   seed expertise. Present the draft.
-3. **Ask for Slack member IDs**, which are not resolvable automatically — one
-   `login = U0123ABCD` line per member, found in Slack under profile → **⋮
-   (More)** → **Copy member ID**. Validate against `^U[A-Z0-9]{6,}$`. A member
-   without an id may stay (named in text) but is never @-mentioned.
+   keywords from each member's recent PRs in `$REPO`. Rough is fine; only the
+   operator edits seed expertise. Present the draft.
+3. **Ask for Slack member IDs** — one `login = U0123ABCD` line per member,
+   found in Slack under profile → **⋮ (More)** → **Copy member ID**. Validate
+   against `^U[A-Z0-9]{6,}$`. A member without an id may stay (named in text)
+   but is never @-mentioned.
 4. **Write `work/DEVELOPERS.md`:**
 
    ```markdown
@@ -702,9 +637,9 @@ The roster is the **only** set of people the agent may ever @-mention
 ## Step 5 — Reconstruct review state (only when `work/` was not hydrated in 3a)
 
 Skip this when Step 3a restored the state. On the 3b path, rebuild the
-tracking files from the target repo: every posted agent review
-carries the `<!-- <review_marker> headRefOid=... -->` marker (Step 4's value)
-plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
+tracking files from the target repo: every posted agent review carries the
+`<!-- <review_marker> headRefOid=... -->` marker plus verdict and timestamp.
+**Everything is recoverable except `MEMORY.md`.**
 
 1. `gh pr list --repo "$REPO" --state open --json number`.
 2. Per PR, fetch reviews and comments, filter by the marker, and take the
@@ -716,8 +651,6 @@ plus verdict and timestamp. **Everything is recoverable except `MEMORY.md`.**
 4. Recreate `reviews/pr-<number>.md` from review bodies that exist, never
    fabricated. `## PR-local overrides` stays empty unless the thread contains an
    explicit dispute resolution (tag `[from PR comments]`).
-
-The first heartbeat then skips the already-reviewed SHAs.
 
 ## Step 6 — Ensure the scheduled jobs exist
 
@@ -833,8 +766,7 @@ cron default `0 6 * * 1-5`, `sessionMode: fresh`,
 ## Step 7 — Record the version, write the sentinel, verify, report
 
 Only after Steps 1–6 succeeded. `work/VERSION` records the adopted definition
-version, used by the version check (`docs/persistence.md` → **Definition
-version & upgrade**).
+version (`docs/persistence.md` → **Definition version & upgrade**).
 
 - **New agent** (3b) — record the checked-out version:
   `head -1 "$HOME/VERSION" > "$HOME/work/VERSION"`.
@@ -847,9 +779,8 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.code-guardian-onboarded"
 echo "Onboarding complete."
 ```
 
-Then build the project profile — the repository map every review starts from
-(`docs/profile.md`). Best-effort: a failure is reported, and the first review
-heartbeat builds it instead.
+Then build the project profile (`docs/profile.md`). Best-effort: a failure is
+reported, and the first review heartbeat builds it instead.
 
 ```bash
 bash "$HOME/scripts/profile.sh" generate
@@ -862,46 +793,34 @@ bash "$HOME/scripts/verify-onboarding.sh" --live
 ```
 
 `--live` adds one read-only pass over the live environment, ending with one
-`preflight.sh review`; drop the flag for structure only. Each `FAIL` line
-names the broken file or surface and carries its `fix:` instruction — apply
-them (file templates: Steps 3b/4) and re-run until the script prints `PASS`.
-`warn` lines are informational and never block.
+`preflight.sh review`; drop the flag for structure only. Apply each `FAIL`
+line's `fix:` (file templates: Steps 3b/4) and re-run until the script prints
+`PASS`. `warn` lines never block.
 
 Then give the operator a short **onboarding summary** in the chat UI, starting
 with the verification result (the `PASS` line plus any warnings):
 
 1. The final `work/CONFIG.md`, verbatim.
 2. What runs where: target repo, the review cadence (under an active window
-   also the quiet-hour interval a night or weekend PR waits for), shepherd
-   cadence when Slack is on, audit day, benchmark and survey days and the daily brief when
-   enabled, the monitor every 15 minutes (with its direct DM and dashboard
-   when enabled), that the platform's model settings choose the session model,
-   whether anonymous issues go to the definition repo (`definition_issues`),
-   and state persistence (the `work_repo` backup or local-only).
+   also the quiet-hour interval), shepherd cadence when Slack is on, audit
+   day, benchmark and survey days and the daily brief when enabled, the
+   monitor every 15 minutes (with its direct DM and dashboard when enabled),
+   that the platform's model settings choose the session model,
+   `definition_issues`, and state persistence (`work_repo` or local-only).
 3. Day-to-day usage:
-   - The first review of every open non-draft PR lands automatically (chat UI +
-     GitHub).
-   - After new commits, a re-review happens **only** when someone adds the
-     **`<rereview_label>`** label — a complete review of the whole PR, and the
-     agent removes the label once it is posted — or re-requests
-     **`<bot_login>`**'s review on GitHub (with `rereview_trigger`
-     `review-request`/`both`), or adds the **`<rereview_delta_label>`** label
-     when configured, or asks for it in the connected Slack channel or in a
-     comment @-mentioning **`<bot_login>`** (a GitHub App as `@<slug>`). Every
-     trigger but the re-review label gives a delta re-review
+   - The first review of every open non-draft PR lands automatically.
+   - A re-review after new commits needs a trigger: the
+     **`<rereview_label>`** label (a complete review), or — each a delta
+     re-review — a review request to **`<bot_login>`** under
+     `rereview_trigger`, the **`<rereview_delta_label>`** label, or an ask in
+     the Slack channel or a comment @-mentioning **`<bot_login>`**
      (`docs/review-rereview.md` → **Re-review output**).
-   - Labeling a PR **`<urgent_label>`**, when configured, makes its reviews
-     jump the queue, rapid-preliminary-first: without a critical finding the
-     rapid pass approves, and the full review can cancel that approval.
-   - Labeling a PR **`<guide_label>`**, when configured, gets the visual
-     review guide at its next review, also when no person must judge it.
-   - Feedback and dismissals are given by saying so in chat (global →
-     `MEMORY.md`, PR-specific → that PR's overrides), and @-mentioning
-     **`<bot_login>`** in any PR or issue comment, or in a PR description, gets
-     a reply with review feedback recorded to memory (`docs/mentions.md`).
-   - Team-specific watch rules — "when a PR does X, give a heads-up in Y", to a
-     Slack channel, the chat UI, or a PR comment — can be added any time in
-     chat (`docs/watches.md`).
+   - **`<urgent_label>`** and **`<guide_label>`**, when configured: a
+     rapid-first review, and the review guide at the next review.
+   - Feedback and dismissals: say so in chat, or @-mention **`<bot_login>`**
+     on GitHub (`docs/mentions.md`).
+   - Watch rules ("when a PR does X, notify Y") can be added in chat
+     (`docs/watches.md`).
    - Any config value can be changed in chat later, except `review_marker`
      once reviews exist.
 

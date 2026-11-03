@@ -12,10 +12,6 @@
 SANDBOX="$(mktemp -d)"
 SANDBOXES+=("$SANDBOX")
 
-ok()  { printf 'ok   %s: %s\n' "$CASE" "$1"; }
-bad() { printf 'FAIL %s: %s\n' "$CASE" "$1"; RC=1; }
-is()  { [ "$2" = "$3" ] && ok "$1" || bad "$1 (got '$2', want '$3')"; }
-RC=0
 
 # redact one line in its own file and report what is left of it
 redacted_line() { # <line>
@@ -140,4 +136,4 @@ is 'and reports the failure'    "$rc" '1'
 # the pass leaves no temp file next to the artifact it rewrote
 is 'no temp file is left behind' "$(ls "$SANDBOX" | grep -c '\.redact\.')" '0'
 
-exit "$RC"
+finish

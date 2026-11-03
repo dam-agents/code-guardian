@@ -2,27 +2,25 @@
 
 Read this file when a run has no worklist from the gate — the ungated audit,
 the direct session, a gate that broke — when a pass printed no JSON, or when
-the operator asks about the gate or a worklist key. A gated run already holds
-its worklist and follows [runbook.md](runbook.md) alone.
+the operator asks about the gate or a worklist key. A gated run follows
+[runbook.md](runbook.md) alone.
 
 ## The schedule gate
 
-Every gated schedule — all of them except the audit — carries a `precheck`:
+Every gated schedule — all except the audit — carries a `precheck`:
 `scripts/precheck.sh <mode>` runs one pass — `scripts/preflight.sh <mode>`, or
 `scripts/monitor.sh` for the monitor ([monitor.md](monitor.md)) — *before* the
 platform starts a session and turns the answer into an exit code, so a tick
-with no work costs no model call at all. A started run receives the gate's
-stdout: the `worklist: <path>` line, the due keys, and the pass's `logs` to
-echo.
+with no work costs no model call. A started run receives the gate's stdout:
+the `worklist: <path>` line, the due keys, and the pass's `logs` to echo.
 
 - **Read that file and never run `preflight.sh` (or `monitor.sh`) again this
   run.** One fire is one pass: the `done → awaiting_label` flip and the
   monitor's claims (alert claims, the once-per-UTC-day stall-record claim, the
-  anomaly marker) are already spent, so a second pass answers with less
-  than the first.
+  anomaly marker) are already spent, so a second pass answers with less.
 - **Bookkeeping alone waits.** `selfheals_due`, `prunes_due` and
-  `status_resets_due` never open the gate by themselves: they ride along
-  with the next run that has work of its own, and start a run of their own only
+  `status_resets_due` never open the gate by themselves: they ride along with
+  the next run that has work of its own, and start a run of their own only
   after 6 hours of waiting or 10 pending items that no run took yet. That run's
   worklist carries `housekeeping_only: true` and reads the short set
   ([runbook.md](runbook.md) → **Review run** step 2). Every run that takes the
@@ -31,36 +29,34 @@ echo.
 - A gated idle tick produces no chat line. `HEARTBEAT.log` and the structured
   log are its record ([logging.md](logging.md)), read by the audit's
   `heartbeats` check and the monitor's `heartbeat_gap` alert. Each fire has one
-  run id: the gate's `precheck` event and its pass log under it, the worklist
-  file carries it in its name, and the prompt's `run:` line hands it to the
-  session ([logging.md](logging.md) → **The events log**).
+  run id, handed to the session in the prompt's `run:` line
+  ([logging.md](logging.md) → **The events log**).
 - The gate broke — a crash, a pass over the gate's own 100 s budget (its prompt
   names the last logged step), the platform's two-minute limit, or a preflight
-  that could not decide (no target repo, no answer from the GitHub API) — and the
-  session starts anyway; its prompt names the reason. Run the entry command
-  yourself.
+  that could not decide (no target repo, no answer from the GitHub API) — and
+  the session starts anyway with the reason in its prompt: run the entry
+  command yourself.
 - **A runtime without precheck support ignores the field**: every fire starts
-  a session with nothing from the gate in its prompt, and the same fallback
-  applies — the run is correct, only the saving is missing. The fix is a
-  runtime upgrade (operator-only).
+  a session with nothing from the gate, and the same fallback applies — only
+  the saving is missing. The fix is a runtime upgrade (operator-only).
 - **The audit is never gated** (its script cannot answer "nothing to do" while
-  `audit_report` is enabled) and neither is the direct session: both run the
-  **Entry command** below.
+  `audit_report` is enabled), nor is the direct session: both run the **Entry
+  command** below.
 
 ## The pre-flight contract
 
 **Entry command:** `bash "$HOME/scripts/preflight.sh" <mode>` — `review`,
-`shepherd`, `audit`, `benchmark`, `survey` or `brief`; `bash "$HOME/scripts/monitor.sh"`
-for the monitor — for a run whose prompt carries no worklist path. Cadence,
-gate and task text per run: ONBOARDING Step 6.
+`shepherd`, `audit`, `benchmark`, `survey` or `brief`; `bash
+"$HOME/scripts/monitor.sh"` for the monitor — for a run whose prompt carries
+no worklist path. Cadence, gate and task text per run: ONBOARDING Step 6.
 
 **The script detects, it never acts** — no GitHub writes, no commits, no
 pushes. It lists open PRs in one REST call and computes every decision. A
 draft PR is reviewed only while it carries `rereview_label` or
 `rereview_delta_label`; any other draft gets no review decision. A draft gets
-the review and nothing more: its `reviews_due` entry carries `draft: true`, and
-it gets no urgent handling, no guide round, no guide page, no progress status,
-no watch rule, no CI triage and no Slack message.
+the review and nothing more: its `reviews_due` entry carries `draft: true`,
+and it gets no urgent handling, no guide round, no guide page, no progress
+status, no watch rule, no CI triage and no Slack message. It computes:
 
 - same-SHA dedup, in-progress locks (50-min TTL; takeover only when the holder
   is also silent — [review-mechanics.md](review-mechanics.md) → **Live
@@ -75,22 +71,19 @@ no watch rule, no CI triage and no Slack message.
 
 With a review due, it also installs the configured skills (SHA-cached),
 refreshes the project profile and attaches each entry's inventory
-([profile.md](profile.md)). Its local writes are bookkeeping
-alone, listed in the script's header — [preflight.sh](../scripts/preflight.sh),
-and [monitor.sh](../scripts/monitor.sh) for the monitor's pass.
+([profile.md](profile.md)). Its local writes are bookkeeping alone, listed in
+the header of [preflight.sh](../scripts/preflight.sh) (and
+[monitor.sh](../scripts/monitor.sh) for the monitor). It prints one JSON
+object — through the gate above, or on stdout in an ungated run.
 
-It prints one JSON object — through the gate above, or on stdout in an ungated
-run.
+**`nothing_to_do: true`** — on stdout in an ungated run or a gated run's
+fallback → echo its `logs` to the chat UI as a one-line summary ("no new
+changes") and **end the run** — no state writes, no API calls, no self-check
+narration.
 
-**`nothing_to_do: true`** — what an ungated run reads on stdout, and what a
-gated run reads when it falls back to the entry command (the gate broke, or the
-worklist file is gone) → echo its `logs` to the chat UI as a one-line summary
-("no new changes") and **end the run** — no state writes, no API calls, no
-self-check narration.
-
-**`error`** — preflight could not decide and exits 2 (the gate turns this into
-a broken gate). Put the `error` text in the one chat line in place of "no new
-changes", then end the run the same way.
+**`error`** — preflight could not decide and exits 2 (a broken gate). Put the
+`error` text in the one chat line in place of "no new changes", then end the
+run the same way.
 
 **Otherwise you perform every action in the worklist**, per the referenced
 `docs/` file:
@@ -117,52 +110,43 @@ changes", then end the run the same way.
 | `dispatched` | `{number, by}`, present in a worklist `dispatch.sh plan` cut for one PR → the session takes that PR's hold first | [runbook.md](runbook.md) → **Review run** step 1 |
 | `read_set` | review mode: the files this run reads before acting — the **Where** files of the due keys above, plus `work/MEMORY.md` and `work/LESSONS.md` | [runbook.md](runbook.md) → **Review run** |
 | `skills` | per-skill install status (`installed`/`cached`/`harness`/`install-failed`) | [skills.md](skills.md) |
-| `config` | every `work/CONFIG.md` key resolved with its default, plus the `skills_table` and `watch_rules` rows; present in a review or shepherd worklist with work. A monitor worklist carries its own keys alone | [config.md](config.md) |
+| `config` | every `work/CONFIG.md` key resolved with its default (`null` for a missing key without one), plus `skills_table` (`[{skill, source, trigger, section}]`) and `watch_rules` (`[{id, watch_for, notify, note}]`); present in a review or shepherd worklist with work, and the run reads its values here — `work/CONFIG.md` itself only in the manual fallback or on an operator change. A monitor worklist carries its own keys alone | [config.md](config.md) |
 | `memory` | the memory budget — each measure of MEMORY.md, LESSONS.md and the area files beside its limit, and `over_budget`; an overrun makes the audit's consolidation mandatory | [preferences.md](preferences.md) |
 | `profile` | the profile's status (`current` \| `regenerated` \| `unverified` \| `unavailable` \| `disabled`, with mode, base and age) → echo one line; never a reason to skip a review | [profile.md](profile.md) |
 
 **PR holds** — a run holds only the PR it works on, and does that PR's
 mentions and review in one hold (`work/.holds.lock/<n>`, taken and given back
-by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh));
-`hold <n>` also gives back every other hold of the run, so a run holds at most
-one PR — plus the PR of an on-demand review, whose hold `prepare` takes and
-[review-on-demand.md](review-on-demand.md) gives back. Preflight drops the
-`reviews_due` and `mentions_due` entries of a PR another live run holds, and
-logs why; the first run after the release serves them. A hold whose run is quiet by the **Live holder** windows
-([review-mechanics.md](review-mechanics.md)), or whose session has ended
-([sessions.md](sessions.md) → **Uses**), is dead and removed; the `Stop`
-hook releases the holds a finished run still owns
+by `review-pr.sh hold|release`, [lib/holds.sh](../scripts/lib/holds.sh)).
+`hold <n>` gives back every other hold of the run, so a run holds at most one
+PR — plus the PR of an on-demand review, whose hold `prepare` takes and
+[review-on-demand.md](review-on-demand.md) gives back. Preflight drops, and
+logs, the `reviews_due` and `mentions_due` entries of a PR another live run
+holds; the first run after the release serves them. A hold whose run is quiet
+by the **Live holder** windows ([review-mechanics.md](review-mechanics.md)),
+or whose session has ended ([sessions.md](sessions.md) → **Uses**), is dead
+and removed; the `Stop` hook releases the holds a finished run still owns
 ([harness-claude-code.md](harness-claude-code.md) → **Adapter**).
 
 **Dispatch** — under `review_dispatch: enabled` (the default), the run that
 receives a worklist with several PRs keeps its first PR, in the order of
 [runbook.md](runbook.md) → **Review run** steps 5 to 9, and starts every other
-PR at once in a one-time session of its own: `dispatch.sh plan` cuts one unit
+PR at once in a one-time session of its own. `dispatch.sh plan` cuts one unit
 worklist per PR next to the gate's file — that PR's entries from every per-PR
-key, its urgent alert and its bookkeeping rows included, `dispatched: {number,
-by}`, and a `read_set` of its own — and prints the exact `name`
+key, its urgent alert and bookkeeping rows included, `dispatched: {number,
+by}`, and its own `read_set` — and prints the exact `name`
 (`code-guardian-review-pr-<n>`), `task` and `sessionTitle` of each
-`mcp__platform-outbound__schedule_once` call — no `model`, the platform's
+`mcp__platform-outbound__schedule_once` call — no `model`
 ([config.md](config.md) → **Session model**). The task carries the PR number,
-the unit's path and the session's run id alone. `dispatch.sh rest` then writes
-the run's own worklist without the PRs the platform accepted and prints its
-session title; a PR it refused stays in the run. The new session takes its PR's hold first; a PR whose
-session never starts is the next heartbeat's
-([scripts/dispatch.sh](../scripts/dispatch.sh)). `plan` leaves out a PR that
-a running session already serves ([sessions.md](sessions.md) → **Uses**).
+the unit's path and the session's run id alone. `plan` leaves out a PR that a
+running session already serves ([sessions.md](sessions.md) → **Uses**).
+`dispatch.sh rest` writes the run's own worklist without the PRs the platform
+accepted and prints its session title; a refused PR stays in the run. A PR
+whose session never starts is the next heartbeat's
+([scripts/dispatch.sh](../scripts/dispatch.sh)).
 
-`dispatch.sh` derives the titles from PR numbers and work alone, for a
-dispatched session's `sessionTitle` and the `title` of `rest`
+`dispatch.sh` derives the titles from PR numbers and work alone
 ([runbook.md](runbook.md) → **Session titles**): `Review PR #<n>`
 (`Re-review PR #<n>`, `Review urgent PR #<n>`), `Answer mention on #<n>`,
-`Triage CI on PR #<n>`, `Merge PR #<n>`,
-`Fix findings on PR #<n>`; `Review PRs #<n>, #<m>` for several kept PRs;
-with none, `Report review alerts` when `urgent_alerts_due` is due, else
-`Tidy review state`.
-
-## Runtime configuration: `work/CONFIG.md`
-
-A run with work reads every key resolved in the worklist's `config` object,
-and `work/CONFIG.md` itself only in the manual fallback or on an operator
-change. Semantics, defaults, required keys and the `cfg()` reader:
-[config.md](config.md).
+`Triage CI on PR #<n>`, `Merge PR #<n>`, `Fix findings on PR #<n>`;
+`Review PRs #<n>, #<m>` for several kept PRs; with none, `Report review
+alerts` when `urgent_alerts_due` is due, else `Tidy review state`.

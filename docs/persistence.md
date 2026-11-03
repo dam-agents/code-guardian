@@ -13,46 +13,43 @@ change to the definition itself.
 | `work_repo` (`work/CONFIG.md`) | git remote | Durable, versioned **backup** of `work/`. Written only via a disposable pod-local clone. |
 
 `work/` is **not** a git repo: on the shared NFS-backed volume, a `.git`
-rewritten under concurrent runs breaks with `Stale file handle` (ESTALE) and
-`.nfs*` silly-renames. All git plumbing happens in a private pod-local
-clone, `/var/tmp/cg-work-backup` (local disk, not `/dev/shm`: the clone holds
-the work repo's history and outgrows a 64 MB tmpfs); `work/` itself is only
-ever read.
+rewritten under concurrent runs breaks (`Stale file handle`, `.nfs*`
+silly-renames). All git plumbing happens in a private pod-local clone,
+`/var/tmp/cg-work-backup` (local disk, not `/dev/shm`: the clone outgrows a
+64 MB tmpfs); `work/` itself is only ever read.
 
 The outer `.gitignore` is an allowlist (`/*`, then re-include the definition
 files), so **all** of `work/` and the HOME secrets (`.ssh`, `.claude`,
 `.config`) are invisible to the outer repo. A fresh volume seeds `work/` from
-the ONBOARDING.md templates (Step 3b) or restores it from the backup remote,
-and a definition update never collides with live state. **Never run
-`git clean` in `/home/agent`** and never `git add` outside the allowlist; the
-backup's `git add -A` is confined to that clone.
+the ONBOARDING.md templates (Step 3b) or restores it from the backup remote.
+The backup's `git add -A` is confined to its clone (runbook.md → **Hard
+invariants**: no `git clean` in `/home/agent`, no `git add` outside the
+allowlist).
 
 ## Backup & restore (`scripts/work-backup.sh`)
 
-`scripts/preflight.sh` never commits or pushes — its bookkeeping goes straight
-to the `work/` files and stays on the volume until backed up. At the end of
-every run where the agent did work, as the very last action — a no-op without
-`work_repo`:
+`scripts/preflight.sh` never commits or pushes — its bookkeeping stays in
+`work/` until backed up. At the end of every run where the agent did work, as
+the very last action — a no-op without `work_repo`:
 
 ```bash
 LOG_JOB=<mode> bash "$HOME/scripts/work-backup.sh" persist
 ```
 
-The script snapshots `work/` into a **disposable pod-local clone**, re-seeded from
-the remote on every call, then commits and pushes: the live state is `work/`,
-the history is the remote. A rejected non-fast-forward push re-seeds from the
-new tip and retries in-run; concurrent persists in one pod share the clone and
-are lock-or-skip (the running one snapshots the same `work/`). Never
-force-push. `persist` never fails the run: a push that fails all retries is
-logged and retried next run.
+The script snapshots `work/` into the **disposable pod-local clone**, re-seeded
+from the remote on every call, then commits and pushes. A rejected
+non-fast-forward push re-seeds from the new tip and retries in-run; concurrent
+persists in one pod share the clone and are lock-or-skip. Never force-push.
+`persist` never fails the run: a push that fails all retries is logged and
+retried next run.
 
 Both directions carry every `work/` file except pod-local transient state:
 lock files (`*.lock`), `*.tmp` and the benchmark run locks (`.run-lock`). A
 persist that would delete `CONFIG.md`, `BRIEF.log`, `MEMORY.md`, `LESSONS.md`,
 `REVIEW-LEDGER.jsonl`, `PR-EVENTS.jsonl`, `audit/weeks/`,
-`benchmark/RESULTS.md` or `benchmark/results/` is refused and logged as an error: that snapshot comes
-from an unhydrated `work/`, so restore first. A deletion the operator asked
-for passes with `WORK_BACKUP_ALLOW_DELETE=1`.
+`benchmark/RESULTS.md` or `benchmark/results/` is refused and logged as an
+error — the snapshot comes from an unhydrated `work/`, so restore first. A
+deletion the operator asked for passes with `WORK_BACKUP_ALLOW_DELETE=1`.
 
 `restore` is the inverse — remote → `work/`, data only, never a `.git` — run
 once on a fresh volume (ONBOARDING Step 3a). It copies from a fresh clone of
@@ -83,7 +80,7 @@ this, in order:
    creates the artifact and writes the new marker. Log each as
    `restore: republished <report> → DAM <id>`, or its failure; a failed publish
    never stops the onboarding. Review guides are not republished — the links
-   already in the reviews stay valid.
+   in the reviews stay valid.
 3. **Back up** `work/` (the new markers).
 
 Outside `work/`, nothing needs a copy — each part comes back by itself:
@@ -102,17 +99,17 @@ Outside `work/`, nothing needs a copy — each part comes back by itself:
 
 `definition_branch` in `work/CONFIG.md` (missing = `main`) is the branch of
 `$DEFINITION_REPO` **this instance runs from**: its update source and the
-branch `/home/agent` stays on, chosen per agent. `main` stays the base of
-every definition PR and the release history
-([self-modification.md](self-modification.md) §12).
+branch `/home/agent` stays on. `main` stays the base of every definition PR and
+the release history ([self-modification.md](self-modification.md) §12).
 
 ```bash
 DEF_BRANCH="$(cfg definition_branch)"; DEF_BRANCH="${DEF_BRANCH:-main}"
 ```
 
 **Staying on it.** The audit's `definition_version` check warns when the
-checkout sits on a different branch. Switching is a **direct-session** action,
-never a heartbeat, and must not destroy work:
+checkout sits on a different branch — expected while a definition PR parks it
+on a feature branch. Switching is a **direct-session** action, never a
+heartbeat, and must not destroy work:
 
 ```bash
 git -C /home/agent status --porcelain          # must be empty; otherwise stop and ask
@@ -125,10 +122,8 @@ git -C /home/agent branch --set-upstream-to="origin/$DEF_BRANCH" "$DEF_BRANCH" 2
 
 Uncommitted changes or an unmerged local branch → **stop and surface it**; a
 switch never discards unpushed work. A missing remote branch is reported, not
-created. Work on a definition PR legitimately parks the checkout on a feature
-branch, so that warn is expected until the PR merges. Changing the key itself
-is operator-only, and a version check follows it, because the new branch may
-carry a different `VERSION`.
+created. Changing the key itself is operator-only, and a version check follows
+it, because the new branch may carry a different `VERSION`.
 
 ## Definition version & upgrade
 
@@ -153,8 +148,7 @@ stating both versions; update only when they ask, never silently, then migrate
 in the same session. Adopted ≠ checked-out → migrate now. All equal → refresh
 the harness copies (**Migration** step 3), then report "up to date".
 
-Update a clean checkout by fast-forward, which reaches the same commit without
-discarding anything:
+Update a clean checkout by fast-forward:
 
 ```bash
 git -C /home/agent status --porcelain          # must be empty; otherwise stop and ask
@@ -170,13 +164,12 @@ commit). It discards, so surface that it was needed. **Never `git clean`.**
 1. Apply the `CHANGELOG.md` **Upgrade** blocks of every version in
    `(from, to]`, oldest first. Steps are idempotent, so re-running a partial
    attempt is safe; an operator-only step is surfaced, never guessed at.
-2. **Offer every optional feature the crossed versions add.** An **Upgrade**
-   block introducing an off-by-default feature is never adopted by the act of
-   upgrading. Collect them across all crossed versions and ask the operator
-   **once, in one message**: per feature its one-line effect and the key that
-   enables it. A yes writes that key; a no, or no answer, writes nothing — the
-   missing key is the documented off default, and the migration continues
-   either way. Never enable a feature the operator did not confirm.
+2. **Offer every optional feature the crossed versions add.** Upgrading never
+   adopts an off-by-default feature. Collect them across all crossed versions
+   and ask the operator **once, in one message**: per feature its one-line
+   effect and the key that enables it. A yes writes that key; a no, or no
+   answer, writes nothing (the missing key is the off default), and the
+   migration continues either way.
 3. **Refresh the harness copies** — the parts the adapters install outside
    the checkout (hooks, auto-mode rules and the deny list in
    `~/.claude/settings.json`, the `review-skill` agent, the pi extension
@@ -204,13 +197,11 @@ Back up `work/` afterwards.
 
 ## Evolving the agent definition (outer repo)
 
-**First read [self-modification.md](self-modification.md)** — it defines the
-rules every definition change must obey.
-
-Definition changes go through **branch + PR on `$DEFINITION_REPO` — never a
-direct push to `main`, never auto-merge** — and only when deliberately asked,
-never as part of a heartbeat. **`main` is the base of every definition PR**,
-whatever `definition_branch` an instance runs:
+**First read [self-modification.md](self-modification.md).** Definition changes
+go through **branch + PR on `$DEFINITION_REPO` — never a direct push to
+`main`, never auto-merge** — and only when deliberately asked, never as part
+of a heartbeat. **`main` is the base of every definition PR**, whatever
+`definition_branch` an instance runs:
 
 ```bash
 git -C /home/agent fetch origin main

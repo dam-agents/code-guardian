@@ -483,15 +483,7 @@ fi
 # 24 h newer than the marker is judged once: each metric against max(floor,
 # factor × the median of the same model's previous reviews). The marker then
 # moves to the newest event, under a lock_take claim.
-ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
-case "$ANOMALY_FACTOR" in
-  (off|none) ANOMALY_FACTOR=0;;
-  ('') ANOMALY_FACTOR=4;;
-  (*) ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
-        | jq -R 'tonumber | select(. == 0 or . >= 1)' 2>/dev/null)"
-      if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
-      else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
-esac
+anomaly_factor_read
 ANOMALY_MIN_SAMPLES=10     # baseline reviews of the same model before a median rule applies
 ANOMALY_WINDOW=30          # the baseline: that model's last N reviews before the one judged
 ANOMALY_REPEATS=8          # floor: one identical tool call this often in one review

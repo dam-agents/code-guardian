@@ -513,16 +513,7 @@ STALL_ALERT_THRESHOLD="$(cfg_count stall_alert_threshold 4)"
 MODEL_ALERT_THRESHOLD="$(cfg_count model_alert_threshold 2)"
 GITHUB_ALERT_THRESHOLD="$(cfg_count github_alert_threshold 2)"
 CLASSIFIER_ALERT_THRESHOLD="$(cfg_count classifier_alert_threshold 20)"
-ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
-case "$ANOMALY_FACTOR" in
-  (off|none) ANOMALY_FACTOR=0;;
-  ('') ANOMALY_FACTOR=4;;
-  (*) # 0 or a number of 1 or more, printed as a JSON number
-      ANOMALY_F="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
-        | jq -R 'tonumber | select(. == 0 or . >= 1)' 2>/dev/null)"
-      if [ -n "$ANOMALY_F" ]; then ANOMALY_FACTOR="$ANOMALY_F"
-      else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
-esac
+anomaly_factor_read
 ANOMALY_MIN_SAMPLES=10     # baseline reviews of one model before the audit's review-shape medians apply
 # Review cadence (docs/config.md). The crons themselves live
 # in the platform scheduler (ONBOARDING Step 6a); the only thing read here is

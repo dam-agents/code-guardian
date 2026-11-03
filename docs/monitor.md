@@ -1,32 +1,29 @@
 # Monitor — the agent's health alerts
 
 Read on every **monitor run** (the `code-guardian-monitor-15m` schedule,
-ONBOARDING Step 6f). The review heartbeat decides review work only; every
-health alert is the monitor's. `scripts/precheck.sh monitor` runs
-`scripts/monitor.sh` once per fire: local files, the platform's session list
+ONBOARDING Step 6f). Every health alert is the monitor's; the review heartbeat
+decides review work only. `scripts/precheck.sh monitor` runs
+`scripts/monitor.sh` once per fire. It reads only local files (the events log,
+the review usage baseline, the review ledger, the harness settings, the judge
+CLIs' readiness via `claude auth status`), the platform's session list
 ([sessions.md](sessions.md)) and, under `benchmark: enabled`, the judge's
-model list (`benchmark-judge.sh resolve`: a `GET /v1/models` of the model
-endpoint, or `pi --list-models`) only — the events log, the
-review usage baseline, the review ledger, the harness settings, the judge
-CLIs' readiness (`claude auth status`, no model call) — no GitHub call, no write beyond its own bookkeeping and the technical history
+model list (`benchmark-judge.sh resolve`) — no GitHub call, no model call, no
+write beyond its own bookkeeping and the technical history
 ([health.md](health.md)). Its only outward calls are the opt-in **Direct
-delivery** below and the opt-in dashboard publish ([health.md](health.md) →
-**Publish**). An idle fire starts no session.
+delivery** and dashboard publish ([health.md](health.md) → **Publish**). An
+idle fire starts no session.
 
 ## The alerts
 
-The monitor reports only what stops the agent's own operation: the model or
-its provider, the platform, GitHub reachability, the review schedule, the
-harness, the backup. These **page kinds** go to the operator:
-`model_unavailable`, `model_recovered`, `github_unavailable`,
+Only what stops the agent's own operation pages the operator — these **page
+kinds**: `model_unavailable`, `model_recovered`, `github_unavailable`,
 `github_recovered`, `dispatch_refused`, `dispatch_lost`, `session_overrun`,
-`heartbeat_gap`, `judge_unavailable`,
-`harness_drift`, `backup_failing`. Every other kind is **history only**: the
-pass records it in the technical history and the dashboard
-([health.md](health.md)), and the worklist carries it under `recorded`
-(`conditions`, `stall_alert`, `review_anomaly`). It is no alert: it starts no
-session and sends no message. The weekly audit reports the stalls, the
-anomalies and the classifier refusals ([audit.md](audit.md)).
+`heartbeat_gap`, `judge_unavailable`, `harness_drift`, `backup_failing`.
+Every other kind is **history only**: recorded in the technical history and
+the dashboard ([health.md](health.md)) and carried under the worklist's
+`recorded` (`conditions`, `stall_alert`, `review_anomaly`); it starts no
+session and sends no message. The weekly audit reports stalls, anomalies and
+classifier refusals ([audit.md](audit.md)).
 
 | Kind | Condition | Clears when |
 | --- | --- | --- |
@@ -56,29 +53,27 @@ anomalies and the classifier refusals ([audit.md](audit.md)).
 `cloud_credential_error`, `unknown`. The pi adapter maps a provider error
 onto this list ([harness-pi.md](harness-pi.md) → **Adapter**). The
 availability classes are every class except `invalid_request` and
-`max_output_tokens`, which an agent request causes. The
-events come from the harness hooks `StopFailure` (`api_failure`) and
-`PermissionDenied` (`classifier_block`) ([harness-claude-code.md](harness-claude-code.md) → **Adapter**). A GitHub failure's class comes from the error text: `auth`
-(HTTP 401), `rate_limit`, `access` (HTTP 403/404), `server_error` (HTTP 5xx),
-`network`, `unknown`. The weekly audit counts the week's refusals and model
-outages ([audit.md](audit.md) task 38).
+`max_output_tokens` (agent-caused). The events come from the hooks
+`StopFailure` (`api_failure`) and `PermissionDenied` (`classifier_block`)
+([harness-claude-code.md](harness-claude-code.md) → **Adapter**). A GitHub
+failure's class comes from the error text: `auth` (HTTP 401), `rate_limit`,
+`access` (HTTP 403/404), `server_error` (HTTP 5xx), `network`, `unknown`.
 
 **The ledger** — `work/MONITOR.json`, `{alerts: {<id>: {kind, first, claimed,
-sent}}}`, one writer at a time. An `alerts_due` entry is claimed when emitted
-and is due again 30 min later until `monitor.sh ack <id>…` records it as
-sent. A sent alert is never emitted again: each tick counts it in
-`suppressed` and logs `suppressed <n> alert(s) already reported`. A condition
-kind that clears leaves the ledger, so its return alerts again. A row stays
-while a tick still finds its alert, else 14 days after its claim or send;
-`alerts_due` holds one entry per id. `stall_alert` and `review_anomaly` keep
-their own detection-time claims (below), not the ledger.
+sent}}}`, one writer at a time. An `alerts_due` entry (one per id) is claimed
+when emitted and due again 30 min later until `monitor.sh ack <id>…` records
+it sent. A sent alert is never emitted again: each tick counts it in
+`suppressed` and logs `suppressed <n> alert(s) already reported`. A cleared
+condition leaves the ledger, so its return alerts again. A row stays while a
+tick still finds its alert, else 14 days after its claim or send.
+`stall_alert` and `review_anomaly` keep their own detection-time claims.
 
 ## Monitor run
 
-1. Read the worklist. Each `alerts_due` entry carries its `id`, its `kind` (a
-   page kind) and the facts of its row above. Under **Direct delivery**
-   `alerts_due` holds only what the pass did not send, and `direct` says why.
-   `recorded` is history only: never report it.
+1. Read the worklist. Each `alerts_due` entry carries its `id`, `kind` (a page
+   kind) and the facts of its row above. Under **Direct delivery** it holds
+   only what the pass did not send, and `direct` says why. Never report
+   `recorded`.
 2. Send **one message** for the whole run, in the chat UI: one line per
    alert — what happened, when (UTC), the numbers, the likely cause and the
    one operator action, if any:
@@ -87,11 +82,11 @@ their own detection-time claims (below), not the ledger.
      gateway; `authentication_failed`, `cloud_credential_error`,
      `oauth_org_not_allowed`, `account_on_hold` → credentials or the
      account, operator-only; `rate_limit`, `billing_error` → quota or
-     budget). Missed review work recovers on the next heartbeat by itself.
+     budget).
    - `github_unavailable` / `github_recovered` — first and last failed pass,
      the classes (`auth`, `access` → the token, operator-only; `rate_limit` →
-     quota; `server_error`, `network` → GitHub or the network). Missed review
-     work recovers on the next heartbeat by itself.
+     quota; `server_error`, `network` → GitHub or the network).
+   - For both, missed review work recovers on the next heartbeat by itself.
    - `harness_drift` — `bash "$HOME/scripts/harness/claude-code/install.sh"`
      (`pi-extension`: `scripts/harness/pi/install.sh`) is the fix; it takes
      effect from the next session.
@@ -128,13 +123,11 @@ The monitor's pass sends the due alerts itself, with no model in the loop
 cannot stop them.
 
 - **Gate** — `monitor_slack_direct: enabled`, `slack_notifications: enabled`
-  and a monitor owner (**Monitor run** step 3) with a roster `slack_id`.
-  Otherwise the session delivers, per **Monitor run**.
-- **Message** — one Slack DM to the monitor owner
-  (`send_channel_message`, `chatId` = the roster id), never the shared
-  channel: a header, one bullet per alert from a fixed template, at most 10
-  alerts, and the dashboard share URL when one is kept
-  ([health.md](health.md)).
+  and a monitor owner (**Monitor run** step 3) with a roster `slack_id`;
+  otherwise the session delivers.
+- **Message** — one DM to the monitor owner (`send_channel_message`, `chatId`
+  = the roster id): a header, one bullet per alert from a fixed template, at
+  most 10 alerts, and the dashboard share URL when one is kept.
 - **Type checks** — every value is a UTC time, a whole number, a class word,
   an adapter part or a PR number; an alert with any other value is skipped and
   stays due for the session. The text of an event — error details, commands,
@@ -145,11 +138,10 @@ cannot stop them.
 - **After the send** — the pass acknowledges the sent ids, removes them from
   `alerts_due` and logs `monitor_direct` (info); a tick with nothing left
   starts no session. A failed send logs `monitor_direct` (error), acknowledges
-  nothing and leaves the alerts to the session; an alert nobody acknowledged
-  is due again 30 min later, and that pass tries the send again. A call that
-  went out with no answer (`unknown`) may have arrived: its alerts leave this
-  worklist unacknowledged, so no second message follows in the same tick, and
-  the pass after their claim sends them again.
+  nothing and leaves the alerts to the session (due again 30 min later, when
+  the pass retries). A call with no answer (`unknown`) may have arrived: its
+  alerts leave this worklist unacknowledged, and the pass after their claim
+  sends them again.
 - **Preview** — `bash "$HOME/scripts/monitor-direct.sh" render <file>` prints
   the message for a JSON array of `alerts_due` entries;
   `monitor-direct.sh ready` prints why a send cannot happen, or nothing.
@@ -162,8 +154,7 @@ The monitor counts the stalled reviews of the last 24 h — one per dead lock
 `stall_alert_threshold` (missing = `4`; `0`/`off` disables) it records
 `recorded.stall_alert: {count, threshold, prs, window_hours, per_day_7d}` and
 one incident — **once per UTC day** (`work/.stall-alert-day`, claimed under a
-lock file at detection). History only; the weekly audit reports the
-wasted reviews ([audit.md](audit.md) task 29).
+lock file at detection). History only ([audit.md](audit.md) task 29).
 
 ## Review anomaly alert (`review_anomaly`)
 
@@ -199,13 +190,12 @@ at or over any limit is an entry:
   `ratio` are `null` while the floor alone sets the limit; `kind` and `size`
   come from the review ledger, `null` when it has no row.
 
-History only: one incident per review. To read an entry: `repeats` or many
-`msgs` on a small diff is a loop, `context` or high `cache_read` per message
-is a large context or memory,
-`output` is a huge file or API dump, `failures` is a broken tool, many
-`subagents` is fan-out, a large `size` or a `first` review of a large PR is a
-legitimate cost. A chronic problem enters the median and stops recording: the
-weekly audit's review-shape line shows that drift ([audit.md](audit.md)
+History only: one incident per review. Reading an entry: `repeats` or many
+`msgs` on a small diff is a loop, `context` or high `cache_read` per message a
+large context or memory, `output` a huge file or API dump, `failures` a broken
+tool, many `subagents` fan-out, a large `size` or a `first` review of a large
+PR a legitimate cost. A chronic problem enters the median and stops
+recording; the audit's review shape catches that drift ([audit.md](audit.md)
 task 37).
 
 ## Self-check

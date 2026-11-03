@@ -3,10 +3,9 @@
 Read this file on the audit's trend step, or when the operator asks about the
 trend artifact.
 
-Every audit appends one week of measured facts, and the report renders the
-whole history — the latest week against the previous one and against the
-4-week average, inline charts, one table row per week. Two script calls per
-audit, no API call beyond the publish.
+Every audit appends one week of measured facts; the report renders the whole
+history — the latest week against the previous one and the 4-week average,
+charts, one row per week. No API call beyond the publish.
 
 ## Layout (`work/audit/`)
 
@@ -18,22 +17,18 @@ TRENDS.md                    # derived index table + the publish-id markers
 report.html                  # the accumulated report, regenerated every audit
 ```
 
-`weeks/*.json` is the record and is **append-only**: a file is written once and
-never edited or deleted. `TRENDS.md` and `report.html` are **derived views**,
-regenerated from those files on every append.
-
-One row per ISO week (`2026-W37`). An `audit` row supersedes a `backfill` row
-of the same week in both views; both files stay on disk.
+`weeks/*.json` is the **append-only** record (written once, never edited or
+deleted); `TRENDS.md` and `report.html` are views regenerated on every append.
+One row per ISO week (`2026-W37`); an `audit` row supersedes a `backfill` row
+of the same week in both views, both files staying on disk.
 
 ## Procedure (audit task 36)
 
 1. **Extras** — write the values only the session knows to a temp file:
    `{"ttfr_median_min": <task 22 median>, "model": "<production model id>",
    "actual_cost_usd": <task 27 totalCostUsd>, "memory_lines": <task 34
-   total>}`. `model` is the model the week's runs actually ran on — task 27's
-   busiest `byModel` entry, falling back to this session's own id when
-   telemetry is unavailable (**Cost**). Omit a key you did not measure; never
-   write a placeholder number.
+   total>}`. `model` is task 27's busiest `byModel` entry, else this
+   session's own id. Omit a key you did not measure; never a placeholder.
 2. **Append** — `bash "$HOME/scripts/audit-trend.sh" append "$HOME/work/audit" <extras file>`.
    It reads `last-worklist.json`, writes the week file, regenerates `TRENDS.md`
    and prints the week-over-week delta line plus the resolved surface.
@@ -41,18 +36,16 @@ of the same week in both views; both files stay on disk.
    `bash "$HOME/scripts/audit-trend.sh" report "$HOME/work/audit" > "$HOME/work/audit/report.html"`.
 4. **Publish** per `audit_trend` ([config.md](config.md)), updated in place so
    the URL stays stable:
-   - `dam` — the DAM Artifact Library through its MCP tools, title
-     `<bot_display_name> weekly trends`, the upload and publish of
-     [artifact.md](artifact.md) → **Steps** 3–4; the id lives in the
-     TRENDS.md marker `<!-- audit-trend-dam: <id> -->`. Best-effort: tools not
-     registered or any sub-step failing → log and continue.
-   - `off` — regenerate locally and publish nothing.
-5. **Report it** — the delta line and the artifact URL go on the audit report's
-   *Trend* line ([audit.md](audit.md)). A failed publish is logged; the local
-   `report.html` is current regardless.
+   - `dam` — the DAM Artifact Library, title `<bot_display_name> weekly
+     trends`, the upload and publish of [artifact.md](artifact.md) →
+     **Steps** 3–4; the id lives in the TRENDS.md marker
+     `<!-- audit-trend-dam: <id> -->`. Best-effort: tools absent or any
+     sub-step failing → log and continue.
+   - `off` — publish nothing.
+5. **Report it** — the delta line and the URL go on the audit report's
+   *Trend* line ([audit.md](audit.md)).
 
-Then delete the temp extras file. The append is the trend artifact's only
-write, and it never touches state outside `work/audit/`.
+Then delete the temp extras file. Nothing outside `work/audit/` is written.
 
 ## Metrics
 
@@ -66,12 +59,11 @@ write, and it never touches state outside `work/audit/`.
 | Stability | stalled runs of locked runs, wasted output tokens, error and warn events, check counts, the fullest volume (space, inodes), the size of `work/` | `stats.stalls`, `stats.log_events`, `checks[]`, `stats.disk` |
 | Project | review coverage of merged PRs, median PR size, time to first **human** review, PRs that hit a merge conflict, review rounds per merged PR, PRs abandoned after review, the three areas carrying the most open findings | `stats.project` ([audit.md](audit.md) → task 33) |
 
-A metric the week did not measure — a week recorded before the metric
-existed included — renders `—`; zero is written only where zero was measured.
-Volume and quality are counted from the review ledger
-([review-mechanics.md](review-mechanics.md) → **Review ledger**); the project
-group from that ledger, `work/PR-EVENTS.jsonl` and one list call of merged
-PRs.
+An unmeasured metric (including weeks recorded before it existed) renders
+`—`; zero only where zero was measured. Volume, quality and project come from
+the review ledger ([review-mechanics.md](review-mechanics.md) → **Review
+ledger**), the project group also from `work/PR-EVENTS.jsonl` and one list
+call of merged PRs.
 
 ## Runs
 
@@ -80,19 +72,17 @@ job, min, model, input, output, cache_read, cache_creation, reviews}`, from the
 session's `tokens` event and its own events ([logging.md](logging.md)). `job`
 is the run's most common `job` other than `session`, else `session`; `min`
 is the transcript's wall time (`secs=`), else the span of the run's events;
-`reviews` counts the PRs it posted. The records stay raw, so every run figure
-and the per-day table derive at render time and reprice with the table. A
-session that crashed has no `tokens` event and no record; a `tokens` event the
-audit cannot read leaves its session out and logs a `sessions_unparsed` warn
-that names the run. A harness with no adapter for the `tokens` event records
-no session: `stats.sessions` is null and the run figures render `—`
+`reviews` counts the PRs it posted. Records stay raw: run figures and the
+per-day table derive at render time and reprice with the table. A crashed
+session has no `tokens` event and no record; an unreadable `tokens` event
+leaves its session out with a `sessions_unparsed` warn naming the run. Without
+a `tokens` adapter `stats.sessions` is null and run figures render `—`
 ([logging.md](logging.md) → **Harness adapters**).
 
-The audit reads its baselines from this history instead of recounting them:
-`verdict_shift`, `findings_shift` and `late_shift` compare the week with the
-four recorded weeks before it ([audit.md](audit.md) → tasks 24, 28). A derived
-row keeps the counts behind each share, so the baseline pools counts, never
-averages of shares.
+The audit's `verdict_shift`, `findings_shift` and `late_shift` baselines are
+the four recorded weeks before ([audit.md](audit.md) → tasks 24, 28); a
+derived row keeps the counts behind each share, so baselines pool counts,
+never averages of shares.
 
 ## Cost
 
@@ -100,31 +90,23 @@ Spend is a **token estimate**, priced at render time by the
 `## Benchmark model prices` table ([benchmark.md](benchmark.md) → **Model
 prices**) through `scripts/lib/prices.sh`.
 
-Tokens are priced per recorded model: the `tokens` event carries the model that
-produced the session's messages, and `stats.tokens.by_model` splits the week by
-it. Tokens under a model the table does not price are **excluded** and the cell
-is marked `≥` — a floor, never a guess. Events written before the model was
-recorded arrive as `unknown` and are priced with the extras' model.
-
-`actual_cost_usd` is the platform's own attributed spend for the week
-([audit.md](audit.md) → task 27), rendered beside the estimate. A week the
-telemetry no longer retains, or a deployment without telemetry, renders `—`,
-never a zero.
+Tokens are priced per recorded model (`stats.tokens.by_model`, from the
+`tokens` event). Tokens under an unpriced model are **excluded** and the cell
+is marked `≥` — a floor, never a guess; `unknown` (events from before the
+model was recorded) is priced with the extras' model. `actual_cost_usd`
+([audit.md](audit.md) → task 27) renders beside the estimate, `—` where
+telemetry is absent or no longer retained.
 
 ## Backfill (one-time, operator ask)
 
 `bash "$HOME/scripts/audit-trend.sh" backfill "$HOME/work/audit"
-"$HOME/work/reviews"` reconstructs the weeks the review record covers: review
-and verdict counts, raised findings by severity, and the acceptance bullets. It
-reads the ledger and the history files through `scripts/lib/review-records.sh`,
-which parses each `findings-json` as
-[review-mechanics.md](review-mechanics.md) → **Summary body format** writes it.
-Everything measured from the event log (time, tokens, cost, heartbeats,
-wake-ups, stalls) stays absent. A week already on record is never overwritten,
-so the command is safe to repeat.
+"$HOME/work/reviews"` reconstructs the weeks the review record covers (review
+and verdict counts, raised findings by severity, acceptance bullets) from the
+ledger and history files via `scripts/lib/review-records.sh`; event-log
+metrics stay absent. A week on record is never overwritten, so it is safe to
+repeat.
 
 ## Reading it
 
 `bash "$HOME/scripts/audit-trend.sh" index "$HOME/work/audit"` prints every
-week's derived row as JSON — the same numbers the report shows, for an operator
-question about one metric without opening the artifact.
+week's derived row as JSON — for an operator question about one metric.

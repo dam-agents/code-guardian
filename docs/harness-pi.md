@@ -45,16 +45,14 @@ Run it in the foreground with a shell timeout above its `CG_SUBAGENT_TIMEOUT`
   `$PR_DIR.reviewer-<phase>` for its reviewer brief, inside the phase
   bracket, emptied by the benchmark's `rm -rf` steps; the nonce in every
   prompt puts each nested transcript into the phase's tokens.
-- **Judge** ([benchmark.md](benchmark.md) → **Phase 2** step 6): no subagent.
-  `scripts/benchmark-judge.sh` runs it as one `claude -p` call per raw
-  review, outside the phase brackets. It leaves no transcript, so its tokens
-  are not in the phase's tokens. The pi session's credentials do not reach
-  the `claude` CLI: where it is not signed in, the script falls back to
-  `pi --mode json` on the same judge model, through
+- **Judge** ([benchmark.md](benchmark.md) → **Phase 2** step 6): no subagent;
+  one `claude -p` call per raw review, outside the phase brackets, with no
+  transcript (its tokens are not in the phase's). The pi session's
+  credentials do not reach the `claude` CLI: where it is not signed in, the
+  script falls back to `pi --mode json` on the same judge model through
   `PI_PROVIDER`, with no tools, extensions, MCP servers or saved session
-  (`judge_harness: pi`). The provider must serve that model; a reply from
-  another model (`responseModel`, else `model`) is `mismatch` and keeps the
-  judge null.
+  (`judge_harness: pi`). A reply from another model (`responseModel`, else
+  `model`) is `mismatch` and keeps the judge null.
 
 ## Skills
 
@@ -87,10 +85,9 @@ links to `~/.agents/skills/`, a directory pi reads.
   the pod installs no packages.
 - `install.sh` — links `extension.ts` into `~/.pi/agent/extensions/`, which
   pi loads into every session; `--check` prints `pi-extension` when the link
-  is not current. Run at onboarding Step 1b and by every definition
-  migration ([persistence.md](persistence.md) → **Definition version &
-  upgrade**); the monitor checks it on every
-  tick (`harness_drift`) and the audit's `harness_adapter` check on pi.
+  is not current (`harness_drift`, `harness_adapter`). Run at onboarding
+  Step 1b and by every definition migration ([persistence.md](persistence.md)
+  → **Definition version & upgrade**).
 - `subagents.sh` — the subagent fan-out above.
 - `usage-snapshot.sh` — the benchmark's per-phase token snapshot over every
   transcript holding the nonce; it sums with the Claude Code adapter's

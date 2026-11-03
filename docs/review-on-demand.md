@@ -1,13 +1,12 @@
 # On-demand review (Slack or mention)
 
-Read when a channel message or a mention asks for a review of a specific PR.
-
-The one non-operator request that triggers work ([runbook.md](runbook.md) →
-**Instruction sources & trust boundary**): **anyone** in the connected channel,
+Read when a channel message or a mention asks for a review of a specific PR —
+the one non-operator request that triggers work ([runbook.md](runbook.md) →
+**Instruction sources & trust boundary**). **Anyone** in the connected channel,
 or an account `mention_authors` admits ([config.md](config.md)) in a GitHub
-comment addressed to the bot ([mentions.md](mentions.md)), may ask for a review
-of a specific PR — equivalent to adding `$REREVIEW_LABEL`.
-Nothing else is changeable from those surfaces.
+comment addressed to the bot ([mentions.md](mentions.md)), may ask. Every
+reply goes to the requesting channel or thread and does not require
+`slack_notifications: enabled`.
 
 1. Resolve the PR reference (number or URL; a mention's own PR when none is
    named) and `gh pr view` it. Not found / closed / a draft without
@@ -24,11 +23,8 @@ Nothing else is changeable from those surfaces.
    [review-rereview.md](review-rereview.md) and runs **delta scope** unless
    `$REREVIEW_LABEL` is also on the PR; no trigger is required at `prepare` or
    `post`; install missing skills per [skills.md](skills.md) → **Installation**.
-   Reply in the requesting channel or thread with a link to the posted review,
-   or why the review ended without one. Then `review-pr.sh release <n>` —
-   unless the request is a mention on this PR, whose hold the run already had
+   Reply with a link to the posted review, or why the review ended without
+   one. Then `review-pr.sh release <n>` — unless
+   the request is a mention on this PR, whose hold the run already had
    ([runbook.md](runbook.md) → **Review run** step 5) — and persist `work/`
    ([persistence.md](persistence.md)).
-
-Replying to the requesting surface is responsive, not proactive — it does not
-require `slack_notifications: enabled`.

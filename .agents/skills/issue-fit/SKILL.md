@@ -13,20 +13,19 @@ description: >
 # Issue Fit
 
 Checks a pull request against the issue it implements. The issue is what was
-asked; the PR description is the author's claim about what was done — when
-they disagree, the issue wins. The output is a findings section for the
-caller's review; this skill never posts, comments, or edits anything.
+asked; the PR description is the author's claim — when they disagree, the
+issue wins. The output is a findings section for the caller's review; this
+skill never posts, comments, or edits anything.
 
 ## Inputs
 
 - **Repo slug** and **PR number** (required).
 - **PR title, body, head branch, and diff** — reuse them when the caller
   already fetched them; otherwise `gh api "repos/<repo>/pulls/<n>"`, and the
-  diff from a checkout of the branch (`git diff origin/<base>...HEAD`) or
+  diff from a checkout (`git diff origin/<base>...HEAD`) or
   `gh api "repos/<repo>/pulls/<n>" -H 'Accept: application/vnd.github.diff'`.
-
-Use plain REST (`gh api`) everywhere: behind an auth proxy that rewrites only
-REST paths, GraphQL-backed `gh` subcommands fail.
+- Plain REST (`gh api`) everywhere: behind an auth proxy that rewrites only
+  REST paths, GraphQL-backed `gh` subcommands fail.
 
 ## Resolving the linked issue
 
@@ -45,22 +44,19 @@ REST paths, GraphQL-backed `gh` subcommands fail.
 Fetch the discussion:
 `gh api "repos/<repo>/issues/<n>/comments?per_page=100"` (one page).
 
-The ask is the issue **body as amended by the comments** — requirements get
-dropped, added, and re-scoped in discussion ("let's skip the UI part for
-now" removes that item from what this PR owes). When comments conflict, the
-latest decision by the issue author or a maintainer wins. Distill the result
-into concrete deliverables: acceptance criteria, named behaviors, named
-files or surfaces.
+The ask is the issue **body as amended by the comments** ("let's skip the UI
+part for now" removes that item). When comments conflict, the latest decision
+by the issue author or a maintainer wins. Distill the result into concrete
+deliverables: acceptance criteria, named behaviors, named files or surfaces.
 
 ## Judging fit
 
-Compare the deliverables against the diff — what the code actually does, not
-what the PR body says it does:
+Compare the deliverables against what the diff actually does, not what the PR
+body says:
 
 - **Missing scope** — a deliverable with no corresponding change in the
-  diff. Check by behavior, not filename: the fix may live somewhere the
-  issue didn't predict. Critical when a step-1 closing keyword will close
-  the issue with that work undone; a warning otherwise.
+  diff, checked by behavior, not filename. Critical when a step-1 closing
+  keyword will close the issue with that work undone; a warning otherwise.
 - **Undeclared scope creep** — a substantial change that neither the issue
   asks for nor the PR body declares — a warning. Declared extras ("also
   fixes the flaky retry test") are fine. Mechanical fallout of the asked
@@ -72,8 +68,8 @@ what the PR body says it does:
   suggestions.
 
 Anchor every finding in the issue's or the discussion's words and in the
-diff. Do not re-review code quality — correctness, style, and tests belong
-to the main review; this skill judges scope only.
+diff. Judge scope only — correctness, style, and tests belong to the main
+review.
 
 ## Report
 
@@ -99,7 +95,6 @@ the diff doesn't contain is too.
 ## Cost bounds
 
 Typical run: 2–4 REST calls (PR + issue + comments; +1 for the diff). Judge
-from issue + discussion + diff only — no repository-tree walks, no extra
-comment pages. When that isn't enough, say so in one line instead of
-digging: `_Issue #<n> is too vague to judge scope against; reviewed the diff
+from issue + discussion + diff only — no tree walks, no extra comment pages.
+When that isn't enough, say so in one line instead of digging: `_Issue #<n> is too vague to judge scope against; reviewed the diff
 as-is._`

@@ -4,10 +4,9 @@ Read this file whenever user feedback arrives in chat, a dispute resolution
 appears in PR comments, review-run PR context yields an observed insight, a
 failure's cause is verified, or the audit run consolidates memory.
 
-Preferences live in `work/MEMORY.md` — one short line per rule — and in area
-files `work/memory/<topic>.md`; everything behind them lives in the archive
-(**Two layers**). Read MEMORY.md, LESSONS.md and the entry's `memory_due` files
-before reviewing; **learned preferences override default behaviors**.
+Preferences live in `work/MEMORY.md` and the area files `work/memory/<topic>.md`
+(**Two layers**), read before reviewing ([runbook.md](runbook.md) → **Review
+run** step 2); **learned preferences override default behaviors**.
 
 ## Two layers
 
@@ -38,8 +37,7 @@ preference about the agent's reviews — whatever the source — gets its memory
 write in the same run it arrives, and the acknowledgement names the stored
 rule — except a PR-specific dismissal on a closed PR
 ([mentions.md](mentions.md) → **Boundaries**). The judgment calls below
-(in-doubt dispute resolutions, observed insights) keep their own thresholds;
-this rule is about feedback stated outright.
+(in-doubt dispute resolutions, observed insights) keep their own thresholds.
 
 ## Route feedback by scope
 
@@ -82,30 +80,28 @@ consolidation distills them.
 ```
 
 **The wording, the example that produced it and the reasoning go to the
-archive**, `work/memory/archive/<topic>.md`, under a heading with the same tag
-(**Two layers**). A rule too long for one line moves its wording out, never
-itself.
+archive**, `work/memory/archive/<topic>.md`, under a heading with the same tag.
+A rule too long for one line moves its wording out, never itself.
 
 ## Dispute resolutions from PR comments
 
 When the author or a maintainer explicitly resolves a finding ("intentional
 because…") — in PR context or in a mention thread — record it so future reviews
-do not re-raise it, under the same scope rules, tagged
-`[from PR comments]`.
+do not re-raise it, under the same scope rules, tagged `[from PR comments]`.
 
 Record only **explicit, accepted** resolutions: from the author, a maintainer
 or an APPROVED reviewer; no ongoing pushback; about a specific issue. When in
-doubt, surface the finding instead. Check for an existing equivalent entry
-before appending — update in place, no near-duplicates.
+doubt, surface the finding instead. Update an existing equivalent entry in
+place — no near-duplicates.
 
 ## Observed insights (passive learning from PR context)
 
-The PR context a review run already fetches (human reviews, comments, inline
-threads, author replies — [review.md](review.md) → **PR context**) may carry
-**generalizable** review knowledge: a team convention, a concern human
-reviewers raise repeatedly, an accepted justification that clearly applies
-beyond the one PR. After posting each review, record such an insight in
-**MEMORY.md → `## Observed Insights`**, creating the section when missing:
+The PR context a review run already fetches ([review.md](review.md) → **PR
+context**) may carry **generalizable** review knowledge: a team convention, a
+concern human reviewers raise repeatedly, an accepted justification that
+clearly applies beyond the one PR. After posting each review, record such an
+insight in **MEMORY.md → `## Observed Insights`**, creating the section when
+missing:
 
 ```markdown
 - [observed 2026-07-24, PR #12, seen 1×] Team convention: exported functions get JSDoc
@@ -125,8 +121,7 @@ beyond the one PR. After posting each review, record such an insight in
 
 Environment facts and recurring failure modes — what this pod lacks, which tool
 call shapes fail and the working alternative, which errors are expected and
-must not be "repaired". Separate from MEMORY.md, which holds review
-*preferences* under the bounds above.
+must not be "repaired". Review *preferences* stay in MEMORY.md.
 
 - **Write** an entry when a failure's root cause is **verified** (reproduced,
   not guessed) and would otherwise be re-derived next run: the symptom and the
@@ -134,16 +129,14 @@ must not be "repaired". Separate from MEMORY.md, which holds review
   — the cause, the probe, the failing output — goes to
   `work/memory/archive/lessons.md` under the same heading. Never a raw error
   dump.
-- **Read** it in a review run (step 2) — most entries are review-time traps
-  (clone/diff, PR-state calls, quoting) — and whenever a tool call fails in a
-  way that looks environmental.
+- **Read** it in a review run (it is in `read_set`) and whenever a tool call
+  fails in a way that looks environmental.
 - Update the existing entry instead of appending a near-duplicate; delete one a
-  fix made obsolete. Bounds: **Weekly memory consolidation** step 6.
-  A definition-level fix belongs in the definition
+  fix made obsolete. A definition-level fix belongs in the definition
   ([self-modification.md](self-modification.md)), leaving at most a pointer
   here.
-- It is runtime state: backed up with the rest of `work/`
-  ([persistence.md](persistence.md)), never committed to the definition repo.
+- It is runtime state, backed up with `work/` ([persistence.md](persistence.md)),
+  never committed to the definition repo.
 
 ## Weekly memory consolidation (audit run)
 

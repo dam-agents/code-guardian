@@ -25,7 +25,6 @@ is [logging.md](logging.md) → **Harness adapters**.
 The pi adapter runs the hook scripts below from pi events
 ([harness-pi.md](harness-pi.md) → **Adapter**).
 
-
 - `log-tool-event.sh` — hook target for `PostToolUseFailure` (all tools) and
   `PostToolUse` (external calls, debug).
 - `log-session-tokens.sh` — `SessionEnd` target: the per-run `tokens` event.
@@ -33,15 +32,14 @@ The pi adapter runs the hook scripts below from pi events
   observable `review_step` milestones — `cloned`, `skill:<name> done`,
   `posted <verdict>`, and `locked` / `locked (refresh)` / `done` /
   `aborted (lock released)` from the REVIEWS.md row write in its documented
-  shape — so they survive a turn that ends before the agent logs them.
-  Idempotent per (run, PR, step) via a `/tmp/.cg-steps-<session>` marker dir;
-  lock refreshes are logged every time, because they are the liveness signal.
-  The steps that need the agent's decision (`fanned out`, `verified`,
-  `aborted <reason>`) come from `review-pr.sh step` / `abort`, or from the
-  agent in the manual fallback. It also logs one **`review_cost`** event
-  per review, whoever logged its steps: the usage between this run's
-  `<sha7> locked` and `<sha7> done` steps of the PR, summed like the `tokens`
-  event, and the window's shape (`review-window.jq`, `tool_failure` events) —
+  shape — so they survive a turn that ends early. Idempotent per (run, PR,
+  step) via a `/tmp/.cg-steps-<session>` marker dir, except lock refreshes
+  (the liveness signal), logged every time. Decision steps (`fanned out`,
+  `verified`, `aborted <reason>`) come from `review-pr.sh step` / `abort`, or
+  from the agent in the manual fallback. It also logs one **`review_cost`**
+  event per review: the usage between this run's `<sha7> locked` and
+  `<sha7> done` steps of the PR, summed like the `tokens` event, and the
+  window's shape (`review-window.jq`, `tool_failure` events) —
   `PR #<n> <sha7> secs=… input=… output=… cache_read=… cache_creation=… msgs=…
   model=… subagents=<n new> peak_ctx=… repeats=… repeat_tool=… max_out=…
   failures=…`. An aborted review has none. The monitor judges it
@@ -84,49 +82,45 @@ The pi adapter runs the hook scripts below from pi events
   exactly `issues/<number>/comments` or `issues/comments/<id>`); any other
   issues path, dot segments, encoded bytes and variables included, is an
   issue write.
-- `install.sh` — registers the hooks in `~/.claude/settings.json` (idempotent;
-  run at onboarding Step 1b and by every definition migration,
-  [persistence.md](persistence.md) → **Definition version & upgrade**;
-  effective from the next session). It also keeps the auto-mode
-  classifier rules for the agent's documented writes outside the target repo —
-  the anonymous tracking issue on `definition_repo` through
-  `scripts/definition-issue.sh`, the `curl -X PUT` upload of every published
-  report and artifact (`work/audit/`, `work/benchmark/`,
-  `work/reviews/pr-artifacts/`, `work/survey/`),
-  the review dispatch through `schedule_once`, and the review steps the
-  classifier refused most (`review-pr.sh`, the `review-skill` subagent,
-  `work-backup.sh`, the cleanup of review scratch) —
-  as `autoMode.environment` / `autoMode.allow` entries tagged
-  `[code-guardian]`, replacing only its own. It writes the tools of
-  `denied-tools.txt` — tools neither a procedure nor a platform prompt (Kit
-  Update: `report_kit_updated`, `cancel_kit_update`) calls — to
-  `permissions.deny`, which
-  removes their definitions from every request of every session and subagent,
-  replacing only its own entries; and it installs `agents/review-skill.md` as
-  `~/.claude/agents/review-skill.md`, the subagent type of the skill fan-out
-  ([skills.md](skills.md) → **Invocation & audit log**), limited to the tools
-  a skill run needs. `install.sh --check` prints the parts not current:
-  `hooks`, `automode-rules` (the `[code-guardian]` rules differ from the ones
-  this definition writes), `tool-deny`, `skill-agent`. On another harness it
-  prints a notice and exits 0. The platform writes `settings.json` too, so the
-  install holds `settings.json.lock` (`<pid>:code-guardian`, an exclusive
-  create) for its whole read-modify-write, reads the file only once it holds
-  it, and renames a copy staged beside it; it waits up to 10 s, and breaks a
-  lock older than 30 s whose holder is gone. A lock it cannot take, or a file
-  it cannot read or parse, is left as it is with a line on stderr — re-run the
-  install.
+- `install.sh` — idempotent, run at onboarding Step 1b and by every
+  definition migration ([persistence.md](persistence.md) → **Definition
+  version & upgrade**), effective from the next session. In
+  `~/.claude/settings.json`, replacing only its own entries, it writes:
+  - the hooks;
+  - `autoMode.environment` / `autoMode.allow` rules tagged `[code-guardian]`
+    for the agent's documented writes outside the target repo — the tracking
+    issue on `definition_repo` through `scripts/definition-issue.sh`, the
+    `curl -X PUT` upload of every published report and artifact
+    (`work/audit/`, `work/benchmark/`, `work/reviews/pr-artifacts/`,
+    `work/survey/`), the review dispatch through `schedule_once`, and the
+    review steps the classifier refused most (`review-pr.sh`, the
+    `review-skill` subagent, `work-backup.sh`, the cleanup of review scratch);
+  - `permissions.deny` with the tools of `denied-tools.txt` — tools neither a
+    procedure nor a platform prompt (Kit Update: `report_kit_updated`,
+    `cancel_kit_update`) calls — removing their definitions from every
+    session and subagent.
+
+  It installs `agents/review-skill.md` as `~/.claude/agents/review-skill.md`,
+  the skill fan-out's subagent type ([skills.md](skills.md) → **Invocation &
+  audit log**), limited to the tools a skill run needs. `--check` prints the
+  parts not current: `hooks`, `automode-rules` (the `[code-guardian]` rules
+  differ from this definition's), `tool-deny`, `skill-agent`; on another
+  harness it prints a notice and exits 0. As the platform writes
+  `settings.json` too, the install holds `settings.json.lock`
+  (`<pid>:code-guardian`, an exclusive create) for its whole
+  read-modify-write, reads the file only once it holds it, and renames a copy
+  staged beside it; it waits up to 10 s and breaks a lock older than 30 s
+  whose holder is gone. A lock it cannot take, or a file it cannot read or
+  parse, is left as it is with a line on stderr — re-run the install.
 
 Registration is user-global, so every hook script no-ops unless
-`$WORK/CONFIG.md` exists: they act only on sessions of a deployed instance.
-`guard-definition-issue.sh` is the exception: it guards wherever it resolves a
-definition repo, `$HOME`'s origin included, because onboarding runs from that
-checkout before `CONFIG.md` exists.
-Messages pass `log_redact` (log.sh) before writing — well-known credential
-shapes (GitHub/Slack tokens, bearer headers) are masked, per the
-no-secrets-in-logs invariant.
+`$WORK/CONFIG.md` exists — except `guard-definition-issue.sh`, which guards
+wherever it resolves a definition repo (`$HOME`'s origin included), as
+onboarding runs before `CONFIG.md` exists. Messages pass `log_redact` (log.sh)
+before writing, masking well-known credential shapes (GitHub/Slack tokens,
+bearer headers).
 
-The weekly audit verifies the adapter matches the detected harness
-(`harness_adapter` check): a Claude Code pod without registered hooks, current
-auto-mode rules (the tracking-issue rule names `definition_repo`), the deny
-list or a current `review-skill` agent is a warn. The monitor checks the same
-parts on every tick (`harness_drift`, [monitor.md](monitor.md)).
+The audit's `harness_adapter` check (a warn) and the monitor's
+`harness_drift` ([monitor.md](monitor.md)) flag a part that is missing or not
+current for the detected harness (the tracking-issue rule names
+`definition_repo`).

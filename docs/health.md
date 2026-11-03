@@ -4,9 +4,9 @@ Read this file when the operator asks why the agent did not run, about a past
 outage or about the health dashboard, or before a change to what the monitor
 records.
 
-The monitor's pass (`scripts/monitor.sh`, [monitor.md](monitor.md)) drives
-`scripts/health.sh` on every tick. It keeps the technical facts that the
-14-day events log loses, and it shows them on one page. No model call.
+The monitor's pass ([monitor.md](monitor.md)) runs `scripts/health.sh` on
+every tick: it keeps the technical facts the 14-day events log loses and shows
+them on one page. No model call.
 
 ## Records (`work/health/`)
 
@@ -19,10 +19,10 @@ schedules.json    # the last list_schedules answer, trimmed
 dashboard.html    # the last published page
 ```
 
-- **Hour row** — each tick recomputes the hours of the daily events files from
-  the newest row's day on and replaces the rows of those days; the first tick
-  backfills every retained file. A row stays when its events file is gone, and
-  a record is never rewritten from a failed computation.
+- **Hour row** — each tick recomputes the hours from the newest row's day on
+  and replaces those days' rows; the first tick backfills every retained
+  events file. A row outlives its events file and is never rewritten from a
+  failed computation.
 
   | Field | Counts, per UTC hour |
   | --- | --- |
@@ -37,12 +37,11 @@ dashboard.html    # the last published page
   | `direct_sent` / `direct_fail` | `monitor_direct` info / error ([monitor.md](monitor.md) → **Direct delivery**) |
 
 - **Incident** — `{id, kind, first, last_seen, open, end, detail}`, one per
-  condition id of the monitor. An outage or a condition is open until it
-  clears; a classifier day, a refused post, a stall day, an anomaly, a
-  denied GitHub call and an identity change are closed points. A recovery
-  notice is no incident.
-- Rows hold counts, class words, UTC times, PR and review ids, HTTP codes and adapter parts only —
-  never the text of an event.
+  monitor condition id. An outage or condition is open until it clears; a
+  classifier day, refused post, stall day, anomaly, denied GitHub call or
+  identity change is a closed point; a recovery notice is none.
+- Rows hold counts, class words, UTC times, PR and review ids, HTTP codes and
+  adapter parts only — never the text of an event.
 
 ## Service status
 
@@ -62,22 +61,19 @@ state.
 
 **Sessions** — `status.json` → `tokens_adapter` is `true` when a harness
 adapter writes the `tokens` event ([logging.md](logging.md) → **Harness
-adapters**): `CLAUDECODE=1`, the Claude Code adapter's `SessionEnd` hook in
-`~/.claude/settings.json`, or the pi extension's link in
-`~/.pi/agent/extensions/` on an agent whose harness is pi, which the
-monitor's gate reads from outside the session. With `false` and no `tokens`
-event in 24 h, the Harness note says `Sessions 24 h: not measured`, and a
-chart window with no session shows the reviews alone. A `tokens` event counts
-on any harness, once per run and hour: a session that ends twice counts once.
+adapters**): `CLAUDECODE=1`, the Claude Code `SessionEnd` hook in
+`~/.claude/settings.json`, or, on a pi agent, the pi extension's link in
+`~/.pi/agent/extensions/`. With `false` and no `tokens` event in 24 h, the
+Harness note says `Sessions 24 h: not measured`, and a chart window with no
+session shows the reviews alone.
 
 ## The dashboard
 
-`bash "$HOME/scripts/health.sh" report` prints one self-contained page: the
-service tiles, the per-hour charts of 7 days, the incidents, the per-day charts
-of 90 days, the top error events of 7 days and the DAM schedules (name,
-enabled, last run, a result class and counts — DAM's error text stays out).
-The incident table adds `no_gate_tick` — a run of history hours with no gate
-tick at all.
+`bash "$HOME/scripts/health.sh" report` prints one self-contained page:
+service tiles, 7-day per-hour charts, incidents (plus `no_gate_tick` — history
+hours with no gate tick at all), 90-day per-day charts, the 7-day top error
+events and the DAM schedules (name, enabled, last run, a result class and
+counts — no DAM error text).
 
 **Why did the agent not run at T?** Read the hour rows and incidents of T:
 
@@ -102,11 +98,10 @@ tick at all.
   `not found`. Any other failure creates nothing and keeps the share URL.
 - Every request of the pass ends 15 s before the gate's budget; the schedules
   call runs only with 40 s left.
-- The page passes `redact_file` before the publish, and its share URL is public
+- The page passes `redact_file` before the publish; its share URL is public
   to anyone holding it (README → **Runtime requirements**).
 - Each publish logs a `health` event: `dashboard published → DAM <id>`, or
   `dashboard not published: <reason>` (warn).
 
-**Cost** — no token. A tick reads the daily events files since the newest row
-(two on a running monitor, about 1 s on the pod); a publish adds up to three
-MCP calls, at most once per status change or 3 h.
+**Cost** — no token: a tick reads the events files since the newest row (about
+1 s); a publish adds up to three MCP calls.

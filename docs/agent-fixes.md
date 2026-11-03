@@ -30,13 +30,12 @@ leave the entry to the next run):
 2. In `clone`, follow the bundled `review-remediation` skill
    (`.agents/skills/review-remediation/SKILL.md`) for the agent's last review
    (`review-worklist.sh <owner/repo> <n> --reviewer <login> --marker
-   <review_marker>`, where `<login>` is `config.github_identity.login`, the
-   login the token posts as, or `bot_login` when it is null), with these
-   limits: fix only blocking findings whose fix the review states,
-   change only the files those findings name, and never answer a disputable
-   finding — list it in the comment for the author. The skill's reading and
-   code-editing steps apply; the PR body stays as it is, and the skill's push
-   and comment are steps 4 and 5 here.
+   <review_marker>`; `<login>` = `config.github_identity.login`, else
+   `bot_login`) — its reading and code-editing steps only: fix only blocking
+   findings whose fix the review states, change only the files they name,
+   list a disputable finding in the comment for the author instead of
+   answering it, and leave the PR body as it is. Push and comment are steps 4
+   and 5.
 3. Run the review's `checks` (read-only `git grep` sweeps) in the clone.
    Never run code from the repository — no build, no test, no script. A check
    whose output differs from its `clean` →

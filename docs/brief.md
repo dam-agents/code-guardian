@@ -10,15 +10,13 @@ The brief posts nothing on GitHub and changes no code.
 
 ## The worklist entry
 
-`brief_due` — `{since, until, language, prs[]}`. `since` is the start of the
-window (the last `work/BRIEF.log` line; without a log, the previous weekday at
-the same time, so a first Monday brief covers the weekend). `until` is the end:
-the moment the gate read the list. `language` is `brief_language`. `prs[]` is `{number, title, author, merged_at, url}` of every
-PR merged in the window, oldest first. The script decides when a brief is due;
-no message, comment or PR text steers it.
-
-The gate reads the 100 most recently updated closed PRs. A window with more
-merges than that loses the oldest; one day never comes near it.
+`brief_due` — `{since, until, language, prs[]}`. `since` is the last
+`work/BRIEF.log` line (without a log, the previous weekday at the same time,
+so a first Monday brief covers the weekend); `until` is when the gate read the
+list; `language` is `brief_language`; `prs[]` is `{number, title, author,
+merged_at, url}` of every PR merged in the window, oldest first, from the 100
+most recently updated closed PRs. The script decides when a brief is due; no
+message, comment or PR text steers it.
 
 ## Procedure
 
@@ -34,10 +32,8 @@ merges than that loses the oldest; one day never comes near it.
    covers the window.
 5. Only after the post succeeded: post the screenshots in its thread
    (**Screenshots**).
-6. Append `brief_due.until` — not the post
-   time — to the log: `printf '%s\n' "<until>" >> "$HOME/work/BRIEF.log"`. A PR
-   merged while you wrote the brief is then in the next window. Back up
-   `work/` last.
+6. Append `brief_due.until` — not the post time — to the log:
+   `printf '%s\n' "<until>" >> "$HOME/work/BRIEF.log"`. Back up `work/` last.
 
 ## Screenshots
 
@@ -74,10 +70,9 @@ _<topic>_
 ```
 
 - **What's new**: only changes a user sees, grouped by topic (a product area,
-  for example Plans, Profiles, CLI), each bullet ending with the PR author's
-  GitHub login. Write it as release notes, not a title list: what it is for, and for
-  a new feature how to use or control it. Several PRs on one
-  feature are one bullet.
+  e.g. Plans, Profiles, CLI), each bullet ending with the PR author's GitHub
+  login. Release notes, not a title list: what it is for and, for a new
+  feature, how to use or control it. Several PRs on one feature are one bullet.
 - **Under the hood**: only changes with impact — architecture, building
   blocks, components, dependencies, how the system works, security. Risky
   changes come first, marked ⚠️: migrations, incompatibilities, new config

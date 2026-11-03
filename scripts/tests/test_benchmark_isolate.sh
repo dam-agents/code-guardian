@@ -12,10 +12,6 @@ MCP_URL="http://platform.test/api/agents/a1/mcp"
 REST_BASE="http://platform.test/api/agents/a1"
 SUMMARY="token compared with == instead of a constant-time check"
 
-check_eq() { # <actual> <expected> <description>
-  if [ "$1" = "$2" ]; then printf 'ok   %s: %s\n' "$CASE" "$3"
-  else printf 'FAIL %s: %s\n     got:  %s\n     want: %s\n' "$CASE" "$3" "$1" "$2"; FAILED=1; fi
-}
 
 vis_fx() { printf '{"visibility":"%s"}' "$2" | fx "api --hostname github.com repos/$1"; }
 
