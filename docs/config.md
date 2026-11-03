@@ -105,6 +105,13 @@ call under `benchmark_judge: auto` ([benchmark.md](benchmark.md) →
   (`context` = `review_marker`): started, in progress with an ETA, terminal
   outcome (review-bookkeeping.md → **Progress signal on GitHub**). Best-effort —
   a failed write never affects the review.
+- **`approve_after_rounds`** — a positive integer N. **Missing = off.** From
+  the N-th review round of a PR on, a review with no open 🔴 posts `APPROVE`:
+  its open 🟡 stay listed, and the verdict sentence names the limit
+  ([finding-form.md](finding-form.md) → **The approval bar**). A round is one
+  posted review of this agent on the PR; the urgent rapid pass is not a round
+  of its own. The auto-merge gate still needs no open 🟡
+  ([auto-merge.md](auto-merge.md)).
 - **`ci_triage`** — `enabled` | `disabled`. **Missing = `disabled`.** After a
   review posts, a failing check on the reviewed SHA gets one comment naming the
   probable cause and the smallest fix ([ci-triage.md](ci-triage.md)). It never

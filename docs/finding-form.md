@@ -54,7 +54,11 @@ a diagram never block on their own.
 `APPROVE` until they are resolved. 🟢 never blocks. Each blocking finding
 carries the fix that resolves it, so the bar reads off the findings themselves.
 *Review only:* any 🔴 → `REQUEST_CHANGES`, else any 🟡 → `COMMENT`, else
-`APPROVE` — over your findings and every skill section together.
+`APPROVE` — over your findings and every skill section together. With
+`approve_after_rounds` set ([config.md](config.md)), from that review round of
+the PR on: no 🔴 → `APPROVE`. The open 🟡 stay listed with their **Fix:**, and
+the verdict sentence names the round limit; `compose-brief` names the round,
+and `post` warns on another verdict.
 
 **Blocking findings are complete and uncapped.** Report every 🔴 and 🟡 that
 survives verification, however many that is. A first review is the complete

@@ -11,6 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.2.0 — 2026-11-03
+
+**Upgrade:** Nothing to run. The new optional key `approve_after_rounds` is off
+until the operator sets it (docs/config.md). Tell the operator.
+
 ## 14.1.0 — 2026-10-30
 
 **Upgrade:** Nothing to run. A draft PR that carries `rereview_label` or

@@ -422,6 +422,11 @@ from Step 0.1 is shown to the operator, who picks the one that applies.
      so it never blocks a merge, and that its name in the checks list is the
      `review_marker`.
      Default `disabled`; write the key only on a yes.
+   - **`approve_after_rounds`** — after how many review rounds of a PR a
+     review approves when no 🔴 is open, its 🟡 still listed
+     (`docs/finding-form.md` → **The approval bar**). Mention that 🔴 still
+     blocks and that auto-merge still needs no open 🟡. Default off; write the
+     key only for a positive integer.
    - **`ci_triage`** — whether a failing check on a reviewed commit gets one
      comment naming the probable cause and the smallest fix
      (`docs/ci-triage.md`). Mention that it only reads and explains: no job is
@@ -604,6 +609,7 @@ Final shape:
 - agent_fixes: enabled                 # admin opt-in only; omit = disabled (docs/agent-fixes.md)
 - agent_fix_label: code-guardian:fix  # human-managed label that asks for one fix round
 - review_progress: enabled             # progress check on the PR; omit = disabled
+- approve_after_rounds: 3              # from this review round on, no 🔴 = APPROVE, 🟡 listed; omit = off
 - ci_triage: enabled                   # one comment explaining a failing check; omit = disabled
 - review_dispatch: enabled             # every PR after a heartbeat's first starts in a session of its own (default); or: disabled
 - session_awareness: enabled           # platform session list + HEAD signals (docs/sessions.md); omit = enabled
