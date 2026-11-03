@@ -16,11 +16,10 @@ description: >
 
 # Agent Engineering
 
-An agent definition is a program written in prose. An unattended model
-executes every line of its Markdown, so a defect in a doc is a defect in
-behavior. Hold the definition to the rules of a program: one home per rule,
-invariants that a script enforces, docs and scripts that agree, tested
-scripts, releases that deployed instances can adopt, and safe defaults.
+An agent definition is a program written in prose: a defect in a doc is a
+defect in behavior. Hold it to the rules of a program — one home per rule,
+invariants a script enforces, docs and scripts that agree, tested scripts,
+releases deployed instances can adopt, and safe defaults.
 
 Paths below are relative to this skill's directory.
 
@@ -53,10 +52,9 @@ bash scripts/check-definition.sh <checkout>                     # the whole tree
 It needs `bash`, `git`, `jq`, `grep`, `sed`, `xargs`, `find`, `cmp`,
 coreutils and, with `--base`, `tar` (a missing one exits 2), takes under a
 minute, and prints `<FAIL|WARN|NOTE>  <check-id>  <path[:line]>  <message>`
-lines and one summary line. `--list-checks` prints what each check holds.
-With `--base` it reports only what the change adds: the diff starts at the
-merge base, and the version checks compare with the base tip, so a number
-that another change released meanwhile fails.
+lines and one summary line; `--list-checks` prints what each check holds.
+With `--base` it reports only what the change adds (diff from the merge base;
+version checks against the base tip).
 
 - **FAIL** — a defect. Read the line and report it.
 - **WARN** — a probable defect. Read the line; report it when the reading
@@ -66,10 +64,8 @@ that another change released meanwhile fails.
   end as no finding.
 
 Every finding comes from the file you read, never from a script line alone.
-The script does not depend on the repository's CI: it runs the same checks
-whether the repository has them or not. A script that cannot run → one line
-`check-definition not run: <reason>`, then do the checks marked *script* in
-the catalogue by reading.
+A script that cannot run → one line `check-definition not run: <reason>`,
+then do the checks marked *script* in the catalogue by reading.
 
 ## 4. Judge against the catalogue
 

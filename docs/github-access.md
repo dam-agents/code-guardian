@@ -3,8 +3,8 @@
 Read this file when onboarding checks the token (ONBOARDING Step 4), when a
 version upgrade or the audit's `github_identity` check reports a connection
 change, and when the operator asks what the agent may do on GitHub. The agent
-runs the same way with a **user token** (classic or fine-grained) and with a
-**GitHub App** installation token. Nothing in `work/CONFIG.md` names the
+runs the same way with a **user token** (classic or fine-grained) and a
+**GitHub App** installation token; nothing in `work/CONFIG.md` names the
 connection.
 
 ## Identity
@@ -13,16 +13,14 @@ connection.
   (`scripts/lib/common.sh` → `gh_login`). REST `GET /user` refuses an App
   token, and the pod's proxy can refuse GraphQL for a user token. `kind` is
   `app` for a `<app>[bot]` login, else `user`.
-- `$WORK/GITHUB.json` caches `{login, kind, checked_at}`. Preflight refreshes it
-  hourly, and the audit refreshes it on every run. A failed read keeps the cache.
-  A cache that is not one JSON object reads as absent, and the next read writes
-  it again. A changed login also records
-  `{previous, changed_at}` and logs a `github_identity` warn; the audit's
-  `github_identity` check warns for 7 days after it.
+- `$WORK/GITHUB.json` caches `{login, kind, checked_at}`. Preflight refreshes
+  it hourly, the audit on every run. A failed read keeps the cache; a cache
+  that is not one JSON object reads as absent and is rewritten. A changed login
+  also records `{previous, changed_at}` and logs a `github_identity` warn; the
+  audit's `github_identity` check warns for 7 days after it.
 - The worklist `config.github_identity` carries `{login, kind}`.
-- `bot_login` is the account people mention and request
-  ([config.md](config.md)). It can differ from the token's login: an App
-  token posts as the App while `bot_login` stays a user account.
+- `bot_login` ([config.md](config.md)) can differ from the token's login: an
+  App token posts as the App while `bot_login` stays a user account.
 
 ## Triggers by identity
 
@@ -55,14 +53,14 @@ GitHub App cannot be requested, so the review request has a label beside it:
   - an issue that carries the issue marker.
 - An unmarked issue comment by a bot login is not attributed. The reaction
   feedback skips it, and a reply under it is not a mention.
-- Reviews are always matched by the marker, whatever posted them, so a
-  connection change orphans no past review.
+- Reviews are always matched by the marker, so a connection change orphans no
+  past review.
 
 ## Own pull request
 
 GitHub refuses an approval or a change request from the account that opened
-the pull request. One GitHub App can open pull requests for one agent and
-review them for another, so this happens in normal use:
+the pull request — normal when one GitHub App opens pull requests for one
+agent and reviews them for another:
 
 - When the PR's author is the token's login, `review-pr.sh post` and `rapid`
   send the review as `COMMENT`. The body starts with a line that names the
@@ -118,8 +116,8 @@ Rules:
 
 - **Direct session, onboarding and upgrade only — never a scheduled run.** Its
   write probes send a body that GitHub must reject: 422 means granted, 403/404
-  means denied, and nothing is written. Preflight and the audit stay
-  read-only; they check the identity alone.
+  denied, and nothing is written. Preflight and the audit check the identity
+  alone.
 - A probe that answers 2xx is a defect. Report it to the operator and remove it
   from the script.
 - Show the report to the operator. A `missing` feature that is enabled in

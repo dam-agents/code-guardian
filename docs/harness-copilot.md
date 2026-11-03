@@ -24,11 +24,10 @@ The contract all harnesses share is [logging.md](logging.md) →
 - **Platform tools:** the definition names them
   `mcp__platform-outbound__<tool>`; on Copilot, call the platform-outbound
   server's `<tool>` as the session's tool list names it.
-- **Tokens:** no usage snapshot exists for Copilot
-  (`scripts/harness/copilot/`), so the benchmark records `tokens: null` and
-  the audit, the trends and the health dashboard report tokens as not
-  measured.
-- **Effort:** Copilot exposes no reasoning-effort variable, so the benchmark
-  records `effort: "unknown"` and that run gets no delta.
+- **Tokens:** no usage snapshot (`scripts/harness/copilot/`) — the benchmark
+  records `tokens: null`, and the rest reports them as not measured
+  ([logging.md](logging.md) → **Harness adapters**).
+- **Effort:** no reasoning-effort variable — the benchmark records
+  `effort: "unknown"` (no delta).
 - **Adapter:** none. The agent logs tool failures itself
   ([logging.md](logging.md) → **Who writes what**, duty 4).

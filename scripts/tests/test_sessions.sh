@@ -29,10 +29,6 @@ sessions_fx() {
     > "$SANDBOX/mcp/list_sessions.json"
 }
 calls() { jq -s --arg t "$1" '[.[] | select(.method == "tools/call" and .params.name == $t)] | length' "$SANDBOX/mcp.log"; }
-check_eq() { # <actual> <expected> <description>
-  if [ "$1" = "$2" ]; then printf 'ok   %s: %s\n' "$CASE" "$3"
-  else printf 'FAIL %s: %s (got %s, want %s)\n' "$CASE" "$3" "$1" "$2"; FAILED=1; fi
-}
 hold() { # <n> <secs-ago> <run>
   mkdir -p "$WORK/.holds.lock"
   printf '%s\n%s\n' "$(iso_ago "$2")" "$3" > "$WORK/.holds.lock/$1"

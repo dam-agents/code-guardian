@@ -12,10 +12,6 @@
 SANDBOX="$(mktemp -d)"
 SANDBOXES+=("$SANDBOX")
 
-ok()  { printf 'ok   %s: %s\n' "$CASE" "$1"; }
-bad() { printf 'FAIL %s: %s\n' "$CASE" "$1"; RC=1; }
-is()  { [ "$2" = "$3" ] && ok "$1" || bad "$1 (got '$2', want '$3')"; }
-RC=0
 
 # <name> <text> — measure a body and report one field
 stat_of() { # <file> <field>
@@ -102,4 +98,4 @@ is 'the aggregation still runs'        "$(printf '%s' "$agg" | jq -r '.reviews.t
 is 'the broken row is not measured'    "$(printf '%s' "$agg" | jq -r '.ste.reviews')" '1'
 is 'the sound row still is'            "$(printf '%s' "$agg" | jq -r '.ste.avg_sentence_words')" '12'
 
-exit "$RC"
+finish

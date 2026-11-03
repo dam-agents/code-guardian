@@ -8,60 +8,57 @@ Read when the worklist's `read_set` names this file: `selfheals_due`,
 Both run before the review loop, one log line each. A failed removal is logged,
 never fatal — preflight re-emits the entry.
 
-- **Self-heal** `{number, sha, ts, status}` → write the REVIEWS.md row with
-  `review-pr.sh row <number> <sha> <ts> SEE-GITHUB <status>`. `ts` is the
-  GitHub-reported timestamp; use the remote body's verdict when you have it.
-  Log `PR #<n>: self-healed REVIEWS.md from remote marker (<status>)`.
+- **Self-heal** `{number, sha, ts, status}` → `review-pr.sh row <number> <sha>
+  <ts> SEE-GITHUB <status>` (`ts` is the GitHub-reported timestamp; use the
+  remote body's verdict when you have it). Log `PR #<n>: self-healed
+  REVIEWS.md from remote marker (<status>)`.
 - **Same-SHA trigger cleanup** `{number, label, request, delta_label}` → a
   trigger on a PR whose live HEAD is reviewed and whose description is
-  unchanged since. Clear what the entry flags — `label: true` → remove
-  `$REREVIEW_LABEL`, `delta_label: true` → remove `$REREVIEW_DELTA_LABEL`,
-  `request: true` → remove your pending review request (**Trigger removal**) —
-  post nothing, and log `PR #<n>: re-review trigger present but nothing new
-  since <short-sha> — cleared (<the cleared triggers, joined by " + ">), no
-  re-review`. An edited
-  description arrives as a `reviews_due` entry instead
+  unchanged since. Clear what the entry flags — `label: true` →
+  `$REREVIEW_LABEL`, `delta_label: true` → `$REREVIEW_DELTA_LABEL`,
+  `request: true` → your pending review request (**Trigger removal**) — post
+  nothing, and log `PR #<n>: re-review trigger present but nothing new since
+  <short-sha> — cleared (<the cleared triggers, joined by " + ">), no
+  re-review`. An edited description arrives as a `reviews_due` entry instead
   ([review-rereview.md](review-rereview.md) → **Description-only re-review**).
 
 ## Pruning (`prunes_due`)
 
-Preflight verified every entry `{number, state, dam_id, guide_id}` CLOSED/MERGED. The
-candidates are the REVIEWS.md rows and the PRs with step-2 files or a
-`work/MENTIONS.md` `body-<n>` row but no REVIEWS.md row.
-Execute exactly this list — never from list absence, never a bulk delete of
-`reviews/pr-*.md`. An entry without an id → read the
-`<!-- artifact-dam: … -->` and `<!-- artifact-guide: … -->` markers from
-`work/reviews/pr-<n>.md` before step 2 deletes it.
+Preflight verified every entry `{number, state, dam_id, guide_id}`
+CLOSED/MERGED; the candidates are the REVIEWS.md rows and the PRs with step-2
+files or a `work/MENTIONS.md` `body-<n>` row but no REVIEWS.md row. Execute
+exactly this list — never from list absence, never a bulk delete of
+`reviews/pr-*.md`. An entry without an id → read the `<!-- artifact-dam: … -->`
+and `<!-- artifact-guide: … -->` markers from `work/reviews/pr-<n>.md` before
+step 2 deletes it.
 
 1. Artifacts, a failure logged and never blocking: `guide_id` (the review
    guide, [artifact.md](artifact.md) → **Review guide**) and `dam_id` (a PR
-   artifact published before 11.0.0) → one
-   `delete_artifact {id: <id>}` each, skipped silently when the MCP tool is
-   absent.
+   artifact published before 11.0.0) → one `delete_artifact {id: <id>}` each,
+   skipped silently when the MCP tool is absent.
 2. `rm -f work/reviews/pr-<n>.md work/reviews/pr-<n>.carry.json
-   work/reviews/pr-artifacts/pr-<n>.html work/reviews/pr-artifacts/pr-<n>.guide.html` — the PR's ledger rows stay
-   ([review-mechanics.md](review-mechanics.md) → **Review ledger**).
+   work/reviews/pr-artifacts/pr-<n>.html work/reviews/pr-artifacts/pr-<n>.guide.html`
+   — the PR's ledger rows stay ([review-mechanics.md](review-mechanics.md) →
+   **Review ledger**).
 3. Delete the PR's REVIEWS.md row (`review-pr.sh row <n> --delete`), and its
    `work/SHEPHERD.md` row and `work/MENTIONS.md` `body-<n>` row when present.
 4. Log `PR #<n>: pruned (<state>)`.
 
 ## Trigger removal
 
-Use REST — `gh pr edit` goes through GraphQL, which 401s in this pod (the
-platform's auth proxy does not rewrite that code path), with the label name
-URL-encoded as one path segment:
+Use REST — `gh pr edit` goes through GraphQL, which 401s in this pod — with the
+label name URL-encoded as one path segment; `$REREVIEW_DELTA_LABEL` the same
+way:
 
 ```bash
 gh api -X DELETE "repos/$REPO/issues/<n>/labels/$(jq -rn --arg v "$REREVIEW_LABEL" '$v | @uri')" >/dev/null \
   || gh pr edit <n> --repo "$REPO" --remove-label "$REREVIEW_LABEL"
 ```
 
-`$REREVIEW_DELTA_LABEL` the same way. `review-pr.sh post` removes both labels
-when the review posts.
-
-Pending review request — a served request clears itself when `bot_login` posts
-the review. When the token posts as another login (a GitHub App token),
-`review-pr.sh post` removes it. The same-SHA cleanup removes it with:
+`review-pr.sh post` removes both labels when the review posts. A served review
+request clears itself when `bot_login` posts the review; when the token posts
+as another login (a GitHub App token), `post` removes it. The same-SHA cleanup
+removes it with:
 
 ```bash
 gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BOT_LOGIN" >/dev/null
@@ -70,20 +67,17 @@ gh api -X DELETE "repos/$REPO/pulls/<n>/requested_reviewers" -f "reviewers[]=$BO
 ## Progress signal on GitHub (`review_progress`)
 
 `review_progress: enabled` (missing = `disabled`) publishes progress on the
-reviewed SHA under the name `$REVIEW_MARKER`: a **check run** for a GitHub App
-token, a **commit status** for a user token, the other one when the first is
-refused ([github-access.md](github-access.md) → **Progress signal channel**).
-`pending` is a check run `in_progress` and `success` a completed one. One write
-per update, always through the script:
+reviewed SHA under the name `$REVIEW_MARKER`, through the channel of
+[github-access.md](github-access.md) → **Progress signal channel** (`pending`
+is a check run `in_progress`, `success` a completed one). One write per
+update, always through the script:
 
 ```bash
 bash "$HOME/scripts/review-pr.sh" progress <n> <sha> <state> "<line>" [<url>]
 ```
 
 `<url>` is the row's `target_url`. `description` is one short line — GitHub
-truncates past 140 characters. A check run also keeps every line as a timeline
-in its summary and tells people how to request the next round
-([github-access.md](github-access.md) → **Progress signal channel**). The CI rollup never counts this signal as a
+truncates past 140 characters. The CI rollup never counts this signal as a
 check of the commit ([ci-triage.md](ci-triage.md)).
 
 | Written at | `state` | `description` | `target_url` |
@@ -113,9 +107,9 @@ check of the commit ([ci-triage.md](ci-triage.md)).
 
 **`status_resets_due`** `{number, sha, reason}` — a locked review was abandoned
 with the status left `pending` (`reason: draft` — the PR is now a draft
-without a review label). Write the terminal row above,
-then **delete the PR's REVIEWS.md row** (`review-pr.sh row <n> --delete`); the
-`reviews/pr-<n>.md` history stays.
+without a review label). Write the terminal row above, then **delete the PR's
+REVIEWS.md row** (`review-pr.sh row <n> --delete`); the `reviews/pr-<n>.md`
+history stays.
 
 ## Self-check
 

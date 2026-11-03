@@ -4,10 +4,10 @@ Read this file when onboarding offers the tailored skill (ONBOARDING Step 7),
 when the operator asks for a review skill made for the reviewed repository or
 asks to change one, or when the audit finds an `open` or `pending` tailored skill.
 
-The definition holds no opinion about how a repository is built. The tailored
-skill turns the rules the reviewed repository states about itself, and the
-choices its operator makes in a short interview, into review checks. Every rule
-in the skill cites its source: an in-tree path, or the operator's answer.
+The tailored skill turns the rules the reviewed repository states about
+itself, and the choices its operator makes in a short interview, into review
+checks. Every rule in the skill cites its source: an in-tree path, or the
+operator's answer.
 
 ## When
 
@@ -27,13 +27,12 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 
 ## Asking
 
-- Each round is one native platform chat form: follow the platform's
+- Each round is one native platform chat form per the platform's
   `platform-chat-forms` skill — its capabilities gate, the operator's
   preferences (pacing, recommendation), the check before sending and its
-  plain-text fallback. Without the skill, or in a conversation with no form
-  capabilities, ask the same round in plain text: numbered questions,
-  lettered options with the same line and example, the operator answers
-  `1a,c 2b`.
+  plain-text fallback. Without the skill or form capabilities, ask the same
+  round in plain text: numbered questions, lettered options with the same line
+  and example, answered `1a,c 2b`.
 - One `ChoicePicker` per question (`multipleSelection` for a multi-select),
   with a free-text `TextField` for "Other" where the round allows own rules.
   Directly under each picker, a caption `Text` with one bullet per option, in
@@ -47,11 +46,11 @@ in the skill cites its source: an in-tree path, or the operator's answer.
 
 ## Round 1 — areas
 
-One multi-select question per group that has at least one offered area, all
-in one form. An area is offered only when its signal is in the repository. An
-area that a `## Review skills` row already covers (for example a `doc-drift`
-row covers `docs`) shows `(covered by <skill>)` and is never recommended.
-Recommend at most 4 areas over all groups: the ones with the strongest signal.
+One multi-select question per group with at least one offered area, all in
+one form. An area is offered only when its signal is in the repository. An
+area a `## Review skills` row already covers (a `doc-drift` row covers `docs`)
+shows `(covered by <skill>)` and is never recommended. Recommend at most 4
+areas over all groups: the strongest signals.
 
 | Group | Area | Checks | Signal |
 | --- | --- | --- | --- |
@@ -72,8 +71,8 @@ Recommend at most 4 areas over all groups: the ones with the strongest signal.
 ## Round 2 — details
 
 One question per chosen area (two for `contract` and `tests`), at most 4
-questions per form. Options derived from the tree list only what the clone has. Each
-chosen option becomes one rule; the rule names the paths it applies to.
+questions per form. Options derived from the tree list only what the clone
+has. Each chosen option becomes one rule that names the paths it applies to.
 
 - **`docs`** (multi) — a document mapped to the changed code states the old
   behavior *(Recommended)* · a command, flag or path in the README or a guide
@@ -133,9 +132,8 @@ chosen option becomes one rule; the rule names the paths it applies to.
 ## Round 3 — shape and home
 
 - **Shape** (single) — one combined skill *(Recommended)*: one run per reviewed
-  PR, one review section · one skill per chosen group, at most 4: one run each
-  per reviewed PR, each with its own section. The caption states the runs per
-  PR of each option.
+  PR, one review section · one skill per chosen group, at most 4, each with its
+  own run and section. The caption states the runs per PR of each option.
 - **Home** (single) — the reviewed repository, through a pull request
   *(Recommended)*: the team keeps it beside the code · a skills repository the
   operator names, through a pull request · the files in chat, and the operator

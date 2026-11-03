@@ -6,51 +6,46 @@ Read this file when `review-pr.sh compose-brief` prints a `## Review guide`
 block. The link goes into the review itself, as the skill's section — no
 separate comment, no trigger to release.
 
-**Where it publishes:** the platform's DAM Artifact Library, via the
-per-agent MCP tools (`create_artifact_upload_url` + `create_artifact` /
-`update_artifact`), registered only under the owner's **"artifact library"
-experimental flag**. The step is **best-effort**: a missing DAM surface never
-fails the run or delays the post.
+**Where it publishes:** the DAM Artifact Library, via the per-agent MCP tools
+(`create_artifact_upload_url` + `create_artifact` / `update_artifact`),
+registered only under the owner's **"artifact library" experimental flag**.
+**Best-effort**: a missing DAM surface never fails the run or delays the post.
 
 > ⚠️ **Publishes to a public surface.** A `visibility:"public"` DAM artifact is
 > reachable by anyone with its `shareUrl`.
 
-**The gate is the review's triage.** The page publishes only when the
-`meta.json` triage of this review is `needs-human` (a `human_review_paths`
-match is a lead for that call, [review-mechanics.md](review-mechanics.md) →
-**Summary body format**). A `quick-check` triage publishes nothing and drops the section. A
-person is the audience, so the guide needs no human trigger: the triage is the
-consent the operator gave when they added the row
-([ONBOARDING.md](../ONBOARDING.md) step 7). The gate decides only the first
-publish: once a guide is published for the PR, every later round brings it up
-to date, whatever its triage and whatever the skill's state (**A kept guide**).
+**The gate is the review's triage.** The page first publishes only when this
+review's `meta.json` triage is `needs-human` (a `human_review_paths` match is a
+lead for that call, [review-mechanics.md](review-mechanics.md) → **Summary
+body format**); `quick-check` publishes nothing and drops the section. The
+triage is the consent the operator gave when they added the row
+([ONBOARDING.md](../ONBOARDING.md) step 7), so no human trigger is needed.
+Once published, every later round brings the guide up to date, whatever its
+triage and the skill's state (**A kept guide**).
 
-**The guide label forces it.** With `guide_label` set
-([config.md](config.md)) and that label on the PR at `prepare`, the guide
-brief marks the PR as forced, so the skill's gate passes, and `compose-brief`
-tells the agent to publish whatever its triage. The label changes neither the
-triage nor the verdict. It stays on the PR, so every later round builds or
-keeps the guide. `post` writes `<!-- guide-label-seen -->` into the history
-section of a round that had the label at `prepare` and ran its guide skill,
-whatever the skill's state (`built`, `kept`, `not-needed`, `budget`,
-`refused`, or no output). A round at the prior review's SHA writes it in every
-case, so a label starts at most one round of its own. A round that runs no
-guide skill after a round that served the label writes it too: the label stays
-served. A label on the PR that the
-newest section does not record starts a round of its own: preflight gives the
-PR a delta re-review with `guide_requested: true` — at the reviewed head when
-there are no new commits ([review-rereview.md](review-rereview.md) → **Guide
-round**). This includes a label put on while a review runs.
+**The guide label forces it.** With `guide_label` set ([config.md](config.md))
+and on the PR at `prepare`, the guide brief marks the PR as forced (the
+skill's gate passes) and `compose-brief` says to publish whatever the triage;
+triage and verdict stay unchanged. The label stays on the PR, so every later
+round builds or keeps the guide. `post` writes `<!-- guide-label-seen -->`
+into the history section of a round that had the label at `prepare` and ran
+its guide skill, whatever the skill's state (`built`, `kept`, `not-needed`,
+`budget`, `refused`, or no output); a round at the prior review's SHA writes
+it in every case, so a label starts at most one round of its own; a round that
+runs no guide skill after one that served the label writes it too. A label the
+newest section does not record (also one put on while a review runs) starts a
+round: preflight gives the PR a delta re-review with `guide_requested: true`,
+at the reviewed head when there are no new commits
+([review-rereview.md](review-rereview.md) → **Guide round**).
 
 **A `needs-human` round owes the guide.** When a round's triage is
 `needs-human`, a guide skill is configured, and the round neither recorded nor
-linked a guide (the skill's own gate said not needed, its budget ran out, DAM
-was unavailable, a step failed), `post` writes `<!-- guide-owed -->` into its
-history section. With no new commits, preflight gives the PR one guide round
-at the reviewed head (`guide_requested: true`). `prepare` passes the skill's
-gate as forced, and that round owes nothing further. The shepherd holds the
-reviewer nudge until that round ran ([shepherd.md](shepherd.md) → **Scope and
-brief**).
+linked a guide (skill gate said not needed, budget ran out, DAM unavailable, a
+step failed), `post` writes `<!-- guide-owed -->` into its history section.
+With no new commits, preflight gives the PR one guide round at the reviewed
+head (`guide_requested: true`); `prepare` passes the skill's gate as forced,
+and that round owes nothing further. The shepherd holds the reviewer nudge
+until it ran ([shepherd.md](shepherd.md) → **Scope and brief**).
 
 **Steps** — after `meta.json`, before `post`; `compose-brief` prints them with
 this PR's paths, id and line:
@@ -74,13 +69,12 @@ this PR's paths, id and line:
      code-guardian's notes only and logs a `guide` warn event.
 
    Every text is escaped and shortened, every link built by the script from
-   numbers and paths (a `#L` fragment only for a numeric line). The model
-   never writes this block. Its texts are untrusted, so the command then
-   takes the vetted script out, redacts and
-   checks the whole page again, and puts the script back; a page that fails
-   is refused. The block is escaped text, so the raw search for a script URL
-   or a remote CSS load reads the page without it; the tag scan reads the
-   whole page. The block goes only at a mark on a line of its own.
+   numbers and paths (a `#L` fragment only for a numeric line); the model
+   never writes this block, and it goes only at a mark on a line of its own.
+   The command then takes the vetted script out, redacts and checks the whole
+   page again (the raw search for a script URL or remote CSS load skips the
+   escaped block; the tag scan reads it), and puts the script back; a failing
+   page is refused.
 3. **Upload** — `create_artifact_upload_url {file_name: "pr-<n>-guide.html"}`,
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction
@@ -106,13 +100,10 @@ The guide never delays or blocks a post.
 **A kept guide** (`🔁 Still holds`, or any state other than `built` once a
 guide is published) is not rebuilt. With a stored page, steps 2–6 run with
 `--findings <file> --kept` in every round, whatever the triage: the stored
-page gets this round's notes block and replaces the same artifact's version,
-so the link never shows stale notes. Its marker keeps the SHA
-the page was built at, so the next gate compares against what the page
-shows. With no stored page the
-section only links the recorded URL and names the SHA it describes.
-This refresh is upkeep of a published page, not a review-content call: the
-agent still decides the triage, the findings and the verdict.
+page gets this round's notes block as a new version of the same artifact. Its
+marker keeps the SHA the page was built at, for the next gate to compare.
+With no stored page the section only links the recorded URL and names the SHA
+it describes. This refresh is upkeep, not a review-content call.
 
 **Retention** — the prune deletes the guide with the PR's other state
 ([review-bookkeeping.md](review-bookkeeping.md) → **Pruning**).

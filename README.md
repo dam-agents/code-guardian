@@ -10,302 +10,187 @@ review (the **PR Shepherd** role).
 
 ## How it works
 
-Six kinds of scheduled run exist. Five **start with the deterministic
-pre-flight script** [`scripts/preflight.sh`](scripts/preflight.sh), and the
-health monitor with [`scripts/monitor.sh`](scripts/monitor.sh). Both scripts
-only *detect*: they make no GitHub writes and compute the run's worklist. The
-one exception is the monitor's opt-in direct DM and dashboard publish (below).
-With work, the agent performs all of it per the [`docs/`](docs/) procedures.
-
-An empty worklist starts no session at all. Every schedule except the weekly
-audit runs its script as its platform **`precheck`**
-([`scripts/precheck.sh`](scripts/precheck.sh)): the gate's exit code decides
-whether the model is woken, so idle ticks cost nothing, and a started run
-receives the worklist the gate already computed. Bookkeeping that nobody waits
-on — prunes, self-heals, status resets —
-rides along with the next run that has real work
-([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Every
-scheduled session carries a title that says what it does — `Review PR #1457`,
-`Triage CI on PR #1457`, `Audit agent health 2026-10-09`
+Every scheduled run starts with a deterministic detector —
+[`scripts/preflight.sh`](scripts/preflight.sh), or
+[`scripts/monitor.sh`](scripts/monitor.sh) for the health monitor — that makes
+no GitHub writes and computes the run's worklist; the agent then does the work
+per the [`docs/`](docs/) procedures. Every schedule except the weekly audit runs
+its detector as the platform **`precheck`**
+([`scripts/precheck.sh`](scripts/precheck.sh)), so an empty worklist starts no
+session ([`docs/worklist.md`](docs/worklist.md) → **The schedule gate**). Each
+session carries a title such as `Review PR #1457`
 ([`docs/runbook.md`](docs/runbook.md) → **Session titles**).
 
-**Review heartbeat** — every 5 minutes, around the clock by default. An
-optional active window checks every 15 minutes in the quiet hours outside it.
-`preflight.sh review` lists open PRs in one REST call — a draft only while it
-carries a review label — and decides per PR what is due:
+**Review heartbeat** — every 5 minutes by default (15 in quiet hours outside an
+optional active window). A never-reviewed PR gets a first review; an
+already-reviewed PR is re-reviewed only on an explicit trigger — the
+`rereview_label`, `rereview_delta_label`, a GitHub review request under
+`rereview_trigger`, or a `guide_label` no round saw yet. A draft is listed only
+while it carries a review label; an `urgent_label` PR jumps the queue
+rapid-first. The review follows [`docs/review.md`](docs/review.md) +
+[`docs/skills.md`](docs/skills.md) and posts one GitHub review with a hidden
+dedup marker. The same heartbeat answers comments addressed to the bot
+([`docs/mentions.md`](docs/mentions.md)) and, with the admin's opt-ins, merges a
+labeled quick-check PR ([`docs/auto-merge.md`](docs/auto-merge.md)) or fixes its
+own findings on a labeled PR ([`docs/agent-fixes.md`](docs/agent-fixes.md)).
 
-- Never-reviewed PRs get a first review automatically. Already-reviewed PRs get
-  a re-review **only on an explicit trigger** — the `rereview_label`, the
-  optional `rereview_delta_label`, GitHub's "Re-request review" when
-  `rereview_trigger` enables it, or the optional `guide_label` that no review
-  round saw yet. New commits
-  alone just flip the tracking row to `awaiting_label`.
-- Same-HEAD PRs are skipped via `work/REVIEWS.md` plus the remote dedup-marker
-  check, with self-heal. Closed and merged PRs are verified per PR and queued
-  for pruning. PRs carrying the optional `urgent_label` jump the queue and get
-  a rapid, criticals-only review that approves when it finds no critical,
-  before the full one.
-- The agent then follows [`docs/review.md`](docs/review.md) +
-  [`docs/skills.md`](docs/skills.md): context and diff, clone, every configured
-  review skill, HEAD freshness re-verified right before posting, one GitHub
-  review (summary + inline comments, signed with `bot_display_name`, carrying
-  the hidden dedup marker), label bookkeeping, and tracking in
-  `work/REVIEWS.md` and `work/reviews/pr-<number>.md`. Reviews are concise and
-  assume agent-written, agent-read code unless memory names another audience.
-  Re-review scope follows the trigger: the label asks for the whole PR again,
-  a review request, the delta label or an on-demand ask for the delta only.
-- The same heartbeat answers comments and PR descriptions addressed to the bot:
-  questions get a reply, explicit review feedback is recorded to memory and
-  confirmed in the reply, and "please re-review" is served on demand
-  ([`docs/mentions.md`](docs/mentions.md)).
-- With the admin's opt-in (`auto_merge`, off by default), the same heartbeat
-  merges a PR a person labeled with `auto_merge_label` once the review approved
-  it as a quick check and every gate holds — clean mergeable state, green
-  checks, size cap, no `.github/` or sensitive path
-  ([`docs/auto-merge.md`](docs/auto-merge.md)).
-- With the admin's opt-in (`agent_fixes`, off by default), a person's
-  `agent_fix_label` asks for one round in which the agent fixes its own
-  blocking findings and pushes one commit to the PR branch — never to a fork,
-  never past a commit pushed meanwhile; such a PR never auto-merges
-  ([`docs/agent-fixes.md`](docs/agent-fixes.md)).
+**Shepherd sweep** — hourly on working days and hours, Slack only. Sends due
+reviewer and rebase nudges to the shared channel, roster-only mentions,
+send-then-record ([`docs/shepherd.md`](docs/shepherd.md)).
 
-**Shepherd sweep** — hourly on working days and hours; runs only when Slack
-notifications are enabled. `preflight.sh shepherd` classifies every open
-non-draft PR from independent reviews and applies the age gate, cooldown and
-escalation ladder, flagging merge-conflicted PRs for an author-directed rebase
-nudge. The agent sends each due nudge to the shared Slack channel and records
-it immediately after the send — send-then-record, roster-only mentions
-([`docs/shepherd.md`](docs/shepherd.md)). A reviewer nudge carries the
-review's triage — estimated minutes, what a person must judge, what was
-checked — and the review guide's link; by default
-(`shepherd_scope: needs_human`) it skips PRs the review called a quick check.
-
-**Health monitor** — every 15 minutes; a tick with no alert starts no
-session. `monitor.sh` reads the local logs for model and GitHub outages,
-classifier refusals, a silent review schedule, a failing backup, harness drift
-and stalled or anomalous reviews, and keeps 90 days of hourly technical history
-and incidents. With the opt-ins it sends its alerts itself as a templated
-Slack DM, so they arrive during a model outage, and publishes a health
-dashboard ([`docs/monitor.md`](docs/monitor.md),
+**Health monitor** — every 15 minutes; a tick with no alert starts no session.
+Detects outages, refusals, a silent schedule, a failing backup and stalled or
+anomalous reviews from local logs; with the opt-ins it DMs its alerts itself and
+publishes a health dashboard ([`docs/monitor.md`](docs/monitor.md),
 [`docs/health.md`](docs/health.md)).
 
-**Weekly audit** — Friday morning by default, on while `audit_report` is
-enabled (the default). `preflight.sh audit` computes 7-day statistics and
-deterministic health checks — auth, missed heartbeats, error logs, state
-consistency, verdict and findings shifts, skill freshness, 👍/👎 reactions.
-The agent adds the judgment checks — schedules, memory-rule compliance, nudge
-integrity, lessons from 👎-flagged findings — and sends a traffic-light report
-to Slack when enabled, and to the chat UI always
-([`docs/audit.md`](docs/audit.md)).
+**Weekly audit** — Friday morning by default, under `audit_report`. 7-day
+statistics, deterministic and judgment health checks, a traffic-light report to
+the chat UI and Slack ([`docs/audit.md`](docs/audit.md)), and the accumulated
+weekly trends artifact ([`docs/trends.md`](docs/trends.md)).
 
-**Daily brief** — weekdays in the morning, gated by `daily_brief` and Slack. One
-Slack message of what the merged PRs changed: first the news for the whole team
-by topic, explained like release notes, then the technical changes with impact
-and the risky ones; screenshots of UI changes follow in its thread. Weekend
-merges arrive on Monday; the language is `brief_language`
-([`docs/brief.md`](docs/brief.md)).
+**Daily brief** — weekday mornings, under `daily_brief` and Slack: one message
+of what the merged PRs changed ([`docs/brief.md`](docs/brief.md)).
 
-**Codebase survey** — weekly in a quiet hour, gated by `survey`. A review reads
-a diff; a survey reads one area of the repository as it stands, traces its
-inputs to their dangerous sinks, and reports only the dangerous findings a diff
-structurally cannot show — security holes, data loss, reachable failures. The area is proposed deterministically (never
-surveyed first, then the oldest pass), the pass gets a recommended scope before it starts, and
-the history accumulates in one artifact with a stable URL
+**Codebase survey** — weekly in a quiet hour, under `survey`: a security pass
+over one area of the repository as it stands
 ([`docs/survey.md`](docs/survey.md)).
 
-**Weekly trends** — every audit also appends its measured week to
-`work/audit/` and republishes one accumulated artifact: volume, verdicts,
-findings and their acceptance, latency, cost, stalls and errors, plus the
-repository's own health — how much of what merged was reviewed, PR size, the
-wait for a first **human** review — against the previous week and the 4-week
-average. The history is append-only and the step makes no model call
-([`docs/trends.md`](docs/trends.md)).
-
-**Model benchmark** — the 1st of the month by default; runs only when the
-`benchmark` key is enabled. The agent replays ≥5 simple and ≥3 complex synthetic review fixtures
-with known seeded defects through its full pipeline, measures time and tokens
-per review, scores each output against the fixture's manifest, says per task tier
-whether the configuration is good enough, and republishes
-an accumulated report, kept with full provenance so review quality stays
-comparable across model, harness and definition versions. Unrecorded **trial
-runs** score feature branches during development, several at once
+**Model benchmark** — monthly, under `benchmark`: replays synthetic review
+fixtures with seeded defects, scores them and republishes an accumulated report
 ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**
-[`CLAUDE.md`](CLAUDE.md) holds only the run types and the rule to read
-[`docs/runbook.md`](docs/runbook.md) once preflight or the monitor reports
-work; the runbook holds the run procedures and the hard invariants; every other
-procedure lives in its own `docs/` file, read only when the matching work
-happens — a review run reads exactly the `read_set` preflight computes for its
-worklist. An idle heartbeat loads nothing.
+[`CLAUDE.md`](CLAUDE.md) holds the run types and the rule to read
+[`docs/runbook.md`](docs/runbook.md) when there is work; every other procedure
+lives in its own `docs/` file, read only when its work happens.
 
 **The definition is versioned** ([`VERSION`](VERSION) +
-[`CHANGELOG.md`](CHANGELOG.md)). At updates, on demand, and before any
-self-modification the agent checks version freshness, applies the changelog's
-upgrade steps, and warns the operator when the instance is outdated
+[`CHANGELOG.md`](CHANGELOG.md)); instances apply the upgrade steps
 ([`docs/persistence.md`](docs/persistence.md) → **Definition version &
 upgrade**).
 
-**Feedback persists.** What the user says in chat, or in a PR comment addressed
-to the bot, goes to `work/MEMORY.md` (global) or to that PR's
-`## PR-local overrides` (PR-specific), so later runs respect it and never
-re-flag a dismissed finding. The agent also learns passively: generalizable
-insights from human reviews and author replies are recorded as observed
-insights, and the weekly audit consolidates them — merge, promote to rules,
-drop stale — so memory stays useful and bounded
+**Feedback persists** in `work/MEMORY.md` or a PR's `## PR-local overrides`, and
+the audit consolidates observed insights
 ([`docs/preferences.md`](docs/preferences.md)).
 
 ## Setup
 
-Bringing up a new code-guardian agent takes three steps — or one, on a
-platform whose starter kit catalog offers this repository: creating the
-agent from the **Code Guardian** kit grants the connections, registers the
-schedules and points the first turn at [`ONBOARDING.md`](ONBOARDING.md),
-which then asks for the repository to review.
+On a platform whose starter kit catalog offers this repository, create the agent
+from the **Code Guardian** kit ([`kit.yaml`](kit.yaml)): it grants the
+connections, registers the schedules and points the first turn at
+[`ONBOARDING.md`](ONBOARDING.md).
 
-Bringing it up by hand:
+By hand:
 
 1. **Create the agent** on the platform, with GitHub — and optionally Slack —
    connections granted (see **Connections**).
 2. **Grab the link to [`ONBOARDING.md`](ONBOARDING.md)** — **from the repo or
    fork you actually deploy from**, for example
    `https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md`. The
-   agent derives its *definition repo* from this URL, host included, so a
-   GitHub Enterprise URL works the same; it is stored as `definition_repo`, so
-   a fork's agent stays pinned to the fork and never resets itself to upstream.
+   agent derives `definition_repo` and `definition_branch` from this URL, host
+   included, so a fork's agent stays pinned to the fork.
 3. **Tell the agent**, in its first message:
 
    > Here is a file — read it and set yourself up according to it: https://github.com/<your-org>/code-guardian/blob/main/ONBOARDING.md
 
-That is a complete initialization. The agent checks out its own definition,
-wires up `work/`, walks you through a short configuration dialog (bot name,
-review marker, review skills, Slack — each value lands in `work/CONFIG.md`),
-registers the schedules (the review heartbeat, the Friday audit, the 15-minute
-health monitor, plus the hourly shepherd sweep, the monthly benchmark and the
-weekly survey when their keys are enabled), and marks itself onboarded so it
-never repeats the process.
+Onboarding checks out the definition, provisions `work/`, asks the
+configuration questions, registers the schedules and writes a sentinel so it
+never repeats.
 
-### Slack notifications (optional, chosen at onboarding)
-
-One onboarding question is: **do you want Slack notifications?** — the PR
-Shepherd reviewer nudging, and the switch for every other Slack message.
-
-- **No**, or no answer → the agent never touches Slack. Reviews, reports and
-  alerts still land in the chat UI and on GitHub.
-- **Yes** → the agent builds with you the reviewer roster
-  (`work/DEVELOPERS.md`), the only set of people it may ever @-mention: the
-  GitHub logins of an org team you pick (else the repo's top contributors),
-  seed expertise from their recent PRs, and each member's **Slack member ID**,
-  which you paste (in Slack: profile → ⋮ → *Copy member ID*).
-
-The decision is stored in `work/CONFIG.md` and can be changed later by telling
-the agent; it flips the flag, and builds the roster on first enable.
-
-Independently of this opt-in, **anyone** in the connected channel — or, in a
-GitHub comment @-mentioning the bot, an account `mention_authors` admits — can
-ask the agent to review a specific PR, equivalent to adding the re-review
-label, including restarting a stuck review (`docs/review-on-demand.md` →
-**On-demand review**). Any other change request from a channel is declined
-and reported to the operator; under
-`definition_issues: enabled` it is also filed as an anonymous tracking issue on
-the definition repo, with the link in the reply (`docs/runbook.md` →
-**Instruction sources & trust boundary**).
+**Slack notifications** are opt-in at onboarding (default off) and gate every
+Slack message. A yes builds the reviewer roster `work/DEVELOPERS.md` — the only
+people the agent may @-mention — with each member's Slack member ID. Without
+Slack, reviews, reports and alerts still land in the chat UI and on GitHub.
+Anyone in the connected channel, or an admitted GitHub mention, can ask for a
+review ([`docs/review-on-demand.md`](docs/review-on-demand.md) → **On-demand
+review**); any other channel request is declined
+([`docs/runbook.md`](docs/runbook.md) → **Instruction sources & trust
+boundary**).
 
 ## Configuration
 
-The agent reads **no environment variables of its own**: onboarding asks for
-the target repository and the optional state-backup repository and stores both
-in `work/CONFIG.md` (`github_repo`, `work_repo`), which every scheduled run
-reads from a fresh shell. `GH_HOST` is the only ambient value it honours, and
-only to name the default GitHub host.
+The agent reads **no environment variables of its own**: every value lives in
+`work/CONFIG.md`, which onboarding fills in. `GH_HOST` is the only ambient value
+it honours, and only to name the default GitHub host.
 
 ### `work/CONFIG.md` — instance configuration
 
-The definition is project-agnostic: everything specific to one deployment lives
-in `work/CONFIG.md`, which **onboarding fills in interactively**, auto-detecting
-what it can and asking for the rest. Per-key semantics are in
-[`docs/config.md`](docs/config.md); summary:
+Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 
 | Key | Filled at onboarding by | Purpose |
 | --- | --- | --- |
-| `github_repo` | Step 0 answer | Target-repo reference (`[host/]owner/repo`) — the only source the runtime reads. |
-| `work_repo` | Step 0 answer (optional) | Repo backing `work/` up (`[host/]owner/repo`); omitted = local-only persistence (`docs/persistence.md`). |
-| `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware) — outer-repo `origin`, target of definition PRs, review-footer link. |
-| `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch of `definition_repo` **this instance runs from**. A per-agent deployment choice; definition PRs are still based on `main`. |
-| `bot_login` | auto-detected via GraphQL `viewer` (else `gh api user`), confirmed | GitHub account people mention and request — "independent reviewer" classification. A GitHub App token can post beside a user `bot_login`; an App `bot_login` uses the labels (`docs/github-access.md` → **Triggers by identity**). |
-| `bot_display_name` | asked (default `Code Guardian`) | Name the agent signs reviews with. Cosmetic only. |
-| `review_marker` | asked (default `code-guardian:review`) | Prefix of the hidden dedup marker in every posted review. **Immutable once the first review is posted.** |
-| `rereview_label` | asked (default `code-guardian:rereview`) | PR label that requests a **complete** re-review. Without a trigger, new commits are not re-reviewed. The agent removes the label once the re-review is posted. |
-| `rereview_trigger` | asked with `rereview_label` (default `label`) | How re-reviews are requested: `label`, `review-request` (needs the bot as a collaborator), or `both`. A served review request clears itself. A GitHub App `bot_login` is label-only. |
-| `rereview_delta_label` | asked (default off) | PR label that requests a **delta** re-review — the changes since the last review, as a review request does. The delta trigger of a GitHub App `bot_login`. The agent removes it once the re-review is posted. |
-| `urgent_label` | asked with the labels (default off) | Optional **human-managed** label marking a PR urgent: its due reviews jump the queue and run rapid-first (a rapid pass without a critical finding approves), and with Slack enabled a newly urgent PR gets one immediate mention-free channel alert (`docs/review-urgent.md` → **Urgent PRs**). |
-| `review_progress` | asked (default `disabled`) | Publishes each review's progress to the PR as a check run (GitHub App) or a commit status (user token) on the reviewed SHA (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). Always `success` when it finishes, so it never gates a merge; the `context` is the instance's `review_marker`. |
-| `ci_triage` | asked (default `disabled`) | After a review posts, a failing check on the reviewed SHA gets one comment with the probable cause and the smallest fix (`docs/ci-triage.md`). Reads and explains only — it never restarts a job, changes a label, or changes a verdict. |
-| `review_dispatch` | asked (default `enabled`) | A heartbeat that finds several PRs keeps its first and starts every other PR at once in a one-time session of its own (`docs/worklist.md` → **Dispatch**); `disabled` keeps them in the run, one after another. |
-| `session_awareness` | defaulted to `enabled` | The scripts read the platform's session list to judge holds, dispatch and overruns, and signal a review session whose PR got a new HEAD (`docs/sessions.md`); `disabled` keeps the event-based rules. |
-| `mention_replies` | asked (default `enabled`) | GitHub comments addressed to the bot are answered every heartbeat — replies, feedback recorded to memory, review requests served (`docs/mentions.md`). |
-| `mention_authors` | asked (default `collaborators`) | Whose GitHub mentions are handled: repository owners, members and collaborators, or `anyone` (`docs/config.md`). |
-| `project_profile` | asked (default `enabled`) | Generated map of the reviewed repository (`work/PROFILE.md`), kept current by a structural fingerprint and handed to every review and skill subagent — orientation only, never evidence (`docs/profile.md`). |
-| `guide_label` | asked with the review guide row (default off) | PR label that asks for the review guide whatever the review's triage; it stays on the PR (`docs/artifact.md` → **Review guide**). |
-| `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, **per-skill source** (`[host/]owner/repo`, or `harness`), trigger (`always` or an extension list), and the review-section heading. The definition holds the mechanics; this table defines *what* runs *when* and *from where*. Onboarding ends with the offer of one review skill made for the repository from an interview (`docs/tailored-skill.md`). |
-| `## Watch rules` table | not filled — added later in chat when a team asks | Instance-local "when a PR does X, give a heads-up in Y" rules, delivered to vetted targets: chat UI, a Slack channel, or a PR comment (`docs/watches.md`). Keeps team-specific triggers out of this public definition. |
-| `slack_notifications` | asked (default `disabled`) | Gates all Slack activity (shepherd nudging, watch notifications). |
-| `audit_report` | defaulted to `enabled` | Weekly health check and report (Slack when enabled, chat UI otherwise). |
-| `definition_issues` | asked (default `disabled`) | Whether the agent files anonymous tracking issues on the definition repo — audit-found definition bugs and refused channel requests; `scripts/definition-issue.sh` blocks any draft that names instance data (`docs/runbook.md` → **Definition-repo issues**). |
-| `benchmark` | asked (default off) | Monthly self-benchmark of the review pipeline on ≥5 simple and ≥3 complex synthetic fixtures with known defects, time and tokens measured per review, and a verdict per task tier (`docs/benchmark.md`). |
-| `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | The judge of the LLM-judged quality scores, the same for every run, run through the `claude` CLI (or `pi` on the same model as the fallback) whatever model the reviews use: `auto` = the agent picks it once from the host's models, a model id = the operator's pick, `off` = deterministic scoring only. |
-| `merge_ready_nudge` | asked with Slack (default `disabled`) | One Slack line when a PR is approved, conflict-free, green and carries no open critical of the agent's own — once per approval, to the author (`docs/shepherd.md` → **Ready to land**). |
-| `shepherd_scope` | asked with Slack (default `needs_human`) | `needs_human` limits reviewer nudges to PRs whose current review did not call a quick check; `all` nudges every waiting PR (`docs/shepherd.md` → **Scope and brief**). |
-| `human_review_paths` | asked with auto-merge or Slack (default none) | Globs of sensitive files: the review names the match to its triage call and records it, and the PR never auto-merges (`docs/review-mechanics.md` → **Summary body format**). |
-| `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merges a PR a person labeled, that the review approved as a quick check and that passes every gate — clean mergeable state, green checks, size cap, no `.github/` or sensitive path (`docs/auto-merge.md`). |
-| `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | A person's label asks for one round in which the agent fixes its own blocking findings and pushes one commit to the PR branch, never to a fork; such a PR never auto-merges (`docs/agent-fixes.md`). |
-| `survey` | asked (default `disabled`) | Weekly security pass over one area of the repository — security holes, data loss and reachable failures, traced from input to sink; no suggestion, no refactor (`docs/survey.md`). One area per run with a recommended scope, read-only: it never changes code and never posts on a PR. |
-| `survey_report` | asked with `survey` (default `dam`) | Surface for the accumulated survey artifact, updated in place at a stable URL: `dam` or `off`. |
-| `survey_report_findings` | asked with `survey_report: dam` (default `disabled`) | Whether the public survey artifact shows the findings themselves, each code location linked to the commit the pass read, or stays an index of areas and passes. |
-| `survey_interval_days` | not set (= `7`) | The floor between two survey passes, so a drifting cron never surveys twice in one interval. |
-| `daily_brief` | asked with Slack (default `disabled`) | Weekday Slack brief of the merged PRs: news by topic, then the technical changes (`docs/brief.md`). |
-| `brief_language` | asked with `daily_brief` (default `English`) | The language of the brief. |
-| `audit_trend` | defaulted to `dam` | Surface for the weekly trend artifact, updated in place at a stable URL: `dam` or `off`. |
-| `benchmark_report` | asked with `benchmark` (default `dam`) | Surface for the accumulated report artifact, updated in place at a stable URL: `dam` or `off`. |
-| `## Benchmark sufficiency` table | offered with `benchmark` (optional) | The bar per task tier (recall, precision, minimum defects) for the report's sufficiency verdicts: is the configuration good enough for simple tasks, and for complex ones (`docs/benchmark.md` → **Sufficiency by tier**). |
-| `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok USD prices that price the `est $` columns of the benchmark report and the weekly trends (`docs/benchmark.md` → **Model prices**). |
-| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | The heartbeat's two cadences and the window between them; each interval bounds how long a new PR waits for its run. They are the source of truth for the registered crons (`ONBOARDING.md` Step 6a) — an edited key takes effect once the schedules are re-registered. |
-| `stall_alert_threshold` | not set (= `4`) | Stalled reviews within 24 h that record one history incident (no alert), at most once per UTC day; `0`/`off` disables. |
-| `review_anomaly_factor` | not set (= `4`) | A review whose cost, time, context, repeated calls, failures or largest tool result reaches max(floor, this × its model's median) records one history incident (no alert); `0`/`off` disables. |
-| `model_alert_threshold` | not set (= `2`) | Runs ended on an API failure within one outage before the monitor alerts; `0`/`off` disables. |
-| `github_alert_threshold` | not set (= `2`) | Gate passes in a row that could not list the open PRs before the monitor alerts; `0`/`off` disables. |
-| `classifier_alert_threshold` | not set (= `20`) | Auto-mode classifier refusals within 24 h that record one history incident per UTC day (no alert); `0`/`off` disables. |
-| `log_level` | not set (= `info`) | Verbosity of the structured events log `work/logs/events-*.jsonl` (`docs/logging.md`); `debug` also records successful external tool calls. |
-| `escalation_owner` | asked (only when Slack enabled) | Roster member @-mentioned at nudge level 4, and the fallback DM target of the monitor's alerts. |
-| `monitor_owner` | asked with the escalation owner (default: not set) | Roster member the monitor's alert DMs go to; not set = `escalation_owner`. |
-| `monitor_slack_direct` | asked with the escalation owner (default `disabled`) | The monitor sends its alerts itself as a templated DM to the monitor owner, so they arrive during a model outage (`docs/monitor.md` → **Direct delivery**). |
-| `health_dashboard` | asked (default `off`) | `dam` publishes the health dashboard — service status, 90 days of hourly history, incidents — updated in place (`docs/health.md`). |
+| `github_repo` | Step 0 answer | Target repo (`[host/]owner/repo`) — the only source the runtime reads. |
+| `work_repo` | Step 0 answer (optional) | Private repo backing `work/` up; omitted = local-only. |
+| `definition_repo` | derived from the ONBOARDING.md URL, host included | The repo this definition came from (fork-aware): `origin`, definition PRs, review footer. |
+| `definition_branch` | derived from the ONBOARDING.md URL, else `main` | Branch this instance runs from. |
+| `bot_login` | auto-detected via GraphQL `viewer` (else `gh api user`), confirmed | Account people mention and request (`docs/github-access.md` → **Triggers by identity**). |
+| `bot_display_name` | asked (default `Code Guardian`) | Review signature. |
+| `review_marker` | asked (default `code-guardian:review`) | Dedup-marker prefix. **Immutable once the first review is posted.** |
+| `rereview_label` | asked (default `code-guardian:rereview`) | Label that requests a **complete** re-review. |
+| `rereview_trigger` | asked with `rereview_label` (default `label`) | `label`, `review-request` or `both`. |
+| `rereview_delta_label` | asked (default off) | Label that requests a **delta** re-review. |
+| `urgent_label` | asked with the labels (default off) | Human-managed label for rapid-first reviews (`docs/review-urgent.md` → **Urgent PRs**). |
+| `review_progress` | asked (default `disabled`) | Progress check run or commit status on the PR (`docs/review-bookkeeping.md` → **Progress signal on GitHub**). |
+| `ci_triage` | asked (default `disabled`) | One comment explaining a failing check (`docs/ci-triage.md`). |
+| `review_dispatch` | asked (default `enabled`) | Each PR after a heartbeat's first runs in its own session (`docs/worklist.md` → **Dispatch**). |
+| `session_awareness` | defaulted to `enabled` | Platform session list for holds, dispatch and HEAD signals (`docs/sessions.md`). |
+| `mention_replies` | asked (default `enabled`) | Answers GitHub comments addressed to the bot (`docs/mentions.md`). |
+| `mention_authors` | asked (default `collaborators`) | Whose mentions are handled: `collaborators` or `anyone`. |
+| `project_profile` | asked (default `enabled`) | Generated repository map `work/PROFILE.md` (`docs/profile.md`). |
+| `guide_label` | asked with the review guide row (default off) | Label that asks for the review guide (`docs/artifact.md` → **Review guide**). |
+| `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, source, trigger, section (`docs/skills.md`); plus the offer of a tailored skill (`docs/tailored-skill.md`). |
+| `## Watch rules` table | not filled — added later in chat when a team asks | "When a PR does X, notify Y" rules (`docs/watches.md`). |
+| `slack_notifications` | asked (default `disabled`) | Gates all Slack activity. |
+| `audit_report` | defaulted to `enabled` | Weekly health report. |
+| `definition_issues` | asked (default `disabled`) | Anonymous tracking issues on the definition repo (`docs/runbook.md` → **Definition-repo issues**). |
+| `benchmark` | asked (default off) | Monthly self-benchmark (`docs/benchmark.md`). |
+| `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | Judge of the LLM-judged scores: `auto`, a model id, or `off`. |
+| `merge_ready_nudge` | asked with Slack (default `disabled`) | One "ready to land" line per approval (`docs/shepherd.md` → **Ready to land**). |
+| `shepherd_scope` | asked with Slack (default `needs_human`) | `needs_human` or `all` (`docs/shepherd.md` → **Scope and brief**). |
+| `human_review_paths` | asked with auto-merge or Slack (default none) | Sensitive globs: named to the triage call, never auto-merged. |
+| `auto_merge`, `auto_merge_label`, `auto_merge_max_lines`, `auto_merge_method` | asked of the repo admin (default off) | Merge of a labeled quick-check PR that passes every gate (`docs/auto-merge.md`). |
+| `agent_fixes`, `agent_fix_label` | asked of the repo admin (default off) | One fix round on a labeled PR (`docs/agent-fixes.md`). |
+| `survey` | asked (default `disabled`) | Weekly security survey (`docs/survey.md`). |
+| `survey_report` | asked with `survey` (default `dam`) | Survey artifact surface: `dam` or `off`. |
+| `survey_report_findings` | asked with `survey_report: dam` (default `disabled`) | Findings on the public survey artifact, or an index only. |
+| `survey_interval_days` | not set (= `7`) | Floor between two survey passes. |
+| `daily_brief` | asked with Slack (default `disabled`) | Weekday Slack brief of merged PRs (`docs/brief.md`). |
+| `brief_language` | asked with `daily_brief` (default `English`) | Brief language. |
+| `audit_trend` | defaulted to `dam` | Weekly trend artifact surface: `dam` or `off`. |
+| `benchmark_report` | asked with `benchmark` (default `dam`) | Benchmark report surface: `dam` or `off`. |
+| `## Benchmark sufficiency` table | offered with `benchmark` (optional) | The bar per task tier (`docs/benchmark.md` → **Sufficiency by tier**). |
+| `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok prices for `est $` columns (`docs/benchmark.md` → **Model prices**). |
+| `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | Heartbeat cadence; source of the registered crons (`ONBOARDING.md` Step 6a). |
+| `stall_alert_threshold` | not set (= `4`) | Stalled reviews per 24 h recorded as an incident; `0`/`off` disables. |
+| `review_anomaly_factor` | not set (= `4`) | Anomalous-review factor over the model's median; `0`/`off` disables. |
+| `model_alert_threshold` | not set (= `2`) | API-failure runs in one outage before an alert; `0`/`off` disables. |
+| `github_alert_threshold` | not set (= `2`) | Failed PR listings in a row before an alert; `0`/`off` disables. |
+| `classifier_alert_threshold` | not set (= `20`) | Classifier refusals per 24 h recorded as an incident; `0`/`off` disables. |
+| `log_level` | not set (= `info`) | Events-log verbosity (`docs/logging.md`). |
+| `escalation_owner` | asked (only when Slack enabled) | Roster member for nudge level 4 and fallback monitor DMs. |
+| `monitor_owner` | asked with the escalation owner (default: not set) | Monitor DM target; not set = `escalation_owner`. |
+| `monitor_slack_direct` | asked with the escalation owner (default `disabled`) | Monitor DMs its alerts itself (`docs/monitor.md` → **Direct delivery**). |
+| `health_dashboard` | asked (default `off`) | `dam` publishes the health dashboard (`docs/health.md`). |
 
 ### Runtime requirements
 
-- **Platform:** the agent assumes the DAM agent infrastructure — `$HOME` at
-  `/home/agent` on a persistent `/workspace` volume, the platform's outbound
-  auth proxy for GitHub tokens, and the `mcp__platform-outbound__*` tools for
-  schedules, one-time review sessions, session titles and Slack. The monitor's
-  opt-ins call that server from a script, at the `platform-outbound` URL of
-  `~/.mcp.json` (`scripts/lib/mcp.sh`). The benchmark runs its reviews in
-  platform sub-agents through the platform's Driver REST routes beside that
-  URL (`docs/benchmark.md` → **Isolation**). Running elsewhere requires
-  adapting those assumptions.
-- **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so the
-  target repo, this definition, the skill sources and the `work_repo` backup may
-  each live on a different host — `github.com` or a GitHub Enterprise instance.
-  Each host in play must be authenticated separately
-  (`gh auth login --hostname <host>`, operator-only) and reachable from the
-  pod; a non-`github.com` target host is persisted as `GH_HOST` at onboarding.
-- **GitHub identity:** the agent posts reviews and comments as the
-  account behind its token — a user token or a GitHub App installation token,
-  both supported (`docs/github-access.md`). Use a **dedicated machine or bot account**, not a
-  personal one, that is a collaborator on the target repo with permission to
-  review PRs. GitHub ignores review requests and approvals from a PR's own
-  author, so the bot account must not open the PRs it reviews. When it does —
-  one GitHub App that opens and reviews PRs — the agent posts its verdict as a
-  comment (`docs/github-access.md` → **Own pull request**).
+- **Platform:** the DAM agent infrastructure — `$HOME` at `/home/agent` on a
+  persistent `/workspace` volume, the outbound auth proxy for GitHub tokens, and
+  the `mcp__platform-outbound__*` tools for schedules, one-time sessions,
+  session titles and Slack. The monitor's opt-ins call that server from a
+  script at the `platform-outbound` URL of `~/.mcp.json`
+  (`scripts/lib/mcp.sh`); the benchmark uses the platform's Driver REST routes
+  (`docs/benchmark.md` → **Isolation**). Running elsewhere requires adapting
+  those assumptions.
+- **GitHub hosts:** every repo reference is `[<host>/]<owner>/<repo>`, so each
+  may live on `github.com` or a GitHub Enterprise instance. Each host must be
+  authenticated (`gh auth login --hostname <host>`, operator-only) and
+  reachable from the pod.
+- **GitHub identity:** a user token or a GitHub App installation token
+  (`docs/github-access.md`). Use a **dedicated machine or bot account** that is a
+  collaborator on the target repo and does not open the PRs it reviews
+  (`docs/github-access.md` → **Own pull request**).
 - **Token scopes** — the single place these are specified:
 
   | Scope | Required? | What needs it |
@@ -314,137 +199,70 @@ what it can and asking for the rest. Per-key semantics are in
   | `read:org` | optional | Onboarding only: lists your org's **teams** to seed the reviewer roster. Without it onboarding falls back to the repo's top contributors; no scheduled run uses it |
 
   The audit's `token_scopes` check asserts the required ones only. A missing
-  scope is **operator-only** to fix: the agent reports it and never works
-  around it. A fine-grained or **GitHub App** token has permissions in place
-  of scopes — the list and the access check that reads them are in
-  `docs/github-access.md` → **Feature map**.
+  scope is **operator-only** to fix. A fine-grained or **GitHub App** token has
+  permissions instead (`docs/github-access.md` → **Feature map**).
 - **External services:** artifacts and reports publish to the platform's DAM
-  Artifact Library (best-effort, behind the owner's experimental flag), whose
-  `visibility:"public"` share URL is reachable by anyone holding it. The HTML
-  passes a redaction pass before the publish (`docs/artifact.md`).
+  Artifact Library (best-effort), whose `visibility:"public"` share URL is
+  reachable by anyone holding it; the HTML passes a redaction pass first
+  (`docs/artifact.md`).
 
 ### Connections
 
-- A **GitHub** connection must be granted so `gh` can authenticate (the Envoy
-  sidecar injects the token, a user's or a GitHub App's, on outbound GitHub
-  requests). The same token
-  serves the target repo, the `work_repo` backup and the definition repo.
-- A **Slack** connection is **optional**, needed only when Slack notifications
-  are enabled, so `mcp__platform-outbound__send_channel_message` can reach the
-  shared channel. With notifications disabled — the default — the agent never
-  calls Slack and the full review pipeline runs unaffected.
+- **GitHub** — required; the Envoy sidecar injects the token on outbound GitHub
+  requests. One token serves the target repo, the `work_repo` backup and the
+  definition repo.
+- **Slack** — optional, needed only when Slack notifications are enabled
+  (`mcp__platform-outbound__send_channel_message`).
 
 ## Persistence
 
-`work/MEMORY.md`, `work/REVIEWS.md` and `work/reviews/` hold the agent's
-learned preferences and review history. `work/CONFIG.md` and — with Slack
-enabled — `work/DEVELOPERS.md` (reviewer roster) and `work/SHEPHERD.md` (nudge
-ledger) live alongside them. They sit on the `/workspace` PVC at runtime
-(mounted as `/home/agent/work/`), so they survive pod restarts. How `work/` is
-seeded depends on the `work_repo` key:
-
-- **Set** — `work/` is a plain data directory backed up to that repo after
-  every run, via a disposable pod-local clone, giving durable, versioned,
-  cross-pod history. Naming an existing backup at onboarding continues that
-  agent: state and logs return verified, and the accumulated reports are
-  published again (`docs/persistence.md` → **After a restore**).
-- **Omitted** — `REVIEWS.md` and `reviews/` are reconstructed from the agent's
-  marker-carrying reviews on the target repo; `MEMORY.md`, which is not
-  derivable from PRs, starts from the seed template in `ONBOARDING.md`
-  (Step 3b).
-
-`work/` is **not tracked** by this definition repo: the allowlist `.gitignore`
-hides everything under it, so the two never collide and a definition update
-never touches live runtime state (`docs/persistence.md` → **Two stores: shared
-live state + durable backup**). Treat `work/` as confidential — it may hold
-private data (roster Slack IDs, preferences, logs), and it leaves the agent
-only via this backup or the configured output surfaces (`docs/runbook.md` →
+`work/` — config, memory, review history, roster, ledgers, logs — lives on the
+`/workspace` volume and is backed up to `work_repo` after every run, or, when
+omitted, rebuilt from the agent's marker-carrying reviews (all but `MEMORY.md`).
+The allowlist `.gitignore` keeps it out of the definition repo. Treat it as
+confidential ([`docs/persistence.md`](docs/persistence.md) → **Two stores:
+shared live state + durable backup**, [`docs/runbook.md`](docs/runbook.md) →
 **Hard invariants**).
 
 ## Files
 
-- [`CLAUDE.md`](CLAUDE.md) — the bootstrap loaded on every run: repo
-  resolution, run types, and the rule to read the runbook once preflight or
-  the monitor reports work.
-- [`docs/runbook.md`](docs/runbook.md) — the operating manual read only then:
-  run procedures, trust boundary, hard invariants, and the map of `docs/`.
-- [`docs/worklist.md`](docs/worklist.md) — the schedule gate, the entry
-  command and the worklist contract, read by a run without a gated worklist.
-- [`docs/`](docs/) — every other procedure, read on demand
-  ([`docs/runbook.md`](docs/runbook.md) → **Map of `docs/`**).
-- [`scripts/preflight.sh`](scripts/preflight.sh) — deterministic pre-flight for
-  every run type but the monitor; detects work, never acts on GitHub.
-- [`scripts/monitor.sh`](scripts/monitor.sh) — the monitor's detector: the
-  health alerts, from local files only ([`docs/monitor.md`](docs/monitor.md)),
-  plus the opt-in direct DM and dashboard publish
-  ([`docs/health.md`](docs/health.md)).
-- [`scripts/precheck.sh`](scripts/precheck.sh) — the schedule gate: one pass
-  of either detector before the session starts, an exit code that skips an
-  idle fire, and the worklist path a started run reads.
-- [`scripts/review-pr.sh`](scripts/review-pr.sh) — the mechanical half of one
-  PR review: guards, lock, context, clone, post, holds, merges and agent
-  fixes, one subcommand each (its header lists them). The agent decides what
-  the review says.
-- [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — one-shot,
-  read-only post-onboarding check (ONBOARDING Step 7): the checkout and
-  `work/` against the templates, and with `--live` the environment a run
-  needs. Prints `FAIL … — fix: …` lines.
-- [`scripts/log.sh`](scripts/log.sh) +
-  [`scripts/harness/`](scripts/harness/) — the structured events log
-  (`work/logs/events-*.jsonl`, 14-day retention) and the per-harness adapters
-  — on Claude Code the hooks that auto-capture failed tool calls and keep
-  unused tools out of every request, on pi an extension that runs the same
-  hooks, plus the subagent fan-out and the benchmark's token snapshot.
-- The other [`scripts/`](scripts/) — profile, dispatch, backup, survey,
-  benchmark, trends, health, definition-issue — each state their contract in
-  their header and their `docs/` home.
+- [`CLAUDE.md`](CLAUDE.md) — the bootstrap loaded on every run.
+- [`docs/runbook.md`](docs/runbook.md) — run procedures, trust boundary, hard
+  invariants and the map of `docs/` (**Map of `docs/`**).
+- [`docs/worklist.md`](docs/worklist.md) — the schedule gate, the entry command
+  and the worklist contract.
+- [`scripts/preflight.sh`](scripts/preflight.sh),
+  [`scripts/monitor.sh`](scripts/monitor.sh),
+  [`scripts/precheck.sh`](scripts/precheck.sh) — the detectors and the schedule
+  gate.
+- [`scripts/review-pr.sh`](scripts/review-pr.sh) — the mechanical half of one PR
+  review; the agent decides what the review says.
+- [`scripts/verify-onboarding.sh`](scripts/verify-onboarding.sh) — read-only
+  post-onboarding check (ONBOARDING Step 7).
+- [`scripts/log.sh`](scripts/log.sh) + [`scripts/harness/`](scripts/harness/) —
+  the structured events log and the per-harness adapters.
+- The other [`scripts/`](scripts/) state their contract in their header and
+  their `docs/` home.
 - [`scripts/tests/`](scripts/tests/) +
-  [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — deterministic stub
-  tests (gh/curl faked, offline) and the CI that runs them plus the
-  `docs/self-modification.md` §9 sweeps on every PR.
-- [`.agents/skills/`](.agents/skills/) — skills bundled with the definition:
-  [`issue-fit`](.agents/skills/issue-fit/SKILL.md), a review skill installed
-  through a `## Review skills` row whose `source` is the instance's
-  `definition_repo` — does the diff deliver what the linked issue asked;
-  [`review-guide`](.agents/skills/review-guide/SKILL.md), a guide skill
-  installed the same way — for a PR whose review needs a person, a visual page
-  linked from the review: why a person, the grounded risks, the review's
-  verified findings, the project map with the change marked, then one-line
-  sections that open to a picture each (why the PR exists, asked vs
-  delivered, behavior before → after, the dependency chain, decisions, fit
-  with the project's records, problems met, how it is proven, churn, impact,
-  rollout and rollback, limits); the
-  maps it draws stay in `work/diagrams/` as project knowledge
-  ([docs/artifact.md](docs/artifact.md) → **Review guide**);
-  [`review-remediation`](.agents/skills/review-remediation/SKILL.md), the
-  author side — install it in whichever agent answers the reviews, to fix
-  every blocking finding at every location and run the checks the review
-  carries. It tells reviewers apart by login and review marker, so a GitHub
-  App login that posts for several agents works too.
-  [`pr-open`](.agents/skills/pr-open/SKILL.md) is its first-push
-  counterpart: it self-reviews the branch and writes a PR body with the
-  scope, a guide for a human reviewer and the person's decisions in a hidden
-  `author-decisions` block, which the reviewer reads.
-  [`code-guardian-checks`](.agents/skills/code-guardian-checks/SKILL.md) is
-  the tailored review skill ([docs/tailored-skill.md](docs/tailored-skill.md))
-  for this repository itself.
-  [`agent-engineering`](.agents/skills/agent-engineering/SKILL.md) reviews
-  the definition of any autonomous agent — its Markdown instructions,
-  scripts, manifest, `VERSION` and `CHANGELOG.md` — with a deterministic
-  check script and a catalogue of defect classes; add it as a review skill
-  for a repository of agent instructions, this one included. It is the one
-  domain skill kept here, because agent definitions are this definition's
-  own domain. Every other skill here is a protocol skill; any other domain
-  skill (language, framework, OWASP or WCAG checklist) lives in its
-  team's skills repository or in the reviewed repository
-  ([`docs/skills.md`](docs/skills.md) → **Where a skill lives**).
-- [`ONBOARDING.md`](ONBOARDING.md) — the first-run setup runbook; it also
-  carries the `work/MEMORY.md` and `work/REVIEWS.md` seed templates (Step 3b).
-- [`kit.yaml`](kit.yaml) — the starter kit this definition is offered as:
-  the connections it asks for, the schedules it registers, the bundled
-  skills and the seed.
-- [`VERSION`](VERSION) + [`CHANGELOG.md`](CHANGELOG.md) — definition semver,
-  bumped with every change, and the per-version upgrade steps instances apply.
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — offline stub tests
+  and the CI that runs them with the `docs/self-modification.md` §9 sweeps.
+- [`.agents/skills/`](.agents/skills/) — bundled skills
+  ([`docs/skills.md`](docs/skills.md) → **Where a skill lives**):
+  [`issue-fit`](.agents/skills/issue-fit/SKILL.md) and
+  [`review-guide`](.agents/skills/review-guide/SKILL.md) (review skills,
+  [docs/artifact.md](docs/artifact.md) → **Review guide**),
+  [`review-remediation`](.agents/skills/review-remediation/SKILL.md) and
+  [`pr-open`](.agents/skills/pr-open/SKILL.md) (the author side),
+  [`code-guardian-checks`](.agents/skills/code-guardian-checks/SKILL.md) (this
+  repository's tailored skill, [docs/tailored-skill.md](docs/tailored-skill.md)),
+  and [`agent-engineering`](.agents/skills/agent-engineering/SKILL.md) (review
+  of agent definitions).
+- [`ONBOARDING.md`](ONBOARDING.md) — the first-run setup runbook and the `work/`
+  seed templates (Step 3b).
+- [`kit.yaml`](kit.yaml) — the starter kit: connections, schedules, bundled
+  skills, seed.
+- [`VERSION`](VERSION) + [`CHANGELOG.md`](CHANGELOG.md) — definition semver and
+  per-version upgrade steps.
 
 ## License
 

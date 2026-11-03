@@ -21,6 +21,22 @@ cfg_table() { sed -n "/^## $1\$/,\${ /^## $1\$/d; /^## /q; p; }" "$CONFIG" 2>/de
 
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+# review_anomaly_factor → ANOMALY_FACTOR: off/none 0, unset 4, else 0 or a
+# number of 1 or more as a JSON number; any other value is logged through the
+# caller's log() and reads as 4 (docs/monitor.md → Review anomaly alert)
+anomaly_factor_read() {
+  local f
+  ANOMALY_FACTOR="$(cfg review_anomaly_factor)"
+  case "$ANOMALY_FACTOR" in
+    (off|none) ANOMALY_FACTOR=0;;
+    ('') ANOMALY_FACTOR=4;;
+    (*) f="$(printf '%s\n' "$ANOMALY_FACTOR" | grep -E '^[0-9]+(\.[0-9]+)?$' \
+          | jq -R 'tonumber | select(. == 0 or . >= 1)' 2>/dev/null)"
+        if [ -n "$f" ]; then ANOMALY_FACTOR="$f"
+        else log "review_anomaly_factor '$ANOMALY_FACTOR' is not 0, off or a number of 1 or more — using 4"; ANOMALY_FACTOR=4; fi;;
+  esac
+}
+
 # The monitor kinds that reach the operator (docs/monitor.md → The alerts):
 # the agent's own operation — model, provider, platform, GitHub reachability,
 # schedule, harness, backup. monitor.sh claims only these; monitor-direct.sh
