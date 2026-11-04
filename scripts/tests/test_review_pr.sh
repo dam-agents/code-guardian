@@ -602,6 +602,39 @@ foreign_step_ago 1800 "PR #1 abc1234 verified"
 run_rp prepare 1
 assert_jq '.outcome == "ready"' 'silence after verified is death again'
 run_rp abort 1 "reset"
+# The fan-out window has no stop event to end it: a run killed inside the
+# fan-out keeps its last `fanned out` step and a young tree for the full hour.
+# The platform's session list decides first (docs/sessions.md → Uses), so an
+# idle holder never holds its PR past preflight's own verdict.
+sess_setup() {
+  mkdir -p "$SANDBOX/mcp"
+  printf '{"mcpServers":{"platform-outbound":{"type":"http","url":"http://platform.test/mcp"}}}\n' > "$FAKE_HOME/.mcp.json"
+}
+sess_fx() { # <session-id> <true|false> <started-secs-ago|->
+  local st=""; [ "$3" = - ] || st="$(iso_ago "$3")"
+  jq -nc --arg id "$1" --argjson r "$2" --arg st "$st" \
+    '{sessions:[{sessionId:$id, title:"Review PR #1", type:"schedule", running:$r,
+      runStartedAt:(if $r and $st != "" then $st else null end)}]}' > "$SANDBOX/sessions.json"
+  jq -nc --slurpfile s "$SANDBOX/sessions.json" '{content:[{type:"text", text:($s[0] | tojson)}]}' \
+    > "$SANDBOX/mcp/list_sessions.json"
+}
+run_rp_mcp() { # <cmd> <n> [args…] — run_rp with the platform session list stubbed
+  CURL_MCP_URL="http://platform.test/mcp" CURL_MCP_LOG="$SANDBOX/mcp.log" CURL_MCP_DIR="$SANDBOX/mcp" \
+    run_rp "$@"
+}
+setup prepare_holder_fanout_idle
+sess_setup; sess_fx other-run false -
+foreign_step_ago 2700 "PR #1 abc1234 locked"
+foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
+run_rp_mcp prepare 1
+assert_jq '.outcome == "ready"' 'an idle session frees the PR inside the fan-out window'
+run_rp abort 1 "reset"
+setup prepare_holder_fanout_running
+sess_setup; sess_fx other-run true 2700
+foreign_step_ago 2700 "PR #1 abc1234 locked"
+foreign_step_ago 2400 "PR #1 abc1234 fanned out (n=2)"
+run_rp_mcp prepare 1
+assert_jq '.outcome == "stand_down"' 'a running session still holds the PR whatever its silence'
 # only a run that locked the PR holds it: a taker that stood down holds nothing,
 # whatever step text it logged — a chain of them would keep a dead holder alive
 # and starve the PR while the schedule fires

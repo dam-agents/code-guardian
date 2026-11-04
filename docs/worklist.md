@@ -59,8 +59,8 @@ and it gets no urgent handling, no guide round, no guide page, no progress
 status, no watch rule, no CI triage and no Slack message. It computes:
 
 - same-SHA dedup, in-progress locks (50-min TTL; takeover only when the holder
-  is also silent — [review-mechanics.md](review-mechanics.md) → **Live
-  holder**);
+  is not live — its session idle, or it is also silent —
+  [review-mechanics.md](review-mechanics.md) → **Live holder**);
 - the **re-review trigger gate** (label and/or review request per
   `rereview_trigger`, and `rereview_delta_label`), urgent-label flagging and
   ordering;
