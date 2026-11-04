@@ -163,12 +163,16 @@ running`. Rule and windows: [lib/holds.sh](../scripts/lib/holds.sh).
 - **As the taker, Check 1 re-checks exclusivity for every entry, whatever its
   `takeover` flag** (preflight's snapshot can predate your arrival). `prepare`
   stands down — `outcome: stand_down`, nothing touched, `holder alive at Check
-  1 — stood down` logged; take the next PR — when a tree, diff or state of
-  `/tmp/review-pr-<n>*` is younger than `HOLDER_QUIET_MIN`, or another run is
-  a live holder by the core rule over every retained event (a `locked` step at
-  any age counts). An older tree with no such event is a dead run's leftover,
-  reclaimed ([skills.md](skills.md) → **Clone, credential helper, cleanup**)
-  before the lock write.
+  1 — stood down` logged; take the next PR — while a foreign run is a live
+  holder by the core rule over every retained event (a `locked` step at any age
+  counts) and the session list does not show it idle. With no such holder it
+  stands down while a tree, diff or state of `/tmp/review-pr-<n>*` is younger
+  than `HOLDER_QUIET_MIN`. A holder the list shows idle is dead with its tree:
+  a run killed inside the skill fan-out logs no stop event, so its
+  `fanned out (n=…)` window would otherwise hold the PR for the full hour. A
+  leftover of a dead run is reclaimed
+  ([skills.md](skills.md) → **Clone, credential helper, cleanup**) before the
+  lock write.
 
 **`reviews/pr-<number>.md`** — per-PR history (`mkdir -p reviews`):
 

@@ -295,7 +295,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   mid-pipeline stop.
 - A review refreshes its own lock row at each milestone (review.md → **Lock
   heartbeat**). A live lock holder is never displaced: takeover needs the
-  holder *silent* as well as past the TTL, and Check 1 re-checks every entry —
+  holder dead — its session idle, or it *silent* as well as past the TTL — and
+  Check 1 re-checks every entry —
   stand down before the clone `rm -rf`. The holder owns its PR to a terminal
   state whatever its lock age (review-mechanics.md → **Live holder**).
 - Under `review_progress: enabled` the progress status stays cosmetic and

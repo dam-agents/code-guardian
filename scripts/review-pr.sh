@@ -813,20 +813,31 @@ live_change() { # <additions|deletions|changed_files>
 }
 
 # ------------------------------------------------------------ live holder ----
-# Another run owns this PR when a tree or diff of its shows a recent mtime, or
-# when a foreign run is a live holder of the PR — lib/holds.sh's live_holders,
-# the rule preflight applies (docs/review-mechanics.md → Live holder).
+# Another run owns this PR when a foreign run is a live holder of the PR by the
+# platform's session list first, and by lib/holds.sh's live_holders — the rule
+# preflight applies — when the list does not know every holder. A tree or diff
+# with a recent mtime is the last signal: a run killed inside the skill fan-out
+# keeps its tree young and its last event `fanned out` for an hour, so only the
+# list can tell it from a working one (docs/review-mechanics.md → Live holder).
 holder_alive() {
-  local recent=0 e me="$ME" foreign=0
+  local recent=0 e me="$ME" foreign=0 runs="" r st
   for e in "$PR_DIR" "$OUT" "$PR_DIR".s-* "$DIFF" "$CTX"; do
     [ -e "$e" ] || continue
     [ -n "$(find "$e" -maxdepth 0 -mmin "-$HOLDER_QUIET_MIN" 2>/dev/null)" ] && recent=1
   done
   if holder_cutoffs; then
-    foreign="$(events_jsonl | jq -rs --arg n "$N" --arg me "$me" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
-      "$HOLDER_JQ"'[ .[] | select(.run != $me) ] | live_holders($n; $cut; $fcut) | length' 2>/dev/null)"
+    runs="$(events_jsonl | jq -rs --arg n "$N" --arg me "$me" --arg cut "$HOLDER_CUT" --arg fcut "$FANOUT_CUT" \
+      "$HOLDER_JQ"'[ .[] | select(.run != $me) ] | live_holders($n; $cut; $fcut) | .[].run' 2>/dev/null)"
   fi
-  [ "$recent" -eq 1 ] || [ "${foreign:-0}" -gt 0 ]
+  for r in $runs; do
+    st=""
+    declare -F session_state >/dev/null 2>&1 && st="$(session_state "$r")"
+    [ "$st" = idle ] || foreign=$((foreign + 1))
+  done
+  # the list decides first where it knows every holder: all idle is a dead run,
+  # and its tree is the leftover the takeover reclaims
+  [ -n "$runs" ] && [ "$foreign" -eq 0 ] && return 1
+  [ "$recent" -eq 1 ] || [ "$foreign" -gt 0 ]
 }
 
 # ----------------------------------------------------------- hunk index ----
