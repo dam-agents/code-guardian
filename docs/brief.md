@@ -58,7 +58,7 @@ thread. A failed reply → log it and continue. Neither blocks step 6.
 ## The message
 
 ```
-☀️ *Daily brief — <date>* · <n> merged PRs
+☀️ *Daily brief — <window>* · <n> merged PRs
 
 *What's new* (for the whole team)
 _<topic>_
@@ -69,6 +69,10 @@ _<topic>_
 • <architecture, component, dependency, working-method or security change> (#<n>)
 ```
 
+- **Title**: `<window>` is the post date when `since` is on the post day;
+  when `since` is on an earlier day (a weekend, a holiday, a failed post), it
+  is the range from the `since` date to the post date, e.g. `Fri 31 Oct – Mon
+  3 Nov`, so the reader sees that the list covers several days.
 - **What's new**: only changes a user sees, grouped by topic (a product area,
   e.g. Plans, Profiles, CLI), each bullet ending with the PR author's GitHub
   login. Release notes, not a title list: what it is for and, for a new
