@@ -1396,10 +1396,11 @@ if [ "$MODE" = "review" ]; then
         fi
         # extension routing per docs/skills.md — inclusive: every skill whose
         # trigger list holds the file's extension receives it; `always` skills
-        # route nothing (they run on the whole clone); noise classes and
+        # route nothing (they run on the whole clone), and neither does `issue`
+        # (the agent reads the PR payload for it); noise classes and
         # deleted files route nowhere
         routing="$(printf '%s' "$slice" | jq -c --argjson t "$SKILLS_TABLE" '
-          [ $t[] | select(.trigger != "always")
+          [ $t[] | select(.trigger != "always" and .trigger != "issue")
             | {skill, exts: (.trigger | split(",") | map(gsub("\\s";"") | select(length>0)))} ] as $rows
           | [ .files[]? | select((.class | IN("code","test","docs","config")) and .status != "removed") | .path ] as $paths
           | reduce $rows[] as $r ({}; .[$r.skill] = [ $paths[] | select(

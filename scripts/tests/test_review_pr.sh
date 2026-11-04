@@ -2902,4 +2902,80 @@ run_rp collect 1
 assert_jq '.skills["review-guide"].diagrams.refused == [{"id":"c-src","why":"a comment opener inside an attribute value or a raw-text element"}]' 'a map with a comment opener in a quoted value is refused'
 run_rp abort 1 "reset"
 
+# --- the `issue` trigger: the skill runs only for a PR that names an issue -----
+# (docs/skills.md → Triggers & file routing)
+issue_config() { # [extra config lines…]
+  base_config "$@" '' '## Review skills' '' \
+    '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+    '| doc-drift | harness | always | Documentation Check |' \
+    '| issue-fit | harness | issue | Issue Fit |'
+}
+issue_setup() { # <case> [extra config lines…]
+  new_case "$1"; mkdir -p "$SANDBOX/tmp"; mk_repo; issue_config "${@:2}"; pr_fx; ctx_fx
+  CLONE_SRC=""; : > "$SANDBOX/gh.log"
+}
+pr_fx_body() { # <body> <head-ref> — the live PR with this body and branch
+  jq -n --arg sha "$B1_SHA" --arg b "$1" --arg ref "$2" \
+    '{state:"open", merged:false, draft:false, title:"alpha PR", user:{login:"alice"}, body:$b,
+      head:{sha:$sha, ref:$ref, repo:{full_name:"acme/widgets"}}, base:{ref:"main"}, labels:[],
+      requested_reviewers:[], additions:3, deletions:1, changed_files:3}' \
+    | fx 'api repos/acme/widgets/pulls/1'
+}
+
+issue_setup issue_trigger_unlinked
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "no-linked-issue" and .skills["issue-fit"].brief == null' 'a PR with no issue skips the issue skill'
+assert_jq '.skills["issue-fit"].workdir == null and .skills["doc-drift"].status == "run"' 'a skipped issue skill gets no checkout; the always skill still runs'
+[ -d "$(PR_DIR).s-issue-fit" ] && { printf 'FAIL %s: a checkout was made for a skipped issue skill\n' "$CASE"; FAILED=1; } \
+  || printf 'ok   %s: no checkout for a skipped issue skill\n' "$CASE"
+printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
+run_rp collect 1
+assert_jq '.audit_lines | index("PR #1: issue-fit skipped (no-linked-issue)") != null' 'the audit line names the skip'
+assert_jq '.skills["issue-fit"].status == "no-linked-issue"' 'collect keeps the skip'
+run_rp abort 1 "reset"
+
+issue_setup issue_trigger_closing_keyword
+pr_fx_body 'Adds query(), closes #12.' b1
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "run" and .skills["issue-fit"].files == []' 'a closing keyword runs the issue skill over the whole clone'
+assert_file_contains "$(PR_DIR).ctx/briefs/issue-fit.md" 'an `issue` skill' 'the brief says why the skill runs'
+run_rp abort 1 "reset"
+
+issue_setup issue_trigger_branch_number
+git -C "$FX" branch 123-add-retries b1      # the clone fetches the PR's head branch
+pr_fx_body 'Adds query()' '123-add-retries'
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "run"' 'a head branch that starts with an issue number runs the issue skill'
+run_rp abort 1 "reset"
+
+issue_setup issue_trigger_scheme_url
+pr_fx_body 'Fixes https://github.com/acme/widgets/issues/12' b1
+run_rp prepare 1
+assert_jq '.skills["issue-fit"].status == "run"' 'a closing keyword with a scheme-prefixed issue URL runs the issue skill'
+run_rp abort 1 "reset"
+
+# every documented link form, and the near misses, through the predicate itself
+new_case issue_trigger_link_forms
+eval "$(sed -n '/^pr_links_issue() {/,/^}/p' "$REPO_ROOT/scripts/review-pr.sh")"
+link_case() { # <expect yes|no> <body> <head-ref> <label>
+  local got=no; pr_links_issue "$2" "$3" && got=yes
+  [ "$got" = "$1" ] && printf 'ok   %s: %s\n' "$CASE" "$4" \
+    || { printf 'FAIL %s: %s (expected %s, got %s)\n' "$CASE" "$4" "$1" "$got"; FAILED=1; }
+}
+link_case yes 'closes #12' b1 'keyword and hash'
+link_case yes 'Fixed: #12' b1 'keyword, colon and hash'
+link_case yes 'Resolves github.com/acme/widgets/issues/12' b1 'keyword and an issue URL without scheme'
+link_case yes 'Fixes https://github.com/acme/widgets/issues/12' b1 'keyword and an https issue URL'
+link_case yes 'close http://ghe.example.test/acme/widgets/issues/7' b1 'keyword and an http issue URL'
+link_case yes 'Adds query()' 123 'a branch that is an issue number'
+link_case yes 'Adds query()' 123-add-retries 'a branch that starts with a number and a dash'
+link_case yes 'Adds query()' 123_retries 'a branch that starts with a number and an underscore'
+link_case yes 'Adds query()' 123/retries 'a branch that starts with a number and a slash'
+link_case no 'See #12' b1 'a hash without a closing keyword'
+link_case no 'suffixes #12' b1 'a keyword inside a longer word'
+link_case no 'Fixes https://github.com/acme/widgets/pull/12' b1 'a pull URL is no issue URL'
+link_case no 'Adds query()' 123abc 'a number with no separator after it'
+link_case no 'Adds query()' issue-123 'a branch that does not start with the number'
+link_case no '' '' 'an empty body and branch'
+
 finish

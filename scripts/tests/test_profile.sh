@@ -313,6 +313,18 @@ files_fx 1 '[{"filename":"a.tsx","status":"added"},{"filename":"b.ts","status":"
 run_preflight review
 assert_jq '.reviews_due[0].skill_routing == {"lint-all":["a.tsx","b.ts"],"react-ui-engineering":["a.tsx"]}' 'a file goes to every skill whose trigger matches (docs/skills.md)'
 
+# --- `always` and `issue` skills route no files ---------------------------
+new_case preflight_routing_issue_trigger
+base_config '' '## Review skills' '' \
+  '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+  '| doc-drift | harness | always | Documentation Check |' \
+  '| issue-fit | harness | issue | Issue Fit |' \
+  '| lint-all | harness | .ts | Lint |'
+pr_json 1 "issue PR" '[]' "$SHA1" | open_prs_fx
+files_fx 1 '[{"filename":"a.ts","status":"added"},{"filename":"c.md","status":"added"}]'
+run_preflight review
+assert_jq '.reviews_due[0].skill_routing == {"lint-all":["a.ts"]}' 'an issue skill gets no routing entry, like an always skill'
+
 # --- an idle heartbeat touches neither the profile nor the config output ------
 new_case preflight_profile_idle
 skills_config; mk_fixture

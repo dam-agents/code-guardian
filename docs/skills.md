@@ -46,9 +46,10 @@ Every configured skill runs per its trigger, whatever the PR — CI-only,
 docs-only, trivial — and whatever the previous review held: the skill decides
 what is worth reporting, you invoke it and surface the result, and a clean-run
 section is the correct output. The **only** valid skips are
-`no-matching-files` (extension trigger, empty routed list), `draft` (a guide
-skill on a draft PR), the technical failures (`install-failed`,
-`clone-failed`, `skill-errored`), and the one judgement call:
+`no-matching-files` (extension trigger, empty routed list), `no-linked-issue`
+(`issue` trigger, the PR names no issue it closes), `draft` (a guide skill on a
+draft PR), the technical failures (`install-failed`, `clone-failed`,
+`skill-errored`), and the one judgement call:
 `base-merge-only`, a skill you choose not to run on a re-review range that
 leaves the PR's own diff unchanged, recorded with `collect --skip`
 ([review-rereview.md](review-rereview.md) → **Re-review output**).
@@ -58,6 +59,15 @@ leaves the PR's own diff unchanged, recorded with `collect --skip`
 - **`always`** — runs on every reviewed PR, against the whole clone with the
   base ref `origin/<baseRefName>` for diffing; on a reachable range below, the
   range's routable files are its focus.
+- **`issue`** — runs iff the PR names an issue it closes: a closing keyword
+  (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`,
+  `resolved`) with `#<n>` or an issue URL in the body, or a head branch that
+  is an issue number or starts with one and a `-`, `_` or `/` (`123`,
+  `123-add-retries`). `prepare` reads this from the PR payload it
+  already holds — no extra API call. The run is against the whole clone, like
+  `always`. Use it for a skill whose subject is the issue, such as the bundled
+  `issue-fit`; on a PR with no such issue the skill is skipped
+  `no-linked-issue` and costs nothing.
 - **extension list** (for example `.ts,.js`) — runs iff ≥1 changed file routes
   to it, and receives the routed file list (paths relative to `$PR_DIR`) plus
   the base branch. The changed-file list is the reviewed scope's: the diff at
@@ -78,11 +88,11 @@ leaves the PR's own diff unchanged, recorded with `collect --skip`
 
 **Route first.** `review-pr.sh prepare` applies the rule above and returns
 `skills{}`: per configured skill its status (`run`, `no-matching-files`,
-`clone-failed`, `draft`), its routed files, its checkout, its brief and its
-prompt. The routed list is a proposal: before the fan-out you may widen a
-skill's scope — append paths to the `Routed files` list of its brief — when a
-file outside the list bears on what the skill checks, and log it with
-`review-pr.sh step <n> "widened <skill>: <paths> — <reason>"`. A subagent
+`no-linked-issue`, `clone-failed`, `draft`), its routed files, its checkout,
+its brief and its prompt. The routed list is a proposal: before the fan-out you
+may widen a skill's scope — append paths to the `Routed files` list of its
+brief — when a file outside the list bears on what the skill checks, and log it
+with `review-pr.sh step <n> "widened <skill>: <paths> — <reason>"`. A subagent
 works from the list in its brief.
 
 **Then fan out: one subagent per skill with status `run`, all started at
@@ -135,12 +145,12 @@ per-PR sequence, then the next PR. No skill can end the turn or divert the run.
 Before posting any review, exactly **one audit line per configured skill** must
 exist in the chat UI — missing lines mean the skill step is not done:
 
-- `PR #<n>: <skill> ran (findings=<N>)` — `always` skill.
+- `PR #<n>: <skill> ran (findings=<N>)` — `always` or `issue` skill.
 - `PR #<n>: <skill> ran (findings=<N>, files=<M>)` — extension-triggered.
 - `PR #<n>: <skill> ran (findings=0, guide=<built|kept|not-needed|budget|refused>[, diagrams=<N>])` —
   a guide skill (**Guide skills**); `diagrams` counts the project maps it
   stored.
-- `PR #<n>: <skill> skipped (no-matching-files | base-merge-only | draft)` —
+- `PR #<n>: <skill> skipped (no-matching-files | no-linked-issue | base-merge-only | draft)` —
   the skips of **Mandatory — one judgement call**.
 - `PR #<n>: <skill> skipped (install-failed | clone-failed | skill-errored)` —
   no other reasons accepted.

@@ -140,7 +140,7 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `mention_authors` | asked (default `collaborators`) | Whose mentions are handled: `collaborators` or `anyone`. |
 | `project_profile` | asked (default `enabled`) | Generated repository map `work/PROFILE.md` (`docs/profile.md`). |
 | `guide_label` | asked with the review guide row (default off) | Label that asks for the review guide (`docs/artifact.md` → **Review guide**). |
-| `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, source, trigger, section (`docs/skills.md`); plus the offer of a tailored skill (`docs/tailored-skill.md`). |
+| `## Review skills` table | defaulted to the public set (issue-fit + review-guide + doc-drift + typescript-engineering + react-ui-engineering), operator-adjustable, every row validated | Per-PR review skills: name, source, trigger (`always`, `issue` or an extension list), section (`docs/skills.md`); plus the offer of a tailored skill (`docs/tailored-skill.md`). |
 | `## Watch rules` table | not filled — added later in chat when a team asks | "When a PR does X, notify Y" rules (`docs/watches.md`). |
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity. |
 | `audit_report` | defaulted to `enabled` | Weekly health report. |

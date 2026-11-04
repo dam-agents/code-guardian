@@ -123,11 +123,13 @@ exception (`benchmark_judge`).
 ### Skills, review guide, watches
 
 - **`## Review skills` table** — the per-PR review skills ([skills.md](skills.md)).
-  Missing or empty → no review skills run (log once). A guide skill — the
-  bundled `review-guide`, in the default set — builds and keeps current a
-  visual page for the human reviewer of a `needs-human` PR, published to the
-  DAM Artifact Library ([skills.md](skills.md) → **Guide skills**,
-  [artifact.md](artifact.md) → **Review guide**).
+  Missing or empty → no review skills run (log once). The **trigger** cell is
+  `always`, `issue` (only a PR that names an issue it closes, else skipped
+  `no-linked-issue`) or an extension list (`.ts,.js`); verify-onboarding
+  rejects any other value. A guide skill — the bundled `review-guide`, in the
+  default set — builds and keeps current a visual page for the human reviewer
+  of a `needs-human` PR, published to the DAM Artifact Library
+  ([skills.md](skills.md) → **Guide skills**, [artifact.md](artifact.md) → **Review guide**).
 - **`guide_label`** — a label a human adds to ask for the review guide of a PR
   whatever the review's triage. **Missing = the triage alone decides.** It
   stays on the PR; when no review round saw it yet, it starts a delta round

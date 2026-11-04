@@ -428,6 +428,25 @@ assert_rc 0 'host-prefixed references pass the shape check'
 assert_out 'ok   def-origin' 'origin matched against the prefixed reference'
 assert_out 'ok   skills-rows' 'a host-prefixed review-skill source passes'
 
+new_case review_skill_triggers
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: acme/code-guardian' \
+            '' '## Review skills' '' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+            '| issue-fit | acme/code-guardian | issue | Issue Fit |' \
+            '| typescript-engineering | harness | .ts,.tsx | TypeScript Review |'
+run_verify
+assert_rc 0 'the issue trigger and an extension list pass'
+assert_out 'ok   skills-trigger' 'known triggers pass the shape check'
+
+new_case review_skill_trigger_unknown
+seed_home; seed_memory; seed_lessons
+base_config '- definition_repo: acme/code-guardian' \
+            '' '## Review skills' '' '| skill | source | trigger | section |' '| --- | --- | --- | --- |' \
+            '| issue-fit | acme/code-guardian | issues | Issue Fit |'
+run_verify
+assert_rc 1 'an unknown trigger fails'
+assert_out 'FAIL skills-trigger' 'names the unknown trigger'
+
 new_case bare_ref_under_foreign_default_host
 seed_home; seed_memory; seed_lessons
 base_config '- definition_repo: github.com/acme/code-guardian' \

@@ -410,6 +410,9 @@ A failure is not blocking: tell the operator to create it manually.
    - Harness rows: the skill must appear in your available-skills list;
      otherwise drop the row after confirming.
    - An empty table is valid — plain reviews only.
+   - Triggers: `always` (every reviewed PR), `issue` (only a PR that names an
+     issue it closes — the right trigger for `issue-fit`), or an extension
+     list such as `.ts,.js` (`docs/skills.md` → **Triggers & file routing**).
    - **The review guide row** — in the default set, **on**. Say it once with
      the table, because the guide is public by link:
 
@@ -588,7 +591,7 @@ Final shape:
 
 | skill | source | trigger | section |
 | --- | --- | --- | --- |
-| issue-fit | acme/code-guardian | always | Issue Fit |
+| issue-fit | acme/code-guardian | issue | Issue Fit |
 | review-guide | acme/code-guardian | always | Human Review Guide |
 | doc-drift | dam-agents/dam | always | Documentation Check (doc-drift) |
 | typescript-engineering | dam-agents/dam | .ts,.mts,.cts,.js,.mjs,.cjs | TypeScript Engineering Review |

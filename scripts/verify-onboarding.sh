@@ -325,7 +325,7 @@ EOF
         fail skills-header "unexpected header '$HEADER'" \
           "use '| skill | source | trigger | section |' (ONBOARDING Step 4 item 7, docs/skills.md)"
       fi
-      BAD_SKILL=""
+      BAD_SKILL=""; BAD_TRIGGER=""
       while IFS= read -r row; do
         [ -z "$row" ] && continue
         cells=$(printf '%s' "$row" | tr -cd '|' | wc -c | tr -d ' ')
@@ -337,6 +337,14 @@ EOF
            || { [ "$src" != "harness" ] && ! printf '%s' "$src" | grep -Eq '^([A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; }; then
           BAD_SKILL="$BAD_SKILL | $row"
         fi
+        # trigger: always | issue | a comma list of extensions — an unknown
+        # value reads as an extension list and the skill silently never runs
+        # (docs/skills.md → Triggers & file routing)
+        trig="$(trim "$(printf '%s' "$row" | cut -d'|' -f4)")"
+        case "$trig" in
+          (''|always|issue) ;;
+          (*) printf '%s' "$trig" | grep -Eq '^\.[A-Za-z0-9]+(,[[:space:]]*\.[A-Za-z0-9]+)*$' || BAD_TRIGGER="$BAD_TRIGGER | $row";;
+        esac
       done <<EOF
 $(printf '%s\n' "$SKILL_ROWS" | tail -n +2)
 EOF
@@ -345,6 +353,12 @@ EOF
       else
         fail skills-rows "malformed row(s):$BAD_SKILL" \
           "each row needs 4 non-empty cells and source = 'harness' or a [host/]owner/repo reference (docs/skills.md)"
+      fi
+      if [ -z "$BAD_TRIGGER" ]; then
+        ok skills-trigger "review-skills triggers valid"
+      else
+        fail skills-trigger "unknown trigger(s):$BAD_TRIGGER" \
+          "a trigger is 'always', 'issue', or a comma list of extensions such as '.ts,.js' (docs/skills.md → Triggers & file routing)"
       fi
     fi
 
