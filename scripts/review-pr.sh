@@ -686,14 +686,15 @@ pr_state() { # → JSON of the live PR (Check 1 / Check 2), or empty
 }
 
 # The PR names an issue it closes: a closing keyword with a `#<n>` or an issue
-# URL in the body, or a head branch that starts with an issue number. This is
+# URL (with or without its scheme) in the body, or a head branch that is an
+# issue number or starts with one and a `-`, `_` or `/`. This is
 # what an `issue` skill keys on (docs/skills.md → Triggers & file routing) —
 # read from the PR payload, with no API call of its own.
 pr_links_issue() { # <body> <head-ref> → 0 when the PR names an issue it closes
   printf '%s\n' "${1:-}" \
-    | grep -qiE '(^|[^A-Za-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*(#[0-9]+|[A-Za-z0-9._/-]*/issues/[0-9]+)' \
+    | grep -qiE '(^|[^A-Za-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*(#[0-9]+|([A-Za-z][A-Za-z0-9+.-]*://)?[A-Za-z0-9._/-]*/issues/[0-9]+)' \
     && return 0
-  printf '%s\n' "${2:-}" | grep -qE '^[0-9]+[-_/]'
+  printf '%s\n' "${2:-}" | grep -qE '^[0-9]+([-_/]|$)'
 }
 
 # A guide label that no review round saw yet asks for a round too

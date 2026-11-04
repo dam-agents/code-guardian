@@ -62,7 +62,8 @@ leaves the PR's own diff unchanged, recorded with `collect --skip`
 - **`issue`** — runs iff the PR names an issue it closes: a closing keyword
   (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`,
   `resolved`) with `#<n>` or an issue URL in the body, or a head branch that
-  starts with an issue number. `prepare` reads this from the PR payload it
+  is an issue number or starts with one and a `-`, `_` or `/` (`123`,
+  `123-add-retries`). `prepare` reads this from the PR payload it
   already holds — no extra API call. The run is against the whole clone, like
   `always`. Use it for a skill whose subject is the issue, such as the bundled
   `issue-fit`; on a PR with no such issue the skill is skipped
