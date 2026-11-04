@@ -11,6 +11,11 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.3.1 — 2026-11-04
+
+**Upgrade:** Nothing to run. The daily brief title names its window as a
+date range when the window starts on an earlier day than the post day.
+
 ## 14.3.0 — 2026-11-04
 
 **Upgrade:** Nothing to run. A `## Review skills` row can now take the trigger
