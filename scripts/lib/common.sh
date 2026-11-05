@@ -140,7 +140,7 @@ skills_table_json() {
 # work/DEVELOPERS.md as `login<TAB>slack_id` lines: the table format, else
 # `login:` + `slack_id:` bullet pairs (ONBOARDING Step 4 → Build the developer
 # roster). The slack_id is raw; SLACK_ID_RE tells a mentionable one.
-SLACK_ID_RE='^U[A-Z0-9]{6,}$'
+SLACK_ID_RE='^[UW][A-Z0-9]{6,}$'
 roster_tsv() { # <DEVELOPERS.md>
   local out
   [ -r "$1" ] || return 0

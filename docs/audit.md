@@ -127,7 +127,7 @@ Per sampled review, from `reviews/pr-<n>.md`, cross-checked on GitHub:
     despite nudges: they need a human decision.
 17. **Roster integrity** — `escalation_owner`, and `monitor_owner` when set,
     each resolve to a roster row with a valid `slack_id`
-    (`^U[A-Z0-9]{6,}$`); count roster members without one.
+    (`^[UW][A-Z0-9]{6,}$`); count roster members without one.
 
 ### E. Review guide (when a guide skill is in `## Review skills`)
 
