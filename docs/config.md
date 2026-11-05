@@ -204,6 +204,10 @@ exception (`benchmark_judge`).
   Whether the agent files anonymous tracking issues on `definition_repo` for
   the audit's definition bugs and channel-refused change requests
   ([runbook.md](runbook.md) → **Definition-repo issues**).
+- **`channel_definition_prs`** — `enabled` | `disabled`. **Missing =
+  `disabled`.** Whether a roster member's channel ask to change the definition
+  gets a draft PR on `definition_repo` instead of the refusal
+  ([channel-requests.md](channel-requests.md) → **Draft PR**).
 - **`survey`** — `enabled` | `disabled`. **Missing = `disabled`.** The weekly
   security pass over one area of the repository as it stands, reporting only
   blocking findings ([survey.md](survey.md)).

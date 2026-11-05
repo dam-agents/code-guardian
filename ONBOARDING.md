@@ -518,7 +518,13 @@ A failure is not blocking: tell the operator to create it manually.
     > When my weekly audit finds a bug in my own definition, or someone in a channel asks for a change only you can make, I can open a tracking issue on the definition repo **<definition_repo>** (<public|private>). Every such issue is anonymous — it names only my definition and the fix, never a detail of this installation, and a script blocks any draft that does. Turn it on? (Default: off.)
 
     **Yes** → `definition_issues: enabled`; **no, or no reply** →
-    `definition_issues: disabled`. Always write the key.
+    `definition_issues: disabled`. Always write the key. Then ask:
+
+    > A developer on the roster can also ask me in the channel to change my definition. I then open a **draft** PR on **<definition_repo>** — anonymous like the issues; a person reviews and merges it. Turn it on? (Default: off.)
+
+    **Yes** → `channel_definition_prs: enabled`; **no, or no reply** →
+    `channel_definition_prs: disabled`. Always write the key
+    (`docs/channel-requests.md`).
 16. **`health_dashboard`** (`docs/health.md`). Ask:
 
     > I keep 90 days of hourly technical history and a list of incidents. I can publish them as one health dashboard in the DAM Artifact Library, updated in place with no model call. Anyone with its link can open it. Turn it on?
@@ -560,6 +566,7 @@ Final shape:
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
+- channel_definition_prs: disabled     # draft definition PRs on a roster member's channel ask; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; or: all; omit = needs_human
 - human_review_paths: migrations/*, src/auth/*   # sensitive files: a lead for the triage call, recorded; no auto-merge; omit = none

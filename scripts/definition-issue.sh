@@ -5,13 +5,22 @@
 #   check <title> <body-file>   scan the draft only; sends nothing
 #   file  <title> <body-file>   the gate, the scan, the duplicate check, then
 #                               the issue
+#   scan-pr <title> <body-file> <added-lines-file>
+#                               the scan of a draft PR on the definition repo
+#                               (scripts/definition-pr.sh): title and body as
+#                               a draft, the vocabulary read from
+#                               $CG_VOCAB_ROOT (the PR's clone); the diff's
+#                               added lines for instance values, e-mail
+#                               addresses, Slack ids, IPv4 addresses and
+#                               credentials only. Each hit carries `where`
+#                               (`pr` or `diff`). Sends nothing.
 #
 # Prints one JSON object with `outcome` and exits 0:
 #   disabled — `definition_issues` is not `enabled` (file only); nothing read
 #              from or sent to GitHub
 #   blocked  — the draft names something of this instance; `hits` lists each
 #              rule and match. Nothing is sent, the duplicate search included
-#   clean    — (check) the draft passed the scan
+#   clean    — (check, scan-pr) the draft passed the scan
 #   exists   — an open issue with the same title exists; `url`
 #   filed    — the issue was created; `url`
 #   error    — bad arguments, an unresolved definition repo or a failed call
@@ -65,7 +74,10 @@ BODY_MAX=8000
 out() { printf '%s\n' "$1"; exit 0; }
 fail() { out "$(jq -nc --arg e "$1" '{outcome:"error", error:$e}')"; }
 
+DIFF_FILE="${4:-}"
 case "$CMD" in (check|file) ;;
+  (scan-pr) [ -n "$DIFF_FILE" ] && [ -f "$DIFF_FILE" ] && [ -r "$DIFF_FILE" ] \
+              || { printf 'usage: %s scan-pr <title> <body-file> <added-lines-file>\n' "$0" >&2; exit 2; };;
   (*) printf 'usage: %s check|file <title> <body-file>\n' "$0" >&2; exit 2;; esac
 
 . "$SCRIPT_DIR/lib/common.sh"
@@ -82,8 +94,8 @@ if [ "$CMD" = "file" ]; then
 fi
 
 # --- the draft ----------------------------------------------------------------
-case "$TITLE" in
-  ('[audit] '?*|'[channel request] '?*) ;;
+case "$CMD:$TITLE" in
+  (scan-pr:?*|*:'[audit] '?*|*:'[channel request] '?*) ;;
   (*) fail "title must start with '[audit] ' or '[channel request] '";;
 esac
 [ "${#TITLE}" -le "$TITLE_MAX" ] || fail "title longer than $TITLE_MAX characters"
@@ -106,24 +118,30 @@ DRAFT="$TMP/draft.txt"
 # Each removal is bounded by non-identifier characters, so a reference that
 # extends it (acme/guardian-web) stays whole; it repeats until stable, as one
 # boundary character can close one match and open the next.
-SCAN="$TMP/scan.txt"
-cp "$DRAFT" "$SCAN"
-if [ -n "$DEFINITION_REPO" ]; then
+strip_def() { # <in> <out>
+  cp "$1" "$2"
+  [ -n "$DEFINITION_REPO" ] || return 0
+  local def_re slug_re B i=0
   def_re="$(printf '%s' "$DEF_HOST/$DEFINITION_REPO" | sed 's/[.[\*^$/]/\\&/g')"
   slug_re="$(printf '%s' "$DEFINITION_REPO" | sed 's/[.[\*^$/]/\\&/g')"
   B='[^A-Za-z0-9_.-]'
-  i=0
   while [ "$i" -lt 8 ]; do
     sed -E -e "s/https?:\/\/$def_re([\/#?][^[:space:])>\"'\`]*)?($B|\$)/\2/gI" \
            -e "s/(^|$B)$def_re($B|\$)/\1\2/gI" -e "s/(^|$B)$slug_re($B|\$)/\1\2/gI" \
-           "$SCAN" > "$TMP/scan.next"
-    [ "$(cat "$TMP/scan.next")" = "$(cat "$SCAN")" ] && break
-    mv "$TMP/scan.next" "$SCAN"; i=$((i + 1))
+           "$2" > "$TMP/strip.next"
+    [ "$(cat "$TMP/strip.next")" = "$(cat "$2")" ] && break
+    mv "$TMP/strip.next" "$2"; i=$((i + 1))
   done
-fi
+}
+SCAN="$TMP/scan.txt"
+strip_def "$DRAFT" "$SCAN"
 
-HITS="$TMP/hits.jsonl"; : > "$HITS"
-hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
+# WHERE names the scanned part in scan-pr mode only
+HITS="$TMP/hits.jsonl"; : > "$HITS"; WHERE=""
+hit() {
+  if [ -n "$WHERE" ]; then jq -nc --arg r "$1" --arg m "$2" --arg w "$WHERE" '{rule:$r, match:$m, where:$w}'
+  else jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}'; fi >> "$HITS"
+}
 
 # --- the definition's own vocabulary --------------------------------------------
 # Every token of its tracked text, and every path of its tree with each parent
@@ -131,6 +149,8 @@ hit() { jq -nc --arg r "$1" --arg m "$2" '{rule:$r, match:$m}' >> "$HITS"; }
 # under $HOME, a runtime skill install, any other untracked file and the tests'
 # fixtures are no part of it, so a word the vocabulary lacks is one the
 # definition never wrote. A copy without git metadata reads the tree as is.
+# scan-pr: an instance value is matched against this definition's words, and
+# the PR text's foreign terms against the PR clone's (VOCAB_FT)
 DEF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # a token is ASCII word characters and UTF-8 letters outside ASCII — two-byte
 # from U+00C0 except the math signs U+00D7 and U+00F7, three-byte below
@@ -142,27 +162,37 @@ NA="$(printf '[\303][\200-\226\230-\266\270-\277]|[\304-\337][\200-\277]|[\340\3
 TOK="([$TC]|$NA)+"
 tokens() { grep -oE "$TOK" | sed -E "s#^[.~/'-]+##; s#[.~/'-]+\$##" | grep -E '.'; }
 VOCAB="$TMP/vocab.txt"
-git -C "$DEF_ROOT" ls-files -z -- ':(glob)*.md' VERSION ':(glob)*.yaml' docs scripts .agents \
-    ':(exclude)scripts/tests' 2>/dev/null \
-  | while IFS= read -r -d '' f; do printf '%s/%s\0' "$DEF_ROOT" "$f"; done > "$TMP/files.z"
-if [ ! -s "$TMP/files.z" ]; then
-  find "$DEF_ROOT" -maxdepth 1 -type f \( -name '*.md' -o -name VERSION -o -name '*.yaml' \) -print0 2>/dev/null
-  find "$DEF_ROOT/docs" "$DEF_ROOT/scripts" "$DEF_ROOT/.agents" \
-    -path "$DEF_ROOT/scripts/tests" -prune -o -type f -print0 2>/dev/null
-fi >> "$TMP/files.z"
-[ -s "$TMP/files.z" ] || fail "definition text unreadable — the foreign-term scan cannot run"
-{
-  xargs -0 grep -ohIE "$TOK" < "$TMP/files.z" 2>/dev/null | tokens
-  tr '\0' '\n' < "$TMP/files.z" | while IFS= read -r p; do
-    p="${p#"$DEF_ROOT/"}"
-    while :; do
-      q="$p"
-      while :; do printf '%s\n' "$q"; case "$q" in (*/*) q="${q#*/}";; (*) break;; esac; done
-      case "$p" in (*/*) p="${p%/*}";; (*) break;; esac
+vocab_of() { # <definition root> <out file>
+  local DEF_ROOT="$1" VOCAB="$2"
+  git -C "$DEF_ROOT" ls-files -z -- ':(glob)*.md' VERSION ':(glob)*.yaml' docs scripts .agents \
+      ':(exclude)scripts/tests' 2>/dev/null \
+    | while IFS= read -r -d '' f; do printf '%s/%s\0' "$DEF_ROOT" "$f"; done > "$TMP/files.z"
+  if [ ! -s "$TMP/files.z" ]; then
+    find "$DEF_ROOT" -maxdepth 1 -type f \( -name '*.md' -o -name VERSION -o -name '*.yaml' \) -print0 2>/dev/null
+    find "$DEF_ROOT/docs" "$DEF_ROOT/scripts" "$DEF_ROOT/.agents" \
+      -path "$DEF_ROOT/scripts/tests" -prune -o -type f -print0 2>/dev/null
+  fi >> "$TMP/files.z"
+  [ -s "$TMP/files.z" ] || fail "definition text unreadable — the foreign-term scan cannot run"
+  {
+    xargs -0 grep -ohIE "$TOK" < "$TMP/files.z" 2>/dev/null | tokens
+    tr '\0' '\n' < "$TMP/files.z" | while IFS= read -r p; do
+      p="${p#"$DEF_ROOT/"}"
+      while :; do
+        q="$p"
+        while :; do printf '%s\n' "$q"; case "$q" in (*/*) q="${q#*/}";; (*) break;; esac; done
+        case "$p" in (*/*) p="${p%/*}";; (*) break;; esac
+      done
     done
-  done
-} | tr 'A-Z' 'a-z' | sort -u > "$VOCAB"
-[ -s "$VOCAB" ] || fail "definition vocabulary empty — the foreign-term scan cannot run"
+  } | tr 'A-Z' 'a-z' | sort -u > "$VOCAB"
+  [ -s "$VOCAB" ] || fail "definition vocabulary empty — the foreign-term scan cannot run"
+}
+vocab_of "$DEF_ROOT" "$VOCAB"
+VOCAB_FT="$VOCAB"
+if [ "$CMD" = "scan-pr" ]; then
+  [ -n "${CG_VOCAB_ROOT:-}" ] && [ -d "$CG_VOCAB_ROOT" ] || fail "scan-pr needs CG_VOCAB_ROOT"
+  VOCAB_FT="$TMP/vocab-pr.txt"
+  vocab_of "$(cd "$CG_VOCAB_ROOT" && pwd)" "$VOCAB_FT"
+fi
 
 # --- instance terms -------------------------------------------------------------
 TERMS="$TMP/terms.txt"; : > "$TERMS"
@@ -228,18 +258,24 @@ def_words() { # <value> — true when every `:`-separated part is in the vocabul
     grep -qxF -- "$p" "$VOCAB" || return 1
   done
 }
-while IFS="$(printf '\t')" read -r rule val; do
-  [ -n "$val" ] || continue
-  case "$val" in
-    (*[!A-Za-z0-9_:-]*|:*|*:|*::*) ;;
-    (*) def_words "$val" && continue;;
-  esac
-  grep -qiF -- "$val" "$SCAN" && hit "$rule" "$val"
-done < "$TERMS"
+scan_terms() { # <file>
+  local rule val
+  while IFS="$(printf '\t')" read -r rule val; do
+    [ -n "$val" ] || continue
+    case "$val" in
+      (*[!A-Za-z0-9_:-]*|:*|*:|*::*) ;;
+      (*) def_words "$val" && continue;;
+    esac
+    grep -qiF -- "$val" "$1" && hit "$rule" "$val"
+  done < "$TERMS"
+}
+[ "$CMD" = "scan-pr" ] && WHERE=pr
+scan_terms "$SCAN"
 
 # --- shapes ---------------------------------------------------------------------
+SHAPE_IN="$SCAN"
 shape() { # <rule> <ERE> [filter-ERE that a match must also satisfy]
-  grep -oiE -- "$2" "$SCAN" 2>/dev/null | sort -u | while IFS= read -r m; do
+  grep -oiE -- "$2" "$SHAPE_IN" 2>/dev/null | sort -u | while IFS= read -r m; do
     [ -n "${3:-}" ] && ! printf '%s' "$m" | grep -qiE -- "$3" && continue
     case "$m" in (*U0123ABCD*|*acme/widgets*|*github.example.com*) continue;; esac
     hit "$1" "$m"
@@ -258,9 +294,28 @@ shape sha '(^|[^A-Za-z0-9])[0-9a-f]{7,11}([^A-Za-z0-9]|$)' '[0-9].*[a-f]|[a-f].*
 shape date '(^|[^0-9])[0-9]{4}[-/.][0-9]{2}[-/.][0-9]{2}([^0-9]|$)'
 shape date '(^|[^0-9:])[0-9]{2}:[0-9]{2}:[0-9]{2}([^0-9:]|$)'
 
-cp "$DRAFT" "$TMP/redact.txt"
-n="$(redact_file "$TMP/redact.txt")" || n=1
-[ "${n:-0}" -gt 0 ] && hit credential "$n credential-shaped value(s)"
+scan_credentials() { # <file>
+  local n
+  cp "$1" "$TMP/redact.txt"
+  n="$(redact_file "$TMP/redact.txt")" || n=1
+  [ "${n:-0}" -gt 0 ] && hit credential "$n credential-shaped value(s)"
+  return 0
+}
+scan_credentials "$DRAFT"
+
+# the diff of a draft PR: a new definition term is legitimate there, and the
+# changelog carries a date, so only the values and shapes of an instance count
+if [ "$CMD" = "scan-pr" ]; then
+  WHERE=diff
+  strip_def "$DIFF_FILE" "$TMP/diff.txt"
+  scan_terms "$TMP/diff.txt"
+  SHAPE_IN="$TMP/diff.txt"
+  shape email '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+  shape slack_id '(^|[^A-Za-z0-9])[UCGDW][A-Z0-9]{8,12}([^A-Za-z0-9]|$)' '[0-9]'
+  shape ipv4 '(^|[^0-9.])([0-9]{1,3}\.){3}[0-9]{1,3}([^0-9.]|$)'
+  scan_credentials "$DIFF_FILE"
+  WHERE=pr
+fi
 
 # --- foreign terms ----------------------------------------------------------------
 # the draft's candidates: paths and dotted names, inline and fenced code,
@@ -288,10 +343,10 @@ tokens < "$SCAN" | grep -E '^[a-z]+(-[A-Za-z]+)+$' | tr 'A-Z' 'a-z' | sort -u \
   | comm -23 - "$TMP/whole.txt" > "$PROSE"
 known_compound() { # <token>
   grep -qxF -- "$1" "$PROSE" || return 1
-  printf '%s\n' "$1" | tr '-' '\n' | sort -u | comm -23 - "$VOCAB" | grep -q . && return 1
+  printf '%s\n' "$1" | tr '-' '\n' | sort -u | comm -23 - "$VOCAB_FT" | grep -q . && return 1
   return 0
 }
-comm -23 "$CANDS" "$VOCAB" | while IFS= read -r t; do known_compound "$t" || printf '%s\n' "$t"; done \
+comm -23 "$CANDS" "$VOCAB_FT" | while IFS= read -r t; do known_compound "$t" || printf '%s\n' "$t"; done \
   | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
 
 HITS_JSON="$(jq -sc 'unique' "$HITS")"
@@ -299,7 +354,7 @@ if [ "$(printf '%s' "$HITS_JSON" | jq length)" -gt 0 ]; then
   logev warn definition_issue "blocked — draft names instance data ($(printf '%s' "$HITS_JSON" | jq -r '[.[].rule] | unique | join(",")'))"
   out "$(jq -nc --argjson h "$HITS_JSON" '{outcome:"blocked", hits:$h}')"
 fi
-[ "$CMD" = "check" ] && out '{"outcome":"clean"}'
+[ "$CMD" = "file" ] || out '{"outcome":"clean"}'
 
 # --- duplicate check, then the issue ------------------------------------------
 [ -n "$DEFINITION_REPO" ] || fail "definition_repo unresolved"
