@@ -88,12 +88,18 @@ if [ "$CMD" = "stats" ]; then
   # `escape`), read through the shared parser so a pruned history file keeps
   # counting from its ledger row (docs/review-mechanics.md → Review ledger)
   . "$(cd "$(dirname "$0")" && pwd)/lib/review-records.sh"
-  HITS="$(review_records "$WORK/reviews" "$WORK/REVIEW-LEDGER.jsonl" | jq -sc --arg s "$SINCE" '
+  # a partial line a concurrent post left is skipped, never the whole ledger
+  RL="$(mktemp "${TMPDIR:-/tmp}/cg-escape-ledger.XXXXXX")" || fail "no temp file"
+  trap 'rm -f "$RL"' EXIT
+  [ -f "$WORK/REVIEW-LEDGER.jsonl" ] \
+    && jq -Rc 'fromjson? | select(type == "object")' < "$WORK/REVIEW-LEDGER.jsonl" > "$RL" 2>/dev/null
+  HITS="$(review_records "$WORK/reviews" "$RL" | jq -sc --arg s "$SINCE" '
     [ .[] | .ts as $ts | (.findings // [])[]
       | select((.escape | type) == "string" and .status == "new") | {class: .escape, ts: $ts} ]
     | group_by(.class) | map({class: .[0].class, n: length, week: ([.[] | select(.ts >= $s)] | length)})
     | sort_by(-.n, .class)' 2>/dev/null)"
-  [ -n "$HITS" ] || HITS='[]'
+  # an unreadable record set is `hits: null`, never an empty list
+  [ -n "$HITS" ] || HITS='null'
   out "$(rows | jq -c --arg s "$SINCE" --argjson hits "$HITS" '
     def count_by(f): group_by(f) | map({key: (.[0] | f | tostring), value: length}) | from_entries;
     . as $all | [.[] | select(.at >= $s)] as $w

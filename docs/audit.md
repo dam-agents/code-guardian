@@ -353,13 +353,17 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     (operator-only).
 39. **Escaped defects** — `bash "$HOME/scripts/escape.sh" stats "$HOME/work"`
     ([escapes.md](escapes.md)): the week's reports by `review` state, the
-    class lines added and widened, and `hits` — findings that named a class.
+    class lines added and widened, and `hits` — per class the `new` findings
+    whose `escape` named it, all time (`n`) and this week (`week`); `hits:
+    null` means the review records were unreadable, reported as `not
+    measured`.
     Each `recurrences` entry is a class that failed again after its line
     stood → **warn**: read that review, widen the class line so it names the
     hunk shape the review missed, and list it under *Learned this week*. A
-    recurred class bound to this repository → *Action needed*: offer it as a
-    rule of the tailored skill ([tailored-skill.md](tailored-skill.md) →
-    **Delivery**, **Change**). A class added this week that neither
+    recurred class bound to this repository, with an `active` tailored skill
+    → *Action needed*: suggest that the operator asks for a **Change** of the
+    skill with this class as a rule ([tailored-skill.md](tailored-skill.md) →
+    **Delivery**); with no active skill the class stays in memory. A class added this week that neither
     [review.md](review.md) → **Criteria & review style** nor any configured
     skill covers, and that applies to any repository, is a definition
     finding: file it per task 3. `not_reviewed` PRs → *Action needed* (a PR
@@ -392,7 +396,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away (omit when null) · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
-• Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · unknown <u> · classes +<added> / widened <strengthened> · recurrences <k> · review hits <week hits> (task 39; omit when reports and hits are 0)
+• Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · unknown <u> · classes +<added> / widened <strengthened> · recurrences <k> · review hits <the sum of `hits[].week`, or "not measured"> (task 39; omit when reports and hits are 0)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*

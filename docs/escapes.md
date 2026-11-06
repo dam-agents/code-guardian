@@ -119,7 +119,7 @@ backup refuses to delete it. `escape.sh record` validates and stamps `at`:
 | `class` | the class name (≤ 80 chars), `null` when step 4 did not run |
 | `rule` | `added` · `strengthened` · `none` |
 | `recurrence` | `true` when the class stood at the PR's review (default `false`) |
-| `paths` | the repository paths of the failing code (default `[]`); the profile's `## History` counts them per directory ([profile.md](profile.md)) |
+| `paths` | the repository paths of the failing code — `[]` only when no frame names one (the default); the profile's `## History` counts them per directory ([profile.md](profile.md)) |
 
 Other fields (`url`, `sha`, `note`) are kept as given.
 

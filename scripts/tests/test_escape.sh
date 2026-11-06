@@ -74,6 +74,10 @@ printf '{"src":"ledger","pr":7,"ts":"%s","findings":[{"status":"new","severity":
 rm -f "$WORK/reviews/pr-9.md"
 esc stats "$WORK"
 assert_jq '.hits == [{"class":"No timeout","n":2,"week":1},{"class":"Unchecked field","n":2,"week":1}]' 'a ledger row without a history file counts; a review in both places counts once'
+printf 'partial{\n' >> "$WORK/REVIEW-LEDGER.jsonl"
+esc stats "$WORK"
+assert_jq '.hits == [{"class":"No timeout","n":2,"week":1},{"class":"Unchecked field","n":2,"week":1}]' 'a partial ledger line is skipped, the hits stay'
+ls "$SANDBOX"/cg-escape-ledger.* >/dev/null 2>&1 && bad 'the ledger copy was left behind' || ok 'the ledger copy is removed'
 esc stats "$WORK" --days 60
 assert_jq '.reports == 4' 'the window is a parameter'
 esc stats "$WORK" --days x

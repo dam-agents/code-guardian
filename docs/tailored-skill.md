@@ -6,8 +6,9 @@ asks to change one, or when the audit finds an `open` or `pending` tailored skil
 
 The tailored skill turns the rules the reviewed repository states about
 itself, and the choices its operator makes in a short interview, into review
-checks. Every rule in the skill cites its source: an in-tree path, or the
-operator's answer.
+checks. Every rule in the skill cites its source: an in-tree path, the
+operator's answer, or an escaped defect class the operator chose to add
+([escapes.md](escapes.md)).
 
 ## When
 
