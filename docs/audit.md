@@ -347,7 +347,10 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     class lines added and widened. Each `recurrences` entry is a class that
     failed again after its line stood → **warn**: read that review, widen
     the class line so it names the hunk shape the review missed, and list it
-    under *Learned this week*. `not_reviewed` PRs → *Action needed* (a PR
+    under *Learned this week*. A class added this week that neither
+    [review.md](review.md) → **Criteria & review style** nor any configured
+    skill covers, and that applies to any repository, is a definition
+    finding: file it per task 3. `not_reviewed` PRs → *Action needed* (a PR
     reached a running environment with no review). `reports` = 0 → omit the
     line.
 

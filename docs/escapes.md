@@ -31,9 +31,10 @@ and gets one sentence that says so.
    <path:line>…` with the report's own-code frames: per frame the blamed
    commit and the recent ones, their merged PRs, and `candidates` ranked by
    hits. They are leads — read the candidate's diff (`gh pr diff <n>`) and the
-   failing code, and pick the change that explains the error. A non-zero
-   `frames_dropped` or `lookups_failed`, or `commits_capped`, makes them
-   partial: check the rest with `git log` and `gh api`. `confidence`:
+   failing code, and pick the change that explains the error. A frame with an
+   `error`, a non-zero `frames_dropped`, `reads_failed` or `lookups_failed`, or
+   `commits_capped` makes them partial: check the rest with `git log` and
+   `gh api`. `confidence`:
    `confirmed` (the PR's diff holds the failing path and you can state the
    mechanism), `likely` (the best candidate, the mechanism plausible),
    `unknown` (no PR found), `not_code` (the cause is outside the repository's
@@ -78,15 +79,13 @@ and gets one sentence that says so.
    - **Check the line** — read the PR's diff (or the failing code) again with
      only the class line in mind. It must lead a reviewer to the defective
      hunk; when it does not, rewrite it.
-   - A generic class that neither [review.md](review.md) → **Criteria &
-     review style** nor any configured skill covers is a definition finding:
-     file it per [runbook.md](runbook.md) → **Definition-repo issues**.
 5. **Record** — write the row (**The ledger**) to a file in `$TMPDIR`, run
    `escape.sh record "$HOME/work" <file>`, delete the file. `error` → fix the
    named fields and run it once more.
 6. **Reply in the thread** of the report (`mcp__platform-outbound__reply`
-   with its `chatId` and `threadTs`; no `slack_notifications` needed): ASD-STE100, at most three short lines,
-   Slack links `<url|#123>`, no @-mention, no stack trace, no fix advice:
+   with its `chatId` and `threadTs`; no `slack_notifications` needed):
+   ASD-STE100, at most three short lines, Slack links `<url|#123>`, no
+   @-mention, no stack trace, no fix advice:
 
    ```
    Escaped defect class: <class> (<added | known, seen N×>).

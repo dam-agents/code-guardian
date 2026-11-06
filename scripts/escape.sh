@@ -16,7 +16,8 @@
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0.
 # Files: work/ESCAPES.jsonl (append-only), $TMPDIR/cg-escape.* (leads clone,
-# removed on exit). Requires bash, git, jq, gh (leads only) — awk-free.
+# removed on exit). Requires bash, git, jq, gh (leads only: the clone's
+# credential helper) — awk-free.
 # Overrides (tests): CG_ESCAPE_CLONE_URL.
 
 set -u
@@ -110,13 +111,16 @@ url="${CG_ESCAPE_CLONE_URL:-}"
 if [ -z "$url" ]; then
   [ -n "$REPO" ] || fail "no target repo resolved"
   url="https://$REPO_HOST/$REPO.git"
-  tok="$(gh auth token --hostname "$REPO_HOST" 2>/dev/null || true)"
-  [ -n "$tok" ] && url="https://x-access-token:$tok@$REPO_HOST/$REPO.git"
 fi
-# blobless: blame fetches only the blobs of the frames' history
-git clone -q --filter=blob:none --no-checkout "$url" "$CLONE/repo" 2>/dev/null \
+# blobless: blame fetches the blobs of the frames' history on demand, so every
+# later read is a fetch too. gh answers each one as the credential helper — no
+# token in a URL, in argv or on disk; the empty value drops inherited helpers.
+CRED='!gh auth git-credential'
+git -c credential.helper= -c "credential.helper=$CRED" \
+  clone -q --filter=blob:none --no-checkout "$url" "$CLONE/repo" 2>/dev/null \
   || fail "clone failed for $REPO"
-git -C "$CLONE/repo" remote set-url origin "https://$REPO_HOST/$REPO.git" 2>/dev/null || true
+git -C "$CLONE/repo" config --local credential.helper '' 2>/dev/null
+git -C "$CLONE/repo" config --local --add credential.helper "$CRED" 2>/dev/null
 G() { git -C "$CLONE/repo" "$@"; }
 if [ -z "$AT" ]; then AT="$(G rev-parse HEAD 2>/dev/null)"
 else
@@ -125,20 +129,32 @@ else
   AT="$(G rev-parse "$AT^{commit}" 2>/dev/null)"
 fi
 
-FRAMES='[]'; COMMITS=""; n=0
+FRAMES='[]'; COMMITS=""; n=0; READS_FAILED=0
 DROPPED=$(( $# > MAX_FRAMES ? $# - MAX_FRAMES : 0 ))
+frame_error() { # <frame> <error> — a frame that gives no lead says why
+  FRAMES="$(printf '%s' "$FRAMES" | jq -c --arg f "$1" --arg e "$2" '. + [{frame:$f, error:$e}]')"
+}
 for fr in "$@"; do
   n=$((n + 1)); [ "$n" -le "$MAX_FRAMES" ] || break
   path="${fr%:*}"; line="${fr##*:}"
   case "$line" in (''|*[!0-9]*) path="$fr"; line="";; esac
   path="${path#./}"
-  if ! G cat-file -e "$AT:$path" 2>/dev/null; then
-    FRAMES="$(printf '%s' "$FRAMES" | jq -c --arg f "$fr" '. + [{frame:$f, error:"path not in the tree at that commit"}]')"
-    continue
+  # the tree is local in a blobless clone: an absent path and a failed read differ
+  if ! intree="$(G ls-tree --name-only "$AT" -- "$path" 2>/dev/null)"; then
+    READS_FAILED=$((READS_FAILED + 1)); frame_error "$fr" "tree read failed"; continue
   fi
+  [ -n "$intree" ] || { frame_error "$fr" "path not in the tree at that commit"; continue; }
   blame=""
-  [ -n "$line" ] && blame="$(G blame --porcelain -L "$line,$line" "$AT" -- "$path" 2>/dev/null | head -1 | cut -d' ' -f1)"
-  recent="$(G log -n 3 --format=%H "$AT" -- "$path" 2>/dev/null | tr '\n' ' ')"
+  if [ -n "$line" ]; then
+    if ! blame="$(G blame --porcelain -L "$line,$line" "$AT" -- "$path" 2>/dev/null)"; then
+      READS_FAILED=$((READS_FAILED + 1)); frame_error "$fr" "blame failed (a line past the end, or a blob fetch failed)"; continue
+    fi
+    blame="$(printf '%s\n' "$blame" | head -1 | cut -d' ' -f1)"
+  fi
+  if ! recent="$(G log -n 3 --format=%H "$AT" -- "$path" 2>/dev/null)"; then
+    READS_FAILED=$((READS_FAILED + 1)); frame_error "$fr" "history read failed"; continue
+  fi
+  recent="$(printf '%s' "$recent" | tr '\n' ' ')"
   FRAMES="$(printf '%s' "$FRAMES" | jq -c --arg f "$fr" --arg p "$path" --arg l "$line" --arg b "$blame" --arg r "$recent" \
     '. + [{frame:$f, path:$p, line:(if $l == "" then null else ($l|tonumber) end),
            blame:(if $b == "" then null else $b end),
@@ -166,10 +182,10 @@ for c in $COMMITS; do
 done
 
 out "$(jq -nc --arg at "$AT" --argjson f "$FRAMES" --argjson p "$PRS" \
-  --argjson d "$DROPPED" --argjson lf "$LOOKUP_FAILED" --argjson mc "$k" --argjson max "$MAX_COMMITS" '
+  --argjson d "$DROPPED" --argjson rf "$READS_FAILED" --argjson lf "$LOOKUP_FAILED" --argjson mc "$k" --argjson max "$MAX_COMMITS" '
   ($f | map(. + (if .blame then {blame_pr:($p[.blame].prs // null)} else {} end))) as $frames
   | {outcome:"ready", at:$at, frames:$frames, commits:$p,
-     frames_dropped:$d, lookups_failed:$lf, commits_capped:($mc > $max),
+     frames_dropped:$d, reads_failed:$rf, lookups_failed:$lf, commits_capped:($mc > $max),
      candidates:([$frames[] | (.blame // empty), (.recent // [])[]] as $cs
        | [$cs[] | ($p[.].prs // [])[]] | group_by(.number)
        | map(.[0] + {hits:length}) | sort_by(.hits, .merged_at) | reverse | .[:5])}')"

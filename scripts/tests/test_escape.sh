@@ -86,6 +86,7 @@ assert_jq '.outcome == "ready" and .at == "'"$C2"'"' 'the default is the tip of 
 assert_jq '.frames[0] | .blame == "'"$C2"'" and .blame_pr[0].number == 12 and .line == 2' 'the failing line blames the PR that changed it'
 assert_jq '.frames[1] | .path == "src/user.ts" and .blame == "'"$C1"'"' 'a ./ prefix is stripped'
 assert_jq '.frames[2].error | test("not in the tree")' 'a path outside the tree is named, not fatal'
+assert_jq '.reads_failed == 0' 'an absent path is not a failed read'
 assert_jq '.candidates[0].number == 12 and .candidates[0].hits >= 2' 'the PR behind the most frames ranks first'
 CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" --at "$C1" src/user.ts:2
 assert_jq '.at == "'"$C1"'" and .frames[0].blame == "'"$C1"'"' 'a deployed SHA is blamed as it was'
@@ -99,6 +100,8 @@ CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" src/user.ts:2 src/user.ts:1 src/user.
 assert_jq '.lookups_failed == 1 and .commits["'"$C2"'"].prs == null and (.commits["'"$C2"'"].error | test("failed"))' 'a failed PR lookup is named, never an empty list'
 assert_jq '.frames[0].blame_pr == null and .commits["'"$C1"'"].prs[0].number == 11' 'the other commits still map'
 assert_jq '.frames_dropped == 1 and (.frames | length) == 5 and .commits_capped == false' 'frames past the cap are counted'
+CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" src/user.ts:99 src/user.ts:1
+assert_jq '.reads_failed == 1 and (.frames[0].error | test("blame failed")) and .frames[1].blame == "'"$C1"'"' 'a failed blame is a counted frame error, never a frame with no lead'
 esc leads "$WORK"
 assert_jq '.outcome == "error"' 'no frame is an error'
 ls -d "$SANDBOX"/cg-escape.* >/dev/null 2>&1 && bad 'the clone was left behind' || ok 'the clone is removed'
