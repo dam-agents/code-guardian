@@ -13,11 +13,10 @@
 # cancel_kit_update, and install_skill once kit.yaml declares external
 # `skills` (test_install_hook.sh fails when one of them is listed here).
 
-# platform-outbound — artifact folders (artifacts themselves stay available)
-mcp__platform-outbound__create_artifact_folder
+# platform-outbound — artifact folder edits (the review guide lists and creates
+# its folder; artifacts themselves stay available)
 mcp__platform-outbound__update_artifact_folder
 mcp__platform-outbound__delete_artifact_folder
-mcp__platform-outbound__list_artifact_folders
 # platform-outbound — the platform skill catalog (preflight installs the review
 # skills from their source repositories)
 mcp__platform-outbound__install_skill
