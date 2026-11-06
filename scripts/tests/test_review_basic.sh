@@ -107,15 +107,18 @@ printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":null
 run_preflight review
 assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' 'a partial answer: no review, no cleanup'
 
-# --- a null review node with errors is unreadable too --------------------------
-new_case label_cleanup_null_node
-base_config
-pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
-add_row 1 "$SHA1" "$(iso_ago 3600)" CHANGES_REQUESTED done
-printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":{"nodes":[null]}}}},"errors":[{"message":"timeout"}]}' > "$GH_FIXTURES/graphql_pr_lastedited_1"
-run_preflight review
-assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' 'a null review node: no review, no cleanup'
-assert_jq '.logs | any(contains("unreadable — retry next run"))' 'the null node is logged as a failed read'
+# --- a null review node alone, or errors alone, is unreadable -----------------
+for v in 'null_node:{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":{"nodes":[null]}}}}}' \
+         'errors_only:{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":{"nodes":[]}}}},"errors":[{"message":"timeout"}]}'; do
+  new_case "label_cleanup_${v%%:*}"
+  base_config
+  pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+  add_row 1 "$SHA1" "$(iso_ago 3600)" CHANGES_REQUESTED done
+  printf '%s' "${v#*:}" > "$GH_FIXTURES/graphql_pr_lastedited_1"
+  run_preflight review
+  assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' "${v%%:*}: no review, no cleanup"
+  assert_jq '.logs | any(contains("unreadable — retry next run"))' "${v%%:*}: logged as a failed read"
+done
 
 # --- the history file cannot be read → cleanup, but no reply ------------------
 new_case label_cleanup_history_unreadable
