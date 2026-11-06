@@ -2493,6 +2493,7 @@ run_rp compose-brief 1
 assert_out_contains '### Human Review Guide' 'a built guide gets its section in the skeleton'
 assert_out_contains 'only when your triage is `needs-human`' 'the section depends on the triage'
 assert_out_contains 'create_artifact {title: "PR #1 review guide"' 'a first guide is created'
+assert_out_contains 'the folder named `PR review artifacts`' 'the brief names the artifact folder'
 assert_out_absent 'update_artifact \{id' 'no prior guide, no update'
 assert_out_contains 'guide 1 --id <id> --url <shareUrl>' 'the brief names the record step'
 assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json" 'the brief renders the findings before the upload'
@@ -2575,6 +2576,7 @@ cat "$WORK"/logs/events-*.jsonl | jq -e 'select(.event=="guide") | .msg | test("
   && printf 'ok   %s: the guide event is logged\n' "$CASE" || { printf 'FAIL %s: no guide event\n' "$CASE"; FAILED=1; }
 run_rp compose-brief 1
 assert_out_contains 'update_artifact {id: "art_9"' 'a recorded guide is updated in place'
+assert_out_contains 'upload_ref: "<uploadRef>", folder_id: "<id>"' 'an update also carries the folder'
 run_rp abort 1 "reset"
 
 # the guide label passes the gate and publishes whatever the triage

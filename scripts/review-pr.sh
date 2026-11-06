@@ -2178,10 +2178,11 @@ guide_brief() { # <skill> <section> <built|kept|refresh> <line> <html>
   printf '%s. After `%s` is written: `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --findings %s%s` — the PR, its issue and every review note go into the page as **PR, issue and review notes**; its `html` is the page to upload.\n' \
     "$n" "${ff##*/}" "$N" "$ff" "$([ "$g" != built ] && printf ' --kept')"; n=$((n+1))
   printf '%s. `create_artifact_upload_url {file_name: "pr-%s-guide.html"}` → `{url, uploadRef}`, then\n   `curl -sS -f -X PUT -H '"'"'Content-Type: text/html'"'"' --data-binary @<html> '"'"'<url>'"'"'`\n' "$n" "$N"; n=$((n+1))
+  printf '%s. `list_artifact_folders` → the folder named `PR review artifacts`; when none, `create_artifact_folder {name: "PR review artifacts"}`. Its `id` is the `folder_id` below; a failing folder call → publish without it.\n' "$n"; n=$((n+1))
   if [ -n "$gid" ]; then
-    printf '%s. `update_artifact {id: "%s", upload_ref: "<uploadRef>"}` — a new version behind the same link `%s`. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$n" "$gid" "$gurl"
+    printf '%s. `update_artifact {id: "%s", upload_ref: "<uploadRef>", folder_id: "<id>"}` — a new version behind the same link `%s`, which also moves a guide published outside the folder. An update that fails because the artifact is gone → `create_artifact` as for a first guide.\n' "$n" "$gid" "$gurl"
   else
-    printf '%s. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$n" "$N"
+    printf '%s. `create_artifact {title: "PR #%s review guide", upload_ref: "<uploadRef>", folder_id: "<id>", type: "html", visibility: "public"}` → `id`, `shareUrl`.\n' "$n" "$N"
   fi; n=$((n+1))
   printf '%s. `cd "$HOME" && bash "$HOME/scripts/review-pr.sh" guide %s --id <id> --url <shareUrl>` — the history marker, the stored copy and the `guide` event.\n' "$n" "$N"; n=$((n+1))
   if [ "$g" != built ]; then
