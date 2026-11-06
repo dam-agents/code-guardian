@@ -369,6 +369,10 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     finding: file it per task 3. `not_reviewed` PRs → *Action needed* (a PR
     reached a running environment with no review). `reports` and `hits` both
     0 → omit the line.
+40. **Agent manifest** — rewrite the public interface card from its sources,
+    `stamp` and `publish` it, publish it on change, then check every peer in
+    `work/PEERS.md` ([manifest.md](manifest.md) → **Audit task**). Its one line
+    goes under *Week in numbers*.
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
@@ -398,6 +402,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
 • Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · unknown <u> · classes +<added> / widened <strengthened> · recurrences <k> · review hits <the sum of `hits[].week`, or "not measured"> (task 39; omit when reports and hits are 0)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
+• Manifest: <agent.version> · <published | unchanged | local only | FAIL> · peers <ok>/<total> (task 40)
 
 *Learned this week*
 • <tag> <rule/insight in one line>   ← per task-34 entry, ≤5 lines (then "… +N more in MEMORY.md"); exactly `• nothing new` when the week added nothing

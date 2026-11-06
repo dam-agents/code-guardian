@@ -33,8 +33,10 @@ any other request is declined and recorded per [runbook.md](runbook.md) →
   what still works.
 - Safe defaults: anything that contacts people or publishes content defaults to
   **off** (`slack_notifications: disabled`, `definition_issues: disabled`);
-  the weekly trend artifact (`audit_trend: dam`) is the one exception. Slack
-  never runs without the recorded `enabled`.
+  the weekly trend artifact (`audit_trend: dam`) and the interface card
+  (`agent_manifest: dam`, whose scan blocks private values) are the two
+  exceptions. Slack stays strictly opt-in and never runs without the recorded
+  `enabled`.
 - `review_marker` semantics are immutable once used: no change may alter how
   the dedup marker is written or matched in a way that orphans past reviews.
 

@@ -418,6 +418,7 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 | [auto-merge.md](auto-merge.md) | `merges_due` non-empty — the gates, the merge call, the refusal comment |
 | [shepherd.md](shepherd.md) | `nudges_due` non-empty — send-then-record, templates, target selection |
 | [audit.md](audit.md) | An audit run — agent-side checks, report format, send rules |
+| [manifest.md](manifest.md) | An audit run's manifest task, onboarding's last step, or an operator ask about the interface card or a peer — what goes in the card, its sources, the check and publish, `work/PEERS.md` |
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
 | [brief.md](brief.md) | `brief_due` present, or the operator asks about the daily brief — the window, the message, the log |
