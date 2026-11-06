@@ -5,7 +5,8 @@
 # The agent writes the manifest; this script only reports. It never edits the
 # card except in `stamp` mode, which writes source.version and nothing else.
 #
-#   check   <card.json>   own card: shape, references, version, privacy scan
+#   check   <card.json>   own card: shape, references, version, privacy and
+#                         credential scan
 #   publish <card.json>   as check, plus: no `<placeholder>` left, version stamped
 #   stamp   <card.json>   write source.version = digest of the card without
 #                         source and runtime; prints the digest
@@ -26,11 +27,12 @@ HOME_DIR="${AGENT_HOME:-$HOME}"
 SCHEMA="${MANIFEST_SCHEMA:-$HOME_DIR/docs/manifest.schema.json}"
 CONFIG="${WORK_DIR:-$HOME_DIR/work}/CONFIG.md"
 SPEC="dam-agent-manifest/1"
-# Config keys whose values may appear in the public card (labels, logins, the
-# target repo). Every other CONFIG.md value is private.
+# Config keys whose values may appear in the public card (labels, the bot
+# account, the public definition repo). Every other CONFIG.md value is private,
+# the target repo (`github_repo`) included: it can be a private repository.
 # MANIFEST_PUBLIC_KEYS overrides the list for a one-time run (the definition's
 # operator decides it once and writes it here, docs/manifest.md).
-PUBLIC_KEYS="${MANIFEST_PUBLIC_KEYS:-bot_display_name bot_login github_repo definition_repo definition_branch review_marker rereview_label rereview_delta_label urgent_label guide_label}"
+PUBLIC_KEYS="${MANIFEST_PUBLIC_KEYS:-bot_display_name bot_login definition_repo definition_branch review_marker rereview_label rereview_delta_label urgent_label guide_label}"
 
 mode="${1:-}"; card="${2:-}"
 case "$mode" in (check|publish|stamp|peer|digest) ;; (*) echo "usage: $0 check|publish|stamp|peer|digest <card.json>" >&2; exit 2;; esac
@@ -175,9 +177,22 @@ elif [ -r "$CONFIG" ]; then
 else
   warn privacy-config "$CONFIG not readable; config scan skipped"
 fi
-shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|xox[abposr]-[A-Za-z0-9-]+|gh[pousr]_[A-Za-z0-9]{20,}|/home/agent/work/[^" ]*' "$card"; sed 's/^/ /' "$card" | grep -oE '[^A-Za-z0-9_./-]((\$HOME|~|\$\{HOME\})/)?work/[^" ]*' | cut -c2-; grep -oE '\b[UWCGD][A-Z0-9]{8,11}\b' "$card" | grep '[0-9]') | sort -u | head -5)"
-[ -z "$shapes" ] && ok privacy-shapes "no e-mail, Slack id, token or work/ path" \
+shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/work/[^" ]*' "$card"; sed 's/^/ /' "$card" | grep -oE '[^A-Za-z0-9_./-]((\$HOME|~|\$\{HOME\})/)?work/[^" ]*' | cut -c2-; grep -oE '\b[UWCGD][A-Z0-9]{8,11}\b' "$card" | grep '[0-9]') | sort -u | head -5)"
+[ -z "$shapes" ] && ok privacy-shapes "no e-mail, Slack id or work/ path" \
   || fail privacy-shapes "private shapes in the card: $(echo $shapes)" "replace with names or remove (docs/manifest.md → What stays out)"
+
+# Credentials: every shape scripts/lib/redact.sh masks, on a copy of the card.
+# The card is refused, never masked: a masked card would publish a broken value
+# under a new version. The pass fails closed.
+REDACT_LIB="$(dirname "$0")/lib/redact.sh"
+cred_copy="$(mktemp)"; cp "$card" "$cred_copy"
+if [ -r "$REDACT_LIB" ] && . "$REDACT_LIB" && n="$(redact_file "$cred_copy")"; then
+  [ "$n" -eq 0 ] && ok privacy-credentials "no credential shape (scripts/lib/redact.sh)" \
+    || fail privacy-credentials "$n credential values in the card" "remove them; a credential never goes in the card (docs/manifest.md → What stays out)"
+else
+  fail privacy-credentials "the redaction pass did not run ($REDACT_LIB)" "run the check from the agent's home, where scripts/lib/redact.sh is readable"
+fi
+rm -f "$cred_copy"
 
 # 5. Publish gate.
 if [ "$mode" = publish ]; then

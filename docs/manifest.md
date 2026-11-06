@@ -28,6 +28,8 @@ Yes → it goes in. No → it stays out.
 - A provider's display name and whose key it runs on: the card names a provider by its Model Router alias only.
 - A page whose content would fail the test above (security findings, spend, people), whatever its visibility: the card gives every page it lists a wider audience, so such a page stays out of `surfaces.artifact.pages`.
 - Anything a config key marks private. `scripts/manifest-check.sh` scans for these; its `PUBLIC_KEYS` list is the only allowlist.
+  The target repository (`github_repo`) is not in the default list, because it can be a private repository: the card names it only when the operator adds `github_repo` to `PUBLIC_KEYS` for a public repository.
+- Credentials: `scripts/manifest-check.sh` refuses the card when it holds any credential shape that `scripts/lib/redact.sh` masks.
 
 ## Sections
 
@@ -57,7 +59,7 @@ A skill that runs on its own has a `schedule`, in words (`every hour at minute 7
 Take the content from wherever it is true; the schema fixes only the shape.
 
 - **The definition** (`CLAUDE.md`, `docs/`, `README.md`, `VERSION`): skills, triggers, contracts, trust, packages.
-- **`work/CONFIG.md`**: the values of public keys only (labels, the target repo, the bot account, enabled features). A disabled feature is not a skill; a feature that people expect and this instance turned off goes to `notOffered`.
+- **`work/CONFIG.md`**: the values of public keys only (labels, the bot account, the definition repo, enabled features). A disabled feature is not a skill; a feature that people expect and this instance turned off goes to `notOffered`.
 - **The platform**:
   - `describe_channel` (`slack`, `telegram`) → the conversation names for `surfaces.<channel>.channels`. Names only, never ids; leave out 1:1 DMs.
   - The frame of each Slack or Telegram turn says whether the conversation is ambient and whether you are its default agent. Record both per conversation in `work/manifest-channels.json` when a turn arrives (`ambient`, `defaultAgent`, `seenAt`); copy `ambient` and `defaultAgent` into the card. `seenAt` stays in that file: a time in the card would change `source.version` on every turn. Unknown → `null`.
@@ -73,6 +75,7 @@ A value you cannot get yet: write `TODO(manifest)`; the publish gate refuses it,
 1. Write the card to `work/manifest.json`.
 2. `bash "$HOME/scripts/manifest-check.sh" stamp "$HOME/work/manifest.json"`.
 3. `bash "$HOME/scripts/manifest-check.sh" publish "$HOME/work/manifest.json"`. Fix every `FAIL` and run again until `PASS`.
+   The check runs the shapes of `scripts/lib/redact.sh` over a copy of the card and refuses every credential it finds, so the card gets the same redaction rule as every other published artifact; a pass that cannot run is a `FAIL`.
 4. Under `agent_manifest: dam` (the default; a missing key is `dam`), publish the card as a **public** DAM artifact:
    first time `create_artifact {title: "Agent manifest: <agent.name>", content, file_name: "agent-manifest.json", type: "code", visibility: "public"}`; keep its id and `shareUrl` in `work/manifest-publish.json`.
    The title and file name are fixed for every DAM agent (`Agent manifest: Code Reviewer`, `agent-manifest.json`): `<agent.name>` is the card's `agent.name` exactly, without emoji, so people and agents find every manifest by the same prefix.

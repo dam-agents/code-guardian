@@ -25,7 +25,8 @@ write_card() { # <path>
   }' > "$1"
 }
 
-# config with one public key (its value may appear in the card) and one private
+# config with public keys (their values may appear in the card) and private
+# ones: the target repo is private by default
 write_config() { # [extra lines…]
   {
     printf -- '- github_repo: acme/widgets\n'
@@ -212,6 +213,12 @@ assert_out_contains 'remove them, or add the key to PUBLIC_KEYS' 'the fix offers
 jq '.trust += ["The bot is test-bot."]' "$SANDBOX/card.json" > "$SANDBOX/public.json"
 run_check check "$SANDBOX/public.json"
 assert_out_contains 'ok   privacy-config' 'a PUBLIC_KEYS value may appear'
+jq '.trust += ["Reviews acme/widgets."]' "$SANDBOX/card.json" > "$SANDBOX/repo.json"
+run_check check "$SANDBOX/repo.json"
+assert_rc 1 'the target repo is private by default'
+assert_out_contains 'private config keys or their values appear: github_repo' 'the target repo key is named'
+OUT="$(MANIFEST_PUBLIC_KEYS='bot_login github_repo' WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$CHECK" check "$SANDBOX/repo.json" 2>>"$STDERR_LOG")"
+assert_out_contains 'ok   privacy-config' 'the operator can mark the target repo public'
 
 new_case manifest_privacy_shapes
 write_config; write_card "$SANDBOX/card.json"
@@ -223,6 +230,25 @@ assert_out_contains 'replace with names or remove (docs/manifest.md → What sta
 jq '.trust += ["A path /home/agent/work/MEMORY.md."]' "$SANDBOX/card.json" > "$SANDBOX/bad2.json"
 run_check check "$SANDBOX/bad2.json"
 assert_out_contains 'private shapes in the card' 'a work/ path is a private shape'
+
+# --- credentials: every scripts/lib/redact.sh shape, fail closed -------------
+new_case manifest_privacy_credentials
+write_config; write_card "$SANDBOX/card.json"
+run_check stamp
+run_check check
+assert_out_contains 'ok   privacy-credentials' 'a card without a credential passes the redaction shapes'
+for cred in 'github_pat_11ABCDEFG0123456789_abcdefghijklmnop' 'Bearer abcdefgh12345678' \
+            'AKIAABCDEFGHIJKLMNOP' 'xoxe-1234567890-abcdef' 'api_key=abcdefgh12345678'; do
+  jq --arg c "$cred" '.trust += ["Use \($c)."]' "$SANDBOX/card.json" > "$SANDBOX/cred.json"
+  run_check check "$SANDBOX/cred.json"
+  assert_rc 1 "a credential shape fails: ${cred%%[_ =-]*}"
+  assert_out_contains 'FAIL privacy-credentials — 1 credential values in the card' "the credential is counted: ${cred%%[_ =-]*}"
+done
+assert_out_contains 'a credential never goes in the card' 'the fix names the rule'
+mkdir -p "$SANDBOX/nolib"; cp "$CHECK" "$SANDBOX/nolib/manifest-check.sh"
+OUT="$(WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$SANDBOX/nolib/manifest-check.sh" check "$SANDBOX/card.json" 2>>"$STDERR_LOG")"; RC=$?
+assert_rc 1 'a missing redaction library fails closed'
+assert_out_contains 'FAIL privacy-credentials — the redaction pass did not run' 'the missing pass is named'
 
 # --- publish gate and input errors ------------------------------------------
 new_case manifest_placeholders
