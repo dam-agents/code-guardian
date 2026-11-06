@@ -309,7 +309,7 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     bounds, or *Action needed* names what remains; its one-line delta goes
     under *Week in numbers*. Collect meanwhile **what was newly learned** —
     MEMORY.md bullets tagged inside the stats window (Feedback Log, Observed
-    Insights) plus the rules it promoted — for *Learned this week*, one
+    Insights, Escaped Defect Classes) plus the rules it promoted — for *Learned this week*, one
     compressed line each.
 35. **Profile notes** — when `work/PROFILE-NOTES.md` exists
     ([profile.md](profile.md) → **Using it**): re-verify each row
@@ -342,6 +342,14 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     `authentication_failed` / `cloud_credential_error` /
     `oauth_org_not_allowed` / `account_on_hold` class → **Action needed**
     (operator-only).
+39. **Escaped defects** — `bash "$HOME/scripts/escape.sh" stats "$HOME/work"`
+    ([escapes.md](escapes.md)): the week's reports by `review` state, the
+    class lines added and widened. Each `recurrences` entry is a class that
+    failed again after its line stood → **warn**: read that review, widen
+    the class line so it names the hunk shape the review missed, and list it
+    under *Learned this week*. `not_reviewed` PRs → *Action needed* (a PR
+    reached a running environment with no review). `reports` = 0 → omit the
+    line.
 
 One message, this shape — counts and one-liners, no prose; wording per
 ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
@@ -369,6 +377,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away (omit when null) · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
+• Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · classes +<added> / widened <strengthened> · recurrences <k> (task 39; omit when reports = 0)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*

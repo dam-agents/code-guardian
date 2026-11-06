@@ -323,6 +323,21 @@ assert_jq '.checks[] | select(.id == "memory_budget") | .status == "ok" and (.de
 assert_jq '.checks[] | select(.id == "memory_budget") | .detail | contains("biggest sections") | not' \
   'a file within bounds is not scanned per section'
 
+# escaped defect classes have their own bound (docs/escapes.md → Bounds)
+new_case audit_memory_escape_classes
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+{
+  printf '# Memory\n\n## Escaped Defect Classes\n'
+  for i in $(seq 1 21); do printf -- '- [escape 2026-11-06, PR #%s, seen 1×] class %s\n' "$i" "$i"; done
+  printf '\n## Feedback Log\n- one\n'
+} > "$WORK/MEMORY.md"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "memory_budget") | .status == "warn" and (.detail | contains("escape classes 21/20"))' \
+  'a 21st escape class puts the budget over'
+run_preflight memory
+assert_jq '.escapes == 21 and .escapes_limit == 20' 'the memory mode measures the section'
+
 # the distilled layer is bounded file by file; the archive is never measured
 # (docs/preferences.md → Two layers)
 new_case audit_memory_two_layers
