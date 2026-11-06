@@ -14,8 +14,9 @@
 #   disabled — `channel_definition_prs` is not `enabled`; nothing read from or
 #              sent to GitHub
 #   ready    — (prepare) the clone is at `dir`
-#   exists   — the branch, or an open PR from it, is already on the remote;
-#              `url` when a PR is open
+#   exists   — the branch, or an open PR from it, is already on the remote
+#              (`url` when a PR is open), or (prepare) a clone for <id> is
+#              in use; discard frees it
 #   invalid  — (open) `reason`: VERSION not bumped, VERSION and the newest
 #              CHANGELOG.md heading differ, or `bash -n` fails on a script
 #   nothing  — (open) the clone has no change
@@ -92,8 +93,8 @@ CLONE_URL="${CG_CLONE_URL:-$(git -C "$HOME_DIR" remote get-url origin 2>/dev/nul
 [ -n "$CLONE_URL" ] || CLONE_URL="https://$DEF_HOST/$DEFINITION_REPO.git"
 
 if [ "$CMD" = "prepare" ]; then
+  [ -e "$DIR" ] && out '{"outcome":"exists","reason":"a clone for this id is in use"}'
   remote_exists
-  rm -rf "$DIR"
   git clone -q --branch main --single-branch "$CLONE_URL" "$DIR" >/dev/null 2>&1 \
     || { rm -rf "$DIR"; fail "clone of main did not succeed"; }
   git -C "$DIR" checkout -q -b "$BRANCH" >/dev/null 2>&1 || fail "branch not created"
@@ -101,7 +102,7 @@ if [ "$CMD" = "prepare" ]; then
   who="$(token_login)"; who="${who:-$(cfg bot_login)}"; who="${who:-code-guardian}"
   git -C "$DIR" config user.name "$name"
   git -C "$DIR" config user.email "$(noreply_email "$who" "$DEF_HOST")"
-  git -C "$DIR" rev-parse HEAD > "$DIR/.git/cg-defpr-base"
+  git -C "$DIR" rev-parse HEAD > "$DIR/.git/cg-defpr-base" 2>/dev/null || fail "base commit unreadable"
   logev info definition_pr "$ID: clone ready"
   out "$(jq -nc --arg d "$DIR" --arg b "$BRANCH" '{outcome:"ready", dir:$d, branch:$b}')"
 fi

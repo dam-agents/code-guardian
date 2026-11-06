@@ -134,6 +134,11 @@ assert_jq '.outcome == "exists"' 'a pushed channel/<id> branch blocks a second p
 new_case discard
 instance '- channel_definition_prs: enabled'; remote
 run_pr prepare "$ID"
+printf 'work in progress\n' > "$SANDBOX/cg-defpr-$ID/WIP"
+run_pr prepare "$ID"
+assert_jq '.outcome == "exists" and (.reason | contains("in use"))' 'a second prepare leaves a clone in use alone'
+[ -f "$SANDBOX/cg-defpr-$ID/WIP" ] && printf 'ok   %s: the work in the clone survives\n' "$CASE" \
+  || { printf 'FAIL %s: the clone was replaced\n' "$CASE"; FAILED=1; }
 run_pr discard "$ID"
 assert_jq '.outcome == "discarded"' 'discard answers'
 [ ! -d "$SANDBOX/cg-defpr-$ID" ] && printf 'ok   %s: the clone is gone\n' "$CASE" \

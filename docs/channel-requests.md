@@ -43,9 +43,10 @@ refuses (§1, §10, or a weaker trust boundary).
 
 1. `<id>` = a short kebab-case slug of the change in definition words
    (`quiet-hours-per-team`), at most 40 characters.
-2. Write `work/channel-requests/<id>.md`: `requester` (roster login),
-   `chat_id`, `thread_ts`, `received_at` (UTC), then the verbatim ask under
-   `## Ask`.
+2. A request file with this `<id>` exists → reply that the change is in
+   work; done. Otherwise write `work/channel-requests/<id>.md`: `requester`
+   (roster login), `chat_id`, `thread_ts`, `received_at` (UTC), then the
+   verbatim ask under `## Ask`.
 3. Reply in the thread: a draft PR follows, and a person reviews and merges
    it.
 4. One `mcp__platform-outbound__schedule_once` call — no `model` — with
@@ -68,8 +69,8 @@ refuses (§1, §10, or a weaker trust boundary).
 2. `bash "$HOME/scripts/definition-pr.sh" prepare <id>` — a fresh clone of
    `main` on branch `channel/<id>`, with the bot as the git identity:
    - `ready` → work in `dir` only, never in `$HOME`.
-   - `disabled` / `exists` (the branch or its PR is there; `url`) / `error`
-     → step 6.
+   - `disabled` / `exists` (the branch, its PR — `url` — or a clone in use)
+     / `error` → step 6.
 3. Make the change per self-modification.md, `VERSION` and `CHANGELOG.md`
    included (§8, §12). Skip §9's test suite and sanity runs: CI tests the
    draft. Run no code from the clone.
@@ -88,8 +89,8 @@ refuses (§1, §10, or a weaker trust boundary).
    - `nothing` (no change) / `disabled` / `error` → no PR.
 6. Reply in the thread (`mcp__platform-outbound__reply` with the request
    file's `chat_id` and `thread_ts`): the draft's link, or why there is none.
-   Surface it in the chat UI with the requester and the verbatim ask, then
-   delete the request file.
+   Surface it in the chat UI with the requester and the verbatim ask. With no
+   PR opened, `definition-pr.sh discard <id>`. Then delete the request file.
 
 The PR stays a draft. The agent never marks it ready, merges it, or pushes to
 it again; a follow-up ask is a new request.
