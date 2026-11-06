@@ -395,6 +395,18 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
   `slack_notifications: enabled` it goes to Slack every week via
   `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
   `chatId`); a failure sends the full report to the chat UI and logs.
+
+**Infographic** — under `audit_infographic: enabled` and after the Slack
+post succeeded: make a directory with `d="$(mktemp -d "$HOME/cg-audit.XXXXXX")"`
+(the reply tool takes an attachment under `$HOME` only), write the report to
+`$d/report.txt`, run `bash "$HOME/scripts/audit-infographic.sh" render
+"$d/report.txt" "$d/audit.png"`, and post the PNG with
+`mcp__platform-outbound__reply` (`chatId` and `threadTs` from the post
+result, `attachment.path` = its `path`, `text` = `*Week in numbers*` plus its
+`rest`, the parts the picture leaves out, verbatim). Then `rm -rf "$d"`, also
+after a failure. `no_renderer`, `error` or a failed reply → log it and
+continue; the `audit_infographic` check names a missing renderer.
+
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>`), then back up `work/`
   ([persistence.md](persistence.md)).
