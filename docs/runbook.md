@@ -370,7 +370,8 @@ disabled, and its pass reports `nothing_to_do` with a log line.
   append-only history unvalidated. One scored run at a time — a live run lock
   is never displaced, and every terminal path releases it.
 - No leftover `/tmp/review-pr-*` entries (clone, `.out`, `.s-*`, `.diff`,
-  `.ctx`, `.state.json`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` clones,
+  `.ctx`, `.state.json`, `.post.json`, `.fix`), `/tmp/cg-tailor.*` and
+  `/tmp/cg-escape.*` clones,
   `/tmp/benchmark-pr*` directories, `.bench-usage-*` nonce caches, or temp
   payload files at run end — except for a PR that ended `state_damaged`, whose
   paths the takeover's `prepare` removes. `/tmp/cg-worklist-*.json` belongs to

@@ -94,6 +94,11 @@ CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" src/user.ts:2
 assert_jq '.frames[0].blame_pr == []' 'an unmerged PR is no candidate'
 CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" --at 0123456789abcdef0123456789abcdef01234567 src/user.ts:2
 assert_jq '.outcome == "error" and (.error | test("not found"))' 'an unknown SHA is an error'
+fx_fail "api repos/acme/widgets/commits/$C2/pulls"
+CG_ESCAPE_CLONE_URL="$R" esc leads "$WORK" src/user.ts:2 src/user.ts:1 src/user.ts:3 src/user.ts:2 src/user.ts:1 src/user.ts:3
+assert_jq '.lookups_failed == 1 and .commits["'"$C2"'"].prs == null and (.commits["'"$C2"'"].error | test("failed"))' 'a failed PR lookup is named, never an empty list'
+assert_jq '.frames[0].blame_pr == null and .commits["'"$C1"'"].prs[0].number == 11' 'the other commits still map'
+assert_jq '.frames_dropped == 1 and (.frames | length) == 5 and .commits_capped == false' 'frames past the cap are counted'
 esc leads "$WORK"
 assert_jq '.outcome == "error"' 'no frame is an error'
 ls -d "$SANDBOX"/cg-escape.* >/dev/null 2>&1 && bad 'the clone was left behind' || ok 'the clone is removed'

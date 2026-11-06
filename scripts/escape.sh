@@ -126,6 +126,7 @@ else
 fi
 
 FRAMES='[]'; COMMITS=""; n=0
+DROPPED=$(( $# > MAX_FRAMES ? $# - MAX_FRAMES : 0 ))
 for fr in "$@"; do
   n=$((n + 1)); [ "$n" -le "$MAX_FRAMES" ] || break
   path="${fr%:*}"; line="${fr##*:}"
@@ -146,24 +147,29 @@ for fr in "$@"; do
 done
 
 # commit → PRs, each distinct commit once, blame lines first
-PRS='{}'; k=0; done_c=" "
+PRS='{}'; k=0; done_c=" "; LOOKUP_FAILED=0
 for c in $COMMITS; do
   case "$c" in (*[!0-9a-f]*|0000000000000000000000000000000000000000) continue;; esac
   [ "${#c}" -eq 40 ] || continue
   case "$done_c" in (*" $c "*) continue;; esac
   done_c="$done_c$c "
   k=$((k + 1)); [ "$k" -le "$MAX_COMMITS" ] || break
-  body="$(gh_get "repos/$REPO/commits/$c/pulls")" || body='[]'
+  # a failed lookup is `prs: null` with an error, never an empty list
+  if body="$(gh_get "repos/$REPO/commits/$c/pulls")" && printf '%s' "$body" | jq -e 'type == "array"' >/dev/null 2>&1; then :
+  else body='null'; LOOKUP_FAILED=$((LOOKUP_FAILED + 1)); fi
   subj="$(G log -1 --format='%s%x09%aI' "$c" 2>/dev/null)"
   PRS="$(printf '%s' "$body" | jq -c --argjson acc "$PRS" --arg c "$c" --arg s "$subj" '
-    $acc + {($c): {summary:($s | split("\t")[0]), authored:($s | split("\t")[1] // null),
-      prs:[(if type == "array" then .[] else empty end)
-           | select(.merged_at != null) | {number, title, merged_at, url:.html_url}]}}' 2>/dev/null)" || PRS='{}'
+    $acc + {($c): ({summary:($s | split("\t")[0]), authored:($s | split("\t")[1] // null)}
+      + if . == null then {prs:null, error:"PR lookup failed"}
+        else {prs:[.[] | select(.merged_at != null) | {number, title, merged_at, url:.html_url}]} end)}' 2>/dev/null)" \
+    || fail "PR mapping failed for $c"
 done
 
-out "$(jq -nc --arg at "$AT" --argjson f "$FRAMES" --argjson p "$PRS" '
-  ($f | map(. + (if .blame then {blame_pr:($p[.blame].prs // [])} else {} end))) as $frames
+out "$(jq -nc --arg at "$AT" --argjson f "$FRAMES" --argjson p "$PRS" \
+  --argjson d "$DROPPED" --argjson lf "$LOOKUP_FAILED" --argjson mc "$k" --argjson max "$MAX_COMMITS" '
+  ($f | map(. + (if .blame then {blame_pr:($p[.blame].prs // null)} else {} end))) as $frames
   | {outcome:"ready", at:$at, frames:$frames, commits:$p,
+     frames_dropped:$d, lookups_failed:$lf, commits_capped:($mc > $max),
      candidates:([$frames[] | (.blame // empty), (.recent // [])[]] as $cs
        | [$cs[] | ($p[.].prs // [])[]] | group_by(.number)
        | map(.[0] + {hits:length}) | sort_by(.hits, .merged_at) | reverse | .[:5])}')"

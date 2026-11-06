@@ -31,7 +31,9 @@ and gets one sentence that says so.
    <path:line>…` with the report's own-code frames: per frame the blamed
    commit and the recent ones, their merged PRs, and `candidates` ranked by
    hits. They are leads — read the candidate's diff (`gh pr diff <n>`) and the
-   failing code, and pick the change that explains the error. `confidence`:
+   failing code, and pick the change that explains the error. A non-zero
+   `frames_dropped` or `lookups_failed`, or `commits_capped`, makes them
+   partial: check the rest with `git log` and `gh api`. `confidence`:
    `confirmed` (the PR's diff holds the failing path and you can state the
    mechanism), `likely` (the best candidate, the mechanism plausible),
    `unknown` (no PR found), `not_code` (the cause is outside the repository's
