@@ -1034,6 +1034,15 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
   [ -n "$REREVIEW_DELTA_LABEL" ] && TRIG_DESC="$TRIG_DESC or $REREVIEW_DELTA_LABEL"
 
+  # one cleanup reply per head: a missing history file has none; an unreadable
+  # one is "could not look" — no reply, so a lost read never posts it twice
+  cleanup_reply_due() { # number sha -> REPLY_DUE (no subshell: log must reach LOGS)
+    local f="$WORK/reviews/pr-$1.md" rc
+    REPLY_DUE=true; [ -e "$f" ] || return 0
+    grep -qxF "<!-- trigger-cleanup-reply: $2 -->" "$f" 2>/dev/null; rc=$?
+    case $rc in (0) REPLY_DUE=false;; (1) ;;
+      (*) REPLY_DUE=false; log "PR #$1: history file unreadable — no cleanup reply";; esac
+  }
   add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc guide dismissed
     # full: complete-review scope — always true for kind=first; on a re-review
     # true iff the label is the trigger (review-request / on-demand = delta)
@@ -1190,7 +1199,10 @@ if [ "$MODE" = "review" ]; then
           dismissed="$(printf '%s' "$same_sha" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=$sha -->" '
               [.data.repository.pullRequest.reviews.nodes[]? | select((.body // "") | contains($m))]
               | last | .state // empty' 2>/dev/null)"
-          if [ -n "$REVIEW_MARKER" ] && [ "$dismissed" = "DISMISSED" ]; then
+          if ! printf '%s' "$same_sha" | jq -e '.data.repository.pullRequest | type == "object"' >/dev/null 2>&1; then
+            # could not look: no review and no cleanup, the next run asks again
+            log "PR #$n: $trig present at reviewed ${row_sha:0:7}, but its reviews and description were unreadable — retry next run"
+          elif [ -n "$REVIEW_MARKER" ] && [ "$dismissed" = "DISMISSED" ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" false \
               "$([ "$has_guide" -eq 1 ] && echo true || echo false)" true
@@ -1205,11 +1217,12 @@ if [ "$MODE" = "review" ]; then
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" false true
             log "PR #$n: $trig present and $([ "$has_guide" -eq 1 ] && printf 'no review saw %s yet' "$GUIDE_LABEL" || printf 'the review owes its guide') — guide round due"
           else
+            cleanup_reply_due "$n" "$sha"
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
               --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
               --argjson d "$([ "$has_delta" -eq 1 ] && echo true || echo false)" \
-              --arg sha "$sha" --argjson rp "$(grep -qxF "<!-- trigger-cleanup-reply: $sha -->" "$WORK/reviews/pr-$n.md" 2>/dev/null && echo false || echo true)" \
+              --arg sha "$sha" --argjson rp "$REPLY_DUE" \
               '{number:$n, sha:$sha, label:$l, request:$r, delta_label:$d, reply:$rp}')" '. + [$e]')"
             log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
           fi

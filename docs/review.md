@@ -255,12 +255,18 @@ context you have.
 a third-party package provides: an API that is missing, deprecated, renamed,
 or has another signature or behavior. Your memory of a package is not
 evidence; versions change their API. Read the version the changed package
-declares (its manifest, then the lockfile entry) and `git grep` the base
-branch for the same API. The base already uses it → drop the finding, or
-regrade a skill's to 🟢. Else the finding names the declared version and the
-source that shows the claim at that version — the package's typings or
-changelog in the clone, or its documentation for that version; with no such
-source it is 🟢 at most. The version read is its `checks` entry.
+declares (its manifest, then the lockfile entry); the version read is its
+`checks` entry. Settle the finding only by evidence at that version:
+
+- **The PR keeps the version** and the base branch already uses the same API
+  (`git grep`) → drop the finding, or regrade a skill's to 🟢.
+- **A source at the declared version** — the package's typings or changelog
+  in the clone, or its documentation for that version — shows the claim → it
+  stands and names the version and the source; shows the opposite → drop or
+  regrade as above.
+- **The PR changes the version** and no source is readable → the severity
+  stays, and the finding names the version change.
+- **Else** — no source, the version unchanged, no base usage → 🟢 at most.
 
 **Decision check** — same pass, for every surviving 🔴/🟡 that disputes a design
 choice: an architecture, a protocol, a boundary, a trade-off. Read the in-tree

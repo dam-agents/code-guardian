@@ -69,6 +69,7 @@ new_case label_cleanup
 base_config
 pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+fx_body_edited 1 -
 run_preflight review
 assert_jq '.reviews_due | length == 0' 'no review on same SHA'
 assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].label == true' 'label cleanup due'
@@ -83,8 +84,19 @@ base_config
 pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 printf '# PR #1\n\n<!-- trigger-cleanup-reply: %s -->\n' "$SHA1" > "$WORK/reviews/pr-1.md"
+fx_body_edited 1 -
 run_preflight review
 assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].reply == false' 'one reply per head'
+
+# --- same SHA, the reviews could not be read → no cleanup, retry next run -----
+new_case label_cleanup_unreadable
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" CHANGES_REQUESTED done
+printf '{"errors":[{"message":"rate limited"}]}' > "$GH_FIXTURES/graphql_pr_lastedited_1"
+run_preflight review
+assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' 'could not look: no review, no cleanup'
+assert_jq '.logs | any(contains("unreadable — retry next run"))' 'the failed read is logged'
 
 # --- same SHA, the review there was dismissed → re-review ---------------------
 new_case rereview_review_dismissed
@@ -262,6 +274,7 @@ new_case delta_label_cleanup
 base_config '- rereview_delta_label: cg-delta'
 pr_json 1 "plain PR" '[{"name":"cg-delta"}]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+fx_body_edited 1 -
 run_preflight review
 assert_jq '.label_cleanups_due == [{number:1, sha:"'"$SHA1"'", label:false, request:false, delta_label:true, reply:true}]' 'the delta label is cleared, nothing else'
 
