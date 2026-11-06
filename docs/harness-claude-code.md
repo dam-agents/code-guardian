@@ -90,6 +90,7 @@ The pi adapter runs the hook scripts below from pi events
   - `autoMode.environment` / `autoMode.allow` rules tagged `[code-guardian]`
     for the agent's documented writes outside the target repo — the tracking
     issue on `definition_repo` through `scripts/definition-issue.sh`, the
+    channel-requested draft PR through `scripts/definition-pr.sh`, the
     `curl -X PUT` upload of every published report and artifact
     (`work/audit/`, `work/benchmark/`, `work/reviews/pr-artifacts/`,
     `work/survey/`), the review dispatch through `schedule_once`, and the

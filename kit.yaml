@@ -43,7 +43,9 @@ connections:
       the reviewer roster and turns the sweep on. The weekly audit runs
       without it and posts its report to Slack only when notifications are
       enabled. The monitor can also send its health alerts as a direct
-      message to the monitor owner (the escalation owner by default).
+      message to the monitor owner (the escalation owner by default). A
+      developer on the roster can ask in the channel for an issue or, once
+      enabled, a draft pull request on the agent's own definition repository.
 channels:
   - type: slack
     note: >-
