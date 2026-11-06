@@ -18,6 +18,10 @@ operator: `enabled` posts the weekly audit's *Week in numbers* as one PNG in
 the report's Slack thread (needs `slack_notifications: enabled` and a headless
 Chrome or Chromium on the pod). Write it to `work/CONFIG.md` only on their yes.
 
+## 14.3.4 — 2026-11-06
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 14.3.3 — 2026-11-05
 
 **Upgrade:** Nothing — docs are re-read per run.
