@@ -11,9 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 14.5.0 — 2026-11-06
+## 14.6.0 — 2026-11-06
 
 **Upgrade:** Nothing — docs are re-read per run.
+
+## 14.5.0 — 2026-11-06
+
+**Upgrade:** Offer the new off-by-default `audit_infographic` key to the
+operator: `enabled` posts the weekly audit's *Week in numbers* as one PNG in
+the report's Slack thread (needs `slack_notifications: enabled` and a headless
+Chrome or Chromium on the pod). Write it to `work/CONFIG.md` only on their yes.
 
 ## 14.4.0 — 2026-11-06
 
