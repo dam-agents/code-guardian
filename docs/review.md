@@ -257,6 +257,23 @@ is your own candidate and **regraded to 🟢 when a skill reported it** — a sk
 finding is never deleted. No clone (`clone-failed`) → verify against the diff
 context you have.
 
+**Dependency check** — same pass, for every surviving 🔴/🟡 that states what
+a third-party package provides: an API that is missing, deprecated, renamed,
+or has another signature or behavior. Your memory of a package is not
+evidence; versions change their API. Read the version the changed package
+declares (its manifest, then the lockfile entry); its `checks` entry is that
+read, for example `git grep -n '"<package>"' -- <manifest>`. Settle the finding only by evidence at that version:
+
+- **The PR keeps the version** and the base branch already uses the same API
+  (`git grep`) → drop the finding, or regrade a skill's to 🟢.
+- **A source at the declared version** — the package's typings or changelog
+  in the clone, or its documentation for that version — shows the claim → it
+  stands and names the version and the source; shows the opposite → drop or
+  regrade as above.
+- **The PR changes the version** and no source is readable → the severity
+  stays, and the finding names the version change.
+- **Else** — no source, the version unchanged, no base usage → 🟢 at most.
+
 **Decision check** — same pass, for every surviving 🔴/🟡 that disputes a design
 choice: an architecture, a protocol, a boundary, a trade-off. Read the in-tree
 document that covers the changed path — the `profile_slice`'s `## Decisions`
@@ -452,8 +469,9 @@ Before you declare the run done:
   held; in particular: one marker-carrying review after Check 1, Check 2,
   dedup, trigger and live-holder checks · context, overrides, dismissals and
   insights handled · `memory_due`, orientation and script leads read in the
-  code · every escaped defect class applied, a hit named in `escape` · gate hits answered, noise excluded · every blocking finding verified,
-  swept and decision-checked, its class-rule **Fix:** mirrored into
+  code · every escaped defect class applied, a hit named in `escape` · gate
+  hits answered, noise excluded · every blocking finding verified, swept,
+  dependency- and decision-checked, its class-rule **Fix:** mirrored into
   `findings-json`, `review-meta.checks` and `.deferred`, `meta.json` with a
   `triage` · the guide recorded before the post ([artifact.md](artifact.md)) ·
   re-review pairs, `late` and carried findings settled
