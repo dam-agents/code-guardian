@@ -255,8 +255,8 @@ context you have.
 a third-party package provides: an API that is missing, deprecated, renamed,
 or has another signature or behavior. Your memory of a package is not
 evidence; versions change their API. Read the version the changed package
-declares (its manifest, then the lockfile entry); the version read is its
-`checks` entry. Settle the finding only by evidence at that version:
+declares (its manifest, then the lockfile entry); its `checks` entry is that
+read, for example `git grep -n '"<package>"' -- <manifest>`. Settle the finding only by evidence at that version:
 
 - **The PR keeps the version** and the base branch already uses the same API
   (`git grep`) → drop the finding, or regrade a skill's to 🟢.
