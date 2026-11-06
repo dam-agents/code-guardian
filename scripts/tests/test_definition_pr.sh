@@ -106,16 +106,18 @@ assert_jq '.outcome == "blocked" and any(.hits[]; .where == "diff" and .rule == 
   || { printf 'FAIL %s: a blocked draft was pushed\n' "$CASE"; FAILED=1; }
 
 git -C "$CLONE" reset -q && git -C "$CLONE" checkout -q -- docs/shepherd.md
-printf '\nThe `payroll-bridge` module holds the nudges.\nSee https://wiki.globex.example/quiet.\n' >> "$CLONE/docs/shepherd.md"
+printf '\nThe `payroll-bridge` module holds the nudges.\nAsk the Drowsy team.\nSee https://wiki.globex.example/quiet.\n' >> "$CLONE/docs/shepherd.md"
 run_pr open "$ID" "$TITLE" "$SANDBOX/body.md"
 assert_jq '.outcome == "blocked" and any(.hits[]; .where == "diff" and .rule == "foreign_term" and .match == "payroll-bridge")' 'a diff that names a module the definition never wrote is blocked'
+assert_jq 'any(.hits[]; .where == "diff" and .rule == "foreign_term" and .match == "drowsy")' 'a capitalized unknown word inside a sentence is blocked'
 assert_jq 'any(.hits[]; .where == "diff" and .rule == "url" and (.match | contains("wiki.globex.example")))' 'a diff that links a URL the definition lacks is blocked'
 
 git -C "$CLONE" reset -q && git -C "$CLONE" checkout -q -- docs/shepherd.md
-printf '\nPer-team quiet hours (`quiet_hours_per_team`) hold the nudges.\n' >> "$CLONE/docs/shepherd.md"
+KNOWN_URL="$(sed -n 's/^docsUrl: //p' "$REPO_ROOT/kit.yaml")"
+printf '\nPer-team quiet hours (`quiet_hours_per_team`) hold the nudges.\nDrowsy teams get them later. See %s.\n' "$KNOWN_URL" >> "$CLONE/docs/shepherd.md"
 jq -n --arg u "https://github.com/$DEF/pull/77" '{number:77, html_url:$u}' | fx "$CREATE"
 run_pr open "$ID" "$TITLE" "$SANDBOX/body.md"
-assert_jq '.outcome == "opened" and (.url | endswith("/pull/77"))' 'a clean change is opened and its URL returned'
+assert_jq '.outcome == "opened" and (.url | endswith("/pull/77"))' 'a clean change is opened and its URL returned (a sentence-initial new word and a known URL before a period pass)'
 assert_file_contains "$SANDBOX/calls.log.input" '"draft":true' 'the PR is a draft'
 assert_file_contains "$SANDBOX/calls.log.input" '"head":"channel/quiet-hours-per-team"' 'the PR comes from channel/<id>'
 [ -n "$(git ls-remote --heads "$REMOTE" "channel/$ID")" ] && printf 'ok   %s: the branch is pushed\n' "$CASE" \

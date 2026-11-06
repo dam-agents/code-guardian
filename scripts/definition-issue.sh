@@ -57,9 +57,11 @@
 # definition's text.
 #
 # scan-pr judges the diff against this definition, never the PR's clone: a
-# URL passes only when the definition already contains it, and a foreign-term
-# candidate passes when the definition has it whole or when every part of it
-# (split at `_ . ~ / @ $ ' -`) is a word of the definition. A new key, file or
+# URL passes only when the definition already contains it (punctuation after
+# it aside), and a foreign-term candidate passes when the definition has it
+# whole or when every part of it (split at `_ . ~ / @ $ ' -`) is a word of the
+# definition. A plain capitalized word that only opens lines or sentences of
+# the diff is prose, not a candidate. A new key, file or
 # function named with the definition's words passes; a product, module or
 # person name the definition never wrote blocks.
 #
@@ -196,8 +198,10 @@ vocab_of() { # <definition root> <out file>
 }
 vocab_of "$DEF_ROOT" "$VOCAB"
 URL_RE='[a-z][a-z0-9+.-]*://[^[:space:])>"'"'"'`]+'
+# a URL without the punctuation that can close a sentence after it
+url_core() { sed -E 's/[].,;:!?}]+$//' | sort -u; }
 DEF_URLS="$TMP/def-urls.txt"
-xargs -0 grep -ohiE -- "$URL_RE" < "$TMP/files.z" 2>/dev/null | sort -u > "$DEF_URLS"
+xargs -0 grep -ohiE -- "$URL_RE" < "$TMP/files.z" 2>/dev/null | url_core > "$DEF_URLS"
 VOCAB_FT="$VOCAB"
 if [ "$CMD" = "scan-pr" ]; then
   [ -n "${CG_VOCAB_ROOT:-}" ] && [ -d "$CG_VOCAB_ROOT" ] || fail "scan-pr needs CG_VOCAB_ROOT"
@@ -322,7 +326,7 @@ if [ "$CMD" = "scan-pr" ]; then
   strip_def "$DIFF_FILE" "$TMP/diff.txt"
   scan_terms "$TMP/diff.txt"
   SHAPE_IN="$TMP/diff.txt"
-  grep -oiE -- "$URL_RE" "$TMP/diff.txt" 2>/dev/null | sort -u | comm -23 - "$DEF_URLS" \
+  grep -oiE -- "$URL_RE" "$TMP/diff.txt" 2>/dev/null | url_core | comm -23 - "$DEF_URLS" \
     | while IFS= read -r m; do
         case "$m" in (*acme/widgets*|*github.example.com*) continue;; esac
         hit url "$m"
@@ -369,12 +373,23 @@ comm -23 "$CANDS" "$VOCAB_FT" | while IFS= read -r t; do known_compound "$t" || 
   | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
 
 # the diff's candidates against this definition: whole, or every part a word
-# of it (quiet_hours_per_team); one part the definition never wrote blocks
+# of it (quiet_hours_per_team); one part the definition never wrote blocks.
+# A plain capitalized word that only ever opens a line or a sentence is prose,
+# like the lower-case words the scan does not take; one that also stands
+# inside a sentence, or in code, stays a candidate
+initial_words() { # <file> — lower-cased words that occur only sentence-initial
+  tokens < "$1" | grep -xE '[A-Z][a-z]+' | sort | uniq -c | sed -E 's/^ *//' | sort > "$TMP/cap-all.txt"
+  grep -oE '(^[[:space:]>#*+|-]*([0-9]+[.)][[:space:]]+)?|[.!?:][*_]*[[:space:]]+)[A-Z][a-z]+([^A-Za-z0-9_./@$~'"'"'-]|$)' "$1" \
+    | sed -E 's/^.*[^A-Za-z]([A-Z][a-z]+)[^A-Za-z]*$/\1/; s/^([A-Z][a-z]+)[^A-Za-z]*$/\1/' \
+    | sort | uniq -c | sed -E 's/^ *//' | sort > "$TMP/cap-initial.txt"
+  comm -12 "$TMP/cap-all.txt" "$TMP/cap-initial.txt" | sed -E 's/^[0-9]+ //' | tr 'A-Z' 'a-z' | sort -u
+}
 if [ "$CMD" = "scan-pr" ]; then
   WHERE=diff
   PARTS="_.~/@\$'-"
   candidates "$TMP/diff.txt" "$TMP/diff-code.txt" "$TMP/diff-cands.txt"
-  comm -23 "$TMP/diff-cands.txt" "$VOCAB" > "$TMP/diff-new.txt"
+  initial_words "$TMP/diff.txt" | comm -23 - <(tr 'A-Z' 'a-z' < "$TMP/diff-code.txt" | sort -u) > "$TMP/diff-prose.txt"
+  comm -23 "$TMP/diff-cands.txt" "$VOCAB" | comm -23 - "$TMP/diff-prose.txt" > "$TMP/diff-new.txt"
   tr "$PARTS" '\n' < "$TMP/diff-new.txt" | grep -vE '^([0-9]+|.)?$' | sort -u \
     | comm -23 - "$VOCAB" > "$TMP/diff-unknown.txt"
   while IFS= read -r t; do
