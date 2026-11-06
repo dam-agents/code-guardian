@@ -350,7 +350,10 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
     hunk shape the review missed, and list it under *Learned this week*. A
     recurred class bound to this repository → *Action needed*: offer it as a
     rule of the tailored skill ([tailored-skill.md](tailored-skill.md) →
-    **Delivery**, **Change**). `not_reviewed` PRs → *Action needed* (a PR
+    **Delivery**, **Change**). A class added this week that neither
+    [review.md](review.md) → **Criteria & review style** nor any configured
+    skill covers, and that applies to any repository, is a definition
+    finding: file it per task 3. `not_reviewed` PRs → *Action needed* (a PR
     reached a running environment with no review). `reports` and `hits` both
     0 → omit the line.
 
