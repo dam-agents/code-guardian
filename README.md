@@ -159,6 +159,7 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `daily_brief` | asked with Slack (default `disabled`) | Weekday Slack brief of merged PRs (`docs/brief.md`). |
 | `brief_language` | asked with `daily_brief` (default `English`) | Brief language. |
 | `audit_trend` | defaulted to `dam` | Weekly trend artifact surface: `dam` or `off`. |
+| `audit_infographic` | asked with Slack (default `disabled`) | The audit's *Week in numbers* as one PNG in the report's Slack thread (`docs/audit.md` → **Infographic**). |
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Benchmark report surface: `dam` or `off`. |
 | `## Benchmark sufficiency` table | offered with `benchmark` (optional) | The bar per task tier (`docs/benchmark.md` → **Sufficiency by tier**). |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok prices for `est $` columns (`docs/benchmark.md` → **Model prices**). |

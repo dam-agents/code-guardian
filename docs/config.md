@@ -200,6 +200,11 @@ exception (`benchmark_judge`).
   best-effort ([artifact.md](artifact.md)); `off` keeps the history and the
   local report and publishes nothing ([trends.md](trends.md)). Any other value
   publishes to `dam` and is logged.
+- **`audit_infographic`** — `enabled` | `disabled`. **Missing = `disabled`.**
+  The weekly report's *Week in numbers* also goes to its Slack thread as one
+  picture, with the numbers it leaves out as text
+  ([audit.md](audit.md) → **Infographic**). Needs
+  `slack_notifications: enabled` and a headless Chrome or Chromium on the pod.
 - **`definition_issues`** — `enabled` | `disabled`. **Missing = `disabled`.**
   Whether the agent files anonymous tracking issues on `definition_repo` for
   the audit's definition bugs and channel-refused change requests

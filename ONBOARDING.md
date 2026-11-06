@@ -509,7 +509,11 @@ A failure is not blocking: tell the operator to create it manually.
     > Every weekday morning (06:00 UTC by default) I can post one Slack message on what the PRs merged since the last brief changed — team news by topic, then the technical and risky changes. Turn it on, and in which language? Default: off, English.
 
     **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
-    English), and register the schedule in Step 6g.
+    English), and register the schedule in Step 6g. Then ask:
+
+    > Should the weekly audit report also post its numbers as one picture in its Slack thread? It needs a headless Chrome or Chromium on this pod. Default: off.
+
+    **Yes** → `audit_infographic: enabled`; otherwise omit the key.
 15. **`definition_issues`** (`docs/runbook.md` → **Definition-repo issues**).
     First read the repo's visibility:
     `gh api --hostname "$DEF_HOST" "repos/$DEFINITION_REPO" --jq '.private'`
@@ -559,6 +563,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
+- audit_infographic: enabled           # the report's numbers as one picture in its Slack thread; omit = disabled
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
 - shepherd_scope: needs_human          # reviewer nudges only for PRs that need a person; or: all; omit = needs_human
