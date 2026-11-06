@@ -233,7 +233,8 @@ diff lines: focus on the most critical files, still post a full review.
 **Escaped defect classes** — each line under `## Escaped Defect Classes` in
 `work/MEMORY.md` and the `memory_due` files is a class that already failed in
 a running environment ([escapes.md](escapes.md)): apply its check to every
-changed hunk it can match. A hit is graded like any finding.
+changed hunk it can match. A hit is graded like any finding, and its
+`findings-json` entry names the class in `escape`.
 
 **Audience** — the `Audience:` line of `work/MEMORY.md` → `## Review Style`;
 no line = `agent-written, agent-read code`. For agent-read code, flag naming
@@ -468,9 +469,9 @@ Before you declare the run done:
   held; in particular: one marker-carrying review after Check 1, Check 2,
   dedup, trigger and live-holder checks · context, overrides, dismissals and
   insights handled · `memory_due`, orientation and script leads read in the
-  code · every escaped defect class applied · gate hits answered, noise
-  excluded · every blocking finding verified, swept, dependency- and
-  decision-checked, its class-rule **Fix:** mirrored into
+  code · every escaped defect class applied, a hit named in `escape` · gate
+  hits answered, noise excluded · every blocking finding verified, swept,
+  dependency- and decision-checked, its class-rule **Fix:** mirrored into
   `findings-json`, `review-meta.checks` and `.deferred`, `meta.json` with a
   `triage` · the guide recorded before the post ([artifact.md](artifact.md)) ·
   re-review pairs, `late` and carried findings settled

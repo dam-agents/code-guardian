@@ -518,10 +518,19 @@ history_records() {
     done < "$f"
   done
 }
+# Escaped defects (docs/escapes.md): the ledger rows that name the failing
+# code's paths, all time — a class never ages out, so neither does its place.
+escape_dirs() {
+  [ -f "$WORK/ESCAPES.jsonl" ] || { printf '[]'; return; }
+  jq -Rsc '[split("\n")[] | fromjson? | select(type == "object") | (.paths // [])[]? | strings
+            | if contains("/") then (split("/")[:-1] | join("/")) else "." end]
+           | group_by(.) | map({dir:.[0], escapes:length})' < "$WORK/ESCAPES.jsonl" 2>/dev/null || printf '[]'
+}
 gen_history() {
-  local since
+  local since esc
   since="$(epoch2iso "$((NOW_EPOCH - HISTORY_DAYS*86400))")"
-  history_records | jq -s --arg since "$since" --argjson days "$HISTORY_DAYS" --argjson max "$MAX_HISTORY_ROWS" '
+  esc="$(escape_dirs)"; [ -n "$esc" ] || esc='[]'
+  history_records | jq -s --arg since "$since" --argjson days "$HISTORY_DAYS" --argjson max "$MAX_HISTORY_ROWS" --argjson esc "$esc" '
     [ .[] | select(.ts >= $since) ] as $r
     | [ $r[] | .ts as $ts | .pr as $pr | .findings[]? | select(type=="object" and (.file|type)=="string")
         | . + {ts:$ts, pr:$pr, dir:(.file | if contains("/") then (split("/")[:-1] | join("/")) else "." end)} ] as $f
@@ -536,7 +545,11 @@ gen_history() {
                      last:(map(.ts)|max),
                      prs:(map(.pr)|unique|length),
                      samples:([.[] | select(.status!="fixed") | .summary // empty] | unique | .[-3:]) } ]
-               | sort_by(-(.critical*3 + .warning*2 + .still)) | .[:$max]),
+               | ([.[].dir]) as $seen
+               | [ .[] | .dir as $d | . + {escapes: ([$esc[] | select(.dir == $d) | .escapes] | add // 0)} ]
+                 + [ $esc[] | select(.dir as $d | $seen | index($d) | not)
+                     | {dir, critical:0, warning:0, suggestion:0, still:0, last:null, prs:0, samples:[], escapes} ]
+               | sort_by(-(.escapes*3 + .critical*3 + .warning*2 + .still)) | .[:$max]),
         classes: ([ $f[] | select(.status!="fixed") | (.summary // "" | ascii_downcase | gsub("[^a-z0-9 ]";"") | gsub("\\s+";" ") | .[0:60]) | select(length>0) ]
                   | group_by(.) | map({summary:.[0], count:length}) | sort_by(-.count) | .[:10]) }' > "$TMP/history.json" 2>/dev/null
   [ -s "$TMP/history.json" ] || printf '{"days":%s,"reviews":0,"findings":0,"fixed":0,"still":0,"dirs":[],"classes":[]}\n' "$HISTORY_DAYS" > "$TMP/history.json"
@@ -599,8 +612,8 @@ render_md() { # PROFILE.json → PROFILE.md
     + section("Noise (\($p.noise|length) globs — never reviewed as code)"; ["glob","class","src"]; [$p.noise[] | row([.glob,.class,.src])])
     + ["## History (\($p.history.days) d · \($p.history.reviews) reviews · \($p.history.findings) findings · \($p.history.fixed) fixed · \($p.history.still) still open)", ""]
     + (if ($p.history.dirs|length)==0 then ["_No findings recorded in the window._", ""] else
-        table(["dir","critical","warning","suggestion","still","last","prs","samples"];
-          [$p.history.dirs[] | row([.dir,.critical,.warning,.suggestion,.still,.last,.prs,(.samples|join("; "))])]) + [""] end)
+        table(["dir","critical","warning","suggestion","still","escapes","last","prs","samples"];
+          [$p.history.dirs[] | row([.dir,.critical,.warning,.suggestion,.still,(.escapes // 0),(.last // "-"),.prs,(.samples|join("; "))])]) + [""] end)
     + (if ($p.history.classes|length)==0 then [] else
         ["### Recurring finding classes", ""] + [ $p.history.classes[] | "- \(.count)× \(.summary)" ] + [""] end)
     + section("Notes (agent-owned — work/PROFILE-NOTES.md)"; ["paths","note","src","status"]; [$p.notes[] | row([.paths,.note,(.src // "-"),.status])])

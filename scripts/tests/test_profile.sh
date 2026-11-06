@@ -151,6 +151,21 @@ assert_profile '.history.dirs[0].samples | index("unbounded query") != null' 'sa
 assert_profile '[.history.classes[].summary] | index("ancient") == null' 'a finding outside the window is not a class'
 assert_file_contains "$WORK/PROFILE.md" '^## History (90 d · 1 reviews · 3 findings' 'history header rendered'
 
+# escaped defects (docs/escapes.md) count per directory, all time
+new_case profile_history_escapes
+base_config; mk_fixture
+{ printf '%s\n' '{"key":"a","paths":["packages/a/src/query.ts","packages/c/lib/x.go"],"at":"2025-01-01T00:00:00Z"}'
+  printf '%s\n' '{"key":"b","paths":["packages/c/lib/y.go"],"at":"2026-11-01T00:00:00Z"}' 'partial{'
+  printf '%s\n' '{"key":"c","paths":[],"at":"2026-11-01T00:00:00Z"}'; } > "$WORK/ESCAPES.jsonl"
+cat > "$WORK/reviews/pr-7.md" <<EOF
+## Review at aaaaaaa — $(iso_ago 86400) — COMMENT
+<!-- findings-json: [{"status":"new","severity":"warning","file":"packages/a/src/query.ts","line":42,"inline":true,"summary":"unbounded query","fix":"add limit"}] -->
+EOF
+run_profile check
+assert_profile '.history.dirs[0] | .dir == "packages/c/lib" and .escapes == 2 and .critical == 0 and .last == null' 'a directory with escapes only gets its row, and ranks first'
+assert_profile '[.history.dirs[] | select(.dir == "packages/a/src")][0] | .escapes == 1 and .warning == 1' 'an escape outside the review window still counts'
+assert_file_contains "$WORK/PROFILE.md" '| dir | critical | warning | suggestion | still | escapes |' 'the history table shows the column'
+
 # --- notes: agent-owned rows stamped with their source blob -------------------
 new_case profile_notes
 base_config; mk_fixture

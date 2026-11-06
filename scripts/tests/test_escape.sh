@@ -18,7 +18,7 @@ assert_jq '.row.recurrence == false' 'a missing recurrence is false'
 check_eq "$(grep -c '' "$WORK/ESCAPES.jsonl")" "1" 'one line in the ledger'
 row '{"key":"k2","env":"dev","source":"chat","confidence":"not_code","review":"not_visible","rule":"none"}'
 esc record "$WORK" "$SANDBOX/row.json"
-assert_jq '.outcome == "recorded" and .row.pr == null and .row.class == null' 'a not_code report records without PR or class'
+assert_jq '.outcome == "recorded" and .row.pr == null and .row.class == null and .row.paths == []' 'a not_code report records without PR, class or paths'
 check_eq "$(grep -c '' "$WORK/ESCAPES.jsonl")" "2" 'the ledger only grows'
 
 # --- an invalid row names its fields and writes nothing ------------------------
@@ -29,6 +29,9 @@ esc record "$WORK" "$SANDBOX/row.json"
 assert_jq '.outcome == "error" and (.error | test("key")) and (.error | test("pr")) and (.error | test("confidence"))' 'every bad field is named'
 assert_jq '.error | test("a rule needs its class")' 'a rule without a class is refused'
 [ -f "$WORK/ESCAPES.jsonl" ] && bad 'an invalid row was appended' || ok 'nothing was appended'
+row '{"key":"k","env":"prod","source":"chat","confidence":"unknown","review":"unknown","rule":"none","paths":["a.ts",3]}'
+esc record "$WORK" "$SANDBOX/row.json"
+assert_jq '.outcome == "error" and (.error | test("paths"))' 'paths must be strings'
 row '[1,2]'
 esc record "$WORK" "$SANDBOX/row.json"
 assert_jq '.outcome == "error"' 'a non-object is refused'
@@ -59,6 +62,22 @@ assert_jq '.rules == {"added":1,"strengthened":1}' 'class lines added and widene
 assert_jq '.recurrences == [{"class":"Unchecked field","pr":2,"at":"'"$now"'"}]' 'a class that failed again is listed'
 assert_jq '.not_reviewed == [3]' 'a PR with no review is listed'
 assert_jq '.classes[0] | .class == "Unchecked field" and .n == 2 and .week == 1' 'classes rank by all-time count'
+assert_jq '.hits == []' 'no review named a class yet'
+{ printf '## Review at %s\n<!-- findings-json: [{"status":"new","severity":"warning","file":"a.ts","line":1,"escape":"Unchecked field"},{"status":"still","severity":"warning","file":"b.ts","line":2,"escape":"Unchecked field"},{"status":"new","severity":"critical","file":"c.ts","line":3}] -->\n' "$now"
+  printf '## Review at %s\n<!-- findings-json: [{"status":"new","severity":"warning","file":"d.ts","line":4,"escape":"Unchecked field"},{"status":"new","severity":"warning","file":"e.ts","line":5,"escape":"No timeout"}] -->\n' "$old"
+} > "$WORK/reviews/pr-7.md"
+esc stats "$WORK"
+assert_jq '.hits == [{"class":"Unchecked field","n":2,"week":1},{"class":"No timeout","n":1,"week":0}]' 'new findings that name a class count as hits, all time and this week'
+# a pruned PR keeps its hits through its ledger row, and a review in both
+# places counts once (docs/review-mechanics.md → Review ledger)
+printf '{"src":"ledger","pr":7,"ts":"%s","findings":[{"status":"new","severity":"warning","escape":"Unchecked field"}]}\n{"src":"ledger","pr":9,"ts":"%s","findings":[{"status":"new","severity":"warning","escape":"No timeout"}]}\n' "$now" "$now" > "$WORK/REVIEW-LEDGER.jsonl"
+rm -f "$WORK/reviews/pr-9.md"
+esc stats "$WORK"
+assert_jq '.hits == [{"class":"No timeout","n":2,"week":1},{"class":"Unchecked field","n":2,"week":1}]' 'a ledger row without a history file counts; a review in both places counts once'
+printf 'partial{\n' >> "$WORK/REVIEW-LEDGER.jsonl"
+esc stats "$WORK"
+assert_jq '.hits == [{"class":"No timeout","n":2,"week":1},{"class":"Unchecked field","n":2,"week":1}]' 'a partial ledger line is skipped, the hits stay'
+ls "$SANDBOX"/cg-escape-ledger.* >/dev/null 2>&1 && bad 'the ledger copy was left behind' || ok 'the ledger copy is removed'
 esc stats "$WORK" --days 60
 assert_jq '.reports == 4' 'the window is a parameter'
 esc stats "$WORK" --days x
