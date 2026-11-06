@@ -67,7 +67,7 @@ assert_settings '.autoMode.allow[0] == "operator rule" and (.autoMode.allow | in
 assert_settings '.theme == "dark"' 'other keys stay'
 printf -- '- github_repo: acme/widgets\n- definition_repo: acme/guardian2\n' > "$FAKE_HOME/work/CONFIG.md"
 run_install
-assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 7 and (map(select(contains("definition-issue.sh"))) | length == 1 and all(contains("acme/guardian2")))' 'changed definition_repo replaces own rules'
+assert_settings '[.autoMode.allow[] | select(startswith("[code-guardian]"))] | length == 8 and (map(select(contains("definition-issue.sh") or contains("definition-pr.sh"))) | length == 2 and all(contains("acme/guardian2")))' 'changed definition_repo replaces own rules'
 assert_settings '[.autoMode.environment[] | select(startswith("[code-guardian]"))] | length == 2' 'environment rules not duplicated'
 
 # --- --check names rules an older definition wrote -------------------------------
@@ -97,7 +97,7 @@ assert_settings '[.autoMode[][]] | all(contains("secret") | not)' 'no credential
 install_case unresolved
 run_install
 assert_out "definition repo unresolved" 'unresolved definition repo is reported'
-assert_settings '.autoMode.allow | all(contains("definition-issue.sh") | not)' 'no tracking-issue rule without a slug'
+assert_settings '.autoMode.allow | all((contains("definition-issue.sh") or contains("definition-pr.sh")) | not)' 'no tracking-issue or draft-PR rule without a slug'
 
 # --- tool deny list and the review-skill agent --------------------------------------
 ADAPTER="$REPO_ROOT/scripts/harness/claude-code"

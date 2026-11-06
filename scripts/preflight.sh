@@ -579,7 +579,7 @@ report_surface audit_trend AUDIT_TREND
 CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT_LOGIN" --arg name "$BOT_NAME" \
   --arg marker "$REVIEW_MARKER" --arg lbl "$REREVIEW_LABEL" --arg dlbl "$REREVIEW_DELTA_LABEL" --arg trig "$(cfg rereview_trigger)" --arg urg "$URGENT_LABEL" \
   --arg prog "$PROGRESS" --arg ci "$CI_TRIAGE" --arg rd "$(cfg review_dispatch)" --arg sa "$(cfg session_awareness)" --arg mr "$(cfg mention_replies)" --arg ma "$(cfg mention_authors)" --arg gl "$GUIDE_LABEL" \
-  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" --arg aig "$(cfg audit_infographic)" \
+  --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" --arg aig "$(cfg audit_infographic)" --arg cdp "$(cfg channel_definition_prs)" \
   --arg eo "$ESCALATION_OWNER" --arg mo "$MONITOR_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
   --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
@@ -607,6 +607,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    approve_after_rounds:(if ($aar|test("^[1-9][0-9]*$")) then ($aar|tonumber) else null end),
    slack_notifications:(if $slack=="" then "disabled" else $slack end), audit_report:(if $audit=="" then "enabled" else $audit end),
    audit_trend:$atr, audit_infographic:(if $aig=="enabled" then "enabled" else "disabled" end), definition_issues:(if $dis=="enabled" then "enabled" else "disabled" end),
+   channel_definition_prs:(if $cdp=="enabled" then "enabled" else "disabled" end),
    escalation_owner:(if $eo=="" then null else $eo end), monitor_owner:(if $mo=="" then null else $mo end),
    stall_alert_threshold:$stall, review_anomaly_factor:$raf,
    model_alert_threshold:$mat, github_alert_threshold:$gat, classifier_alert_threshold:$cat,
