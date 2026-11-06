@@ -78,19 +78,23 @@ refuses (§1, §10, or a weaker trust boundary).
    definition terms, and the line `Draft from a channel request. A person
    reviews and merges it.` The title, the body and the diff name no instance
    data ([runbook.md](runbook.md) → **Definition-repo issues** → **What stays
-   in the instance**) — never the requester or the channel.
+   in the instance**) — never the requester or the channel. In the diff, name
+   a new key, file or function with words the definition already uses, and
+   link only URLs it already contains: `open` blocks any other.
 5. `bash "$HOME/scripts/definition-pr.sh" open <id> "<title>" <body-file>`,
    then delete the body file. Per `outcome`:
    - `opened` / `exists` → its `url`.
    - `blocked` → rewrite what `hits` names (the `where` of each: `pr` = title
      or body, `diff` = the change) and run `open` once more. A second
-     `blocked` → `definition-pr.sh discard <id>`; no PR.
+     `blocked` → no PR.
    - `invalid` → fix what `reason` names and run `open` once more.
    - `nothing` (no change) / `disabled` / `error` → no PR.
 6. Reply in the thread (`mcp__platform-outbound__reply` with the request
    file's `chat_id` and `thread_ts`): the draft's link, or why there is none.
    Surface it in the chat UI with the requester and the verbatim ask. With no
-   PR opened, `definition-pr.sh discard <id>`. Then delete the request file.
+   PR opened after `prepare` answered `ready`, `definition-pr.sh discard <id>`
+   — it removes the clone, and `channel/<id>` on the remote when no open PR
+   comes from it. Then delete the request file.
 
 The PR stays a draft. The agent never marks it ready, merges it, or pushes to
 it again; a follow-up ask is a new request.

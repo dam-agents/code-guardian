@@ -2,7 +2,8 @@
 # definition-pr.sh (docs/channel-requests.md → **Draft PR**): the key gates
 # every call, the clone stays out of $HOME, open refuses an unbumped VERSION,
 # a broken script and a draft or diff that names this instance, and a clean
-# change is pushed to channel/<id> and opened as a draft PR.
+# change is pushed to channel/<id> and opened as a draft PR. A failed create
+# and discard leave no pushed branch that no open PR uses.
 . "$(dirname "$0")/helpers.sh"
 
 DEF="acme/guardian"
@@ -105,7 +106,13 @@ assert_jq '.outcome == "blocked" and any(.hits[]; .where == "diff" and .rule == 
   || { printf 'FAIL %s: a blocked draft was pushed\n' "$CASE"; FAILED=1; }
 
 git -C "$CLONE" reset -q && git -C "$CLONE" checkout -q -- docs/shepherd.md
-printf '\nPer-team quiet hours hold the nudges.\n' >> "$CLONE/docs/shepherd.md"
+printf '\nThe `payroll-bridge` module holds the nudges.\nSee https://wiki.globex.example/quiet.\n' >> "$CLONE/docs/shepherd.md"
+run_pr open "$ID" "$TITLE" "$SANDBOX/body.md"
+assert_jq '.outcome == "blocked" and any(.hits[]; .where == "diff" and .rule == "foreign_term" and .match == "payroll-bridge")' 'a diff that names a module the definition never wrote is blocked'
+assert_jq 'any(.hits[]; .where == "diff" and .rule == "url" and (.match | contains("wiki.globex.example")))' 'a diff that links a URL the definition lacks is blocked'
+
+git -C "$CLONE" reset -q && git -C "$CLONE" checkout -q -- docs/shepherd.md
+printf '\nPer-team quiet hours (`quiet_hours_per_team`) hold the nudges.\n' >> "$CLONE/docs/shepherd.md"
 jq -n --arg u "https://github.com/$DEF/pull/77" '{number:77, html_url:$u}' | fx "$CREATE"
 run_pr open "$ID" "$TITLE" "$SANDBOX/body.md"
 assert_jq '.outcome == "opened" and (.url | endswith("/pull/77"))' 'a clean change is opened and its URL returned'
@@ -117,6 +124,22 @@ assert_file_contains "$SANDBOX/calls.log.input" '"head":"channel/quiet-hours-per
   || { printf 'FAIL %s: commit message differs\n' "$CASE"; FAILED=1; }
 [ ! -d "$CLONE" ] && printf 'ok   %s: the clone is removed after the PR\n' "$CASE" \
   || { printf 'FAIL %s: the clone is left behind\n' "$CASE"; FAILED=1; }
+
+# --- a failed create deletes the pushed branch again ---------------------------------
+new_case create_failed
+instance '- channel_definition_prs: enabled'; remote
+run_pr prepare "$ID"
+CLONE="$SANDBOX/cg-defpr-$ID"
+printf '\nPer-team quiet hours hold the nudges.\n' >> "$CLONE/docs/shepherd.md"
+bump 99.0.0
+body "${CLEAN_BODY[@]}"
+fx_fail "$CREATE"
+run_pr open "$ID" "$TITLE" "$SANDBOX/body.md"
+assert_jq '.outcome == "error" and (.error | contains("deleted again"))' 'a failed create answers error'
+[ -z "$(git ls-remote --heads "$REMOTE" "channel/$ID")" ] && printf 'ok   %s: the pushed branch is deleted again\n' "$CASE" \
+  || { printf 'FAIL %s: the branch stays after a failed create\n' "$CASE"; FAILED=1; }
+run_pr discard "$ID"
+assert_jq '.outcome == "discarded"' 'discard after a failed create answers'
 
 # --- an earlier request with the same id ------------------------------------------------
 new_case exists_pr
@@ -143,6 +166,25 @@ run_pr discard "$ID"
 assert_jq '.outcome == "discarded"' 'discard answers'
 [ ! -d "$SANDBOX/cg-defpr-$ID" ] && printf 'ok   %s: the clone is gone\n' "$CASE" \
   || { printf 'FAIL %s: the clone is left behind\n' "$CASE"; FAILED=1; }
+
+new_case discard_stale_branch
+instance '- channel_definition_prs: enabled'; remote
+git -C "$SEED" push -q "$REMOTE" "main:refs/heads/channel/$ID" 2>/dev/null
+run_pr discard "$ID"
+assert_jq '.outcome == "discarded" and (has("url") | not)' 'discard answers with no PR'
+[ -z "$(git ls-remote --heads "$REMOTE" "channel/$ID")" ] && printf 'ok   %s: a branch no open PR uses is deleted\n' "$CASE" \
+  || { printf 'FAIL %s: the stale branch stays\n' "$CASE"; FAILED=1; }
+run_pr prepare "$ID"
+assert_jq '.outcome == "ready"' 'the id is free again after discard'
+
+new_case discard_open_pr
+instance '- channel_definition_prs: enabled'; remote
+git -C "$SEED" push -q "$REMOTE" "main:refs/heads/channel/$ID" 2>/dev/null
+jq -n --arg u "https://github.com/$DEF/pull/70" '[{number:70, html_url:$u}]' | fx "$PRS"
+run_pr discard "$ID"
+assert_jq '.outcome == "discarded" and (.url | endswith("/pull/70"))' 'discard names the open PR'
+[ -n "$(git ls-remote --heads "$REMOTE" "channel/$ID")" ] && printf 'ok   %s: the branch of an open PR stays\n' "$CASE" \
+  || { printf 'FAIL %s: the branch of an open PR was deleted\n' "$CASE"; FAILED=1; }
 
 # --- the resolved key travels in the worklist's config object -------------------
 SHA="1111111111111111111111111111111111111111"

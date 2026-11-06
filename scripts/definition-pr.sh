@@ -6,7 +6,8 @@
 #                                     channel/<id>, the bot as git identity
 #   open    <id> <title> <body-file>  the checks, the scan, the commit, the
 #                                     push, then the draft PR
-#   discard <id>                      remove the clone
+#   discard <id>                      remove the clone, and the pushed
+#                                     branch when no open PR comes from it
 #
 # <id> is a kebab-case slug of at most 40 characters. The clone lives at
 # ${TMPDIR:-/tmp}/cg-defpr-<id>, never in $HOME. Prints one JSON object with
@@ -24,8 +25,10 @@
 #              `hits` as scripts/definition-issue.sh scan-pr prints them.
 #              Nothing is committed or sent
 #   opened   — (open) the draft PR was created; `url`
-#   discarded — (discard) the clone is gone
-#   error    — bad arguments, an unresolved definition repo or a failed call
+#   discarded — (discard) the clone is gone, and so is channel/<id> on the
+#              remote unless an open PR comes from it (`url`)
+#   error    — bad arguments, an unresolved definition repo or a failed call.
+#              A failed PR create deletes the pushed branch again
 #
 # The agent edits the clone; this script never composes or changes a line of
 # it. Only the definition's allowlisted paths are committed
@@ -63,12 +66,12 @@ BRANCH="channel/$ID"
 
 if [ "$CMD" = "discard" ]; then
   rm -rf "$DIR"; logev info definition_pr "$ID: clone discarded"
-  out '{"outcome":"discarded"}'
 fi
 
 # --- the gate: nothing below runs while the operator has not opted in --------
 GATE="$(cfg channel_definition_prs)"
 if [ "$GATE" != "enabled" ]; then
+  [ "$CMD" = "discard" ] && out '{"outcome":"discarded"}'
   logev info definition_pr "$ID: not opened — channel_definition_prs is ${GATE:-unset}"
   out '{"outcome":"disabled"}'
 fi
@@ -79,18 +82,40 @@ DEF_HOST="$(refhost "$DEF_REF")"; DEFINITION_REPO="$(refslug "$DEF_REF")"
 [ -n "$DEFINITION_REPO" ] || fail "definition_repo unresolved"
 
 # the branch or its PR on the remote: an earlier request with this id
-remote_exists() {
-  local prs url heads
+open_pr_url() { # the URL of an open PR from channel/<id>, or nothing; 1 when unreadable
+  local prs
   prs="$(gh api --hostname "$DEF_HOST" \
     "repos/$DEFINITION_REPO/pulls?state=open&head=${DEFINITION_REPO%%/*}:$BRANCH&per_page=10" 2>/dev/null)" \
-    || fail "open pull requests unreadable"
-  url="$(printf '%s' "$prs" | jq -r '[.[]? | .html_url][0] // empty' 2>/dev/null)"
+    || return 1
+  printf '%s' "$prs" | jq -r '[.[]? | .html_url][0] // empty' 2>/dev/null
+}
+remote_exists() {
+  local url heads
+  url="$(open_pr_url)" || fail "open pull requests unreadable"
   [ -n "$url" ] && out "$(jq -nc --arg u "$url" '{outcome:"exists", url:$u}')"
   heads="$(git ls-remote --heads "$CLONE_URL" "$BRANCH" 2>/dev/null)" || fail "remote branches unreadable"
   [ -z "$heads" ] || out '{"outcome":"exists"}'
 }
+delete_branch() { # true when channel/<id> is gone from the remote
+  local t rc
+  t="$(mktemp -d "${TMPDIR:-/tmp}/cg-defpr-del.XXXXXX")" || return 1
+  git init -q "$t" >/dev/null 2>&1 && git -C "$t" push -q "$CLONE_URL" --delete "$BRANCH" >/dev/null 2>&1
+  rc=$?; rm -rf "$t"; return "$rc"
+}
 CLONE_URL="${CG_CLONE_URL:-$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null)}"
 [ -n "$CLONE_URL" ] || CLONE_URL="https://$DEF_HOST/$DEFINITION_REPO.git"
+
+if [ "$CMD" = "discard" ]; then
+  url="$(open_pr_url)" || fail "open pull requests unreadable — $BRANCH left as it is"
+  [ -n "$url" ] && out "$(jq -nc --arg u "$url" '{outcome:"discarded", url:$u}')"
+  heads="$(git ls-remote --heads "$CLONE_URL" "$BRANCH" 2>/dev/null)" \
+    || fail "remote branches unreadable — $BRANCH left as it is"
+  if [ -n "$heads" ]; then
+    delete_branch || fail "$BRANCH is still pushed — its delete did not succeed"
+    logev info definition_pr "$ID: pushed branch deleted"
+  fi
+  out '{"outcome":"discarded"}'
+fi
 
 if [ "$CMD" = "prepare" ]; then
   [ -e "$DIR" ] && out '{"outcome":"exists","reason":"a clone for this id is in use"}'
@@ -152,7 +177,9 @@ jq -n --arg t "$TITLE" --rawfile b "$BODY_FILE" --arg h "$BRANCH" \
 URL="$(gh api --hostname "$DEF_HOST" -X POST "repos/$DEFINITION_REPO/pulls" --input - \
   < "$TMP/pr.json" 2>/dev/null | jq -r '.html_url // empty' 2>/dev/null)"
 case "$URL" in (https://*) ;;
-  (*) logev error definition_pr "$ID: create failed"; fail "pull request create failed — $BRANCH is pushed";; esac
+  (*) logev error definition_pr "$ID: create failed"
+      delete_branch && fail "pull request create failed — $BRANCH deleted again"
+      fail "pull request create failed — $BRANCH is still pushed; discard deletes it";; esac
 rm -rf "$DIR"
 logev info definition_pr "$ID: opened $URL"
 out "$(jq -nc --arg u "$URL" '{outcome:"opened", url:$u}')"

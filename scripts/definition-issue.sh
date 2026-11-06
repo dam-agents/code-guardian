@@ -10,10 +10,11 @@
 #                               (scripts/definition-pr.sh): title and body as
 #                               a draft, the vocabulary read from
 #                               $CG_VOCAB_ROOT (the PR's clone); the diff's
-#                               added lines for instance values, e-mail
-#                               addresses, Slack ids, IPv4 addresses and
-#                               credentials only. Each hit carries `where`
-#                               (`pr` or `diff`). Sends nothing.
+#                               added lines for instance values, URLs,
+#                               e-mail addresses, Slack ids, IPv4 addresses,
+#                               credentials and foreign terms against this
+#                               definition (see below). Each hit carries
+#                               `where` (`pr` or `diff`). Sends nothing.
 #
 # Prints one JSON object with `outcome` and exits 0:
 #   disabled — `definition_issues` is not `enabled` (file only); nothing read
@@ -54,6 +55,13 @@
 # slug, host and owner still block. A value of the documentation placeholders
 # (docs/self-modification.md §1) never matches a shape and is part of the
 # definition's text.
+#
+# scan-pr judges the diff against this definition, never the PR's clone: a
+# URL passes only when the definition already contains it, and a foreign-term
+# candidate passes when the definition has it whole or when every part of it
+# (split at `_ . ~ / @ $ ' -`) is a word of the definition. A new key, file or
+# function named with the definition's words passes; a product, module or
+# person name the definition never wrote blocks.
 #
 # The scan backs the agent's own composition rules up; it never replaces them.
 # Requires bash, jq, gh (file only), git, sed, grep, tr, find, xargs, sort, comm.
@@ -187,6 +195,9 @@ vocab_of() { # <definition root> <out file>
   [ -s "$VOCAB" ] || fail "definition vocabulary empty — the foreign-term scan cannot run"
 }
 vocab_of "$DEF_ROOT" "$VOCAB"
+URL_RE='[a-z][a-z0-9+.-]*://[^[:space:])>"'"'"'`]+'
+DEF_URLS="$TMP/def-urls.txt"
+xargs -0 grep -ohiE -- "$URL_RE" < "$TMP/files.z" 2>/dev/null | sort -u > "$DEF_URLS"
 VOCAB_FT="$VOCAB"
 if [ "$CMD" = "scan-pr" ]; then
   [ -n "${CG_VOCAB_ROOT:-}" ] && [ -d "$CG_VOCAB_ROOT" ] || fail "scan-pr needs CG_VOCAB_ROOT"
@@ -281,7 +292,7 @@ shape() { # <rule> <ERE> [filter-ERE that a match must also satisfy]
     hit "$1" "$m"
   done
 }
-shape url '[a-z][a-z0-9+.-]*://[^[:space:])>"'"'"'`]+'
+shape url "$URL_RE"
 shape number '(^|[^A-Za-z0-9&])#[0-9]+'
 shape number '(^|[^A-Za-z])(pulls?|issues?|pr)[ /#-]*[0-9]+'
 shape sha '(^|[^A-Za-z0-9])[0-9a-f]{12,40}([^A-Za-z0-9]|$)' '[0-9]'
@@ -303,13 +314,19 @@ scan_credentials() { # <file>
 }
 scan_credentials "$DRAFT"
 
-# the diff of a draft PR: a new definition term is legitimate there, and the
-# changelog carries a date, so only the values and shapes of an instance count
+# the diff of a draft PR: the changelog carries a date and a script may carry
+# a number, so the values, the instance shapes and URLs the definition lacks
+# count; its foreign terms follow below
 if [ "$CMD" = "scan-pr" ]; then
   WHERE=diff
   strip_def "$DIFF_FILE" "$TMP/diff.txt"
   scan_terms "$TMP/diff.txt"
   SHAPE_IN="$TMP/diff.txt"
+  grep -oiE -- "$URL_RE" "$TMP/diff.txt" 2>/dev/null | sort -u | comm -23 - "$DEF_URLS" \
+    | while IFS= read -r m; do
+        case "$m" in (*acme/widgets*|*github.example.com*) continue;; esac
+        hit url "$m"
+      done
   shape email '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
   shape slack_id '(^|[^A-Za-z0-9])[UCGDW][A-Z0-9]{8,12}([^A-Za-z0-9]|$)' '[0-9]'
   shape ipv4 '(^|[^0-9.])([0-9]{1,3}\.){3}[0-9]{1,3}([^0-9.]|$)'
@@ -322,18 +339,20 @@ fi
 # capitalized words and identifier-shaped words. A version number, a
 # one-character token and a home-path prefix pass; a documentation placeholder
 # is in the vocabulary.
-CODE="$TMP/code.txt"
-{
-  grep -oE '`[^`]+`' "$SCAN" | tokens
-  sed -n '/^[[:space:]]*```/,/^[[:space:]]*```/p' "$SCAN" | grep -vE '^[[:space:]]*```' | tokens
-} > "$CODE"
-CANDS="$TMP/cands.txt"
-{
-  tokens < "$SCAN" \
-    | grep -E "/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+\$|^[A-Z]|_|[A-Za-z]-[A-Za-z]|[A-Za-z][0-9]|$NA1"
-  cat "$CODE"
-} | sed -E 's#^(\$HOME|~|/home/[A-Za-z0-9_-]+|\.)/##' \
-  | grep -vE '^v?[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$CANDS"
+candidates() { # <in> <code out> <candidates out>
+  {
+    grep -oE '`[^`]+`' "$1" | tokens
+    sed -n '/^[[:space:]]*```/,/^[[:space:]]*```/p' "$1" | grep -vE '^[[:space:]]*```' | tokens
+  } > "$2"
+  {
+    tokens < "$1" \
+      | grep -E "/|^[A-Za-z0-9_-]{2,}(\.[A-Za-z0-9_-]{2,})+\$|^[A-Z]|_|[A-Za-z]-[A-Za-z]|[A-Za-z][0-9]|$NA1"
+    cat "$2"
+  } | sed -E 's#^(\$HOME|~|/home/[A-Za-z0-9_-]+|\.)/##' \
+    | grep -vE '^v?[0-9]+(\.[0-9]+)*$|^.$' | tr 'A-Z' 'a-z' | sort -u > "$3"
+}
+CODE="$TMP/code.txt"; CANDS="$TMP/cands.txt"
+candidates "$SCAN" "$CODE" "$CANDS"
 # a hyphenated compound of prose that starts lower-case passes when every part
 # is a word of the definition; one unknown part names the instance. A compound
 # in code or with a capital first letter must occur whole.
@@ -348,6 +367,22 @@ known_compound() { # <token>
 }
 comm -23 "$CANDS" "$VOCAB_FT" | while IFS= read -r t; do known_compound "$t" || printf '%s\n' "$t"; done \
   | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
+
+# the diff's candidates against this definition: whole, or every part a word
+# of it (quiet_hours_per_team); one part the definition never wrote blocks
+if [ "$CMD" = "scan-pr" ]; then
+  WHERE=diff
+  PARTS="_.~/@\$'-"
+  candidates "$TMP/diff.txt" "$TMP/diff-code.txt" "$TMP/diff-cands.txt"
+  comm -23 "$TMP/diff-cands.txt" "$VOCAB" > "$TMP/diff-new.txt"
+  tr "$PARTS" '\n' < "$TMP/diff-new.txt" | grep -vE '^([0-9]+|.)?$' | sort -u \
+    | comm -23 - "$VOCAB" > "$TMP/diff-unknown.txt"
+  while IFS= read -r t; do
+    printf '%s\n' "$t" | tr "$PARTS" '\n' | sort -u | comm -12 - "$TMP/diff-unknown.txt" | grep -q . \
+      && printf '%s\n' "$t"
+  done < "$TMP/diff-new.txt" | head -40 | while IFS= read -r t; do hit foreign_term "$t"; done
+  WHERE=pr
+fi
 
 HITS_JSON="$(jq -sc 'unique' "$HITS")"
 if [ "$(printf '%s' "$HITS_JSON" | jq length)" -gt 0 ]; then
