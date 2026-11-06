@@ -85,21 +85,14 @@ if [ "$CMD" = "stats" ]; then
   SINCE="$(date -u -d "@$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
         || date -u -r "$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%SZ)"
   # review hits: every posted finding that names its class (findings-json
-  # `escape`, docs/review-mechanics.md), the review time from its heading
-  HITS="$(for f in "$WORK"/reviews/pr-*.md; do
-      [ -f "$f" ] || continue; ts=""
-      while IFS= read -r line; do
-        case "$line" in
-          ('## Review at '*) ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)";;
-          (*'<!-- findings-json: '*)
-            j="${line#*<!-- findings-json: }"; j="${j%% -->*}"
-            printf '%s\n' "$j" | jq -c --arg ts "$ts" 'select(type == "array") | .[]
-              | select(type == "object" and (.escape | type) == "string" and .status == "new")
-              | {class:.escape, ts:$ts}' 2>/dev/null;;
-        esac
-      done < "$f"
-    done | jq -sc --arg s "$SINCE" 'group_by(.class) | map({class:.[0].class, n:length,
-      week:([.[] | select(.ts >= $s)] | length)}) | sort_by(-.n)')"
+  # `escape`), read through the shared parser so a pruned history file keeps
+  # counting from its ledger row (docs/review-mechanics.md → Review ledger)
+  . "$(cd "$(dirname "$0")" && pwd)/lib/review-records.sh"
+  HITS="$(review_records "$WORK/reviews" "$WORK/REVIEW-LEDGER.jsonl" | jq -sc --arg s "$SINCE" '
+    [ .[] | .ts as $ts | (.findings // [])[]
+      | select((.escape | type) == "string" and .status == "new") | {class: .escape, ts: $ts} ]
+    | group_by(.class) | map({class: .[0].class, n: length, week: ([.[] | select(.ts >= $s)] | length)})
+    | sort_by(-.n, .class)' 2>/dev/null)"
   [ -n "$HITS" ] || HITS='[]'
   out "$(rows | jq -c --arg s "$SINCE" --argjson hits "$HITS" '
     def count_by(f): group_by(f) | map({key: (.[0] | f | tostring), value: length}) | from_entries;

@@ -987,15 +987,16 @@ run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$S
 assert_jq '.outcome == "warnings" and (.warnings | any(contains("late 🟡")))' 'post matches the late set on an also anchor of the posted finding'
 { printf '### Summary\nx\n%s\n\n### Findings\n- 🟡 **Warning:** missing guard (`src/alpha.ts:6`)\n- 🔴 **Critical:** secret in log (`src/beta.ts:3`)\n- 🔎 **Missed earlier:** capability outside the policy (`src/beta.ts:1`)\n\n### Verdict\nREQUEST_CHANGES\n' "$(cat "$(PR_DIR).ctx/limits.txt" 2>/dev/null)"; } > "$SANDBOX/body.md"
 printf '{"id":94,"html_url":"https://example.test/r/94","state":"CHANGES_REQUESTED"}' | fx "$(POST_SLUG)"
-jq '.[1] |= (.severity = "suggestion" | .fix = null)' "$A" > "$SANDBOX/graded.json"
+jq '.[1] |= (.severity = "suggestion" | .fix = null) | .[0].escape = "Missing guard"' "$A" > "$SANDBOX/graded.json"
 # the fixture's prior anchors are not lines of the clone: accepted, they are nulled
 run_rp post 1 --verdict REQUEST_CHANGES --body "$SANDBOX/body.md" --findings "$SANDBOX/graded.json" --accept-warnings
 assert_jq '.outcome == "posted" and (.warnings | any(contains("late")) | not)' 'post takes the late warning the agent graded as a suggestion'
 jq -e 'select(.pr == 1) | .findings | map(select(.late == true) | {severity, file, summary})
         == [{severity:"suggestion", file:"src/beta.ts", summary:"capability outside the policy"}, {severity:"critical", file:"src/beta.ts", summary:"secret in log"}]
-        and (map(select(.late == true)) | first.line == 1) and (map(select(.late != true) | keys) | all(. == ["severity","status"]))' \
+        and (map(select(.late == true)) | first.line == 1) and (map(select(.late != true) | del(.escape) | keys) | all(. == ["severity","status"]))
+        and (map(select(.escape)) == [{status:"new", severity:"warning", escape:"Missing guard"}])' \
   "$WORK/REVIEW-LEDGER.jsonl" >/dev/null \
-  && printf 'ok   %s: the ledger keeps the anchor and summary of a late finding\n' "$CASE" \
+  && printf 'ok   %s: the ledger keeps the anchor and summary of a late finding, and the escape class of a hit\n' "$CASE" \
   || { printf 'FAIL %s: ledger row wrong: %s\n' "$CASE" "$(tail -1 "$WORK/REVIEW-LEDGER.jsonl" 2>/dev/null)"; FAILED=1; }
 
 # a finding merged into ### Findings is printed once: a skill-section copy is refused

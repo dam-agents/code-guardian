@@ -217,7 +217,8 @@ history section:
 `def` is the definition version that wrote the review, `suppressed` counts
 the audit note ([review.md](review.md) → **PR context**), `ste` measures the
 posted prose against the sentence bar, `findings[]` adds `late: true` with
-the finding's `file`, `line` and `summary` where set, and `size` is the PR
+the finding's `file`, `line` and `summary` where set, and the `escape` class
+where set ([escapes.md](escapes.md)), and `size` is the PR
 itself — a count GitHub had not finished computing is `null`, never `0`
 ([audit.md](audit.md) → task 33). A row written before a field existed lacks
 it, and the audit reads each as a floor.

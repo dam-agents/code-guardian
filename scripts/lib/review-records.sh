@@ -10,7 +10,8 @@
 #          bullets:{fixed,still},
 #          suppressed:{overrides,context,decisions,total} | null,
 #          ste:{sentences,avg_sentence_words,sentences_over_20} | null,
-#          findings:[{status,severity} + {late,file,line,summary} when late] | null}
+#          findings:[{status,severity} + {late,file,line,summary} when late
+#                    + {escape} when it names an escaped defect class] | null}
 #
 # `work/REVIEW-LEDGER.jsonl` is append-only and outlives the reviewed PR; the
 # `reviews/pr-<n>.md` history files carry the same sections but only while the
@@ -72,7 +73,8 @@ split("\n")
                             then [ .[] | select(type == "object")
                                    | { status: (.status // "unknown"),
                                        severity: (.severity // "unknown") }
-                                     + (if .late == true then {late: true, file, line, summary} else {} end) ]
+                                     + (if .late == true then {late: true, file, line, summary} else {} end)
+                                     + (if (.escape | type) == "string" then {escape} else {} end) ]
                             else null end)
     else . end)
 | (.secs + (if .cur then [.cur] else [] end))

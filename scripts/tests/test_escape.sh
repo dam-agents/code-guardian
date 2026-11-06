@@ -68,6 +68,12 @@ assert_jq '.hits == []' 'no review named a class yet'
 } > "$WORK/reviews/pr-7.md"
 esc stats "$WORK"
 assert_jq '.hits == [{"class":"Unchecked field","n":2,"week":1},{"class":"No timeout","n":1,"week":0}]' 'new findings that name a class count as hits, all time and this week'
+# a pruned PR keeps its hits through its ledger row, and a review in both
+# places counts once (docs/review-mechanics.md → Review ledger)
+printf '{"src":"ledger","pr":7,"ts":"%s","findings":[{"status":"new","severity":"warning","escape":"Unchecked field"}]}\n{"src":"ledger","pr":9,"ts":"%s","findings":[{"status":"new","severity":"warning","escape":"No timeout"}]}\n' "$now" "$now" > "$WORK/REVIEW-LEDGER.jsonl"
+rm -f "$WORK/reviews/pr-9.md"
+esc stats "$WORK"
+assert_jq '.hits == [{"class":"No timeout","n":2,"week":1},{"class":"Unchecked field","n":2,"week":1}]' 'a ledger row without a history file counts; a review in both places counts once'
 esc stats "$WORK" --days 60
 assert_jq '.reports == 4' 'the window is a parameter'
 esc stats "$WORK" --days x
