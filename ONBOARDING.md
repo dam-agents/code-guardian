@@ -625,7 +625,7 @@ The roster is the **only** set of people the agent may ever @-mention
    operator edits seed expertise. Present the draft.
 3. **Ask for Slack member IDs** — one `login = U0123ABCD` line per member,
    found in Slack under profile → **⋮ (More)** → **Copy member ID**. Validate
-   against `^U[A-Z0-9]{6,}$`. A member without an id may stay (named in text)
+   against `^[UW][A-Z0-9]{6,}$`. A member without an id may stay (named in text)
    but is never @-mentioned.
 4. **Write `work/DEVELOPERS.md`:**
 
