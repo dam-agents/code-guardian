@@ -30,6 +30,7 @@ seed_state() {
   printf '# Review Preferences\n' > "$WORK/MEMORY.md"
   mkdir -p "$WORK/audit/weeks" "$WORK/benchmark/results" "$WORK/logs" "$WORK/reviews"
   printf '{"week":"2026-W38"}\n' > "$WORK/audit/weeks/20260920T000000Z.json"
+  printf '{"key":"k"}\n' > "$WORK/ESCAPES.jsonl"
   printf '| run |\n' > "$WORK/benchmark/RESULTS.md"
   printf '{}\n' > "$WORK/benchmark/results/20260920T000000Z.json"
   printf '{"event":"x"}\n' > "$WORK/logs/events-2026-09-20.jsonl"
@@ -106,6 +107,14 @@ RC=0; OUT="$(WORK_DIR="$WORK" HOME="$FAKE_HOME" WORK_BACKUP_REMOTE="$REMOTE" \
   WORK_BACKUP_LOCAL="$SANDBOX/clone-allow" WORK_BACKUP_ALLOW_DELETE=1 \
   bash "$REPO_ROOT/scripts/work-backup.sh" persist 2>&1)"
 assert_true "WORK_BACKUP_ALLOW_DELETE=1 lets the deletion through" eval '! remote_has audit/weeks/20260920T000000Z.json'
+
+new_case persist-refuses-escapes-delete
+new_remote; seed_state
+backup persist
+rm -f "$WORK/ESCAPES.jsonl"
+backup persist
+assert_out_contains "refused" "persist refuses a snapshot that deletes the escapes ledger"
+assert_true "the escapes ledger stays on the remote" remote_has ESCAPES.jsonl
 
 new_case persist-allows-prune
 new_remote; seed_state

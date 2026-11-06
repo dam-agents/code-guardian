@@ -392,7 +392,7 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 • Review shape: <week.reviews> reviews — median <secs>s · <msgs> msgs · peak ctx <peak_ctx> · repeats <repeats> · failures <failures> · max out <max_out> (week before: <the changed fields, or "same">) · anomalies <anomalies> · baseline <model> <n>/<baseline_min> (omit the baseline part at or over the minimum; `not measured this week` when week.reviews = 0)
 • Wasted reviews: <stalled>/<total> runs redone (<cause×N, …>) — ≥<wasted_output_tokens> out-tok thrown away (omit when null) · clean aborts: <aborted_clean> · worst day: <day> <n> — or `none of <total> runs` when stalled = 0
 • Trend: <the append delta line> — <report url or "local only"> (or `not appended: <reason>`)
-• Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · classes +<added> / widened <strengthened> · recurrences <k> · review hits <week hits> (task 39; omit when reports and hits are 0)
+• Escaped defects: <reports> — missed <m> · weak <w> · not reviewed <n> · raised <r> · not visible <v> · unknown <u> · classes +<added> / widened <strengthened> · recurrences <k> · review hits <week hits> (task 39; omit when reports and hits are 0)
 • Memory: archived <a> · distilled <w> · merged <x> · promoted <y> · dropped <z> (or "no consolidation needed") · notes: kept <k> · updated <u> · dropped <d> (omit without a notes file)
 
 *Learned this week*
