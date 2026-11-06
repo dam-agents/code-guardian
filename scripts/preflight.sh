@@ -1199,7 +1199,8 @@ if [ "$MODE" = "review" ]; then
           dismissed="$(printf '%s' "$same_sha" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=$sha -->" '
               [.data.repository.pullRequest.reviews.nodes[]? | select((.body // "") | contains($m))]
               | last | .state // empty' 2>/dev/null)"
-          if ! printf '%s' "$same_sha" | jq -e '.data.repository.pullRequest | type == "object"' >/dev/null 2>&1; then
+          if ! printf '%s' "$same_sha" | jq -e '.data.repository.pullRequest
+              | type == "object" and has("lastEditedAt") and (.reviews.nodes | type) == "array"' >/dev/null 2>&1; then
             # could not look: no review and no cleanup, the next run asks again
             log "PR #$n: $trig present at reviewed ${row_sha:0:7}, but its reviews and description were unreadable — retry next run"
           elif [ -n "$REVIEW_MARKER" ] && [ "$dismissed" = "DISMISSED" ]; then

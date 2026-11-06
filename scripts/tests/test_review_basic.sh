@@ -98,6 +98,27 @@ run_preflight review
 assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' 'could not look: no review, no cleanup'
 assert_jq '.logs | any(contains("unreadable — retry next run"))' 'the failed read is logged'
 
+# --- a partial answer (reviews null) is unreadable too -------------------------
+new_case label_cleanup_partial
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" CHANGES_REQUESTED done
+printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":null}}},"errors":[{"message":"timeout"}]}' > "$GH_FIXTURES/graphql_pr_lastedited_1"
+run_preflight review
+assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 0' 'a partial answer: no review, no cleanup'
+
+# --- the history file cannot be read → cleanup, but no reply ------------------
+new_case label_cleanup_history_unreadable
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+fx_body_edited 1 -
+rm -f "$WORK/reviews/pr-1.md"; mkdir -p "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].reply == false' 'an unreadable history posts no reply'
+assert_jq '.logs | any(contains("history file unreadable"))' 'the unreadable history is logged'
+rmdir "$WORK/reviews/pr-1.md"
+
 # --- same SHA, the review there was dismissed → re-review ---------------------
 new_case rereview_review_dismissed
 base_config
