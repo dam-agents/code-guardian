@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 14.4.0 — 2026-11-06
+
+**Upgrade:** Nothing to run. A re-review trigger on a reviewed head now
+starts a same-SHA re-review when that review was dismissed, and a trigger
+cleared with nothing new gets one PR comment per head
+([docs/review-bookkeeping.md](docs/review-bookkeeping.md) → **Label
+bookkeeping**).
+
 ## 14.3.3 — 2026-11-05
 
 **Upgrade:** Nothing — docs are re-read per run.

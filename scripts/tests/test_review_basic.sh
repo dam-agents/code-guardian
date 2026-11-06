@@ -75,6 +75,40 @@ assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].label 
 assert_jq '.nothing_to_do == false and has("housekeeping_only") == false' 'a trigger cleanup answers a person: it starts a run at once'
 assert_jq '.read_set == ["docs/review-bookkeeping.md","work/MEMORY.md","work/LESSONS.md"]' 'a cleanup-only run reads bookkeeping, not the review core'
 assert_jq '.reviews_due | length == 0' 'a never-edited description does not manufacture a review'
+assert_jq '.label_cleanups_due[0] | .reply == true and .sha == "'"$SHA1"'"' 'the first cleanup at a head replies'
+
+# --- the same cleanup after the reply was recorded → no second reply ----------
+new_case label_cleanup_replied
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+printf '# PR #1\n\n<!-- trigger-cleanup-reply: %s -->\n' "$SHA1" > "$WORK/reviews/pr-1.md"
+run_preflight review
+assert_jq '(.label_cleanups_due | length) == 1 and .label_cleanups_due[0].reply == false' 'one reply per head'
+
+# --- same SHA, the review there was dismissed → re-review ---------------------
+new_case rereview_review_dismissed
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" CHANGES_REQUESTED done
+printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":{"nodes":[{"state":"DISMISSED","body":"x <!-- cg:review headRefOid=%s -->","commit":{"oid":"%s"}},{"state":"COMMENTED","body":"a reply","commit":{"oid":"%s"}}]}}}}}' \
+  "$SHA1" "$SHA1" "$SHA1" > "$GH_FIXTURES/graphql_pr_lastedited_1"
+run_preflight review
+assert_jq '.reviews_due | length == 1' 'a dismissed review answers the trigger'
+assert_jq '.reviews_due[0] | .kind == "re-review" and .review_dismissed == true and .description_changed == false and .full == true and .head_sha == "'"$SHA1"'"' \
+  'flagged dismissed, complete scope, at the already-reviewed SHA'
+assert_jq '.label_cleanups_due | length == 0' 'the trigger is served, not cleared'
+assert_jq '.logs | any(contains("was dismissed"))' 'the reason is logged'
+
+# --- same SHA, a standing review and an older dismissed one → cleanup ---------
+new_case label_cleanup_review_stands
+base_config
+pr_json 1 "plain PR" '[{"name":"cg-rereview"}]' "$SHA1" | open_prs_fx
+add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
+printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":null,"reviews":{"nodes":[{"state":"DISMISSED","body":"<!-- cg:review headRefOid=%s -->","commit":{"oid":"%s"}},{"state":"APPROVED","body":"<!-- cg:review headRefOid=%s -->","commit":{"oid":"%s"}}]}}}}}' \
+  "$SHA1" "$SHA1" "$SHA1" "$SHA1" > "$GH_FIXTURES/graphql_pr_lastedited_1"
+run_preflight review
+assert_jq '(.reviews_due | length) == 0 and (.label_cleanups_due | length) == 1' 'the newest review at the SHA stands: cleanup'
 
 # --- same SHA, but the description was edited after the review → re-review ----
 # a PR body is a review input, so correcting it without pushing is something new
@@ -229,7 +263,7 @@ base_config '- rereview_delta_label: cg-delta'
 pr_json 1 "plain PR" '[{"name":"cg-delta"}]' "$SHA1" | open_prs_fx
 add_row 1 "$SHA1" "$(iso_ago 3600)" APPROVE done
 run_preflight review
-assert_jq '.label_cleanups_due == [{number:1, label:false, request:false, delta_label:true}]' 'the delta label is cleared, nothing else'
+assert_jq '.label_cleanups_due == [{number:1, sha:"'"$SHA1"'", label:false, request:false, delta_label:true, reply:true}]' 'the delta label is cleared, nothing else'
 
 # --- an unknown delta label key is off: the label is an ordinary label ----------
 new_case delta_label_unset

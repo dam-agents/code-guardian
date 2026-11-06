@@ -251,6 +251,17 @@ is your own candidate and **regraded to 🟢 when a skill reported it** — a sk
 finding is never deleted. No clone (`clone-failed`) → verify against the diff
 context you have.
 
+**Dependency check** — same pass, for every surviving 🔴/🟡 that states what
+a third-party package provides: an API that is missing, deprecated, renamed,
+or has another signature or behavior. Your memory of a package is not
+evidence; versions change their API. Read the version the changed package
+declares (its manifest, then the lockfile entry) and `git grep` the base
+branch for the same API. The base already uses it → drop the finding, or
+regrade a skill's to 🟢. Else the finding names the declared version and the
+source that shows the claim at that version — the package's typings or
+changelog in the clone, or its documentation for that version; with no such
+source it is 🟢 at most. The version read is its `checks` entry.
+
 **Decision check** — same pass, for every surviving 🔴/🟡 that disputes a design
 choice: an architecture, a protocol, a boundary, a trade-off. Read the in-tree
 document that covers the changed path — the `profile_slice`'s `## Decisions`
@@ -447,7 +458,7 @@ Before you declare the run done:
   dedup, trigger and live-holder checks · context, overrides, dismissals and
   insights handled · `memory_due`, orientation and script leads read in the
   code · gate hits answered, noise excluded · every blocking finding verified,
-  swept and decision-checked, its class-rule **Fix:** mirrored into
+  swept, dependency- and decision-checked, its class-rule **Fix:** mirrored into
   `findings-json`, `review-meta.checks` and `.deferred`, `meta.json` with a
   `triage` · the guide recorded before the post ([artifact.md](artifact.md)) ·
   re-review pairs, `late` and carried findings settled
