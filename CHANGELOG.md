@@ -11,12 +11,20 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 14.4.0 — 2026-11-06
+## 14.5.0 — 2026-11-06
 
 **Upgrade:** Offer the new off-by-default `audit_infographic` key to the
 operator: `enabled` posts the weekly audit's *Week in numbers* as one PNG in
 the report's Slack thread (needs `slack_notifications: enabled` and a headless
 Chrome or Chromium on the pod). Write it to `work/CONFIG.md` only on their yes.
+
+## 14.4.0 — 2026-11-06
+
+**Upgrade:** Nothing to run. A re-review trigger on a reviewed head now
+starts a same-SHA re-review when that review was dismissed, and a trigger
+cleared with nothing new gets one PR comment per head
+([docs/review-bookkeeping.md](docs/review-bookkeeping.md) → **Label
+bookkeeping**).
 
 ## 14.3.4 — 2026-11-06
 

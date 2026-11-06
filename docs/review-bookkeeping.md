@@ -12,15 +12,21 @@ never fatal — preflight re-emits the entry.
   <ts> SEE-GITHUB <status>` (`ts` is the GitHub-reported timestamp; use the
   remote body's verdict when you have it). Log `PR #<n>: self-healed
   REVIEWS.md from remote marker (<status>)`.
-- **Same-SHA trigger cleanup** `{number, label, request, delta_label}` → a
-  trigger on a PR whose live HEAD is reviewed and whose description is
-  unchanged since. Clear what the entry flags — `label: true` →
-  `$REREVIEW_LABEL`, `delta_label: true` → `$REREVIEW_DELTA_LABEL`,
-  `request: true` → your pending review request (**Trigger removal**) — post
-  nothing, and log `PR #<n>: re-review trigger present but nothing new since
-  <short-sha> — cleared (<the cleared triggers, joined by " + ">), no
-  re-review`. An edited description arrives as a `reviews_due` entry instead
-  ([review-rereview.md](review-rereview.md) → **Description-only re-review**).
+- **Same-SHA trigger cleanup** `{number, sha, label, request, delta_label,
+  reply}` → a trigger on a PR whose live HEAD is reviewed, whose review there
+  stands, and whose description is unchanged since. Clear what the entry
+  flags — `label: true` → `$REREVIEW_LABEL`, `delta_label: true` →
+  `$REREVIEW_DELTA_LABEL`, `request: true` → your pending review request
+  (**Trigger removal**) — and log `PR #<n>: re-review trigger present but
+  nothing new since <short-sha> — cleared (<the cleared triggers, joined by
+  " + ">), no re-review`. `reply: true` → post one PR comment first:
+  `No new review: the review at <short-sha> stands, with no new commit and
+  no description edit since. To get a new review, push a commit, edit the
+  description, or dismiss the review and add the label again.` — then append
+  `<!-- trigger-cleanup-reply: <sha> -->` to `reviews/pr-<n>.md`, which keeps
+  it to one reply per head. An edited description or a dismissed review
+  arrives as a `reviews_due` entry instead ([review-rereview.md](review-rereview.md)
+  → **Same-SHA re-review**).
 
 ## Pruning (`prunes_due`)
 

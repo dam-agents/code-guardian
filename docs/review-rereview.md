@@ -3,7 +3,7 @@
 Read when the worklist's `read_set` names this file — a `reviews_due` entry of
 `kind: re-review` — and when `prepare` returns a non-null `carry`.
 
-## Re-review output (trigger-gated; new commits or an edited description)
+## Re-review output (trigger-gated; new commits, an edited description or a dismissed review)
 
 The trigger sets the scope:
 
@@ -18,14 +18,18 @@ The trigger sets the scope:
   `guide_label` no round saw yet / an owed guide → delta re-review**
   (`full: false`): the delta only, per the conciseness rules below.
 
-**Description-only re-review** (`description_changed: true`): an edited body
-answers the trigger at the reviewed diff and SHA. `post` reads the earlier
+**Same-SHA re-review** — `description_changed: true` or `review_dismissed:
+true`: an edited body, or a dismissal of your review at this SHA, answers the
+trigger at the reviewed diff and SHA. `post` reads the earlier
 marker at this SHA as the prior being superseded, and an abort restores the
-`done` row. Re-read the body ([review.md](review.md) → **PR context**) and
-redo the review against it: a removed justification no longer suppresses its
-finding, an added one now does. Write `description edited, no new commits` on
-the `Previous HEAD` line (the same SHA) and let the buckets carry the rest. No
-change in substance → say so in one line.
+`done` row. Re-read the body and the threads ([review.md](review.md) → **PR
+context**) and redo the review against them: a removed justification no
+longer suppresses its finding, an added one now does; a dismissed review's
+findings are re-verified from the clone, and the dismissal message and the
+thread replies are context. Write `description edited, no new commits` or
+`review dismissed, no new commits` on the `Previous HEAD` line (the same SHA)
+and let the buckets carry the rest. No change in substance → say so in one
+line.
 
 **Guide round** (`guide_requested: true`): the `guide_label` is on the PR and
 no round saw it yet, or the review of this head owes its guide

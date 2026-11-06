@@ -1034,19 +1034,30 @@ if [ "$MODE" = "review" ]; then
   [ "$TRIG_LABEL" -eq 1 ] && [ "$TRIG_REQUEST" -eq 1 ] && TRIG_DESC="$REREVIEW_LABEL or review request"
   [ -n "$REREVIEW_DELTA_LABEL" ] && TRIG_DESC="$TRIG_DESC or $REREVIEW_DELTA_LABEL"
 
-  add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc guide
+  # one cleanup reply per head: a missing history file has none; an unreadable
+  # one is "could not look" — no reply, so a lost read never posts it twice
+  cleanup_reply_due() { # number sha -> REPLY_DUE (no subshell: log must reach LOGS)
+    local f="$WORK/reviews/pr-$1.md" rc
+    REPLY_DUE=true; [ -e "$f" ] || return 0
+    grep -qxF "<!-- trigger-cleanup-reply: $2 -->" "$f" 2>/dev/null; rc=$?
+    case $rc in (0) REPLY_DUE=false;; (1) ;;
+      (*) REPLY_DUE=false; log "PR #$1: history file unreadable — no cleanup reply";; esac
+  }
+  add_review() { # number sha ref title author kind takeover prior_json urgent closed full desc guide dismissed
     # full: complete-review scope — always true for kind=first; on a re-review
     # true iff the label is the trigger (review-request / on-demand = delta)
     # desc: the trigger is answered by an edited PR body, not by new commits —
     # the diff is unchanged and the description is the new input
     # guide: no review round saw the guide label yet, or the review of this
     # head owes its guide — the round publishes the review guide (docs/artifact.md)
+    # dismissed: the review at this SHA was dismissed — the trigger is answered
+    # at the reviewed SHA (docs/review-rereview.md → Dismissed-review re-review)
     REVIEWS_DUE="$(printf '%s' "$REVIEWS_DUE" | jq --argjson e "$(jq -n \
       --argjson n "$1" --arg sha "$2" --arg ref "$3" --arg t "$4" --arg a "$5" \
       --arg k "$6" --argjson tk "$7" --argjson prior "$8" \
       --argjson u "${9:-false}" --argjson c "${10:-false}" --argjson f "${11:-false}" \
-      --argjson d "${12:-false}" --argjson g "${13:-false}" \
-      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f, description_changed:$d, guide_requested:$g}')" '. + [$e]')"
+      --argjson d "${12:-false}" --argjson g "${13:-false}" --argjson dm "${14:-false}" \
+      '{number:$n, head_sha:$sha, head_ref:$ref, title:$t, author:$a, kind:$k, takeover:$tk, prior:$prior, urgent:$u, closed:$c, full:$f, description_changed:$d, guide_requested:$g, review_dismissed:$dm}')" '. + [$e]')"
     [ "${9:-false}" = "true" ] && [ "${10:-false}" = "false" ] \
       && log "PR #$1: $URGENT_LABEL label — rapid-first review, ordered ahead"
     return 0
@@ -1178,11 +1189,28 @@ if [ "$MODE" = "review" ]; then
           [ "$has_label" -eq 1 ] && trig="$REREVIEW_LABEL"
           [ "$has_request" -eq 1 ] && trig="${trig:+$trig + }review request"
           [ "$has_delta" -eq 1 ] && trig="${trig:+$trig + }$REREVIEW_DELTA_LABEL"
-          body_edited="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
+          # A dismissed review is no verdict either: the newest marker review
+          # at this SHA in DISMISSED state answers the trigger at the same SHA.
+          same_sha="$(gh api graphql -F n="$n" -f o="${REPO%%/*}" -f r="${REPO#*/}" -f query='
               query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
-                pullRequest(number:$n){lastEditedAt}}}' 2>/dev/null \
-            | jq -r '.data.repository.pullRequest.lastEditedAt // empty' 2>/dev/null)"
-          if [ -n "$body_edited" ] && [ "$(iso2epoch "$body_edited")" -gt "$(iso2epoch "$row_ts")" ]; then
+                pullRequest(number:$n){lastEditedAt
+                  reviews(last:50){nodes{state body commit{oid}}}}}}' 2>/dev/null)"
+          body_edited="$(printf '%s' "$same_sha" | jq -r '.data.repository.pullRequest.lastEditedAt // empty' 2>/dev/null)"
+          dismissed="$(printf '%s' "$same_sha" | jq -r --arg m "<!-- $REVIEW_MARKER headRefOid=$sha -->" '
+              [.data.repository.pullRequest.reviews.nodes[]? | select((.body // "") | contains($m))]
+              | last | .state // empty' 2>/dev/null)"
+          if ! printf '%s' "$same_sha" | jq -e '.data.repository.pullRequest
+              | type == "object" and has("lastEditedAt") and (.reviews.nodes | type) == "array"
+                and all(.reviews.nodes[]; type == "object")' >/dev/null 2>&1 \
+             || printf '%s' "$same_sha" | jq -e 'has("errors")' >/dev/null 2>&1; then
+            # could not look: no review and no cleanup, the next run asks again
+            log "PR #$n: $trig present at reviewed ${row_sha:0:7}, but its reviews and description were unreadable — retry next run"
+          elif [ -n "$REVIEW_MARKER" ] && [ "$dismissed" = "DISMISSED" ]; then
+            add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
+              "$([ "$has_label" -eq 1 ] && echo true || echo false)" false \
+              "$([ "$has_guide" -eq 1 ] && echo true || echo false)" true
+            log "PR #$n: $trig present, no new commits since ${row_sha:0:7} but its review there was dismissed — re-review due"
+          elif [ -n "$body_edited" ] && [ "$(iso2epoch "$body_edited")" -gt "$(iso2epoch "$row_ts")" ]; then
             add_review "$n" "$sha" "$ref" "$title" "$author" "re-review" false "$prior" "$URG" false \
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" true \
               "$([ "$has_guide" -eq 1 ] && echo true || echo false)"
@@ -1192,11 +1220,13 @@ if [ "$MODE" = "review" ]; then
               "$([ "$has_label" -eq 1 ] && echo true || echo false)" false true
             log "PR #$n: $trig present and $([ "$has_guide" -eq 1 ] && printf 'no review saw %s yet' "$GUIDE_LABEL" || printf 'the review owes its guide') — guide round due"
           else
+            cleanup_reply_due "$n" "$sha"
             CLEANUPS_DUE="$(printf '%s' "$CLEANUPS_DUE" | jq --argjson e "$(jq -n --argjson n "$n" \
               --argjson l "$([ "$has_label" -eq 1 ] && echo true || echo false)" \
               --argjson r "$([ "$has_request" -eq 1 ] && echo true || echo false)" \
               --argjson d "$([ "$has_delta" -eq 1 ] && echo true || echo false)" \
-              '{number:$n, label:$l, request:$r, delta_label:$d}')" '. + [$e]')"
+              --arg sha "$sha" --argjson rp "$REPLY_DUE" \
+              '{number:$n, sha:$sha, label:$l, request:$r, delta_label:$d, reply:$rp}')" '. + [$e]')"
             log "PR #$n: $trig present but nothing new since ${row_sha:0:7} (no commits, no description edit) — trigger cleanup due"
           fi
         elif [ "$has_guide" -eq 1 ] && [ "$row_status" = "done" ]; then

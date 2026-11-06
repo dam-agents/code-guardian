@@ -97,7 +97,7 @@ fx_graphql_reviews() { cat > "$GH_FIXTURES/graphql_pr_reviews_$1"; }
 # PR <n>'s body-edit timestamp for the lastEditedAt query ('-' = never edited)
 fx_body_edited() { # <number> <iso-ts|->
   local v="null"; [ "$2" = "-" ] || v="\"$2\""
-  printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":%s}}}}' "$v" \
+  printf '{"data":{"repository":{"pullRequest":{"lastEditedAt":%s,"reviews":{"nodes":[]}}}}}' "$v" \
     > "$GH_FIXTURES/graphql_pr_lastedited_$1"
 }
 
