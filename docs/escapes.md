@@ -6,8 +6,10 @@ audit's escape task ([audit.md](audit.md) task 39).
 
 An escaped defect is a defect the review let through. The fix belongs to the
 team or to another agent; this agent learns the **defect class**, so the next
-review catches the next instance. Every environment weighs the same. Nothing
-is posted on GitHub.
+review catches the next instance. Every environment weighs the same. The
+report posts nothing on GitHub; only the weekly audit may later file one
+anonymous definition issue for a generic class ([audit.md](audit.md) task
+39).
 
 ## Recognize
 
@@ -34,7 +36,8 @@ and gets one sentence that says so.
    failing code, and pick the change that explains the error. A frame with an
    `error`, a non-zero `frames_dropped`, `reads_failed` or `lookups_failed`, or
    `commits_capped` makes them partial: check the rest with `git log` and
-   `gh api`. `confidence`:
+   `gh api`. `outcome: error` gives no leads at all: its `error` goes to the
+   archive entry, and the PR search continues by hand. `confidence`:
    `confirmed` (the PR's diff holds the failing path and you can state the
    mechanism), `likely` (the best candidate, the mechanism plausible),
    `unknown` (no PR found), `not_code` (the cause is outside the repository's
