@@ -620,6 +620,11 @@ printf '%s PR #57 9c1e2a0 failed to post: 422\n%s review post failed: 0f3e2a1 is
 run_preflight audit
 assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
   'a hex token next to a failure word is not a zero count'
+# the target PR's failed CI is a work item, not an agent error
+printf '%s review nothing_to_do=false PR #6333: CI failed at 0477e1a (verify, e2e) — triage due\n' "$(iso_ago 300)" >> "$WORK/HEARTBEAT.log"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "log_errors") | .status == "warn" and (.detail | test("^3 error-ish log lines.*0f3e2a1 is stale$"))' \
+  'a CI-failed triage line is not counted'
 # the pod has no awk: the lines are matched without it
 mkdir -p "$SANDBOX/noawk"; printf '#!/bin/sh\nexit 127\n' > "$SANDBOX/noawk/awk"; chmod +x "$SANDBOX/noawk/awk"
 PATH="$SANDBOX/noawk:$PATH" run_preflight audit
@@ -846,6 +851,20 @@ hb 9600; hb 3600            # 100-min gap — past 1.5x the quiet interval
 run_preflight audit
 assert_jq '.checks[] | select(.id == "heartbeats") | .status == "warn" and (.detail | contains("100 min"))' \
   'a gap past 1.5x the quiet interval still warns'
+
+# --- each mode's newest pass, idle or not (audit task 5, Firing) -------------
+new_case audit_last_pass
+base_config
+pr_json 1 "open PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+hb 7200
+MON_LAST="$(iso_ago 600)"
+printf '%s monitor nothing_to_do=true\n%s monitor nothing_to_do=true\n' "$(iso_ago 1800)" "$MON_LAST" >> "$WORK/HEARTBEAT.log"
+hb -1200                    # a heartbeat newer than the audit's start clock
+run_preflight audit
+assert_jq ".stats.last_pass.monitor == \"$MON_LAST\" and (.stats.last_pass.review | type) == \"string\"" \
+  'last_pass holds the newest line per mode, idle passes included'
+assert_jq '.checks[] | select(.id == "heartbeats") | .detail | test("last 0m ago$")' \
+  'a heartbeat newer than the clock reads as 0 minutes, never negative'
 
 # --- raised findings, the awaiting_label backlog and the worklist dump --------
 # The trend artifact reads these three (docs/trends.md): findings the week

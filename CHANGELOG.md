@@ -19,6 +19,10 @@ roster member's channel ask to change the definition then gets a draft PR on
 Write the key only on their yes. A roster member's explicit channel ask for a
 definition issue is served under the existing `definition_issues` key.
 
+## 14.3.4 — 2026-11-06
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 14.3.3 — 2026-11-05
 
 **Upgrade:** Nothing — docs are re-read per run.

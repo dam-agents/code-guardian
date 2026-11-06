@@ -2222,7 +2222,15 @@ if [ "$MODE" = "audit" ]; then
     [ "$prev" -gt 0 ] && { g=$((e-prev)); [ "$g" -gt "$max_gap" ] && max_gap=$g; }
     prev="$e"; last_e="$e"
   done < <(cat "$WORK/HEARTBEAT.log" 2>/dev/null)
-  last_age_m=$(( last_e > 0 ? (NOW_EPOCH - last_e) / 60 : -1 ))
+  # the clock now, not NOW_EPOCH: the audit's earlier checks take minutes and
+  # heartbeats keep arriving meanwhile
+  hb_now="$(date -u +%s)"; [ "$last_e" -gt "$hb_now" ] && last_e="$hb_now"
+  last_age_m=$(( last_e > 0 ? (hb_now - last_e) / 60 : -1 ))
+  # each mode's newest pass, idle or not: a gated fire that found no work logs
+  # its line here and starts no session (audit task 5, Firing)
+  LAST_PASS="$(grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ [a-z_-]+ ' "$WORK/HEARTBEAT.log" 2>/dev/null \
+    | jq -Rcn '[inputs | split(" ") | {key: .[1], value: .[0]}] | from_entries' 2>/dev/null)"
+  [ -n "$LAST_PASS" ] || LAST_PASS='null'
   if [ "$hb_total" -eq 0 ]; then check heartbeats fail "no review heartbeats logged in the last 7 days"
   elif [ "$max_gap" -gt "$HB_GAP_MAX_S" ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min (over the $((HB_GAP_MAX_S/60))-min quiet-cadence tolerance); last ${last_age_m}m ago"
   else check heartbeats ok "$hb_total heartbeats, largest gap $((max_gap/60)) min, last ${last_age_m}m ago"; fi
@@ -2239,9 +2247,11 @@ if [ "$MODE" = "audit" ]; then
 
   # a zero count ("0 failed", "errors=0") is a success line: those phrases are
   # dropped before the match, so "10 failed", "failed=2" or a SHA ending in 0
-  # ("9c1e2a0 failed") still counts
+  # ("9c1e2a0 failed") still counts. "CI failed" is the target PR's CI, a work
+  # item for the agent, not an agent error — dropped too
   err_lines="$( { cat "$WORK/HEARTBEAT.log" "$WORK/SHEPHERD.log" 2>/dev/null || true; } \
     | jq -rR '. as $l | ascii_downcase
+        | gsub("\\bci failed\\b"; " ")
         | gsub("(^|[^0-9a-z._#-])0 *(failed|failures?|fails?|errors?|anomal[a-z]*)"; " ")
         | gsub("(failed|failures?|fails?|errors?|anomal[a-z]*) *[=:] *0([^0-9a-z.]|$)"; " ")
         | select(test("fail|error|anomal")) | $l' 2>/dev/null \
@@ -2328,9 +2338,13 @@ if [ "$MODE" = "audit" ]; then
   if [ "$PROJECT_PROFILE" != "enabled" ]; then
     check profile_fresh ok "project profile disabled by configuration"
   else
-    pf="$(LOG_JOB=audit bash "$SCRIPT_DIR/profile.sh" check 2>/dev/null)"
+    pf_err="$(mktemp "${TMPDIR:-/tmp}/cg-pf-err.XXXXXX" 2>/dev/null)" || pf_err=/dev/null; pf_rc=0
+    pf="$(LOG_JOB=audit bash "$SCRIPT_DIR/profile.sh" check 2>"$pf_err")" || pf_rc=$?
     pf_status="$(printf '%s' "$pf" | jq -r '.status // "unavailable"' 2>/dev/null)"
     pf_note="$(printf '%s' "$pf" | jq -r '[.mode, (if .base then "base " + .base else empty end), (if .age_hours != null then "\(.age_hours)h old" else empty end), (.note // empty)] | join(", ")' 2>/dev/null)"
+    # no JSON: the cause is the script's own exit and stderr
+    [ -n "$pf_note" ] || pf_note="profile.sh check exit $pf_rc, no JSON$(grep . "$pf_err" | tail -1 | cut -c1-120 | sed 's/^/: /')"
+    [ "$pf_err" = /dev/null ] || rm -f "$pf_err"
     case "$pf_status" in
       (current)      check profile_fresh ok "profile current ($pf_note)";;
       (regenerated)  check profile_fresh ok "profile refreshed by this audit ($pf_note)";;
@@ -3377,14 +3391,14 @@ if [ "$MODE" = "audit" ]; then
   STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
       "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
       "${REACTIONS:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
-      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" "${LAST_PASS:-null}" \
     | jq -cs --arg since "$SINCE_ISO" '
     . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
-          $rx, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd]
+          $rx, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd, $lp]
     | {since:$since, open_prs:$open, awaiting_label:$al,
       reviews:($ra.reviews + {duration:$dur, phases:$ph}),
       findings:$ra.findings, suppressed:($ra.suppressed // null), ste:($ra.ste // null),
-      heartbeats:{total:$hb, idle:$idle}, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
+      heartbeats:{total:$hb, idle:$idle}, last_pass:$lp, wakeups:$wk, nudges:{prs_nudged:($np|length), prs:$np},
       guides:$gd,
       log_events:{errors:$le, warns:$lw}, tokens:$tw, stalls:$sw, reactions:$rx,
       review_shape:$rs, project:$proj, disk:$disk, sessions:$ses, overruled:$ovr,
