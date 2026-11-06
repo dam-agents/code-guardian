@@ -12,7 +12,8 @@
 #   seen   <work-dir> <key>        the newest ledger row with this key, if any
 #   record <work-dir> <row-file>   validate one row (docs/escapes.md → **The
 #                                  ledger**), stamp `at`, append it
-#   stats  <work-dir> [--days N]   the audit's counts over the last N days (7)
+#   stats  <work-dir> [--days N]   the audit's counts over the last N days (7),
+#                                  and the review findings that named a class
 #
 # Every subcommand prints one JSON object with `outcome` and exits 0.
 # Files: work/ESCAPES.jsonl (append-only), $TMPDIR/cg-escape.* (leads clone,
@@ -52,7 +53,7 @@ fi
 # ------------------------------------------------------------------ record --
 if [ "$CMD" = "record" ]; then
   F="${1:-}"; [ -f "$F" ] || fail "row file missing"
-  ROW="$(jq -c '. + {pr:(.pr // null), class:(.class // null), recurrence:(.recurrence // false)}' "$F" 2>/dev/null)" \
+  ROW="$(jq -c '. + {pr:(.pr // null), class:(.class // null), recurrence:(.recurrence // false), paths:(.paths // [])}' "$F" 2>/dev/null)" \
     || fail "row is not a JSON object"
   ERR="$(printf '%s' "$ROW" | jq -r '
     def str: type == "string" and length > 0;
@@ -65,6 +66,7 @@ if [ "$CMD" = "record" ]; then
       (if .class == null or ((.class | str) and (.class | length) <= 80) then empty else "class" end),
       (if (.rule | IN("added","strengthened","none")) then empty else "rule" end),
       (if (.recurrence | type == "boolean") then empty else "recurrence" end),
+      (if ((.paths | type == "array") and all(.paths[]; str)) then empty else "paths" end),
       (if .rule != "none" and .class == null then "class (a rule needs its class)" else empty end)
     ] | join(", ")' 2>/dev/null)"
   [ -z "$ERR" ] || fail "invalid field(s): $ERR"
@@ -81,7 +83,24 @@ if [ "$CMD" = "stats" ]; then
   case "$DAYS" in (''|*[!0-9]*) fail "--days needs a number";; esac
   SINCE="$(date -u -d "@$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
         || date -u -r "$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%SZ)"
-  out "$(rows | jq -c --arg s "$SINCE" '
+  # review hits: every posted finding that names its class (findings-json
+  # `escape`, docs/review-mechanics.md), the review time from its heading
+  HITS="$(for f in "$WORK"/reviews/pr-*.md; do
+      [ -f "$f" ] || continue; ts=""
+      while IFS= read -r line; do
+        case "$line" in
+          ('## Review at '*) ts="$(printf '%s' "$line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' | head -1)";;
+          (*'<!-- findings-json: '*)
+            j="${line#*<!-- findings-json: }"; j="${j%% -->*}"
+            printf '%s\n' "$j" | jq -c --arg ts "$ts" 'select(type == "array") | .[]
+              | select(type == "object" and (.escape | type) == "string" and .status == "new")
+              | {class:.escape, ts:$ts}' 2>/dev/null;;
+        esac
+      done < "$f"
+    done | jq -sc --arg s "$SINCE" 'group_by(.class) | map({class:.[0].class, n:length,
+      week:([.[] | select(.ts >= $s)] | length)}) | sort_by(-.n)')"
+  [ -n "$HITS" ] || HITS='[]'
+  out "$(rows | jq -c --arg s "$SINCE" --argjson hits "$HITS" '
     def count_by(f): group_by(f) | map({key: (.[0] | f | tostring), value: length}) | from_entries;
     . as $all | [.[] | select(.at >= $s)] as $w
     | {outcome:"ok", since:$s, reports:($w | length), total:($all | length),
@@ -90,6 +109,7 @@ if [ "$CMD" = "stats" ]; then
               strengthened:([$w[] | select(.rule == "strengthened")] | length)},
        recurrences:[$w[] | select(.recurrence) | {class, pr, at}],
        not_reviewed:[$w[] | select(.review == "not_reviewed") | .pr],
+       hits:$hits,
        classes:([$all[] | select(.class != null)] | group_by(.class)
          | map({class: .[0].class, n: length, week: ([.[] | select(.at >= $s)] | length),
                 last: (map(.at) | max)})

@@ -33,7 +33,7 @@ branch, kept current by a structural fingerprint.
 | `## Ownership` | `CODEOWNERS` rules. |
 | `## Checks` | `.github/workflows/*` (name, triggers) and the default branch's required status checks. |
 | `## Noise` | Globs never reviewed as code: built-in lockfile / snapshot / build / vendored / minified / generated patterns plus `.gitattributes` `linguist-generated` and `linguist-vendored` entries. Classifies every changed file of a PR. |
-| `## History` | The agent's own posted reviews (`work/reviews/pr-*.md` → `findings-json`, last 90 days): per directory the open critical/warning/suggestion counts, `still`-present findings, last date, sample summaries, plus the recurring finding classes. Recomputed on every refresh — a record of the past, not a claim about the code. |
+| `## History` | The agent's own posted reviews (`work/reviews/pr-*.md` → `findings-json`, last 90 days): per directory the open critical/warning/suggestion counts, `still`-present findings, the escaped defects of `work/ESCAPES.jsonl` (`paths`, all time — [escapes.md](escapes.md)), last date, sample summaries, plus the recurring finding classes. Recomputed on every refresh — a record of the past, not a claim about the code. |
 | `## Notes` | Rows of `work/PROFILE-NOTES.md`, each stamped with the blob of its source and a status (`new`, `current`, `stale`, `orphan`, `unanchored`). |
 
 Data lives in `work/PROFILE.json`; `work/PROFILE.md` is its render for readers.

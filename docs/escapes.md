@@ -80,8 +80,11 @@ and gets one sentence that says so.
      hunk; when it does not, rewrite it.
    - A generic class that neither [review.md](review.md) → **Criteria &
      review style** nor any configured skill covers is a definition finding:
-     file it per [runbook.md](runbook.md) → **Definition-repo issues**.
-5. **Record** — write the row (**The ledger**) to a file in `$TMPDIR`, run
+     file it per [runbook.md](runbook.md) → **Definition-repo issues**. A
+     class bound to this repository that recurred is a tailored-skill rule
+     candidate ([audit.md](audit.md) task 39).
+5. **Record** — write the row (**The ledger**), with the failing code's
+   `paths`, to a file in `$TMPDIR`, run
    `escape.sh record "$HOME/work" <file>`, delete the file. `error` → fix the
    named fields and run it once more.
 6. **Reply in the thread** of the report (`mcp__platform-outbound__reply`
@@ -114,6 +117,7 @@ backup refuses to delete it. `escape.sh record` validates and stamps `at`:
 | `class` | the class name (≤ 80 chars), `null` when step 4 did not run |
 | `rule` | `added` · `strengthened` · `none` |
 | `recurrence` | `true` when the class stood at the PR's review (default `false`) |
+| `paths` | the repository paths of the failing code (default `[]`); the profile's `## History` counts them per directory ([profile.md](profile.md)) |
 
 Other fields (`url`, `sha`, `note`) are kept as given.
 
@@ -130,6 +134,6 @@ Other fields (`url`, `sha`, `note`) are kept as given.
 
 ## Self-check
 
-- One ledger row per new key; a class line written or widened for every
+- One ledger row per new key, with its `paths`; a class line written or widened for every
   `weak`, `missed`, `not_reviewed` and visible `unknown`, checked against the
   diff; the reply in the thread; nothing posted on GitHub; `work/` backed up.

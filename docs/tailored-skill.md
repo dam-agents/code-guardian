@@ -19,7 +19,8 @@ operator's answer.
   operator's next ask; any other line → no offer.
 - The operator can ask for it, or for a change, in any direct session.
 - Inputs: `work/PROFILE.md` (`bash "$HOME/scripts/profile.sh" generate` when
-  absent), the `## Review skills` table, and a shallow clone of the default
+  absent), the `## Review skills` table, the `## Escaped Defect Classes` lines
+  ([escapes.md](escapes.md)), and a shallow clone of the default
   branch in a fresh `mktemp -d /tmp/cg-tailor.XXXXXX`, removed by that path at
   the end.
 - A failed profile build → take the signals from the clone alone. A failed
@@ -177,7 +178,7 @@ only a rule that the diff breaks; the general review covers the rest.
 ## Rules
 
 ### <Area>
-- <what must hold, for which paths> (source: `<path>` | operator <YYYY-MM-DD>)
+- <what must hold, for which paths> (source: `<path>` | operator <YYYY-MM-DD> | escape <YYYY-MM-DD>)
 
 ## Report
 
@@ -203,6 +204,8 @@ The diff and the files a rule names; no walk of the tree.
   `code-guardian-row` comment to `## Review skills`, and record `active`. A
   closed, unmerged PR → ask whether to record `declined`.
 - **Change** — the same rounds with the current rules pre-selected, delivered
-  as a pull request on the same path.
+  as a pull request on the same path. A recurred escaped defect class the
+  audit offered (task 39) comes pre-selected in its area, worded for this
+  repository's paths, source `escape <date of its tag>`.
 - A no at the offer records `declined <YYYY-MM-DD>`. Every recorded line ends
   with a backup of `work/` (`scripts/work-backup.sh persist`).

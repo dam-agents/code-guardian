@@ -52,7 +52,8 @@ posted full review; rapid reviews carry none. Per finding: `status`
 anchorable), `also` (the other locations of the same finding, `[{file,
 line}]`; omitted when there is one), `late` (`true` on a `new` finding already
 present at the prior reviewed SHA, [review-rereview.md](review-rereview.md) →
-**Re-review output**; omitted otherwise), `inline`, `summary` (≤ ~10 words),
+**Re-review output**; omitted otherwise), `escape` (the escaped defect class
+the finding matched, [escapes.md](escapes.md); omitted otherwise), `inline`, `summary` (≤ ~10 words),
 `fix` (the **Fix:** line in ≤ ~15 words; `null` on `suggestion` and `fixed`).
 `critical` and `warning` are the blocking set the next re-review checks
 against. Every anchor is a real line of the file it names — `post` warns on
