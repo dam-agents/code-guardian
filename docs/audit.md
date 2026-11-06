@@ -68,12 +68,19 @@ Never skip a task: one impossible this week (missing data, API error) is a
    benchmark, survey, daily brief under their keys, monitor, this audit)
    exists, is **enabled**, and its cron matches Step 6. Missing or disabled →
    **fail**.
-   - **Firing, not merely enabled:** `status.lastRun` within 1.5× the interval
-     of **its own cron**, measured from that cron's last firing opportunity
-     (walk back from now to the newest minute its day, hour and minute fields
-     admit — `*/5 8-21 * * 1-5` read at 07:00 on a Friday → Thursday 21:55),
-     and `status.lastResult` = `success`. Else **fail**, naming the schedule,
-     its `lastRun` and `lastResult`.
+   - **Firing, not merely enabled:** the newest sign of firing lies within
+     1.5× the interval of **its own cron**, measured from that cron's last
+     firing opportunity (walk back from now to the newest minute its day, hour
+     and minute fields admit — `*/5 8-21 * * 1-5` read at 07:00 on a Friday →
+     Thursday 21:55). The signs: `status.lastRun`, the last declined tick (gate
+     skip, next to `status.declinedCount`) when the answer carries its time,
+     and `stats.last_pass.<mode>` for the mode of its `spec.precheck` — a gate
+     that finds no work logs that pass and starts no session. The review
+     heartbeats share the mode `review`: `last_pass.review` speaks only for the
+     one whose cron admits the newest minute. No sign within → **fail**, naming
+     the schedule and each sign. `status.lastResult` counts only when `lastRun`
+     is the newest sign: not `success` → **fail**; null (a session recycle
+     clears it) → **warn**.
    - A cron that contradicts the cadence keys → **warn** naming both values;
      config wins, the fix is re-registration (ONBOARDING Step 6a).
    - **Gates:** every Step 6 schedule except this audit carries
@@ -190,6 +197,8 @@ the PRs behind them; a `review_ledger` warn makes them a floor.
 26. **Idle-tick pulse** — idle/total heartbeats from `stats` measures the
     **gate**, not spend: near zero with no reviews means something re-triggers
     work every run (worklist.md → **The schedule gate**).
+    `stats.last_pass` maps each mode to its newest `HEARTBEAT.log` line, idle
+    or not (task 5).
     `stats.wakeups` counts the preflight and monitor passes that found work
     (direct session included), split `by_mode` and by the work carried
     (`by_work.<kind>` — `runs` and `items`; a run can carry several kinds).
