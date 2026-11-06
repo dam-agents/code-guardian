@@ -189,7 +189,8 @@ from the work repo's history:
   **Review ledger**) and `work/PR-EVENTS.jsonl` ([shepherd.md](shepherd.md) →
   **PR facts**) are trimmed to rows younger than **180 days** — they outlive
   the PR, and the trend backfill reads back over past weeks.
-- `work/AUDIT.log` is exempt (one line per week).
+- `work/AUDIT.log` (one line per week) and `work/ESCAPES.jsonl`
+  ([escapes.md](escapes.md)) are exempt.
 - The monitor's pass trims its own records: `work/health/`
   ([health.md](health.md)), `work/MONITOR.json` and `work/REVIEW-USAGE.jsonl`
   ([monitor.md](monitor.md)).

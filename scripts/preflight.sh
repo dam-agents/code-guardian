@@ -637,9 +637,12 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
 # is never measured. Review runs log an overrun; the audit turns it into a
 # check and a mandatory consolidation. Local reads only, no judgment.
 memory_budget_json() {
-  local ml=0 ins=0 fb=0 ls=0 lng=0 ll=0 llng=0 over=false f t body tover='[]' tunsc='[]' tmax=0
+  local ml=0 ins=0 esc=0 fb=0 ls=0 lng=0 ll=0 llng=0 over=false f t body tover='[]' tunsc='[]' tmax=0
   [ -f "$WORK/MEMORY.md" ] && ml="$(grep -c '' "$WORK/MEMORY.md" 2>/dev/null || true)"
   ins="$(sed -n '/^## Observed Insights/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
+  # escaped defect classes (docs/escapes.md): the section after its heading,
+  # up to the next one
+  esc="$(sed -n '/^## Escaped Defect Classes/,/^## /{/^## Escaped Defect Classes/d;p;}' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   fb="$(sed -n '/^## Feedback Log/,/^## /p' "$WORK/MEMORY.md" 2>/dev/null | grep -c '^- ' || true)"
   ls="$(grep -c '^## ' "$WORK/LESSONS.md" 2>/dev/null || true)"
   [ -f "$WORK/LESSONS.md" ] && ll="$(grep -c '' "$WORK/LESSONS.md" 2>/dev/null || true)"
@@ -665,13 +668,14 @@ memory_budget_json() {
       tover="$(printf '%s' "$tover" | jq -c --arg t "$t" '. + [$t]')"
     fi
   done
-  { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${fb:-0}" -gt 20 ] \
+  { [ "${ml:-0}" -gt 120 ] || [ "${ins:-0}" -gt 15 ] || [ "${esc:-0}" -gt 20 ] || [ "${fb:-0}" -gt 20 ] \
     || [ "${ls:-0}" -gt 10 ] || [ "${lng:-0}" -gt 0 ] || [ "${ll:-0}" -gt 100 ] || [ "${llng:-0}" -gt 0 ] \
     || [ "$tover" != '[]' ] || [ "$tunsc" != '[]' ]; } && over=true
-  jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" \
+  jq -nc --argjson ml "${ml:-0}" --argjson ins "${ins:-0}" --argjson esc "${esc:-0}" --argjson fb "${fb:-0}" --argjson ls "${ls:-0}" \
     --argjson lng "${lng:-0}" --argjson ll "${ll:-0}" --argjson llng "${llng:-0}" \
     --argjson tover "$tover" --argjson tunsc "$tunsc" --argjson tmax "$tmax" --argjson over "$over" \
-    '{memory_lines:$ml, memory_limit:120, insights:$ins, insights_limit:15, feedback:$fb, feedback_limit:20,
+    '{memory_lines:$ml, memory_limit:120, insights:$ins, insights_limit:15, escapes:$esc, escapes_limit:20,
+      feedback:$fb, feedback_limit:20,
       lessons_sections:$ls, lessons_limit:10, lessons_lines:$ll, lessons_lines_limit:100,
       lessons_long_lines:$llng, lessons_line_limit:200, long_lines:$lng, line_limit:120,
       area_over:$tover, area_unscoped:$tunsc, area_max_lines:$tmax, area_lines_limit:40, over_budget:$over}'
@@ -2341,7 +2345,7 @@ if [ "$MODE" = "audit" ]; then
   # memory budget (docs/preferences.md → bounds): over the documented cap is a
   # warn that makes this audit's consolidation mandatory; 1.5× the cap is a fail
   mb_detail="$(printf '%s' "$MEMORY_JSON" | jq -r 'def names: if length > 5 then (.[:5] | join(", ")) + " +\(length - 5) more" else join(", ") end;
-    "MEMORY.md \(.memory_lines)/\(.memory_limit) lines · \(.long_lines) past \(.line_limit) chars · insights \(.insights)/\(.insights_limit) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections, \(.lessons_lines)/\(.lessons_lines_limit) lines, \(.lessons_long_lines) past \(.lessons_line_limit) chars · area files: \(.area_over | length) over \(.area_lines_limit) lines or 120 chars\(if (.area_over | length) > 0 then " (" + (.area_over | names) + ")" else "" end)\(if (.area_unscoped | length) > 0 then " · \(.area_unscoped | length) without scope, archive them (" + (.area_unscoped | names) + ")" else "" end)"')"
+    "MEMORY.md \(.memory_lines)/\(.memory_limit) lines · \(.long_lines) past \(.line_limit) chars · insights \(.insights)/\(.insights_limit) · escape classes \(.escapes // 0)/\(.escapes_limit // 20) · feedback \(.feedback)/\(.feedback_limit) · LESSONS.md \(.lessons_sections)/\(.lessons_limit) sections, \(.lessons_lines)/\(.lessons_lines_limit) lines, \(.lessons_long_lines) past \(.lessons_line_limit) chars · area files: \(.area_over | length) over \(.area_lines_limit) lines or 120 chars\(if (.area_over | length) > 0 then " (" + (.area_over | names) + ")" else "" end)\(if (.area_unscoped | length) > 0 then " · \(.area_unscoped | length) without scope, archive them (" + (.area_unscoped | names) + ")" else "" end)"')"
   # Insights and the Feedback Log have their own counters, so an over-budget
   # MEMORY.md whose two counters sit inside bounds is carrying the lines
   # somewhere else — name the biggest sections, the consolidation needs to know

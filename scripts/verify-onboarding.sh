@@ -509,7 +509,7 @@ EOF
 
   # --- unexpected top-level entries (known = templates + runtime bookkeeping;
   #     .gitignore may arrive via restore from the work backup repo)
-  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md diagrams VERSION AUDIT.log BRIEF.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock GITHUB.json .housekeeping-since .mention-scan-since .holds.lock"
+  KNOWN="AGENTS.md CONFIG.md MEMORY.md REVIEWS.md LESSONS.md DEVELOPERS.md SHEPHERD.md MENTIONS.md PROFILE.md PROFILE.json PROFILE-NOTES.md diagrams VERSION AUDIT.log BRIEF.log HEARTBEAT.log SHEPHERD.log REVIEW-LEDGER.jsonl REVIEW-USAGE.jsonl PR-EVENTS.jsonl ESCAPES.jsonl ESCAPES.jsonl.lock logs reviews memory benchmark audit survey health .cache .gitignore .stall-alert-day .stall-alert.lock .review-anomaly-seen .review-anomaly.lock MONITOR.json MONITOR.json.lock MONITOR.json.break.lock GITHUB.json .housekeeping-since .mention-scan-since .holds.lock"
   UNKNOWN=""
   for e in "$WORK"/* "$WORK"/.[!.]*; do
     [ -e "$e" ] || continue

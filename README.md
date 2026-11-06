@@ -104,9 +104,11 @@ people the agent may @-mention — with each member's Slack member ID. Without
 Slack, reviews, reports and alerts still land in the chat UI and on GitHub.
 Anyone in the connected channel, or an admitted GitHub mention, can ask for a
 review ([`docs/review-on-demand.md`](docs/review-on-demand.md) → **On-demand
-review**); a roster member can also ask for a definition issue or, opt-in, a
-draft definition PR ([`docs/channel-requests.md`](docs/channel-requests.md));
-any other channel request is declined
+review**). An error report from a running environment teaches the review its
+defect class ([`docs/escapes.md`](docs/escapes.md)); a roster member can also
+ask for a definition issue or, opt-in, a draft definition PR
+([`docs/channel-requests.md`](docs/channel-requests.md)); any other channel
+request is declined
 ([`docs/runbook.md`](docs/runbook.md) → **Instruction sources & trust
 boundary**).
 

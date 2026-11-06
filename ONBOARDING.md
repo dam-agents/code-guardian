@@ -237,6 +237,9 @@ _(No custom rules yet — user feedback will populate this)_
 ## Observed Insights
 _(Learned from human reviews, PR comments, and author replies — consolidated weekly at audit)_
 
+## Escaped Defect Classes
+_(Learned from errors a running environment showed — docs/escapes.md)_
+
 ## Feedback Log
 _(No feedback yet — entries will be added as the user provides feedback)_
 EOF
