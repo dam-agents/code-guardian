@@ -582,7 +582,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg slack "$SLACK" --arg audit "$(cfg audit_report)" --arg atr "$AUDIT_TREND" --arg dis "$(cfg definition_issues)" --arg aig "$(cfg audit_infographic)" --arg cdp "$(cfg channel_definition_prs)" \
   --arg eo "$ESCALATION_OWNER" --arg mo "$MONITOR_OWNER" --argjson stall "$STALL_ALERT_THRESHOLD" --argjson raf "$ANOMALY_FACTOR" \
   --argjson mat "$MODEL_ALERT_THRESHOLD" --argjson gat "$GITHUB_ALERT_THRESHOLD" --argjson cat "$CLASSIFIER_ALERT_THRESHOLD" \
-  --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" \
+  --arg msd "$(cfg monitor_slack_direct)" --arg hd "$(cfg health_dashboard)" --arg aman "$(cfg agent_manifest)" \
   --arg ll "$(cfg log_level)" --arg def "$(cfg definition_repo)" --arg db "$DEFINITION_BRANCH" --arg pp "$PROJECT_PROFILE" \
   --arg wr "$WORK_REPO" --arg ss "$(cfg shepherd_scope)" --arg hp "$(cfg human_review_paths | tr -d '`')" \
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
@@ -613,6 +613,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    model_alert_threshold:$mat, github_alert_threshold:$gat, classifier_alert_threshold:$cat,
    monitor_slack_direct:(if $msd=="enabled" then "enabled" else "disabled" end),
    health_dashboard:(if $hd=="dam" then "dam" else "off" end),
+   agent_manifest:(if $aman=="off" then "off" else "dam" end),
    log_level:(if $ll=="" then "info" else $ll end), definition_repo:(if $def=="" then null else $def end), definition_branch:$db,
    work_repo:(if $wr=="" then null else $wr end),
    shepherd_scope:(if $ss=="all" then "all" else "needs_human" end),

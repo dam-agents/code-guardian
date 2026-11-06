@@ -573,6 +573,7 @@ Final shape:
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
 - audit_infographic: enabled           # the report's numbers as one picture in its Slack thread; omit = disabled
+- agent_manifest: dam                  # public interface card surface: dam (default) | off
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - channel_definition_prs: disabled     # draft definition PRs on a roster member's channel ask; omit = disabled
 - merge_ready_nudge: enabled           # one Slack line when an approved PR is ready to land; omit = disabled
@@ -841,6 +842,15 @@ with the verification result (the `PASS` line plus any warnings):
      (`docs/watches.md`).
    - Any config value can be changed in chat later, except `review_marker`
      once reviews exist.
+
+Then write the first public interface card, the one every weekly audit keeps
+current (`docs/manifest.md` → **Write, check, publish**): write
+`work/manifest.json`, run `scripts/manifest-check.sh stamp` and `publish` until
+it prints `PASS`, publish it as the public artifact under
+`agent_manifest: dam`, and keep its id in `work/manifest-publish.json`. Under
+`agent_manifest: off`, keep the card in `work/` and publish nothing. No peer
+row exists yet: `work/PEERS.md` gets its first one when the operator gives a
+peer's link.
 
 Last, when `work/MEMORY.md` → `## Review Style` has no `Tailored skill:` line,
 or an `open` one, offer a review skill made for this repository and follow

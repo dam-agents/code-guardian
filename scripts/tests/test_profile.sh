@@ -308,6 +308,7 @@ assert_jq '.reviews_due[0].memory_due == ["work/memory/api-server.md"]' 'area me
 assert_jq '.reviews_due[0].skill_routing == {"react-ui-engineering":["packages/b/src/view.tsx"],"typescript-engineering":["packages/a/src/query.ts"]}' 'extension routing per trigger list, always skills excluded'
 assert_jq '.config | .active_hours == "00-23" and .active_days == "Mon-Sun" and .review_interval_active == 5 and .review_interval_quiet == 15' 'cadence keys resolved with their defaults'
 assert_jq '.config | .bot_login == "test-bot" and .review_marker == "cg:review" and .rereview_label == "cg-rereview" and .rereview_trigger == "label" and .mention_replies == "enabled" and .slack_notifications == "disabled" and .project_profile == "enabled" and (.skills_table | length == 3) and .watch_rules == []' 'resolved config with defaults and tables'
+assert_jq '.config.agent_manifest == "dam"' 'the manifest surface defaults to dam when the key is missing'
 assert_jq '.memory | .memory_limit == 120 and .over_budget == false' 'memory budget measured'
 missing="$(comm -23 \
   <(sed -n '/^## Keys/,/^## Reader/p' "$REPO_ROOT/docs/config.md" \

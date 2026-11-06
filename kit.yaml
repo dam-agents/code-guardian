@@ -11,7 +11,9 @@ description: >-
   labeled PR. An error report from a running environment in the channel
   teaches the review the defect class that escaped. A separate monitor reports the agent's own health every 15
   minutes (model or GitHub outages, classifier refusals, a silent heartbeat)
-  and can publish a health dashboard.
+  and can publish a health dashboard. Every instance also publishes a public
+  card of the agent's own interface — its surfaces, triggers, contracts and
+  handoffs — for people and for other agents.
 tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
