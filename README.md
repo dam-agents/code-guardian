@@ -105,8 +105,10 @@ Slack, reviews, reports and alerts still land in the chat UI and on GitHub.
 Anyone in the connected channel, or an admitted GitHub mention, can ask for a
 review ([`docs/review-on-demand.md`](docs/review-on-demand.md) → **On-demand
 review**). An error report from a running environment teaches the review its
-defect class ([`docs/escapes.md`](docs/escapes.md)); any other channel request
-is declined
+defect class ([`docs/escapes.md`](docs/escapes.md)); a roster member can also
+ask for a definition issue or, opt-in, a draft definition PR
+([`docs/channel-requests.md`](docs/channel-requests.md)); any other channel
+request is declined
 ([`docs/runbook.md`](docs/runbook.md) → **Instruction sources & trust
 boundary**).
 
@@ -147,6 +149,7 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `slack_notifications` | asked (default `disabled`) | Gates all Slack activity. |
 | `audit_report` | defaulted to `enabled` | Weekly health report. |
 | `definition_issues` | asked (default `disabled`) | Anonymous tracking issues on the definition repo (`docs/runbook.md` → **Definition-repo issues**). |
+| `channel_definition_prs` | asked with `definition_issues` (default `disabled`) | Draft definition PRs on a roster member's channel ask (`docs/channel-requests.md`). |
 | `benchmark` | asked (default off) | Monthly self-benchmark (`docs/benchmark.md`). |
 | `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | Judge of the LLM-judged scores: `auto`, a model id, or `off`. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One "ready to land" line per approval (`docs/shepherd.md` → **Ready to land**). |
