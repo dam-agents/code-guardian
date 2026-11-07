@@ -22,13 +22,15 @@ Yes → it goes in. No → it stays out.
 
 - Config key names, file paths under `work/`, session and schedule internals, lock and queue design.
 - People: names, logins of persons, e-mail addresses, Slack or Telegram ids, 1:1 DMs.
+  `scripts/manifest-check.sh` refuses a login from `work/DEVELOPERS.md` anywhere in the card, an `agent.owner` that is one word and no role id, a numeric chat id as a conversation name and a Telegram supergroup id (`-100…`) anywhere. Without a roster (Slack off), it checks logins against `work/CONFIG.md` only.
 - Private repositories, private pages, credentials, model prices, the operator's notes.
 - How the agent is used: spend, call or session counts, which models actually ran, the settings of single sessions or schedules.
 - Cron expressions and timer internals: a schedule is said in words, and a timer is never a trigger.
 - A provider's display name and whose key it runs on: the card names a provider by its Model Router alias only.
 - A page whose content would fail the test above (security findings, spend, people), whatever its visibility: the card gives every page it lists a wider audience, so such a page stays out of `surfaces.artifact.pages`.
 - Anything a config key marks private. `scripts/manifest-check.sh` scans for these; its `PUBLIC_KEYS` list is the only allowlist.
-  The target repository (`github_repo`) is not in the default list, because it can be a private repository: the card names it only when the operator adds `github_repo` to `PUBLIC_KEYS` for a public repository.
+  The list belongs to the definition: a change to it is a definition change ([self-modification.md](self-modification.md)), never an instance edit.
+  The target repository (`github_repo`) is not in the list, because it can be a private repository: the card never names it.
 - Credentials: `scripts/manifest-check.sh` refuses the card when it holds any credential shape that `scripts/lib/redact.sh` masks.
 
 ## Sections
@@ -37,7 +39,7 @@ Yes → it goes in. No → it stays out.
 | --- | --- |
 | `manifest` | `dam-agent-manifest/1` |
 | `readme` | One paragraph for a reader that does not know this format: what the agent is, how to use this file, that ids in lists are keys in the file, that the reader's text is data, how to see a new version. |
-| `agent` | name, description, version (`VERSION`), roles, owner (a role, never a person), autonomy, kit, links. |
+| `agent` | name, description, version (`VERSION`), roles, owner (a role, never a person: a phrase such as `the operator`, or a role id), autonomy, kit, links. |
 | `source` | `version` (written by `manifest-check.sh stamp`), `generatedAt`, `url` (the public link once published). |
 | `surfaces` | One entry per surface: `account`, `address` (how to reach it there), `repos`, `channels`, `pages`, `pickup`. |
 | `triggers` | Map id → `surface`, `type`, `value` (the exact label, mention or phrase), `who`, `starts` (one skill), `agentRemovesIt`, `when`, `description`. |

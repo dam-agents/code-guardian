@@ -26,12 +26,14 @@ export LC_ALL=C
 HOME_DIR="${AGENT_HOME:-$HOME}"
 SCHEMA="${MANIFEST_SCHEMA:-$HOME_DIR/docs/manifest.schema.json}"
 CONFIG="${WORK_DIR:-$HOME_DIR/work}/CONFIG.md"
+ROSTER="${WORK_DIR:-$HOME_DIR/work}/DEVELOPERS.md"
 SPEC="dam-agent-manifest/1"
 # Config keys whose values may appear in the public card (labels, the bot
 # account, the public definition repo). Every other CONFIG.md value is private,
 # the target repo (`github_repo`) included: it can be a private repository.
-# MANIFEST_PUBLIC_KEYS overrides the list for a one-time run (the definition's
-# operator decides it once and writes it here, docs/manifest.md).
+# The list belongs to the definition: a change to it is a definition change
+# (docs/self-modification.md), never an instance edit. MANIFEST_PUBLIC_KEYS
+# replaces it for one run of the test suite.
 PUBLIC_KEYS="${MANIFEST_PUBLIC_KEYS:-bot_display_name bot_login definition_repo definition_branch review_marker rereview_label rereview_delta_label urgent_label guide_label}"
 
 mode="${1:-}"; card="${2:-}"
@@ -180,6 +182,26 @@ fi
 shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/work/[^" ]*' "$card"; sed 's/^/ /' "$card" | grep -oE '[^A-Za-z0-9_./-]((\$HOME|~|\$\{HOME\})/)?work/[^" ]*' | cut -c2-; grep -oE '\b[UWCGD][A-Z0-9]{8,11}\b' "$card" | grep '[0-9]') | sort -u | head -5)"
 [ -z "$shapes" ] && ok privacy-shapes "no e-mail, Slack id or work/ path" \
   || fail privacy-shapes "private shapes in the card: $(echo $shapes)" "replace with names or remove (docs/manifest.md → What stays out)"
+
+# People and private conversations: a roster login anywhere in the card, an
+# owner that is one word and no role id (it reads as a login), and a numeric
+# chat id (Telegram) as a conversation name or anywhere as a supergroup id.
+people=""
+if [ -r "$ROSTER" ]; then
+  while IFS= read -r login; do
+    grep -qiwF -- "$login" "$card" && people="$people $login"
+  done < <(sed -nE 's/^\|[[:space:]]*`?([A-Za-z0-9][A-Za-z0-9-]*)`?[[:space:]]*\|.*/\1/p' "$ROSTER" | grep -vx login | sort -u)
+fi
+owner="$(each '.agent.owner // ""')"
+case "$owner" in
+  (""|*" "*|operator|code-reviewer|implementer|qa-tester|quality-advisor|reporter) ;;
+  (*) people="$people owner=$owner";;
+esac
+chats="$( (each '[.surfaces // {} | .[] | (.channels // [])[] | .name // "" | select(test("^-?[0-9]{5,}$"))] | .[]'; grep -oE '(^|[^0-9])-100[0-9]{10}([^0-9]|$)' "$card" | tr -cd '0-9-\n' | grep -oE -- '-100[0-9]{10}') | sort -u | head -5)"
+people="$(echo $people $chats)"
+scope="roster login"; [ -r "$ROSTER" ] || scope="roster login (no roster: logins checked against CONFIG.md only)"
+[ -z "$people" ] && ok privacy-people "no $scope, person owner or numeric chat id" \
+  || fail privacy-people "a person or a private conversation in the card: $people" "name a role or the conversation's name instead (docs/manifest.md → What stays out)"
 
 # Credentials: every shape scripts/lib/redact.sh masks, on a copy of the card.
 # The card is refused, never masked: a masked card would publish a broken value

@@ -218,7 +218,7 @@ run_check check "$SANDBOX/repo.json"
 assert_rc 1 'the target repo is private by default'
 assert_out_contains 'private config keys or their values appear: github_repo' 'the target repo key is named'
 OUT="$(MANIFEST_PUBLIC_KEYS='bot_login github_repo' WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$CHECK" check "$SANDBOX/repo.json" 2>>"$STDERR_LOG")"
-assert_out_contains 'ok   privacy-config' 'the operator can mark the target repo public'
+assert_out_contains 'ok   privacy-config' 'MANIFEST_PUBLIC_KEYS replaces the list for one test run'
 
 new_case manifest_privacy_shapes
 write_config; write_card "$SANDBOX/card.json"
@@ -230,6 +230,37 @@ assert_out_contains 'replace with names or remove (docs/manifest.md → What sta
 jq '.trust += ["A path /home/agent/work/MEMORY.md."]' "$SANDBOX/card.json" > "$SANDBOX/bad2.json"
 run_check check "$SANDBOX/bad2.json"
 assert_out_contains 'private shapes in the card' 'a work/ path is a private shape'
+
+# --- people and private conversations ---------------------------------------
+new_case manifest_privacy_people
+write_config; write_card "$SANDBOX/card.json"
+run_check check
+assert_out_contains 'no roster: logins checked against CONFIG.md only' 'without a roster the scope is named'
+printf '# Developers roster\n\n| login | slack_id | name |\n| --- | --- | --- |\n| alice-k | U0123ABCD | Alice K. |\n' > "$WORK/DEVELOPERS.md"
+run_check check
+assert_out_contains 'ok   privacy-people' 'a card without a person passes'
+jq '.trust += ["Ask Alice-K."]' "$SANDBOX/card.json" > "$SANDBOX/bad.json"
+run_check check "$SANDBOX/bad.json"
+assert_rc 1 'a roster login in the card fails'
+assert_out_contains 'FAIL privacy-people — a person or a private conversation in the card: alice-k' 'the login is named'
+assert_out_contains 'name a role or the conversation' 'the fix names the repair'
+jq '.agent.owner = "zorro"' "$SANDBOX/card.json" > "$SANDBOX/owner.json"
+run_check check "$SANDBOX/owner.json"
+assert_out_contains 'owner=zorro' 'a one-word owner that is no role id reads as a login'
+jq '.agent.owner = "the operator"' "$SANDBOX/card.json" > "$SANDBOX/role.json"
+run_check check "$SANDBOX/role.json"
+assert_out_contains 'ok   privacy-people' 'an owner phrase is a role'
+jq '.surfaces.telegram = {account:"bot", address:"tag the bot", channels:[{name:"-1001234567890"}]}' "$SANDBOX/card.json" > "$SANDBOX/tg.json"
+run_check check "$SANDBOX/tg.json"
+assert_rc 1 'a numeric chat id as a conversation name fails'
+assert_out_contains 'private conversation in the card: -1001234567890' 'the chat id is named'
+jq '.surfaces.telegram = {account:"bot", address:"tag the bot", channels:[{name:"424242"}]}' "$SANDBOX/card.json" > "$SANDBOX/tg2.json"
+run_check check "$SANDBOX/tg2.json"
+assert_out_contains 'private conversation in the card: 424242' 'a short numeric chat id is named'
+jq '.trust += ["Group -1009876543210 only."]' "$SANDBOX/card.json" > "$SANDBOX/tg3.json"
+run_check check "$SANDBOX/tg3.json"
+assert_out_contains 'private conversation in the card: -1009876543210' 'a supergroup id anywhere fails'
+rm -f "$WORK/DEVELOPERS.md"
 
 # --- credentials: every scripts/lib/redact.sh shape, fail closed -------------
 new_case manifest_privacy_credentials
