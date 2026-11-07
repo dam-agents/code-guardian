@@ -189,9 +189,11 @@ shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/wo
 # The roster is read through roster_tsv (scripts/lib/common.sh), which knows
 # both documented forms: table rows and `login:`/`slack_id:` bullet pairs.
 # A roster that exists is read or the check fails: an unreadable file, a
-# missing common.sh and a roster with no login all fail closed.
-people=""; roster_fail=""
-if [ -e "$ROSTER" ] && [ ! -r "$ROSTER" ]; then
+# dangling symlink, a missing common.sh and a roster with no login all fail
+# closed. Presence is the directory entry (-e or -L): -e alone follows a link.
+people=""; roster_fail=""; roster_present=""
+{ [ -e "$ROSTER" ] || [ -L "$ROSTER" ]; } && roster_present=1
+if [ -n "$roster_present" ] && [ ! -r "$ROSTER" ]; then
   roster_fail=1; fail privacy-people "the roster cannot be read ($ROSTER)" "fix its permissions, so the card is scanned"
 elif [ -r "$ROSTER" ]; then
   COMMON_LIB="$(dirname "$0")/lib/common.sh"
@@ -214,7 +216,7 @@ case "$owner" in
 esac
 chats="$( (each '[.surfaces // {} | .[] | (.channels // [])[] | .name // "" | select(test("^-?[0-9]{5,}$"))] | .[]'; grep -oE '(^|[^0-9])-100[0-9]{10}([^0-9]|$)' "$card" | tr -cd '0-9-\n' | grep -oE -- '-100[0-9]{10}') | sort -u | head -5)"
 people="$(echo $people $chats)"
-scope="roster login"; [ -e "$ROSTER" ] || scope="roster login (no roster: logins checked against CONFIG.md only)"
+scope="roster login"; [ -n "$roster_present" ] || scope="roster login (no roster: logins checked against CONFIG.md only)"
 if [ -n "$people" ]; then
   fail privacy-people "a person or a private conversation in the card: $people" "name a role or the conversation's name instead (docs/manifest.md → What stays out)"
 elif [ -z "$roster_fail" ]; then

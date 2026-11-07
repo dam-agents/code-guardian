@@ -275,6 +275,14 @@ run_check check
 assert_rc 1 'a roster with no login fails closed'
 assert_out_contains 'FAIL privacy-people — the roster holds no login' 'the empty roster is named'
 assert_out_absent '^ok   privacy-people' 'an empty roster never passes'
+ln -sf "$WORK/missing-roster.md" "$WORK/DEVELOPERS.md"
+jq '.trust += ["Ask alice-k."]' "$SANDBOX/card.json" > "$SANDBOX/dangling.json"
+run_check check "$SANDBOX/dangling.json"
+assert_rc 1 'a dangling symlink roster fails closed'
+assert_out_contains 'FAIL privacy-people — the roster cannot be read' 'the dangling roster is named'
+assert_out_absent '^ok   privacy-people' 'a dangling roster never passes'
+assert_out_absent 'no roster: logins checked' 'a dangling roster never reads as no roster'
+rm -f "$WORK/DEVELOPERS.md"
 if [ "$(id -u)" -eq 0 ]; then
   printf 'ok   %s: unreadable roster skipped as root (root reads a mode-000 file)\n' "$CASE"
 else
