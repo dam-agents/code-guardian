@@ -194,7 +194,7 @@ shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/wo
 people=""; roster_fail=""; roster_present=""
 { [ -e "$ROSTER" ] || [ -L "$ROSTER" ]; } && roster_present=1
 if [ -n "$roster_present" ] && [ ! -r "$ROSTER" ]; then
-  roster_fail=1; fail privacy-people "the roster cannot be read ($ROSTER)" "fix its permissions, so the card is scanned"
+  roster_fail=1; fail privacy-people "the roster cannot be read ($ROSTER)" "fix its permissions or the link target, so the card is scanned"
 elif [ -r "$ROSTER" ]; then
   COMMON_LIB="$(dirname "$0")/lib/common.sh"
   if [ -r "$COMMON_LIB" ] && . "$COMMON_LIB" 2>/dev/null && type roster_tsv >/dev/null 2>&1; then
