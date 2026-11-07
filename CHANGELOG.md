@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 14.9.0 — 2026-11-06
+## 14.10.0 — 2026-11-07
 
 **Upgrade:**
 1. Write and publish the first public interface card; the weekly audit keeps it
@@ -21,6 +21,11 @@ they are released history and stay as written.
 2. Nothing else: `work/PEERS.md` gets its first row only when the operator
    gives a peer's manifest link ([docs/manifest.md](docs/manifest.md) →
    **Peers**).
+
+## 14.9.0 — 2026-11-06
+
+**Upgrade:** Nothing to run. Docs are re-read per run, and the migration
+refreshes the harness deny list.
 
 ## 14.8.0 — 2026-11-06
 
