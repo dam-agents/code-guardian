@@ -22,7 +22,7 @@ Yes → it goes in. No → it stays out.
 
 - Config key names, file paths under `work/`, session and schedule internals, lock and queue design.
 - People: names, logins of persons, e-mail addresses, Slack or Telegram ids, 1:1 DMs.
-  `scripts/manifest-check.sh` refuses a login from `work/DEVELOPERS.md` (table rows or `login:`/`slack_id:` pairs, read through `roster_tsv`) anywhere in the card, an `agent.owner` that is one word and no role id, a numeric chat id as a conversation name and a Telegram supergroup id (`-100…`) anywhere. Without a roster (Slack off), it checks logins against `work/CONFIG.md` only; a roster it cannot read is a `FAIL`.
+  `scripts/manifest-check.sh` refuses a login from `work/DEVELOPERS.md` (table rows or `login:`/`slack_id:` pairs, read through `roster_tsv`) anywhere in the card, an `agent.owner` that is one word and no role id, a numeric chat id as a conversation name and a Telegram supergroup id (`-100…`) anywhere. Without a roster (Slack off), it checks logins against `work/CONFIG.md` only. A roster that exists but cannot be read, or that holds no login, is a `FAIL`.
 - Private repositories, private pages, credentials, model prices, the operator's notes.
 - How the agent is used: spend, call or session counts, which models actually ran, the settings of single sessions or schedules.
 - Cron expressions and timer internals: a schedule is said in words, and a timer is never a trigger.

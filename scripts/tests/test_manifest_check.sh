@@ -270,6 +270,22 @@ cp "$REPO_ROOT/scripts/lib/redact.sh" "$SANDBOX/nocommon/lib/"
 OUT="$(WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$SANDBOX/nocommon/manifest-check.sh" check "$SANDBOX/card.json" 2>>"$STDERR_LOG")"; RC=$?
 assert_rc 1 'a roster that cannot be read fails closed'
 assert_out_contains 'FAIL privacy-people — the roster could not be read' 'the unread roster is named'
+printf '# Developers roster\n\nNobody yet.\n' > "$WORK/DEVELOPERS.md"
+run_check check
+assert_rc 1 'a roster with no login fails closed'
+assert_out_contains 'FAIL privacy-people — the roster holds no login' 'the empty roster is named'
+assert_out_absent '^ok   privacy-people' 'an empty roster never passes'
+if [ "$(id -u)" -eq 0 ]; then
+  printf 'ok   %s: unreadable roster skipped as root (root reads a mode-000 file)\n' "$CASE"
+else
+  printf '| login | slack_id |\n| --- | --- |\n| alice-k | U0123ABCD |\n' > "$WORK/DEVELOPERS.md"; chmod 000 "$WORK/DEVELOPERS.md"
+  jq '.trust += ["Ask alice-k."]' "$SANDBOX/card.json" > "$SANDBOX/bad.json"
+  run_check check "$SANDBOX/bad.json"
+  assert_rc 1 'a roster that exists but cannot be read fails closed'
+  assert_out_contains 'FAIL privacy-people — the roster cannot be read' 'the unreadable roster is named'
+  assert_out_absent '^ok   privacy-people' 'an unreadable roster never passes'
+  chmod 600 "$WORK/DEVELOPERS.md"
+fi
 rm -f "$WORK/DEVELOPERS.md"
 
 # --- credentials: every scripts/lib/redact.sh shape, fail closed -------------

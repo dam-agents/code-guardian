@@ -188,15 +188,23 @@ shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/wo
 # chat id (Telegram) as a conversation name or anywhere as a supergroup id.
 # The roster is read through roster_tsv (scripts/lib/common.sh), which knows
 # both documented forms: table rows and `login:`/`slack_id:` bullet pairs.
-people=""
-if [ -r "$ROSTER" ]; then
+# A roster that exists is read or the check fails: an unreadable file, a
+# missing common.sh and a roster with no login all fail closed.
+people=""; roster_fail=""
+if [ -e "$ROSTER" ] && [ ! -r "$ROSTER" ]; then
+  roster_fail=1; fail privacy-people "the roster cannot be read ($ROSTER)" "fix its permissions, so the card is scanned"
+elif [ -r "$ROSTER" ]; then
   COMMON_LIB="$(dirname "$0")/lib/common.sh"
   if [ -r "$COMMON_LIB" ] && . "$COMMON_LIB" 2>/dev/null && type roster_tsv >/dev/null 2>&1; then
+    logins="$(roster_tsv "$ROSTER" | cut -f1 | sort -u)"
+    if [ -z "$logins" ]; then
+      roster_fail=1; fail privacy-people "the roster holds no login ($ROSTER)" "write it in a documented form (ONBOARDING.md → Build the developer roster), or remove the empty file"
+    fi
     while IFS= read -r login; do
       [ -n "$login" ] && grep -qiwF -- "$login" "$card" && people="$people $login"
-    done < <(roster_tsv "$ROSTER" | cut -f1 | sort -u)
+    done <<< "$logins"
   else
-    fail privacy-people "the roster could not be read ($COMMON_LIB)" "run the check from the agent's home, where scripts/lib/common.sh is readable"
+    roster_fail=1; fail privacy-people "the roster could not be read ($COMMON_LIB)" "run the check from the agent's home, where scripts/lib/common.sh is readable"
   fi
 fi
 owner="$(each '.agent.owner // ""')"
@@ -206,9 +214,12 @@ case "$owner" in
 esac
 chats="$( (each '[.surfaces // {} | .[] | (.channels // [])[] | .name // "" | select(test("^-?[0-9]{5,}$"))] | .[]'; grep -oE '(^|[^0-9])-100[0-9]{10}([^0-9]|$)' "$card" | tr -cd '0-9-\n' | grep -oE -- '-100[0-9]{10}') | sort -u | head -5)"
 people="$(echo $people $chats)"
-scope="roster login"; [ -r "$ROSTER" ] || scope="roster login (no roster: logins checked against CONFIG.md only)"
-[ -z "$people" ] && ok privacy-people "no $scope, person owner or numeric chat id" \
-  || fail privacy-people "a person or a private conversation in the card: $people" "name a role or the conversation's name instead (docs/manifest.md → What stays out)"
+scope="roster login"; [ -e "$ROSTER" ] || scope="roster login (no roster: logins checked against CONFIG.md only)"
+if [ -n "$people" ]; then
+  fail privacy-people "a person or a private conversation in the card: $people" "name a role or the conversation's name instead (docs/manifest.md → What stays out)"
+elif [ -z "$roster_fail" ]; then
+  ok privacy-people "no $scope, person owner or numeric chat id"
+fi
 
 # Credentials: every shape scripts/lib/redact.sh masks, on a copy of the card.
 # The card is refused, never masked: a masked card would publish a broken value
