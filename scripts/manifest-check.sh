@@ -186,11 +186,18 @@ shapes="$( (grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}|/home/agent/wo
 # People and private conversations: a roster login anywhere in the card, an
 # owner that is one word and no role id (it reads as a login), and a numeric
 # chat id (Telegram) as a conversation name or anywhere as a supergroup id.
+# The roster is read through roster_tsv (scripts/lib/common.sh), which knows
+# both documented forms: table rows and `login:`/`slack_id:` bullet pairs.
 people=""
 if [ -r "$ROSTER" ]; then
-  while IFS= read -r login; do
-    grep -qiwF -- "$login" "$card" && people="$people $login"
-  done < <(sed -nE 's/^\|[[:space:]]*`?([A-Za-z0-9][A-Za-z0-9-]*)`?[[:space:]]*\|.*/\1/p' "$ROSTER" | grep -vx login | sort -u)
+  COMMON_LIB="$(dirname "$0")/lib/common.sh"
+  if [ -r "$COMMON_LIB" ] && . "$COMMON_LIB" 2>/dev/null && type roster_tsv >/dev/null 2>&1; then
+    while IFS= read -r login; do
+      [ -n "$login" ] && grep -qiwF -- "$login" "$card" && people="$people $login"
+    done < <(roster_tsv "$ROSTER" | cut -f1 | sort -u)
+  else
+    fail privacy-people "the roster could not be read ($COMMON_LIB)" "run the check from the agent's home, where scripts/lib/common.sh is readable"
+  fi
 fi
 owner="$(each '.agent.owner // ""')"
 case "$owner" in

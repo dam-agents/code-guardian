@@ -260,6 +260,16 @@ assert_out_contains 'private conversation in the card: 424242' 'a short numeric 
 jq '.trust += ["Group -1009876543210 only."]' "$SANDBOX/card.json" > "$SANDBOX/tg3.json"
 run_check check "$SANDBOX/tg3.json"
 assert_out_contains 'private conversation in the card: -1009876543210' 'a supergroup id anywhere fails'
+printf '# Developers roster\n\n- login: bob-q\n  slack_id: U0456EFGH\n' > "$WORK/DEVELOPERS.md"
+jq '.trust += ["Ask bob-q."]' "$SANDBOX/card.json" > "$SANDBOX/bullet.json"
+run_check check "$SANDBOX/bullet.json"
+assert_rc 1 'a login from a bullet-pair roster fails'
+assert_out_contains 'private conversation in the card: bob-q' 'the bullet-pair login is named'
+mkdir -p "$SANDBOX/nocommon/lib"; cp "$CHECK" "$SANDBOX/nocommon/manifest-check.sh"
+cp "$REPO_ROOT/scripts/lib/redact.sh" "$SANDBOX/nocommon/lib/"
+OUT="$(WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$SANDBOX/nocommon/manifest-check.sh" check "$SANDBOX/card.json" 2>>"$STDERR_LOG")"; RC=$?
+assert_rc 1 'a roster that cannot be read fails closed'
+assert_out_contains 'FAIL privacy-people — the roster could not be read' 'the unread roster is named'
 rm -f "$WORK/DEVELOPERS.md"
 
 # --- credentials: every scripts/lib/redact.sh shape, fail closed -------------
