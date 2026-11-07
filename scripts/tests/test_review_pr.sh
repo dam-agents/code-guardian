@@ -2492,7 +2492,8 @@ assert_jq '.skills["review-guide"].interactive == true' 'an accepted page gets t
 run_rp compose-brief 1
 assert_out_contains '### Human Review Guide' 'a built guide gets its section in the skeleton'
 assert_out_contains 'only when your triage is `needs-human`' 'the section depends on the triage'
-assert_out_contains 'create_artifact {title: "PR #1 review guide"' 'a first guide is created'
+assert_out_contains 'create_artifact {title: "PR #1 review guide", upload_ref: "<uploadRef>", folder_id: "<id>", type: "html", visibility: "public"}' 'a first guide is created in the folder'
+assert_out_contains 'the folder named `PR review artifacts`' 'the brief names the artifact folder'
 assert_out_absent 'update_artifact \{id' 'no prior guide, no update'
 assert_out_contains 'guide 1 --id <id> --url <shareUrl>' 'the brief names the record step'
 assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json" 'the brief renders the findings before the upload'
@@ -2575,6 +2576,7 @@ cat "$WORK"/logs/events-*.jsonl | jq -e 'select(.event=="guide") | .msg | test("
   && printf 'ok   %s: the guide event is logged\n' "$CASE" || { printf 'FAIL %s: no guide event\n' "$CASE"; FAILED=1; }
 run_rp compose-brief 1
 assert_out_contains 'update_artifact {id: "art_9"' 'a recorded guide is updated in place'
+assert_out_contains 'update_artifact {id: "art_9", upload_ref: "<uploadRef>", folder_id: "<id>"}' 'an update also carries the folder'
 run_rp abort 1 "reset"
 
 # the guide label passes the gate and publishes whatever the triage
@@ -2780,7 +2782,7 @@ printf '✅ No findings.\n' > "$(PR_DIR).out/doc-drift.txt"
 run_rp collect 1
 run_rp compose-brief 1
 assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json --kept" 'a kept guide with a stored page refreshes its findings'
-assert_out_contains 'update_artifact {id: "art_3"' 'and updates the same artifact'
+assert_out_contains 'update_artifact {id: "art_3", upload_ref: "<uploadRef>", folder_id: "<id>"}' 'and updates the same artifact'
 printf '[]' > "$(PR_DIR).ctx/findings.json"
 run_rp guide 1 --findings "$(PR_DIR).ctx/findings.json" --kept
 run_rp guide 1 --id art_3 --url https://dam.example.test/s/old
@@ -2801,7 +2803,7 @@ run_rp collect 1
 assert_jq '.skills["review-guide"].guide == "not-needed"' 'the skill built no page'
 run_rp compose-brief 1
 assert_out_contains "guide 1 --findings $(PR_DIR).ctx/findings.json --kept" 'a published guide is refreshed when the skill builds no page'
-assert_out_contains 'update_artifact {id: "art_3"' 'the same artifact gets the new version'
+assert_out_contains 'update_artifact {id: "art_3", upload_ref: "<uploadRef>", folder_id: "<id>"}' 'the same artifact gets the new version'
 assert_out_contains 'whatever your `meta.json` triage' 'the refresh does not depend on the triage'
 assert_out_contains '### Human Review Guide' 'the refreshed guide keeps its section'
 assert_out_contains 'at abc1234: the review notes are brought up to this round' 'the section line says what changed'

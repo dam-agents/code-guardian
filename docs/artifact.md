@@ -7,9 +7,11 @@ block. The link goes into the review itself, as the skill's section — no
 separate comment, no trigger to release.
 
 **Where it publishes:** the DAM Artifact Library, via the per-agent MCP tools
-(`create_artifact_upload_url` + `create_artifact` / `update_artifact`),
-registered only under the owner's **"artifact library" experimental flag**.
-**Best-effort**: a missing DAM surface never fails the run or delays the post.
+(`create_artifact_upload_url` + `create_artifact` / `update_artifact`), into
+the owner's folder **`PR review artifacts`** — a fixed name of this definition,
+created on the first publish — registered only under the owner's **"artifact
+library" experimental flag**. **Best-effort**: a missing DAM surface never
+fails the run or delays the post.
 
 > ⚠️ **Publishes to a public surface.** A `visibility:"public"` DAM artifact is
 > reachable by anyone with its `shareUrl`.
@@ -79,10 +81,14 @@ this PR's paths, id and line:
    then `curl -sS -f -X PUT -H 'Content-Type: text/html' --data-binary @<page> '<url>'`.
    The page is already redacted, checked and given its vetted interaction
    script by `collect`.
-4. **Publish** — the history file carries a guide id → `update_artifact {id,
-   upload_ref}`, a new version behind the same link; an update that fails
-   because the artifact is gone → create it as new. No id →
-   `create_artifact {title: "PR #<n> review guide", upload_ref, type: "html", visibility: "public"}`.
+4. **Publish** — `list_artifact_folders` → the folder named `PR review
+   artifacts`; when none, `create_artifact_folder {name: "PR review artifacts"}`.
+   The history file carries a guide id → `update_artifact {id, upload_ref,
+   folder_id}`, a new version behind the same link, which also moves a guide
+   published outside the folder; an update that fails because the artifact is
+   gone → create it as new. No id → `create_artifact {title: "PR #<n> review
+   guide", upload_ref, folder_id, type: "html", visibility: "public"}`. A
+   failing folder call → publish without `folder_id`; the run does not fail.
 5. **Record** — `review-pr.sh guide <n> --id <id> --url <shareUrl>` writes
    `<!-- artifact-guide: <id> <sha7> <url> -->` right after the title of
    `reviews/pr-<n>.md`, stores the published page as
@@ -113,6 +119,8 @@ it describes. This refresh is upkeep, not a review-content call.
 - First published only under a `needs-human` triage or the `guide_label`,
   then brought up to date in every round, recorded with `review-pr.sh guide`
   before the post, and its section dropped on every other outcome.
+- Every guide lands in the `PR review artifacts` folder; a failing folder call
+  publishes it ungrouped.
 - Every review note on the page names its author; the page judges none.
 - A `needs-human` round without a guide left `<!-- guide-owed -->` for one
   guide round, unless it was that guide round itself.
