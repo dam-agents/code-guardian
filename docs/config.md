@@ -205,6 +205,10 @@ exception (`benchmark_judge`).
   picture, with the numbers it leaves out as text
   ([audit.md](audit.md) → **Infographic**). Needs
   `slack_notifications: enabled` and a headless Chrome or Chromium on the pod.
+- **`agent_manifest`** — publish surface for the public interface card
+  ([manifest.md](manifest.md)), updated in place so its URL stays stable:
+  `dam` (default) | `off`. **Missing = `dam`**; any other value publishes to
+  `dam` and is logged. `off` keeps the card in `work/` and publishes nothing.
 - **`definition_issues`** — `enabled` | `disabled`. **Missing = `disabled`.**
   Whether the agent files anonymous tracking issues on `definition_repo` for
   the audit's definition bugs and channel-refused change requests
