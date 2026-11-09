@@ -31,10 +31,15 @@ line alone.
   concurrently without synchronization; a release or deploy gate that a
   failure can pass; unbounded concurrency or resource use.
 - 🟡 **Warning** — a real defect with a bounded blast radius: a conditional
-  path, degraded behavior, or changed logic with no test. Usually 🟡: a UI
+  path, degraded behavior, or changed logic. Usually 🟡: a UI
   state or guard defect that loses no data, a stale cache or memoized value,
   a bounded performance regression.
 - 🟢 **Suggestion** — an improvement with no defect behind it.
+
+**Missing test coverage never blocks.** A change with no test, or with a test
+that does not exercise it, is 🟢 at most. A weakened test or gate is a
+different defect and stays under Gate check ([review.md](review.md) → **Gate
+check**).
 
 **Blocking severity needs a demonstration, not a defensible reading.** A 🔴 or
 🟡 names the input or state that triggers the defect **and** the consequence.
