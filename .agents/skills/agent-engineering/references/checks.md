@@ -243,7 +243,7 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   or per-run path.
 - **Check:** *script* `shell` (pagination, growing list); *judgment*.
 
-### D8 🟡 Changed logic is tested
+### D8 🟢 Changed logic is tested
 - **Rule:** a changed branch, fallback or rule has a test that fails when the
   change is reverted, with fixtures of realistic size; the test runner ends
   in one explicit verdict; scripts parse and keep the executable bit of their
@@ -254,7 +254,8 @@ the reading decides the final one ([SKILL.md](../SKILL.md) → **5. Report
   changes what the agent does or publishes — not a reworded message.
 - **Check:** *script* `tests` (also a failure branch whose message no test
   names), `syntax`, `exec-bit`; *judgment*: would the test fail on the base
-  revision?
+  revision? Missing coverage stays 🟢. 🟡 when a script does not parse or
+  loses its executable bit, or the runner ends in no verdict.
 
 ## E. Release and deployment
 
