@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# benchmark isolation — benchmark-isolate.sh (check, bundle, start, wait,
-# collect) and benchmark-child.sh (unpack, report): the repository gates, a
+# benchmark isolation — benchmark-isolate.sh (check, bundle, start, run,
+# wait, collect)
 # bundle that never carries ground truth, the spawn request a sub-agent gets,
 # the result collection with its provenance check, and the sub-agent guards of
 # preflight.sh and work-backup.sh. Contract: docs/benchmark.md → Isolation.
@@ -261,6 +261,44 @@ iso start --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000
 check_eq "$RC" 1 'a refused spawn stops start'
 assert_out_contains 'ts-api-first: spawn refused — spend limit reached' 'the platform reason is relayed'
 check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 1 'a refused spawn is never repeated'
+
+# --- run (waves + retry) -------------------------------------------------------------
+iso_case run_spawns_in_waves_and_retries_a_failed_target
+printf '{"status":"failed","errorReason":"target agent deleted"}\n' > "$SANDBOX/rest/GET_invocations_inv-1.json"
+printf '{"status":"done","result":{"model":"m"}}\n' > "$SANDBOX/rest/GET_invocations_inv-2.json"
+printf '{"status":"done","result":{"model":"m"}}\n' > "$SANDBOX/rest/GET_invocations_inv-3.json"
+iso run --waves 1 --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 0 'run ends ok when the failed target passes its respawn'
+check_eq "$(cat "$SANDBOX/st/attempts/ts-api-first")":"$(cat "$SANDBOX/st/attempts/ts-api-rereview")" 2:1 'the failed task was respawned once, the healthy one never'
+check_eq "$(cat "$SANDBOX/st/ts-api-first.id")":"$(cat "$SANDBOX/st/ts-api-rereview.id")" inv-2:inv-3 'the respawn got a new target, the healthy task kept its wave order'
+[ -f "$SANDBOX/st/ts-api-first.result.json" ] && [ -f "$SANDBOX/st/ts-api-rereview.result.json" ] \
+  && check_eq ok ok 'both tasks hold a result' || check_eq missing results 'both tasks hold a result'
+# a wave of one never spawns a second task before the first ended: the second
+# POST follows the first GET poll of the first target
+POST2="$(grep -n '^POST /invocations$' "$SANDBOX/rest.log" | sed -n 2p | cut -d: -f1)"
+GET1="$(grep -n '^GET /invocations/inv-1$' "$SANDBOX/rest.log" | sed -n 1p | cut -d: -f1)"
+check_eq "$(( POST2 > GET1 && GET1 > 0 ))" 1 'one wave at a time: no second spawn before the first ended'
+
+iso_case run_fails_for_good_after_its_last_attempt
+for n in 1 2 3 4; do printf '{"status":"failed","errorReason":"target agent deleted"}\n' > "$SANDBOX/rest/GET_invocations_inv-$n.json"; done
+iso run --waves 2 --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'run fails when a task fails its last attempt'
+assert_out_contains 'failed for good: ts-api-first (target agent deleted)' 'the summary names the task and the platform reason'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 4 'each task spawned once, then each respawned once'
+
+iso_case run_refuses_only_and_bad_flags
+iso run --only ts-api-first --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'run takes no --only'
+assert_out_contains 'it schedules every task itself' 'the refusal says why'
+iso run --waves 0 --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a wave under one is refused'
+assert_out_contains 'waves needs a number >= 1' 'the refusal names the flag'
+iso run --retries x --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a retry count that is not a number is refused'
+assert_out_contains 'retries needs a number >= 0' 'the refusal names the flag'
+iso run --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture"
+check_eq "$RC" 1 'run without a slug is refused'
+assert_out_contains 'usage: benchmark-isolate.sh run' 'the usage line is printed'
 
 # --- wait / collect ----------------------------------------------------------------
 # a state dir as start leaves it, and a result the sub-agent reported

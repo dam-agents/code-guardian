@@ -229,29 +229,37 @@ seeded commit) that holds ground truth, and a public work repo.
 1. `isolation_unavailable` is set, or
    `bash "$HOME/scripts/benchmark-isolate.sh" check` (a trial: `check --commit
    <SHA>`) prints a reason → **Isolation unavailable**.
-2. Spawn every task:
+2. Run every task in waves — spawn, wait and retry in one command:
    ```bash
-   bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] --model <m> \
-     "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
+   bash "$HOME/scripts/benchmark-isolate.sh" run [--effort <e>] --model <m> \
+     [--waves <n>] [--retries <n>] "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
    ```
+   `run` spawns at most `--waves` (default `CG_BENCH_WAVES`, else 8) tasks at
+   once — the owner's memory pool admits only that many machines at a time —
+   waits for the wave to end, and respawns a failed task up to `--retries`
+   (default 1) times in a later wave: a platform start failure such as
+   `target agent deleted` (a target the pool never admitted, deleted by the
+   sweep while its invocation waited) costs one respawn, not a manual retry
+   sequence. Exit 0 = every task holds a result; exit 1 = a task failed its
+   last attempt or a spawn was refused after the first `spawned` line (a
+   refusal before it → **Isolation unavailable**).
    `--effort` = this session's effort when the harness exposes one
    (`effort` of the provenance). `--model` = this session's exact model id,
    provider-qualified (Claude Code names it `claude/<provider>/<id>`; on pi
    `start` reads `PI_MODEL` when `--model` is absent), or the model the
    operator names for this run. The sub-agents run on that model only:
    `collect` reports any other as a `model` mismatch. A trial adds
-   `--commit <SHA> --branch <branch>`. A refusal before the first `spawned`
-   line → **Isolation unavailable**; after it → abort.
-3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
-   foreground until exit 0; exit 3 means call it again.
-4. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "<raw dir>"`
+   `--commit <SHA> --branch <branch>`.
+   `start` + `wait` stay for a spawn of the whole task list at once, when a
+   run must schedule by hand.
+3. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "<raw dir>"`
    (`$HOME/work/benchmark/results/raw`) writes every raw review and skill
    archive — only when nothing failed or mismatched — and prints per task
    `seconds`, `tokens`, `suppressed` and `spawn`, plus the run's `model`,
-   `harness_version` and `effort`. A `failed` task gets one retry — the same
-   `start` command plus `--only <slug>-<phase>`, then `wait` and `collect`
-   again; a second failure or any `mismatches` entry (other inputs than
-   `start` snapshotted, or another model) → abort.
+   `harness_version` and `effort`. A `failed` task that `run` already
+   respawned once (its `attempts` file counts more than `--retries`) or any
+   `mismatches` entry (other inputs than the spawn snapshotted, or another
+   model) → abort.
 
 **Abort** = cleanup (step 11), nothing recorded, the reason in the chat UI.
 Sub-agents still running end at their deadline.

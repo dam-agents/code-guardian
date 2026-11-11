@@ -10,6 +10,8 @@
 #   benchmark-isolate.sh bundle <fixture-dir> <first|rereview> <out.tgz>
 #   benchmark-isolate.sh start [--commit <sha> [--branch <name>]] [--model <m>] [--effort <e>] \
 #                              [--only <slug>-<phase>]… <state-dir> <ts> <fixture-root> <slug>…
+#   benchmark-isolate.sh run [--waves <n>] [--retries <n>] [start options…] \
+#                            <state-dir> <ts> <fixture-root> <slug>…
 #   benchmark-isolate.sh wait <state-dir>
 #   benchmark-isolate.sh collect <state-dir> <raw-dir>
 #
@@ -38,6 +40,16 @@
 # local ref, since the sub-agent can fetch the public remote — that tracks a
 # benchmark path or holds such a summary. A sub-agent gets no connection: the bundle travels in env chunks
 # that `benchmark-child.sh unpack` joins in its install step.
+#
+# `run` is start, wait and retry in one command: it spawns at most
+# `--waves` (default CG_BENCH_WAVES, else 8) tasks at a time, waits for the
+# wave to end, and respawns a failed task up to `--retries` (default 1) times
+# in a later wave, so a platform start failure — a target the memory pool
+# never admitted and the sweep deleted ("target agent deleted") — costs one
+# respawn, not a manual retry sequence. It exits 0 when every task holds a
+# result, 1 when a task failed its last attempt, and never collects: call
+# `collect` as before. `start` stays for a spawn of the whole task list at
+# once.
 #
 # `wait` polls for at most CG_BENCH_WAIT_S (480) seconds: rc 0 when every task
 # ended, rc 3 while some still run. `collect` writes each result's raw review
@@ -344,6 +356,56 @@ wait_all() { # <state-dir>
   done
 }
 
+run_all() { # <start args…> <state-dir> <ts> <fixture-root> <slug>… — waves + retry
+  local waves="${CG_BENCH_WAVES:-8}" retries=1 pass_opts="" st ts root task slug ph batch_n attempts f failed_n
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      (--waves) [ "${2:-}" -ge 1 ] 2>/dev/null || die "--waves needs a number >= 1"; waves="$2"; shift 2;;
+      (--retries) [ "${2:-}" -ge 0 ] 2>/dev/null || die "--retries needs a number >= 0"; retries="$2"; shift 2;;
+      (--commit|--branch|--model|--effort) pass_opts="$pass_opts $1 $2"; shift 2;;
+      (--only) die "run takes no --only: it schedules every task itself";;
+      (*) break;;
+    esac
+  done
+  [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh run [--waves n] [--retries n] [start options] <state-dir> <ts> <fixture-root> <slug>…"
+  st="$1" ts="$2" root="${3%/}"; shift 3
+  mkdir -p "$st/attempts" || die "cannot create $st/attempts"
+  while :; do
+    batch_n=0
+    for slug in "$@"; do
+      for ph in $PHASES; do
+        task="$slug-$ph"
+        [ -f "$st/$task.result.json" ] && continue
+        attempts=0
+        [ -f "$st/attempts/$task" ] && read -r attempts < "$st/attempts/$task"
+        # attempts counts spawns already spent; a task may spawn 1 + retries times
+        [ "$attempts" -le "$retries" ] || continue
+        [ "$batch_n" -lt "$waves" ] || break 2
+        if [ "$batch_n" -eq 0 ]; then
+          # the first wave pays the setup (check, seed, snapshot); later waves
+          # spawn only the batch through --only, on the same commit and model
+          start $pass_opts --only "$task" "$st" "$ts" "$root" "$@" || return 1
+        else
+          start $pass_opts --only "$task" "$st" "$ts" "$root" "$@" || return 1
+        fi
+        attempts=$((attempts + 1)); printf '%s\n' "$attempts" > "$st/attempts/$task"
+        batch_n=$((batch_n + 1))
+      done
+    done
+    [ "$batch_n" -gt 0 ] || break
+    wait_all "$st" || [ "$?" -eq 3 ] || return 1
+  done
+  failed_n=0
+  for f in "$st"/*.failed; do
+    [ -f "$f" ] || continue
+    task="${f##*/}"; task="${task%.failed}"
+    attempts=0
+    [ -f "$st/attempts/$task" ] && read -r attempts < "$st/attempts/$task"
+    [ "$attempts" -gt "$retries" ] && { printf 'failed for good: %s (%s)\n' "$task" "$(cat "$f")"; failed_n=$((failed_n + 1)); }
+  done
+  [ "$failed_n" -eq 0 ]
+}
+
 collect() { # <state-dir> <raw-dir>
   local st="$1" raw="$2" exp="$1/expect.json" ts asked want f task slug ph r out="[]" bad
   ts="$(cat "$st/ts" 2>/dev/null)"; [ -n "$ts" ] || die "no run timestamp in $st"
@@ -424,11 +486,12 @@ case "$ACTION" in
     [ "$#" -eq 3 ] || die "usage: benchmark-isolate.sh bundle <fixture-dir> <first|rereview> <out.tgz>"
     bundle "$@";;
   (start) start "$@";;
+  (run) run_all "$@";;
   (wait)
     [ "$#" -eq 1 ] || die "usage: benchmark-isolate.sh wait <state-dir>"
     wait_all "$1";;
   (collect)
     [ "$#" -eq 2 ] || die "usage: benchmark-isolate.sh collect <state-dir> <raw-dir>"
     collect "$@";;
-  (*) printf 'usage: benchmark-isolate.sh check [repos] | bundle | start | wait | collect (see the header)\n' >&2; exit 2;;
+  (*) printf 'usage: benchmark-isolate.sh check [repos] | bundle | start | run | wait | collect (see the header)\n' >&2; exit 2;;
 esac
