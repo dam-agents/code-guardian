@@ -22,6 +22,8 @@
 #   gt                     defects present in v1 (ground-truth set size)
 #   tp[]                   matched: {id, file, line, gt_severity, pred_severity}
 #   fn[]                   missed defect ids
+#   fn_detail[]            the same misses as {id, file} — the statistics
+#                          (lib/bench-stats.sh) read a missed defect's language
 #   fp[]                   unmatched blocking predictions (critical|warning)
 #   suggestions_unmatched  unmatched suggestion predictions (recorded, not FPs)
 #   precision              tp / (tp + fp)   (null when there are no blocking predictions)
@@ -37,6 +39,9 @@
 #                          both, so the report pools a tier over fixtures
 #   f1                     harmonic mean of precision and recall (null-safe)
 #   severity_accuracy      share of tp with pred_severity == gt_severity (null when tp = 0)
+#   languages              {<lang>: {tp, gt}} over the v1 ground-truth set; the
+#                          language comes from the defect file's extension
+#                          (lib/bench-lang.sh)
 #
 # rereview mode (prior-review scope from manifest in_prior_review):
 #   fixed_gt / still_gt / new_gt   ground-truth bucket sizes
@@ -52,6 +57,9 @@
 #                          for: the going-in-circles signal. Disjoint from
 #                          new_fp.
 #   new_fp                 blocking "new" predictions matching nothing at all
+#   languages              {<lang>: {tp, gt}} over the three graded buckets
+#                          together (fixed + still + new ground truth): tp =
+#                          defects of that bucket matched by their own status
 #
 # both modes:
 #   format  {findings_json, marker, sections, fix_lines, verdict,
@@ -72,6 +80,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # speed only — resolve a mise-shimmed jq to the real binary (lib/toolpath.sh)
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
 . "$SCRIPT_DIR/lib/ste.sh"
+. "$SCRIPT_DIR/lib/bench-lang.sh"
+LANG_MAP="$(bench_lang_jq_map)"
 
 MODE="${1:-}"; RAW="${2:-}"; MANIFEST="${3:-}"
 usage() { printf 'usage: benchmark-score.sh first|rereview <raw-review.md> <manifest.json>\n' >&2; exit 2; }
@@ -85,7 +95,13 @@ count_words() { grep -o '[^[:space:]][^[:space:]]*' | grep -c ''; }
 # shared jq defs for both scoring modes — one home for rounding and the
 # ±3-line matching window, so first-review and re-review scores always use
 # the same rules
-JQ_DEFS='
+JQ_DEFS="$BENCH_LANG_JQ"'
+  # {<lang>: {tp, gt}} over a ground-truth list and the ids it matched
+  def langs($gtl; $hit; $map):
+    reduce $gtl[] as $g ({};
+      ($g.file | bench_lang($map)) as $l
+      | .[$l].gt += 1
+      | .[$l].tp = ((.[$l].tp // 0) + (if ($hit | index($g.id)) == null then 0 else 1 end)));
   def r3: if . == null then null else (. * 1000 | round) / 1000 end;
   def dist($a; $b): ($a - $b) | if . < 0 then -. else . end;
   # one prediction, one anchor per location: its own file:line plus every
@@ -151,7 +167,7 @@ STE="$(ste_stats "$RAW")"
 
 # ------------------------------------------------------------- matching ----
 if [ "$MODE" = "first" ]; then
-  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'
+  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" --argjson lmap "$LANG_MAP" "$JQ_DEFS"'
     def sevrec($gtl; $tpl; $sev):
       ($gtl | map(select(.severity == $sev)) | length) as $n
       | if $n == 0 then null
@@ -191,7 +207,9 @@ if [ "$MODE" = "first" ]; then
     | ($gt | map(select(.difficulty == "hard") | .id)) as $hids
     | ([$r.tp[] | select(.id as $i | $hids | index($i))] | length) as $htp
     | ($hids | length) as $hn
-    | {tier: ($m.tier // "simple"), gt: $gtn, tp: $r.tp, fn: $r.fn, fp: $fp,
+    | {tier: ($m.tier // "simple"), gt: $gtn, tp: $r.tp, fn: $r.fn,
+       fn_detail: [ $gt[] | select(.id as $i | $r.fn | index($i)) | {id, file} ],
+       fp: $fp,
        suggestions_unmatched: ($un | map(select(.severity == "suggestion")) | length),
        precision: ($p | r3), recall: ($rec | r3), f1: ($f1 | r3),
        recall_critical: (sevrec($gt; $r.tp; "critical") | r3),
@@ -201,9 +219,10 @@ if [ "$MODE" = "first" ]; then
                      else (($tpn - $htp) / ($gtn - $hn)) end | r3),
        difficulty: {easy: {tp: ($tpn - $htp), gt: ($gtn - $hn)},
                     hard: {tp: $htp, gt: $hn}},
-       severity_accuracy: ($seva | r3)}')"
+       severity_accuracy: ($seva | r3),
+       languages: langs($gt; [ $r.tp[].id ]; $lmap)}')"
 else
-  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" "$JQ_DEFS"'
+  SCORE="$(jq -n --slurpfile m_ "$MANIFEST" --argjson fj "$FJ" --argjson lmap "$LANG_MAP" "$JQ_DEFS"'
     def anchored($pl; $g):
       ($g.line_v1 != null and $pl != null and dist($pl; $g.line_v1) <= 3)
       or ($g.line_v2 != null and $pl != null and dist($pl; $g.line_v2) <= 3);
@@ -211,7 +230,7 @@ else
     def bmatch($gtl; $preds; $fileonly):
       anchors($preds) as $anch
       | reduce range(0; $gtl | length) as $i (
-        {used: [], hit: 0};
+        {used: [], hit: 0, ids: []};
         . as $st | $gtl[$i] as $g
         | ([ range(0; $anch | length)
              | select(($anch[.].file == $g.file)
@@ -219,7 +238,7 @@ else
                       and (anchored($anch[.].line; $g)
                            or ($fileonly and $anch[.].line == null))) ]
            | first) as $mi
-        | if $mi == null then $st else $st | .used += [$mi] | .hit += 1 end)
+        | if $mi == null then $st else $st | .used += [$mi] | .hit += 1 | .ids += [$g.id] end)
       # leftovers are counted per prediction: a merged one is consumed whole
       | . + {used_pi: ([ .used[] | $anch[.].pi ] | unique)};
     def frac($hit; $n): if $n == 0 then null else ($hit / $n) end;
@@ -259,7 +278,9 @@ else
        false_fixed: (bmatch($stillGT; $restF; false) | .hit),
        late_finds: $ml.hit,
        churn: $mc.hit,
-       new_fp: ($blockrest - $mc.hit)}')"
+       new_fp: ($blockrest - $mc.hit),
+       languages: langs(($fixedGT + $stillGT + $newGT) | unique_by(.id);
+                        $mf.ids + $ms.ids + $mn.ids; $lmap)}')"
 fi
 
 # ------------------------------------------------------------- assembly ----

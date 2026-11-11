@@ -357,6 +357,114 @@ iso collect "$SANDBOX/st" "$SANDBOX/raw"
 check_eq "$RC" 1 'a failed task fails the collection'
 check_eq "$(printf '%s' "$OUT" | jq -c '.failed')" '[{"task":"ts-api-rereview","reason":"deadline"}]' 'the failure keeps its reason'
 
+# --- queue, shared snapshot, frozen core memory, adaptive fixtures ---------------
+M=claude/ibm/aws/claude-sonnet-5-5
+more_fixtures() { for s in "$@"; do cp -a "$F" "$WORK/benchmark/fixture/$s"; done; }
+# a done view whose provenance is the state dir's expected one
+ok_view() { jq -n --slurpfile e "$1/expect.json" '{status:"done", result:{review:"r\n", measure:{seconds:1, tokens:null},
+  suppressed:0, model:"claude-sonnet-5-5", skills:{}, provenance:$e[0]}}'; }
+bundle_file() { # <body line> <path in bundle>
+  sed -n "$1p" "$SANDBOX/rest.log.body" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' \
+    | base64 -d | tar -xzOf - "$2"; }
+
+iso_case queue_caps_running_tasks
+more_fixtures b-api c-api
+iso start --model "$M" --max-parallel 2 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api b-api c-api
+check_eq "$RC" 0 'start with a cap builds every task'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 2 'start spawns no more than the cap'
+check_eq "$(ls "$SANDBOX/st" | grep -c '\.queued$')" 4 'the rest wait in the queue'
+assert_out_contains 'queued 4 task' 'start says how many wait'
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
+check_eq "$RC" 1 'a queued task fails a collection'
+check_eq "$(printf '%s' "$OUT" | jq -r '[.failed[] | select(.reason == "queued, never spawned")] | length')" 4 'the queued tasks are named'
+ok_view "$SANDBOX/st" > "$SANDBOX/rest/GET_invocations_inv-1.json"
+printf '{"status":"running"}' > "$SANDBOX/rest/GET_invocations_inv-2.1.json"
+ok_view "$SANDBOX/st" > "$SANDBOX/rest/GET_invocations_inv-2.2.json"
+iso_env CG_BENCH_WAIT_S=0 bash "$ISO" wait "$SANDBOX/st" > "$SANDBOX/out" 2>>"$STDERR_LOG"; RC=$?; OUT="$(cat "$SANDBOX/out")"
+check_eq "$RC" 3 'wait keeps asking while tasks wait in the queue'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 3 'one ended task frees one slot'
+check_eq "$(cat "$SANDBOX/st/b-api-first.id")" inv-3 'the queue spawns in start order'
+assert_out_contains '2 of 6 task(s) still running, 3 queued' 'the line counts running and queued tasks'
+for i in 3 4 5 6; do ok_view "$SANDBOX/st" > "$SANDBOX/rest/GET_invocations_inv-$i.json"; done
+iso wait "$SANDBOX/st"
+check_eq "$RC" 0 'wait ends when every queued task ran'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log"):$(ls "$SANDBOX/st" | grep -c '\.queued$')" 6:0 'every task spawned exactly once'
+assert_out_contains 'all 6 task(s) ended: 6 done' 'wait counts them all'
+iso collect "$SANDBOX/st" "$SANDBOX/raw"
+check_eq "$RC:$(printf '%s' "$OUT" | jq -c '.tasks | keys')" '0:["b-api","c-api","ts-api"]' 'tasks spawned from the queue collect like the others'
+
+iso_case queue_cap_from_config '- benchmark_max_parallel: 1'
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log"):$(cat "$SANDBOX/st/max_parallel")" 1:1 'CONFIG benchmark_max_parallel sets the cap'
+iso start --model "$M" --only ts-api-rereview "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log"):$(ls "$SANDBOX/st" | grep -c '\.queued$')" 1:1 'a retry queues while the cap is taken'
+
+iso_case queue_cap_invalid_config '- benchmark_max_parallel: many'
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC:$(cat "$SANDBOX/st/max_parallel")" 0:8 'an invalid CONFIG value falls back to 8'
+
+iso_case snapshot_reused_across_models
+iso start --model "$M" "$SANDBOX/st1" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$(jq -r '.memory_source' "$SANDBOX/st1/expect.json")" live 'without CORE.json the live memory travels'
+printf '# Memory changed\n' > "$WORK/MEMORY.md"; printf 'def456' > "$FAKE_HOME/.claude/skills/.cache/sec-check.sha"
+iso start --model claude/ibm/aws/claude-opus-5-5 --snapshot "$SANDBOX/st1" "$SANDBOX/st2" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 0 'a second model starts from the first snapshot'
+check_eq "$(cmp -s "$SANDBOX/st1/expect.json" "$SANDBOX/st2/expect.json" && echo same)" same 'the expected provenance is identical'
+check_eq "$(bundle_file 3 ./work/MEMORY.md)" '# Memory' 'the second model gets the first snapshot memory'
+check_eq "$(cat "$SANDBOX/st2/model")" claude/ibm/aws/claude-opus-5-5 'the model stays per state dir'
+iso start --model "$M" --snapshot "$SANDBOX/nothing" "$SANDBOX/st3" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a --snapshot dir with no snapshot is refused'
+assert_out_contains 'holds no snapshot' 'the refusal says so'
+
+iso_case frozen_core_memory
+mkdir -p "$WORK/benchmark/fixture/core-memory"
+printf '{"version":1,"fixtures":["ts-api"]}' > "$WORK/benchmark/fixture/CORE.json"
+printf '# Frozen memory\n' > "$WORK/benchmark/fixture/core-memory/MEMORY.md"
+printf '# Frozen lessons\n' > "$WORK/benchmark/fixture/core-memory/LESSONS.md"
+printf '%s\n' '- frozen-config-marker: x' >> "$WORK/CONFIG.md"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 0 'a core run starts'
+check_eq "$(jq -r '.memory_source' "$SANDBOX/st/expect.json")" core-frozen 'the expected provenance names the frozen memory'
+check_eq "$(jq -r '.memory_sha' "$SANDBOX/st/expect.json")" "$(git hash-object "$WORK/benchmark/fixture/core-memory/MEMORY.md")" 'memory_sha is the frozen copy'
+check_eq "$(bundle_file 1 ./work/MEMORY.md)|$(bundle_file 1 ./work/LESSONS.md)" '# Frozen memory|# Frozen lessons' 'the bundle carries the frozen files at the live paths'
+check_eq "$(bundle_file 1 ./work/CONFIG.md | grep -c frozen-config-marker)" 1 'CONFIG.md stays the live one'
+
+iso_case frozen_core_memory_missing
+printf '{"version":1}' > "$WORK/benchmark/fixture/CORE.json"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'CORE.json without the frozen memory is refused'
+assert_out_contains 'lacks MEMORY.md or LESSONS.md' 'the refusal names the files'
+check_eq "$(grep -c '^POST' "$SANDBOX/rest.log")" 0 'nothing is spawned'
+
+iso_case frozen_core_memory_leak
+mkdir -p "$WORK/benchmark/fixture/core-memory"
+printf '{"version":1}' > "$WORK/benchmark/fixture/CORE.json"
+printf '# Frozen\n' > "$WORK/benchmark/fixture/core-memory/MEMORY.md"
+printf -- '- %s\n' "$SUMMARY" > "$WORK/benchmark/fixture/core-memory/LESSONS.md"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a frozen memory file with a defect summary is refused'
+assert_out_contains 'ground truth .* in ./work/LESSONS.md' 'the refusal names the file'
+
+iso_case adaptive_fixture_bundled
+mkdir -p "$WORK/benchmark/adaptive"; cp -a "$F" "$WORK/benchmark/adaptive/ad-x"
+jq -n '{fixture:"ad-x", defects:[{id:"D01", file:"a.ts", summary:"adaptive defect summary that must not leak"}]}' > "$WORK/benchmark/adaptive/ad-x/manifest.json"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api adaptive/ad-x
+check_eq "$RC" 0 'core and adaptive fixtures start in one state dir'
+check_eq "$(ls "$SANDBOX/st" | grep -c '\.id$'):$(cat "$SANDBOX/st/ad-x-first.id")" 4:inv-3 'the adaptive tasks have <slug>-<phase> ids'
+check_eq "$(bundle_file 3 ./work/benchmark/fixture/ad-x/head-v1/a.ts)" b 'the adaptive fixture sits at the production path'
+check_eq "$(sed -n 3p "$SANDBOX/rest.log.body" | jq -r '.prompt | test("fixture `ad-x`, phase `first`")')" true 'the prompt names the bare slug'
+iso_case adaptive_fixture_collision
+mkdir -p "$WORK/benchmark/adaptive"; cp -a "$F" "$WORK/benchmark/adaptive/ts-api"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" adaptive/ts-api
+check_eq "$RC" 1 'an adaptive slug equal to a core slug is refused'
+assert_out_contains 'collides with core fixture ts-api' 'the refusal names it'
+iso_case adaptive_truth_guards_core_bundles
+mkdir -p "$WORK/benchmark/adaptive"; cp -a "$F" "$WORK/benchmark/adaptive/ad-x"
+jq -n '{defects:[{summary:"adaptive defect summary that must not leak"}]}' > "$WORK/benchmark/adaptive/ad-x/manifest.json"
+printf -- '- adaptive defect summary that must not leak\n' >> "$WORK/LESSONS.md"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'an adaptive defect summary refuses a core bundle too'
+
 # --- the sub-agent side ----------------------------------------------------------------
 iso_case child_unpack_and_report
 iso bundle "$F" first "$SANDBOX/b.tgz"

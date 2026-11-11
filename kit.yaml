@@ -111,25 +111,6 @@ schedules:
       feedback), compose the health report from stats + checks, send it to Slack
       when slack_notifications is enabled (chat UI always), append the AUDIT.log
       line, and back up work/ (`scripts/work-backup.sh persist`).
-  # Model benchmark (Step 6d) — only under `benchmark: enabled`.
-  - name: code-guardian-benchmark-monthly
-    cron: "0 6 1 * *"
-    sessionMode: fresh
-    precheck: bash "$HOME/scripts/precheck.sh" benchmark
-    enabled: false
-    task: >-
-      Model benchmark. The precheck already ran preflight and found the benchmark
-      due: read the worklist JSON at the path its output names, and never run
-      preflight.sh again this run. If the prompt carries no worklist path, run
-      `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow
-      CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action
-      in benchmark_due — create_fixture tops the fixture set up to the full set
-      (≥5) and ends the run; run replays every fixture review with the configured
-      skills (time and tokens measured), scores them with
-      scripts/benchmark-score.sh (plus the judge when configured), appends the
-      results to work/benchmark/, regenerates and republishes the accumulated
-      report, and reports the scores — and back up work/
-      (`scripts/work-backup.sh persist`).
   # Codebase survey (Step 6e) — only under `survey: enabled`.
   - name: code-guardian-survey-weekly
     cron: "30 3 * * 6"

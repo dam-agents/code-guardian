@@ -494,6 +494,20 @@ assert_out "ok   config-survey_report_findings" 'the findings opt-in is validate
 assert_out "ok   config-benchmark_report" 'the benchmark value is validated'
 assert_not_out 'warn config-keys' 'the keys are never reported unknown'
 
+new_case benchmark_run_keys
+seed_home; seed_memory; seed_lessons
+verify_config '- benchmark: enabled' '- benchmark_reference_model: acme/model-r' '- benchmark_judge: acme/judge-a, other/judge-b' \
+  '- benchmark_max_parallel: 4' '- benchmark_decision_rule: cost_cap:3'
+run_verify
+assert_rc 0 'the benchmark run keys pass'
+assert_out "ok   config-benchmark_max_parallel" 'the queue limit is validated'
+assert_out "ok   config-benchmark_decision_rule" 'the decision rule is validated'
+assert_not_out 'warn config-keys' 'the run keys are known keys'
+verify_config '- benchmark_max_parallel: 0' '- benchmark_decision_rule: fastest'
+run_verify
+assert_out "FAIL config-benchmark_max_parallel" 'a zero queue limit fails'
+assert_out "FAIL config-benchmark_decision_rule" 'an unknown rule fails'
+
 new_case definition_issues_key
 seed_home; seed_memory; seed_lessons
 verify_config '- definition_issues: enabled'

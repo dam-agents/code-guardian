@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # preflight benchmark mode — gate on `benchmark: enabled`, create_fixture until
-# the set holds 5 simple and 3 complex fixtures, run with the monthly (27-day) gate fed by
-# scheduled results only, report surface dam | off, purely local
-# (no gh fixtures are seeded: the mode must decide without API calls).
+# the core set holds 5 simple and 3 complex fixtures, run whenever no run is in
+# progress (no time gate: the benchmark has no schedule), the run settings
+# (reference model, queue limit, judge panel, decision rule, core version,
+# adaptive set), report surface dam | off, purely local (no gh fixtures are
+# seeded: the mode must decide without API calls).
 . "$(dirname "$0")/helpers.sh"
 
 seed_fixture() { # <slug> [tier]
@@ -181,28 +183,69 @@ run_preflight benchmark
 assert_jq '.benchmark_due.action == "run"' 'an abandoned ledger does not gate forever'
 assert_jq '.logs | any(contains("stale segmented-run notes"))' 'the staleness is logged'
 
-new_case benchmark_monthly_gate_holds
+new_case benchmark_no_time_gate
 base_config '- benchmark: enabled'
 seed_full_set
-seed_result_json "$(iso_ago 432000)" scheduled   # 5 days ago — inside the floor
+seed_result_json "$(iso_ago 432000)" scheduled   # 5 days ago — an old scheduled run
+seed_result_json "$(iso_ago 3600)" manual        # 1 hour ago
 run_preflight benchmark
-assert_jq '.nothing_to_do == true' 'a recent scheduled run gates the month'
-assert_jq 'has("benchmark_due") | not' 'no worklist entry while gated'
+assert_jq '.benchmark_due.action == "run"' 'a recent run never holds the next one'
+assert_jq '.benchmark_due.last_run != null and (.benchmark_due.last_run | fromdateiso8601) > (now - 7200)' 'the newest run of any trigger is carried'
 
-new_case benchmark_manual_never_feeds_gate
+new_case benchmark_settings_defaults
 base_config '- benchmark: enabled'
 seed_full_set
-seed_result_json "$(iso_ago 432000)" manual      # 5 days ago, manual
 run_preflight benchmark
-assert_jq '.benchmark_due.action == "run"' 'a manual run never moves the scheduled cadence'
-assert_jq '.benchmark_due.last_run == null' 'gate sees no scheduled run yet'
+assert_jq '.benchmark_due.reference_model == null' 'no reference model by default'
+assert_jq '.benchmark_due.max_parallel == 8' 'queue limit defaults to 8'
+assert_jq '.benchmark_due.judge_panel == null' 'no panel without a comma list'
+assert_jq '.benchmark_due.decision_rule == "cheapest_not_worse"' 'decision rule default'
+assert_jq '.benchmark_due.core_version == null and .benchmark_due.adaptive == []' 'no core version and no adaptive set before the migration'
 
-new_case benchmark_monthly_gate_opens
-base_config '- benchmark: enabled'
+new_case benchmark_settings_configured
+base_config '- benchmark: enabled' '- benchmark_reference_model: acme/model-r' '- benchmark_max_parallel: 3' \
+  '- benchmark_judge: acme/judge-a ,  other/judge-b' '- benchmark_decision_rule: cost_cap:2.5'
 seed_full_set
-seed_result_json "$(iso_ago 2592000)" scheduled  # 30 days ago — past the floor
+mkdir -p "$WORK/benchmark/fixture/retired/old-one" "$WORK/benchmark/fixture/core-memory"
+printf '{"fixture":"old-one","defects":[]}' > "$WORK/benchmark/fixture/retired/old-one/manifest.json"
+printf '{"version":2,"fixtures":[]}' > "$WORK/benchmark/fixture/CORE.json"
+for a in zz-escaped aa-history; do
+  mkdir -p "$WORK/benchmark/adaptive/$a"
+  printf '{"fixture":"%s","defects":[]}' "$a" > "$WORK/benchmark/adaptive/$a/manifest.json"
+done
+mkdir -p "$WORK/benchmark/adaptive/no-manifest"
 run_preflight benchmark
-assert_jq '.benchmark_due.action == "run"' 'a stale scheduled run re-opens the gate'
-assert_jq '.benchmark_due.last_run != null' 'the last scheduled timestamp is carried'
+assert_jq '.benchmark_due.reference_model == "acme/model-r"' 'the reference model is carried'
+assert_jq '.benchmark_due.max_parallel == 3' 'the queue limit is carried'
+assert_jq '.benchmark_due.judge_panel == ["acme/judge-a", "other/judge-b"]' 'a comma list is the judge panel, trimmed'
+assert_jq '.benchmark_due.decision_rule == "cost_cap:2.5"' 'a cost cap rule is carried'
+assert_jq '.benchmark_due.core_version == 2' 'the core version comes from CORE.json'
+assert_jq '.benchmark_due.fixtures | length == 8' 'retired/ and core-memory/ are not core fixtures'
+assert_jq '.benchmark_due.adaptive == ["aa-history", "zz-escaped"]' 'the adaptive set lists every adaptive fixture with a manifest'
+
+new_case benchmark_settings_invalid
+base_config '- benchmark: enabled' '- benchmark_max_parallel: many' '- benchmark_decision_rule: fastest'
+for s in ts-api react-ui; do seed_fixture "$s"; done
+run_preflight benchmark
+assert_jq '.benchmark_due.action == "create_fixture"' 'the settings ride on create_fixture too'
+assert_jq '.benchmark_due.max_parallel == 8' 'an invalid queue limit reads as 8'
+assert_jq '.benchmark_due.decision_rule == "cheapest_not_worse"' 'an unknown rule reads as the default'
+assert_jq '[.logs[] | select(contains("benchmark_max_parallel"))] | length == 1' 'the invalid queue limit is logged once'
+assert_jq '.logs | any(contains("benchmark_decision_rule"))' 'the unknown rule is logged'
+
+# --- the resolved keys travel in the worklist's config object ----------------
+new_case benchmark_config_object_defaults
+base_config '- benchmark: enabled'
+pr_json 1 "a new PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+assert_jq '.config.benchmark_reference_model == null and .config.benchmark_max_parallel == 8' 'reference model and queue limit defaults'
+assert_jq '.config.benchmark_decision_rule == "cheapest_not_worse"' 'decision rule default'
+
+new_case benchmark_config_object_set
+base_config '- benchmark: enabled' '- benchmark_reference_model: acme/model-r' '- benchmark_max_parallel: 4' '- benchmark_decision_rule: best_quality'
+pr_json 1 "a new PR" '[]' "1111111111111111111111111111111111111111" | open_prs_fx
+run_preflight review
+assert_jq '.config.benchmark_reference_model == "acme/model-r" and .config.benchmark_max_parallel == 4' 'the configured values travel'
+assert_jq '.config.benchmark_decision_rule == "best_quality"' 'the configured rule travels'
 
 finish

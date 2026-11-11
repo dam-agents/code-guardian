@@ -338,6 +338,108 @@ assert_jq '.judge == "claude/ibm/aws/claude-opus-5-5" and .source == "repick" an
 resolve
 assert_jq '.judge == "acme/opus-gone" and .source == "picked" and .judge_unavailable == null' 'an unknown model list keeps the pin and blocks nothing'
 
+# the judge panel: every member is one judge call; the stub answers per --model
+seed_panel() { # <model>=<reply json> ...
+  seed_cli '{}'
+  local a
+  for a in "$@"; do printf '%s' "${a#*=}" > "$SANDBOX/cli/reply-${a%%=*}.json"; done
+  cat > "$SANDBOX/cli/claude" <<STUB
+#!/usr/bin/env bash
+[ "\$1 \$2" = "auth status" ] && { printf '{"loggedIn": true}\n'; exit 0; }
+m=""; while [ \$# -gt 0 ]; do [ "\$1" = --model ] && m="\$2"; shift; done
+cat > /dev/null
+cat "$SANDBOX/cli/reply-\$m.json" 2>/dev/null || printf 'no reply\n'
+STUB
+  chmod +x "$SANDBOX/cli/claude"
+  printf '{"tp":[],"fp":[{"file":"a.ts","line":10,"severity":"warning","summary":"x"},{"file":"b.ts","line":20,"severity":"critical","summary":"y"}],"fn":[],"churn":0}\n' > "$SANDBOX/in/scorer.json"
+}
+fpc() { # <class of a.ts:10> <class of b.ts:20> → a reply with SIX and that fp_class
+  printf '%s' "$SIX" | jq -c --arg a "$1" --arg b "$2" '. + {fp_class: [{file: "a.ts", line: 10, class: $a}, {file: "b.ts", line: "20", class: $b}]}'
+}
+LOW='{"finding_accuracy":2,"category_accuracy":4,"fix_quality":3,"fp_defensibility":4,"clarity":4,"language":3,"notes":"wrong cause"}'
+
+new_case judge_panel_two_ok
+export CG_JUDGE_MODELS=/dev/null
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$(fpc real real)")" \
+           "gpt-6=$(reply gpt-6 "$(printf '%s' "$LOW" | jq -c '. + {fp_class: [{file: "a.ts", line: 10, class: "real"}, {file: "b.ts", line: 20, class: "fabricated"}]}')")"
+run_first "claude-opus-5, gpt-6"
+assert_jq '.status == "ok" and .judge_model_used == "claude-opus-5,gpt-6" and .judge_harness == "claude,claude"' 'both members answered'
+assert_jq '.judge.finding_accuracy == 3 and .judge.category_accuracy == 4.5 and .judge.language == 3.5' 'dims are the average of the ok members'
+assert_jq '.judge.disagreement == 2' 'disagreement is the largest max-min over the dims'
+assert_jq '(.judge.panel | length) == 2 and all(.judge.panel[]; .status == "ok" and (.scores | type) == "object")' 'each member is in the panel'
+assert_jq '.judge.notes == "claude-opus-5: fix too narrow | gpt-6: wrong cause"' 'notes name each member'
+assert_jq '.tokens.input == 1800' 'tokens are the sum of the members'
+assert_jq '.judge.fp_class == [{file: "a.ts", line: 10, class: "real"}, {file: "b.ts", line: 20, class: "defensible"}]' 'majority per fp, a tie is defensible'
+
+new_case judge_panel_one_member_fails
+export CG_JUDGE_MODELS=/dev/null
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$(fpc fabricated real)")" \
+           'gpt-6={"type":"result","is_error":true,"result":"There is an issue with the selected model","usage":{},"modelUsage":{}}'
+run_first "claude-opus-5,gpt-6"
+assert_jq '.status == "ok" and .judge_model_used == "claude-opus-5" and .judge.fix_quality == 3 and .judge.disagreement == null' 'one ok member is enough'
+assert_jq '.judge.panel[1] | .model == "gpt-6" and .status == "failed" and (.reason | test("selected model"))' 'the failed member stays in the panel with its reason'
+assert_jq '.judge.fp_class | map(.class) == ["fabricated", "real"]' 'the classes of the one ok member'
+seed_panel 'claude-opus-5=not json' 'gpt-6={"type":"result","is_error":true,"result":"boom","usage":{},"modelUsage":{}}'
+run_first "claude-opus-5,gpt-6"
+assert_jq '.status == "failed" and .judge == null and (.reason | test("claude-opus-5: ") and test("gpt-6: .*boom"))' 'no ok member: judge null, each reason listed'
+
+new_case judge_panel_fp_class_majority
+export CG_JUDGE_MODELS=/dev/null
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$(fpc real defensible)")" \
+           "gpt-6=$(reply gpt-6 "$(fpc fabricated fabricated)")" \
+           "gemini-4=$(reply gemini-4 "$(fpc real fabricated)")"
+run_first "claude-opus-5,gpt-6,gemini-4"
+assert_jq '.judge.fp_class | map(.class) == ["real", "fabricated"]' 'two of three decide the class'
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$(fpc real real)")" \
+           "gpt-6=$(reply gpt-6 "$(printf '%s' "$SIX" | jq -c '. + {fp_class: [{file: "a.ts", line: 10, class: "maybe"}]}')")"
+run_first "claude-opus-5,gpt-6"
+assert_jq '.status == "ok" and .judge.disagreement == 0 and (.judge.fp_class | map(.class)) == ["real", "real"]' 'a malformed fp_class is ignored, its dims count'
+assert_jq '.judge.panel[1].fp_class == null and .judge.panel[1].status == "ok"' 'the member keeps its scores without classes'
+
+new_case judge_single_fp_class
+export CG_JUDGE_MODELS=/dev/null
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$(fpc real fabricated)")"
+run_first claude-opus-5
+assert_jq '.status == "ok" and .judge_model_used == "claude-opus-5" and .judge.fix_quality == 3 and (.judge | has("panel") | not)' 'one judge: the old shape'
+assert_jq '.judge.fp_class == [{file: "a.ts", line: 10, class: "real"}, {file: "b.ts", line: 20, class: "fabricated"}]' 'one judge: fp_class in scorer order with the scorer line'
+seed_panel "claude-opus-5=$(reply claude-opus-5 "$SIX")"
+run_first claude-opus-5
+assert_jq '.status == "ok" and .judge.fp_class == null' 'no fp_class: null, the scores stay'
+seed_cli "$(reply claude-opus-5 "$SIX")"
+run_first claude-opus-5
+assert_jq '.status == "ok" and .judge.fp_class == []' 'no false positives: an empty list'
+OUT="$(cat "$SANDBOX/cli/brief")"
+assert_out_contains 'fp_class' 'the brief asks for fp_class'
+assert_out_contains 'fp_defensibility' 'the brief keeps fp_defensibility'
+
+new_case judge_resolve_panel
+seed_cli "$(reply claude-opus-5 "$SIX")"
+printf '%s\n' claude/ibm/aws/claude-opus-5 claude/ibm/aws/claude-opus-5-5 acme/gpt-6 > "$SANDBOX/models"
+export CG_JUDGE_MODELS="$SANDBOX/models"
+resolve() { OUT="$(WORK_DIR="$WORK" bash "$JUDGE" resolve)"; }
+printf -- '- benchmark_judge: opus-5, gpt-6\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.panel == ["claude/ibm/aws/claude-opus-5", "acme/gpt-6"] and .judge == .panel[0] and .panel_note == null and .judge_unavailable == null and .source == "config"' 'each member resolves to its served id'
+printf -- '- benchmark_judge: opus-5, gemini-4\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.panel == ["claude/ibm/aws/claude-opus-5"] and .panel_note == "one family only" and .judge_unavailable == null' 'an unserved member leaves the panel'
+assert_jq '.panel_unavailable == [{configured: "gemini-4", judge_unavailable: .panel_unavailable[0].judge_unavailable, cause: "not_served"}] and (.panel_unavailable[0].judge_unavailable | test("gemini-4"))' 'the unserved member is named with its cause'
+printf -- '- benchmark_judge: gemini-4, llama-9\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.panel == [] and .cause == "not_served" and .judge == "gemini-4"' 'no served member: the judge is unavailable'
+printf -- '- benchmark_judge: opus-5\n' > "$WORK/CONFIG.md"
+resolve
+assert_jq '.panel == ["claude/ibm/aws/claude-opus-5"] and .panel_note == null' 'one id: a panel of one'
+printf -- '- benchmark_judge: opus-5, gpt-6\n' > "$WORK/CONFIG.md"
+OUT="$(WORK_DIR="$WORK" bash "$JUDGE" pin acme/other "why" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=1' 'pin refuses under a panel'
+RC=0; OUT="$(bash "$JUDGE" check "opus-5, gemini-4")" || RC=$?
+assert_rc 0 'check: one member that can run is enough'
+assert_out_contains "^gemini-4: .*serves no model that matches 'gemini-4'" 'check names the member that cannot run'
+RC=0; OUT="$(bash "$JUDGE" check "gemini-4,llama-9")" || RC=$?
+assert_rc 1 'check: no member can run'
+export CG_JUDGE_MODELS=/dev/null
+
 # report: judge cells only from a pinned judge
 new_case report_hides_self_judged_scores
 mkdir -p "$SANDBOX/bench/results"
@@ -345,8 +447,8 @@ results claude-opus-5 '"claude-opus-5"' "$SIX" > "$SANDBOX/bench/results/a.json"
 results claude-opus-5 '"glm-5-3"' "$(printf '%s' "$SIX" | jq -c 'with_entries(if .key == "notes" then . else .value = 3 end)')" \
   | jq '.ts = "2026-10-17T06:00:00Z"' > "$SANDBOX/bench/results/b.json"
 OUT="$(bash "$REPORT" "$SANDBOX/bench")"
-assert_out_contains '<td class=n>4.167</td>' 'the pinned run shows its judge average'
-assert_out_absent '<td class=n>3</td>' 'the self-judged scores never render'
+assert_out_contains '<td class="n as">4.167</td>' 'the pinned run shows its judge average'
+assert_out_absent '<td class="n as">3</td>' 'the self-judged scores never render'
 assert_out_contains 'a run that its own tested model judged shows a dash' 'the header says why'
 
 finish

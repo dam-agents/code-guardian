@@ -76,7 +76,7 @@ fi
 
 HARNESS="$(cg_harness_version)"
 EFFORT="$(cg_harness_effort)"
-MEMORY_SHA="$(git hash-object "$STATE_ROOT/work/MEMORY.md" 2>/dev/null || true)"
+MEMORY_SHA="$(bash "$SCRIPT_DIR/benchmark-core.sh" memory-sha "$STATE_ROOT/work" 2>/dev/null || true)"
 
 SKILLS='{}'
 SKILL_CACHE="$STATE_ROOT/.claude/skills/.cache"

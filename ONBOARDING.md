@@ -449,23 +449,34 @@ A failure is not blocking: tell the operator to create it manually.
    roster member — the agent's admin, when that is not <owner>?*
    **<owner>, or no reply** → omit `monitor_owner`; **another member** →
    `monitor_owner: <login>`, a roster login with a `slack_id`.
-10. **`benchmark`** — the optional monthly self-benchmark, off by default. Ask:
+10. **`benchmark`** — the optional on-demand benchmark, off by default. Ask:
 
-    > Do you want a monthly model benchmark? Once a month (and on demand) I replay a fixed set of at least 8 synthetic review tasks (5 simple, 3 complex) generated from your repo's stack and the configured skills through my full review pipeline, score each output against known seeded defects, measure time and tokens, and republish an accumulated report, so review quality stays comparable across model upgrades and definition versions (`docs/benchmark.md`).
+    > Do you want a model benchmark? On your request I replay a set of review tasks built from your repository's history, languages and past defects through my full review pipeline, score each output against the known defects, measure time, tokens and cost, and publish an accumulated report — to show whether a new definition version makes the review worse and which model is sufficient for your code. No schedule: when the definition moves to a new minor or major version, I ask whether to run it (`docs/benchmark.md`).
 
     **No, or no reply** → omit the key. **Yes** → write `benchmark: enabled`,
-    then ask in turn, one question each:
-    - **`benchmark_judge`** — recommended answer `auto` (`docs/benchmark.md` →
-      **Choosing the judge**), a model id, or `off`; `off` or no answer omits
-      the key. Run `bash "$HOME/scripts/benchmark-judge.sh" check <id or auto>`
-      and give the operator the reason it prints, if any — signing the claude
-      CLI in is the operator's.
+    then ask in turn, one question each (`docs/config.md` has each key):
+    - **`benchmark_reference_model`** — the model of the regression runs;
+      propose this session's model. No answer omits the key.
+    - **`benchmark_judge`** — the judge panel: run `bash
+      "$HOME/scripts/benchmark-judge.sh" models` and propose two served models
+      of different families (`docs/benchmark.md` → **Judge panel**). Confirmed
+      → `benchmark_judge: <a>, <b>`; one family served → that one id; the
+      operator may answer `auto` or `off` instead (`off` omits the key). Run
+      `bash "$HOME/scripts/benchmark-judge.sh" check <the value>` and give the
+      operator the reason it prints, if any — signing a CLI in is the
+      operator's.
+    - **`benchmark_max_parallel`** — concurrent benchmark sub-agents, default
+      `8` (the default omits the key).
+    - **`benchmark_decision_rule`** — `cheapest_not_worse` (default, omits the
+      key), `best_quality` or `cost_cap:<N>` (`docs/benchmark.md` →
+      **Decision rule**).
     - **`benchmark_report`** — `dam` (default) / `off`.
     - Offer the optional `## Benchmark model prices` table (`docs/benchmark.md`
-      → **Model prices**) and `## Benchmark sufficiency` table
-      (`docs/benchmark.md` → **Sufficiency by tier**).
+      → **Model prices**), `## Benchmark sufficiency` table
+      (`docs/benchmark.md` → **Sufficiency by tier**) and `## Benchmark
+      languages` table (`docs/benchmark.md` → **Languages**).
 
-    Register the schedule in Step 6d.
+    A key already in `work/CONFIG.md` is kept and not asked again.
 11. **Ready-to-land nudge** (only when Slack is enabled) — ask:
 
     > When a PR is approved, has no conflicts, passes its checks and carries no open critical of mine, I can post one line to the author saying it is ready to land, once per approval. Turn it on?
@@ -585,8 +596,11 @@ Final shape:
 - survey_interval_days: 7              # floor between two passes; omit = 7
 - daily_brief: enabled                 # weekday Slack brief of merged PRs; omit = disabled
 - brief_language: Czech                # language of the brief; omit = English
-- benchmark: enabled                   # monthly self-benchmark; omit = disabled
-- benchmark_judge: auto   # auto = the agent picks the judge once | <model-id> | off = deterministic scoring only
+- benchmark: enabled                   # on-demand benchmark + version-bump question; omit = disabled
+- benchmark_reference_model: claude-opus-5   # the regression model; omit = none
+- benchmark_judge: claude-opus-5, gpt-5   # judge panel (two families) | auto | <model-id> | off = deterministic scoring only
+- benchmark_max_parallel: 8            # concurrent benchmark sub-agents; omit = 8
+- benchmark_decision_rule: cheapest_not_worse   # or: best_quality | cost_cap:<N>; omit = cheapest_not_worse
 - benchmark_report: dam                # accumulated-report surface: dam (default) | off
 - escalation_owner: alice              # only when slack_notifications: enabled
 - monitor_owner: dana                  # monitor alert DMs go here; omit = escalation_owner
@@ -674,8 +688,7 @@ tracking files from the target repo: every posted agent review carries the
 ## Step 6 — Ensure the scheduled jobs exist
 
 Independent platform schedules, never an in-process cron tool — the shepherd
-one only under `slack_notifications: enabled`, the benchmark one only under
-`benchmark: enabled`, the survey one only under `survey: enabled`, the brief one only under `daily_brief: enabled`.
+one only under `slack_notifications: enabled`, the survey one only under `survey: enabled`, the brief one only under `daily_brief: enabled`. The benchmark has none (6d).
 
 Every schedule here except the audit carries a **`precheck`**, the gate that
 decides whether a fire starts a session at all (`docs/worklist.md` → **The
@@ -687,8 +700,8 @@ platform's (`docs/config.md` → **Session model**).
 
 **Reconcile with what is registered; never create blindly.** Start with
 `mcp__platform-outbound__list_schedules`. A kit-created instance already
-carries every schedule of 6a–6g, at the default cadence of its step, with the
-Slack-, benchmark-, survey- and brief-dependent ones disabled ([`kit.yaml`](kit.yaml) →
+carries every schedule of this step, at the default cadence of its step, with the
+Slack-, survey- and brief-dependent ones disabled ([`kit.yaml`](kit.yaml) →
 `schedules`). Compare full names, not prefixes — the review schedules of 6a
 share one. For each schedule this step defines:
 
@@ -699,10 +712,10 @@ share one. For each schedule this step defines:
 | same `name`, different cron, `task`, `precheck` or `sessionTitle` | create the corrected one, then `delete_schedule` the old id — `create_schedule` never updates |
 
 A registered schedule this step does **not** define is kept, disabled, when
-only its feature is off — 6b, 6d and 6e are then a `toggle_schedule`, not a
+only its feature is off — 6b and 6e are then a `toggle_schedule`, not a
 create. Delete the ones the configuration rules out: the quiet-hour and off-day
-heartbeats under a 24/7 cadence, and a sweep whose name no longer matches its
-cadence shorthand.
+heartbeats under a 24/7 cadence, a sweep whose name no longer matches its
+cadence shorthand, and the retired benchmark schedule of 6d.
 
 **6a — Review heartbeat.** Registers the cadence of Step 4 item 13 as **one to
 three** schedules: one for the active window, plus a quiet-hour schedule for
@@ -746,14 +759,9 @@ Default is Friday 07:00 (platform timezone).* Create
 
 > Weekly audit. Run `bash "$HOME/scripts/preflight.sh" audit` first — this run is ungated. Follow CLAUDE.md → "Audit run": read docs/audit.md, add the agent-side checks (schedules, memory compliance, nudge integrity, reaction feedback), compose the health report from stats + checks, send it to Slack when slack_notifications is enabled (chat UI always), append the AUDIT.log line, and back up work/ (`scripts/work-backup.sh persist`).
 
-**6d — Model benchmark** (only when `benchmark: enabled`; create it later if
-the benchmark is enabled in chat). Ask: *When should the monthly benchmark run?
-Default is the 1st of the month, 06:00 (platform timezone).* Create
-`name: code-guardian-benchmark-monthly`, cron default `0 6 1 * *`,
-`sessionMode: fresh`, `precheck: bash "$HOME/scripts/precheck.sh" benchmark`,
-`sessionTitle: Benchmark the review model`, `task`:
-
-> Model benchmark. The precheck already ran preflight and found the benchmark due: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" benchmark` yourself. Then follow CLAUDE.md → "Benchmark run": read docs/benchmark.md and perform the action in benchmark_due — create_fixture tops the fixture set up to the full set (≥5) and ends the run; run replays every fixture review with the configured skills (time and tokens measured), scores them with scripts/benchmark-score.sh (plus the judge when configured), appends the results to work/benchmark/, regenerates and republishes the accumulated report, and reports the scores — and back up work/ (`scripts/work-backup.sh persist`).
+**6d — Model benchmark (retired).** No schedule: the benchmark runs on the
+operator's request (`docs/benchmark.md` → **Runs**). Delete a registered
+`code-guardian-benchmark-…` schedule.
 
 **6e — Codebase survey** (only when `survey: enabled`; create it later if the
 survey is enabled in chat). Ask: *When should the weekly codebase survey run?
@@ -822,8 +830,8 @@ with the verification result (the `PASS` line plus any warnings):
 1. The final `work/CONFIG.md`, verbatim.
 2. What runs where: target repo, the review cadence (under an active window
    also the quiet-hour interval), shepherd cadence when Slack is on, audit
-   day, benchmark and survey days and the daily brief when enabled, the
-   monitor every 15 minutes (with its direct DM and dashboard when enabled),
+   day, the survey day and the daily brief when enabled, the benchmark on
+   request when enabled, the monitor every 15 minutes (with its direct DM and dashboard when enabled),
    that the platform's model settings choose the session model,
    `definition_issues`, and state persistence (`work_repo` or local-only).
 3. Day-to-day usage:

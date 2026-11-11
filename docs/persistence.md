@@ -186,11 +186,16 @@ commit). It discards, so surface that it was needed. **Never `git clean`.**
    Each `install.sh` is idempotent and only prints a notice on another
    harness. A `not current` line is a failed step. The refreshed parts take
    effect from the next session.
-4. Only after every applicable step succeeded, write `to` into `work/VERSION`
+4. **Ask about the regression benchmark** when `benchmark: enabled` and the
+   crossing reaches a new minor or major version (a patch crossing asks
+   nothing): whether to run it now on `benchmark_reference_model`
+   ([benchmark.md](benchmark.md) → **Runs**). With no reference model, say so
+   and offer to set one. The answer never blocks the migration.
+5. Only after every applicable step succeeded, write `to` into `work/VERSION`
    and log `definition upgraded <from> → <to> (<n> step(s))`, naming the
    features offered and the answers. A failed step: log it, tell the operator,
    and leave `work/VERSION` unchanged — it is re-offered at the next check.
-5. Rollback (`to` < `from`) → apply nothing, offer nothing, refresh the
+6. Rollback (`to` < `from`) → apply nothing, offer nothing, refresh the
    harness copies (step 3), then write `to`.
 
 Back up `work/` afterwards.

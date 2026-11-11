@@ -9,7 +9,8 @@
 #   benchmark-isolate.sh check [repos | --commit <sha>]
 #   benchmark-isolate.sh bundle <fixture-dir> <first|rereview> <out.tgz>
 #   benchmark-isolate.sh start [--commit <sha> [--branch <name>]] [--model <m>] [--effort <e>] \
-#                              [--only <slug>-<phase>]… <state-dir> <ts> <fixture-root> <slug>…
+#                              [--max-parallel <n>] [--snapshot <earlier-state-dir>] \
+#                              [--only <slug>-<phase>]… <state-dir> <ts> <fixture-root> <slug|adaptive/slug>…
 #   benchmark-isolate.sh wait <state-dir>
 #   benchmark-isolate.sh collect <state-dir> <raw-dir>
 #
@@ -28,7 +29,19 @@
 # that a skill install swaps under (lib/skills.sh → with_skills_lock), bundles
 # every task from that snapshot, and writes the expected provenance of the
 # sub-agents — the seeded commit's definition fields, the snapshot's memory and
-# skills — to <state-dir>/expect.json.
+# skills — to <state-dir>/expect.json, with memory_source. When
+# work/benchmark/fixture/CORE.json exists, the snapshot takes MEMORY.md and
+# LESSONS.md from fixture/core-memory/ (the frozen core memory, refused when
+# either is missing) and memory_source is "core-frozen", else "live"; CONFIG.md
+# is always the live one. --snapshot reuses the snapshot, memory_source and
+# expect.json of an earlier state-dir of the same run and seeded commit, so
+# every model of a multi-model run gets one identical snapshot.
+#
+# A slug `adaptive/<slug>` names a fixture under the fixture root's sibling
+# adaptive/; it is bundled at the same path as a core one, and its task id is
+# <slug>-<phase>, so a slug in both parts is refused. `start` spawns at most
+# --max-parallel tasks (CONFIG benchmark_max_parallel, else 8) and queues the
+# rest in <state-dir>; `wait` spawns queued tasks as running ones end.
 #
 # `bundle` stages the task's inputs (paths relative to $HOME: the fixture
 # directory without manifest.json, work/MEMORY.md, LESSONS.md, CONFIG.md and
@@ -40,10 +53,11 @@
 # that `benchmark-child.sh unpack` joins in its install step.
 #
 # `wait` polls for at most CG_BENCH_WAIT_S (480) seconds: rc 0 when every task
-# ended, rc 3 while some still run. `collect` writes each result's raw review
+# ended, rc 3 while some still run or wait in the queue, rc 1 when the platform
+# refuses a queued spawn (the task stays queued). `collect` writes each result's raw review
 # and skill archive, prints one JSON object (tasks, model, harness_version,
 # effort, failed[], mismatches[]) and exits 1 on a failed task, a malformed
-# result, provenance that differs from <state-dir>/expect.json, or a model
+# result, a task still queued, provenance that differs from <state-dir>/expect.json, or a model
 # other than the one `start` spawned on (the id after the provider path, equal
 # in any letter case) — then it writes no raw file. With no model recorded in
 # <state-dir> it refuses.
@@ -69,6 +83,7 @@ TTL_MS="${CG_BENCH_TTL_MS:-10800000}"           # 3 h, queue time included
 WAIT_S="${CG_BENCH_WAIT_S:-480}"
 POLL_S="${CG_BENCH_POLL_S:-15}"
 PHASES="first rereview"
+CORE="$WORK/benchmark/fixture"                  # CORE.json and core-memory/ live here
 
 die() { printf '%s\n' "$*"; exit 1; }
 
@@ -136,12 +151,24 @@ check_full() { # [sha]
   return 0
 }
 
-# the defect summaries of every manifest on disk, retired ones included: the
-# strings that must never reach a sub-agent outside the fixture inputs
+# the defect summaries of every manifest on disk — core, adaptive, the given
+# root, retired ones included: the strings that must never reach a sub-agent
+# outside the fixture inputs
 truth_patterns() { # <fixture-root> <out-file>
-  for m in "$1"/*/manifest.json "$1"/retired/*/manifest.json; do
-    [ -f "$m" ] && jq -r '.defects[]?.summary // empty | select(length >= 16)' "$m" 2>/dev/null
+  local r m
+  for r in "$1" "$CORE" "$WORK/benchmark/adaptive"; do
+    for m in "$r"/*/manifest.json "$r"/retired/*/manifest.json "$r"/retired/*/*/manifest.json; do
+      [ -f "$m" ] && jq -r '.defects[]?.summary // empty | select(length >= 16)' "$m" 2>/dev/null
+    done
   done | sort -u > "$2"
+}
+
+# core-frozen when CORE.json exists (refused without both frozen files), else live
+memory_source() {
+  [ -f "$CORE/CORE.json" ] || { printf 'live'; return 0; }
+  [ -f "$CORE/core-memory/MEMORY.md" ] && [ -f "$CORE/core-memory/LESSONS.md" ] \
+    || die "fixture/CORE.json exists but fixture/core-memory/ lacks MEMORY.md or LESSONS.md — restore the frozen core memory before a run"
+  printf 'core-frozen'
 }
 
 # copies of the files a sub-agent gets besides its fixture, at their
@@ -159,9 +186,15 @@ snapshot_skills() { # <dir>
   return 0
 }
 snapshot() { # <dir>
-  local f
+  local f src
+  src="$(memory_source)" || die "$src"
   mkdir -p "$1/work" || return 1
-  for f in MEMORY.md LESSONS.md CONFIG.md; do [ -f "$WORK/$f" ] && cp "$WORK/$f" "$1/work/"; done
+  if [ "$src" = core-frozen ]; then
+    for f in MEMORY.md LESSONS.md; do cp "$CORE/core-memory/$f" "$1/work/" || return 1; done
+  else
+    for f in MEMORY.md LESSONS.md; do [ -f "$WORK/$f" ] && cp "$WORK/$f" "$1/work/"; done
+  fi
+  [ -f "$WORK/CONFIG.md" ] && cp "$WORK/CONFIG.md" "$1/work/"
   with_skills_lock "$HOME_DIR" snapshot_skills "$1"
 }
 
@@ -226,8 +259,38 @@ RESULT_SCHEMA='{"type":"object","required":["review","measure","suppressed","mod
   "suppressed":{"type":"integer"},"model":{"type":"string"},"provenance":{"type":"object"},
   "skills":{"type":"object"}}}'
 
+# the cap on running sub-agents: a positive integer, else 8
+max_parallel() { # [value]
+  local v="${1:-$(cfg benchmark_max_parallel)}"
+  case "$v" in (''|*[!0-9]*|0*) printf '8';; (*) printf '%s' "$v";; esac
+}
+
+# spawn one built task: POST its request once, keep the id; rc 1 on a refusal
+spawn() { # <state-dir> <task>
+  local st="$1" task="$2" ans rc id
+  # one POST per task: a repeated call is a second sub-agent
+  ans="$(rest POST /invocations "$st/$task.req")"; rc=$?
+  id="$(printf '%s' "$ans" | jq -r '.id // empty' 2>/dev/null)"
+  if [ "$rc" -ne 0 ] || [ -z "$id" ]; then
+    printf '%s: spawn refused — %s\n' "$task" "$(printf '%s' "$ans" | jq -r '.error // empty' 2>/dev/null || true)"; return 1
+  fi
+  printf '%s\n' "$id" > "$st/$task.id"; rm -f "$st/$task.req" "$st/$task.queued"
+  printf 'spawned %s -> %s\n' "$task" "$id"
+}
+
+# spawn queued tasks, oldest first, while fewer than <cap> run
+fill_slots() { # <state-dir> <running> <cap>
+  local st="$1" running="$2" cap="$3" task f
+  for task in $(for f in "$st"/*.queued; do [ -f "$f" ] && printf '%s %s\n' "$(cat "$f")" "${f##*/}"; done \
+                | sort -n | while read -r _ t; do printf '%s\n' "${t%.queued}"; done); do
+    [ "$running" -lt "$cap" ] || break
+    spawn "$st" "$task" || return 1
+    running=$((running + 1))
+  done
+}
+
 start() {
-  local model="" effort="" only="" commit="" branch="" st ts root slug ph task nonce tgz b64 sum d url sha h env prompt body id ans rc n
+  local model="" effort="" only="" commit="" branch="" cap="" from="" seen st ts root aroot arg slug dir ph task nonce tgz b64 sum d url sha h env prompt body n seq running f src
   while [ "$#" -gt 0 ]; do
     case "$1" in
       (--commit) commit="$2"; shift 2;;
@@ -235,11 +298,33 @@ start() {
       (--model) model="$2"; shift 2;;
       (--effort) effort="$2"; shift 2;;
       (--only) only="$only $2"; shift 2;;
+      (--max-parallel) cap="$2"; shift 2
+        case "$cap" in (''|*[!0-9]*|0*) die "--max-parallel $cap is not a positive integer";; esac;;
+      (--snapshot) from="${2%/}"; shift 2;;
       (*) break;;
     esac
   done
-  [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--commit sha [--branch name]] [--model m] [--effort e] [--only task]… <state-dir> <ts> <fixture-root> <slug>…"
+  [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--commit sha [--branch name]] [--model m] [--effort e] [--max-parallel n] [--snapshot state-dir] [--only task]… <state-dir> <ts> <fixture-root> <slug|adaptive/slug>…"
   st="$1" ts="$2" root="${3%/}"; shift 3
+  aroot="${root%/*}/adaptive"
+  cap="$(max_parallel "$cap")"
+  # every slug resolves to one fixture directory and one task id prefix
+  seen=" "
+  for arg in "$@"; do
+    case "$arg" in
+      (adaptive/*) slug="${arg#adaptive/}"; dir="$aroot/$slug"
+        [ ! -d "$root/$slug" ] || die "adaptive fixture $slug collides with core fixture $slug — rename one; task ids must be unique";;
+      (*) slug="$arg"; dir="$root/$slug";;
+    esac
+    case "$slug" in (''|*/*|.*) die "bad fixture slug $arg";; esac
+    case "$seen" in (*" $slug "*) die "fixture $slug named twice";; esac
+    seen="$seen$slug "
+    [ -d "$dir" ] || die "no fixture directory $dir"
+  done
+  if [ -n "$from" ]; then
+    [ -d "$from/snapshot" ] && [ -f "$from/expect.json" ] && [ -f "$from/memory_source" ] \
+      || die "--snapshot $from holds no snapshot (snapshot/, expect.json, memory_source) — start that state-dir first"
+  fi
   # a script spawn naming no model runs on the agent's saved default, not on
   # this session's model, so every spawn names one
   [ -n "$model" ] || model="$(cg_harness_model)"
@@ -247,6 +332,8 @@ start() {
   case "$model" in (*?/?*) ;; (*) die "--model $model is not provider-qualified (<provider>/<id>)";; esac
   check_full "$commit" || return 1
   sha="$SEED_SHA"
+  [ -z "$from" ] || [ "$(cat "$from/commit" 2>/dev/null)" = "$sha" ] \
+    || die "--snapshot $from seeded another commit — one run seeds one commit"
   seed_clean "$root" "$sha" || return 1
   mkdir -p "$st" || die "cannot create $st"
   [ ! -f "$st/commit" ] || [ "$(cat "$st/commit")" = "$sha" ] \
@@ -254,31 +341,46 @@ start() {
   [ ! -f "$st/model" ] || [ "$(cat "$st/model")" = "$model" ] \
     || die "$st spawned on $(cat "$st/model") — a retry spawns on the same model"
   printf '%s\n' "$ts" > "$st/ts"; printf '%s\n' "$effort" > "$st/effort"; printf '%s\n' "$sha" > "$st/commit"
-  printf '%s\n' "$model" > "$st/model"
+  printf '%s\n' "$model" > "$st/model"; printf '%s\n' "$cap" > "$st/max_parallel"
   # one snapshot per run, so every task — a retry included — gets the same
   # memory and skills, and the expected provenance describes exactly them
-  if [ ! -d "$st/snapshot" ]; then
-    snapshot "$st/snapshot.tmp" && mv "$st/snapshot.tmp" "$st/snapshot" || { rm -rf "$st/snapshot.tmp"; die "the input snapshot failed"; }
-  fi
-  if [ -z "$commit" ]; then
-    bash "$SCRIPT_DIR/benchmark-provenance.sh" --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json"
+  if [ -n "$from" ]; then
+    if [ ! -d "$st/snapshot" ]; then
+      cp -a "$from/snapshot" "$st/snapshot.tmp" && mv "$st/snapshot.tmp" "$st/snapshot" \
+        || { rm -rf "$st/snapshot.tmp"; die "the snapshot copy from $from failed"; }
+    fi
+    cp "$from/memory_source" "$st/memory_source" && cp "$from/expect.json" "$st/expect.json" \
+      || die "the expected provenance could not be copied from $from"
   else
-    bash "$SCRIPT_DIR/benchmark-provenance.sh" --commit "$sha" ${branch:+--branch "$branch"} \
-      --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json"
+    if [ ! -d "$st/snapshot" ]; then
+      src="$(memory_source)" || die "$src"
+      snapshot "$st/snapshot.tmp" && mv "$st/snapshot.tmp" "$st/snapshot" || { rm -rf "$st/snapshot.tmp"; die "the input snapshot failed"; }
+      printf '%s\n' "$src" > "$st/memory_source"
+    fi
+    src="$(cat "$st/memory_source" 2>/dev/null)"; [ -n "$src" ] || src=live
+    if [ -z "$commit" ]; then
+      bash "$SCRIPT_DIR/benchmark-provenance.sh" --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json.tmp"
+    else
+      bash "$SCRIPT_DIR/benchmark-provenance.sh" --commit "$sha" ${branch:+--branch "$branch"} \
+        --state-root "$st/snapshot" "$WORK/benchmark" > "$st/expect.json.tmp"
+    fi
+    jq --arg m "$src" '. + {memory_source: $m}' "$st/expect.json.tmp" > "$st/expect.json" 2>/dev/null
+    rm -f "$st/expect.json.tmp"
   fi
   jq -e 'type == "object"' "$st/expect.json" >/dev/null 2>&1 || die "the expected provenance could not be written"
   d="$(def_ref)"
   url="https://$(refhost "$d")/$(refslug "$d").git"
   h="$(cg_harness)"
-  n=0
-  for slug in "$@"; do
+  n=0; seq="$(cat "$st/qseq" 2>/dev/null)"; case "$seq" in (''|*[!0-9]*) seq=0;; esac
+  for arg in "$@"; do
+    case "$arg" in (adaptive/*) slug="${arg#adaptive/}"; dir="$aroot/$slug";; (*) slug="$arg"; dir="$root/$slug";; esac
     for ph in $PHASES; do
       task="$slug-$ph"
       [ -z "$only" ] || case " $only " in (*" $task "*) ;; (*) continue;; esac
       rm -f "$st/$task".*
       nonce="bench-$ts-$task"
       tgz="$st/$task.tgz"
-      bundle "$root/$slug" "$ph" "$tgz" "$st/snapshot" || return 1
+      bundle "$dir" "$ph" "$tgz" "$st/snapshot" || return 1
       b64="$st/$task.b64"; base64 < "$tgz" | tr -d '\n' > "$b64"
       sum="$(sha256 < "$tgz")"
       env="$(fold -w "$CHUNK" "$b64" | jq -R . | jq -s --arg sum "$sum" --arg h "$h" '
@@ -298,22 +400,27 @@ start() {
              + (if $effort == "" or $h != "claude-code" then {} else {configOptions: {effort: $effort}} end))}' \
         > "$body" || die "$task: request not built"
       rm -f "$b64"
-      # one POST per task: a repeated call is a second sub-agent
-      ans="$(rest POST /invocations "$body")"; rc=$?
-      id="$(printf '%s' "$ans" | jq -r '.id // empty' 2>/dev/null)"
-      [ "$rc" -eq 0 ] && [ -n "$id" ] \
-        || die "$task: spawn refused — $(printf '%s' "$ans" | jq -r '.error // empty' 2>/dev/null || true)"
-      rm -f "$body"
-      printf '%s\n' "$id" > "$st/$task.id"; printf '%s\n' "$nonce" > "$st/$task.nonce"
-      printf 'spawned %s -> %s\n' "$task" "$id"; n=$((n + 1))
+      seq=$((seq + 1)); printf '%s\n' "$seq" > "$st/$task.queued"; printf '%s\n' "$nonce" > "$st/$task.nonce"
+      n=$((n + 1))
     done
   done
+  printf '%s\n' "$seq" > "$st/qseq"
   [ "$n" -gt 0 ] || die "no task matches${only:+ --only$only}"
+  # tasks spawned earlier and not seen ending hold their slot until wait sees them end
+  running=0
+  for f in "$st"/*.id; do
+    [ -f "$f" ] || continue; task="${f##*/}"; task="${task%.id}"
+    [ -f "$st/$task.result.json" ] || [ -f "$st/$task.failed" ] || running=$((running + 1))
+  done
+  fill_slots "$st" "$running" "$cap" || exit 1
+  n="$(ls "$st" | grep -c '\.queued$')"
+  [ "$n" -eq 0 ] || printf 'queued %s task(s) — wait spawns them as running ones end (max %s at once)\n' "$n" "$cap"
 }
 
 wait_all() { # <state-dir>
-  local st="$1" deadline f task id view status running done_n failed_n total unanswered
+  local st="$1" deadline f task id view status running done_n failed_n total unanswered queued cap before
   ROOT="$(rest_root)" || die "no platform sub-agent route here"
+  cap="$(max_parallel "$(cat "$st/max_parallel" 2>/dev/null)")"
   deadline=$(( $(date -u +%s) + WAIT_S ))
   while :; do
     running=0 done_n=0 failed_n=0 total=0 unanswered=0
@@ -331,12 +438,17 @@ wait_all() { # <state-dir>
         (*) running=$((running + 1));;
       esac
     done
+    # queued tasks take the slots that ended tasks freed
+    before="$(ls "$st" | grep -c '\.queued$')"
+    fill_slots "$st" "$running" "$cap" || { printf 'the task stays queued — call wait again, or retry it with start --only\n'; return 1; }
+    queued="$(ls "$st" | grep -c '\.queued$')"
+    running=$((running + before - queued)); total=$((total + before))
     [ "$total" -gt 0 ] || die "no spawned task in $st"
-    if [ "$running" -eq 0 ]; then
+    if [ "$running" -eq 0 ] && [ "$queued" -eq 0 ]; then
       printf 'all %s task(s) ended: %s done, %s failed\n' "$total" "$done_n" "$failed_n"; return 0
     fi
     if [ "$(date -u +%s)" -ge "$deadline" ]; then
-      printf '%s of %s task(s) still running (%s done, %s failed%s) — call wait again\n' "$running" "$total" "$done_n" "$failed_n" \
+      printf '%s of %s task(s) still running, %s queued (%s done, %s failed%s) — call wait again\n' "$running" "$total" "$queued" "$done_n" "$failed_n" \
         "$([ "$unanswered" -gt 0 ] && printf '; %s status read(s) got no answer' "$unanswered")"
       return 3
     fi
@@ -353,6 +465,11 @@ collect() { # <state-dir> <raw-dir>
   want="$(cat "$st/model" 2>/dev/null)"; [ -n "$want" ] || die "no spawn model in $st"
   jq -e 'type == "object"' "$exp" >/dev/null 2>&1 || die "expected provenance unreadable: $exp"
   mkdir -p "$raw"
+  for f in "$st"/*.queued; do
+    [ -f "$f" ] || continue
+    task="${f##*/}"; task="${task%.queued}"
+    out="$(printf '%s' "$out" | jq --arg t "$task" '. + [{task: $t, failed: "queued, never spawned"}]')"
+  done
   for f in "$st"/*.id; do
     [ -f "$f" ] || continue
     task="${f##*/}"; task="${task%.id}"; ph="${task##*-}"; slug="${task%-*}"

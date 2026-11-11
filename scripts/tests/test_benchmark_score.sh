@@ -261,4 +261,36 @@ run_score rereview "$SANDBOX/rr-also.md"
 assert_jq '.new_recall == 1' 'a merged new finding matches its v2 defect on any anchor'
 assert_jq '.new_fp == 0' 'a prediction consumed by the new bucket leaves no leftover FP'
 
+new_case score_languages_and_fn_detail
+write_manifest
+jq '.defects[2].file = "src/db.py" | .defects[3].file = "src/db.py"' "$SANDBOX/manifest.json" > "$SANDBOX/m.json"
+mv "$SANDBOX/m.json" "$SANDBOX/manifest.json"
+cat > "$SANDBOX/lang.md" <<'EOF'
+### Summary
+x.
+### Findings
+### Verdict
+REQUEST_CHANGES
+<!-- findings-json: [{"status":"fixed","severity":"critical","file":"src/auth.ts","line":41,"summary":"a","fix":null},{"status":"new","severity":"critical","file":"src/db.py","line":31,"summary":"b","fix":"c"},{"status":"new","severity":"warning","file":"src/db.py","line":11,"summary":"d","fix":"e"}] -->
+EOF
+run_score first "$SANDBOX/lang.md"
+assert_jq '.languages == {typescript: {gt: 2, tp: 1}, python: {gt: 1, tp: 1}}' 'first: languages over the v1 ground truth'
+assert_jq '.fn_detail == [{id: "D02", file: "src/auth.ts"}]' 'first: every miss carries its file'
+assert_jq '.fn == ["D02"]' 'the old fn field is unchanged'
+run_score rereview "$SANDBOX/lang.md"
+assert_jq '.languages == {typescript: {gt: 2, tp: 1}, python: {gt: 1, tp: 1}}' 'rereview: languages over fixed + still + new ground truth'
+assert_jq '.fixed_recall == 1 and .still_recall == 0 and .new_recall == 1' 'the old bucket fields are unchanged'
+
+new_case bench_lang_mapping
+. "$REPO_ROOT/scripts/lib/bench-lang.sh"
+for pair in a/B.java:java x.ts:typescript x.tsx:typescript x.mjs:javascript x.py:python x.go:go \
+            x.rb:ruby run.sh:shell M.BAS:basic f.vb:basic s.vbs:basic Form1.frm:basic x.cs:csharp \
+            x.kt:kotlin x.rs:rust x.php:php x.h:c x.cpp:cpp README.md:markdown ci.yml:yaml \
+            Dockerfile:other x.unknown:other; do
+  is "bench_lang ${pair%%:*}" "$(bench_lang "${pair%%:*}")" "${pair#*:}"
+done
+OUT="$(jq -n --argjson map "$(bench_lang_jq_map)" "$BENCH_LANG_JQ"'
+  ["src/A.VB", "x/y.ts", "Makefile", "a.b/c"] | map(bench_lang($map))')"
+assert_jq '. == ["basic", "typescript", "other", "other"]' 'the jq map gives the same languages as bench_lang'
+
 finish

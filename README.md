@@ -56,8 +56,9 @@ of what the merged PRs changed ([`docs/brief.md`](docs/brief.md)).
 over one area of the repository as it stands
 ([`docs/survey.md`](docs/survey.md)).
 
-**Model benchmark** — monthly, under `benchmark`: replays synthetic review
-fixtures with seeded defects, scores them and republishes an accumulated report
+**Model benchmark** — on the operator's request, under `benchmark`: replays
+review fixtures built from the repository for one or more models, scores them
+against their known defects and republishes an accumulated report
 ([`docs/benchmark.md`](docs/benchmark.md)).
 
 **The definition is split so the always-loaded part stays small.**
@@ -150,8 +151,11 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `audit_report` | defaulted to `enabled` | Weekly health report. |
 | `definition_issues` | asked (default `disabled`) | Anonymous tracking issues on the definition repo (`docs/runbook.md` → **Definition-repo issues**). |
 | `channel_definition_prs` | asked with `definition_issues` (default `disabled`) | Draft definition PRs on a roster member's channel ask (`docs/channel-requests.md`). |
-| `benchmark` | asked (default off) | Monthly self-benchmark (`docs/benchmark.md`). |
-| `benchmark_judge` | asked with `benchmark` (recommended answer `auto`; missing = `off`) | Judge of the LLM-judged scores: `auto`, a model id, or `off`. |
+| `benchmark` | asked (default off) | On-demand benchmark, and the question on a minor or major version bump (`docs/benchmark.md`). |
+| `benchmark_reference_model` | asked with `benchmark` (proposed: the session's model) | Model of the regression runs. |
+| `benchmark_judge` | asked with `benchmark` (proposed: two served models of different families; missing = `off`) | Judge panel `<a>, <b>`, `auto`, a model id, or `off`. |
+| `benchmark_max_parallel` | asked with `benchmark` (default `8`) | Most benchmark sub-agents at the same time. |
+| `benchmark_decision_rule` | asked with `benchmark` (default `cheapest_not_worse`) | What "a better model" means in the recommendation. |
 | `merge_ready_nudge` | asked with Slack (default `disabled`) | One "ready to land" line per approval (`docs/shepherd.md` → **Ready to land**). |
 | `shepherd_scope` | asked with Slack (default `needs_human`) | `needs_human` or `all` (`docs/shepherd.md` → **Scope and brief**). |
 | `human_review_paths` | asked with auto-merge or Slack (default none) | Sensitive globs: named to the triage call, never auto-merged. |
@@ -168,6 +172,7 @@ Per-key semantics are in [`docs/config.md`](docs/config.md); summary:
 | `benchmark_report` | asked with `benchmark` (default `dam`) | Benchmark report surface: `dam` or `off`. |
 | `## Benchmark sufficiency` table | offered with `benchmark` (optional) | The bar per task tier (`docs/benchmark.md` → **Sufficiency by tier**). |
 | `## Benchmark model prices` table | offered with `benchmark` (optional) | Per-MTok prices for `est $` columns (`docs/benchmark.md` → **Model prices**). |
+| `## Benchmark languages` table | offered with `benchmark` (optional) | Main-language share and defect minimum (`docs/benchmark.md` → **Languages**). |
 | `active_hours`, `active_days`, `review_interval_active`, `review_interval_quiet` | asked (default 24/7: `00-23`, `Mon-Sun`, 5 min; 15 min quiet under a window) | Heartbeat cadence; source of the registered crons (`ONBOARDING.md` Step 6a). |
 | `stall_alert_threshold` | not set (= `4`) | Stalled reviews per 24 h recorded as an incident; `0`/`off` disables. |
 | `review_anomaly_factor` | not set (= `4`) | Anomalous-review factor over the model's median; `0`/`off` disables. |

@@ -39,7 +39,7 @@ assert_out_contains 'Latest run: 2026-08-01T06:00:00Z' 'latest run named'
 assert_out_contains '<td class="n idx"><b>0.769</b><span class=bar style="width:77%"></span></td>' 'run 1 quality index is the baseline (no delta), bar width tracks the value'
 assert_out_contains '<td class="n idx"><b>0.944</b><span class=bar style="width:94%"></span></td>' 'run 2 (a different model) carries NO cross-model delta'
 assert_out_absent '0\.944<span class="d ' 'deltas never compare across models'
-assert_out_contains '<td class=n>3.5</td>' 'judge column averages all dimensions on its own 1-5 scale'
+assert_out_contains '<td class="n as">3.5</td>' 'judge column averages all dimensions on its own 1-5 scale'
 assert_out_contains 'judge scores never enter it' 'page states the index is judge-free'
 assert_out_contains '<td>2.1.34 (Claude Code)</td>' 'harness version column rendered'
 assert_out_contains '<h3>3.12.0 — tested 2026-08-01T06:00:00Z (since 3.11.0)</h3>' 'version-change block names versions and run'
@@ -55,8 +55,8 @@ assert_out_absent 'src=|href="http|@import|fetch\(' 'page stays self-contained (
 if [ "$(printf '%s' "$OUT" | grep -o '<li>' | grep -c '')" = "2" ]; then
   printf 'ok   %s: release-commit subjects listed as bullets\n' "$CASE"
 else printf 'FAIL %s: changes bullet list wrong\n' "$CASE"; FAILED=1; fi
-if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "5" ]; then
-  printf 'ok   %s: all-runs table + sufficiency + version changes + one section per fixture\n' "$CASE"
+if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "6" ]; then
+  printf 'ok   %s: core and adaptive run tables + sufficiency + version changes + one section per fixture\n' "$CASE"
 else printf 'FAIL %s: section count wrong\n' "$CASE"; FAILED=1; fi
 missing_tok_row="$(printf '%s' "$OUT" | grep -A1 'model-b' | grep -c '—' || true)"
 if [ "$missing_tok_row" -ge 1 ]; then

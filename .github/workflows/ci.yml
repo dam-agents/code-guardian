@@ -146,15 +146,14 @@ jobs:
           # One row per Step 6 run, in Step 6 order; a run added to or removed
           # from Step 6 adds or removes its row. A kit schedule joins a run by
           # its name prefix. Per run: its task blockquote, its precheck mode,
-          # and whether the kit creates it enabled (the Slack, benchmark and
-          # survey runs wait for their key).
+          # and whether the kit creates it enabled (the Slack, survey and
+          # brief runs wait for their key).
           SPEC = {'code-guardian-review-':    (0, 'review',    True),
                   'code-guardian-shepherd-':  (1, 'shepherd',  False),
                   'code-guardian-audit-':     (2, None,        True),
-                  'code-guardian-benchmark-': (3, 'benchmark', False),
-                  'code-guardian-survey-':    (4, 'survey',    False),
-                  'code-guardian-monitor-':   (5, 'monitor',   True),
-                  'code-guardian-brief-':     (6, 'brief',     False)}
+                  'code-guardian-survey-':    (3, 'survey',    False),
+                  'code-guardian-monitor-':   (4, 'monitor',   True),
+                  'code-guardian-brief-':     (5, 'brief',     False)}
           if len(quotes) != len(SPEC):
               sys.exit('ONBOARDING Step 6: %d task blockquotes, the run table has %d rows' % (len(quotes), len(SPEC)))
 

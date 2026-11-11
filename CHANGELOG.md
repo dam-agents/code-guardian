@@ -11,6 +11,22 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 15.0.0 — 2026-11-11
+**Upgrade:**
+1. Delete the schedule `code-guardian-benchmark-monthly` when it exists — the
+   benchmark runs only on the operator's request now
+   ([docs/benchmark.md](docs/benchmark.md) → **Runs**).
+2. Under `benchmark: enabled`, when `work/benchmark/fixture/` holds fixtures and
+   no `CORE.json`: run `bash "$HOME/scripts/benchmark-core.sh" migrate
+   "$HOME/work/benchmark"` (idempotent) and report each `leak <slug>` line to
+   the operator ([docs/benchmark.md](docs/benchmark.md) → **Core and adaptive
+   set**).
+3. Under `benchmark: enabled`, offer the missing keys `benchmark_reference_model`
+   (default: this session's model), `benchmark_judge: <a>, <b>` (a judge panel
+   of two families), `benchmark_max_parallel` (8) and `benchmark_decision_rule`
+   (`cheapest_not_worse`) ([docs/config.md](docs/config.md)); write each only
+   on the operator's yes.
+
 ## 14.10.0 — 2026-11-07
 
 **Upgrade:**
