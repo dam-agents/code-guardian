@@ -359,8 +359,9 @@ seeded commit) that holds ground truth, and a public work repo.
    line → **Isolation unavailable**; after it → abort.
    A non-null `bridge` adds one more `start` per model, after its core and
    adaptive tasks: state dir `$PSTATE-<n>-bridge`, fixture root
-   `<bridge.fixture_root>`, slugs `<bridge.fixtures>`, no `--snapshot` (the
-   retired root bundles its own `core-memory/`). Its `wait` and `collect`
+   `<bridge.fixture_root>`, slugs `<bridge.fixtures>`. The first model's
+   bridge `start` takes no `--snapshot` (the retired root bundles its own
+   `core-memory/`); every later model's takes `--snapshot "$PSTATE-1-bridge"`. Its `wait` and `collect`
    follow steps 3 and 4 with the raw dir `results/raw/core-v<bridge.from>`.
 3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE-<n>"` in the
    foreground until exit 0; exit 3 means call it again (`wait` also spawns the
@@ -541,7 +542,7 @@ in the `/tmp` paths. Per fixture:
    `run_id` = `<ts>` and `models` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `effort`, `memory_sha`, `skill_sources`,
-   `author_models`, `definition_ref`) come from one deterministic call — merge its object in
+   `author_models`, `core_version`, `definition_ref`) come from one deterministic call — merge its object in
    verbatim and add what only the session knows (`model`, `trigger`, `judge`,
    `judge_model_used` and `judge_reason` from step 6). An isolated run merges
    `$PSTATE/expect.json` instead — the seeded commit's provenance — adds

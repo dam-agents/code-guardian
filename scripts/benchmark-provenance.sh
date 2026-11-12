@@ -5,7 +5,8 @@
 #   benchmark-provenance.sh [--commit <sha>] [--branch <name>] [--state-root <dir>] <work/benchmark dir>
 #
 #   {definition_version, prev_version, changes_since_prev[], harness_version,
-#    effort, memory_sha, skill_sources{}, author_models{}, definition_ref{branch,sha}}
+#    effort, memory_sha, skill_sources{}, author_models{}, core_version,
+#    definition_ref{branch,sha}}
 #
 # Deterministic and read-only, so every run assembles these fields the same
 # way whatever model executes it. The caller merges in what only the session
@@ -25,6 +26,8 @@
 #   (short source SHA per installed repo-sourced skill).
 # - author_models: <slug> → the model that made the fixture, from
 #   fixture/CORE.json and each adaptive manifest (`unknown` when not known).
+# - core_version: fixture/CORE.json's `version`, null before the migration —
+#   the bridge gate of preflight.sh reads it from the results files.
 # - definition_ref: the checkout's branch + short sha — on a feature branch
 #   (trial runs) VERSION alone does not identify the code.
 #
@@ -99,6 +102,8 @@ AUTHORS="$( { jq -c '.author_model // {}' "$BDIR/fixture/CORE.json" 2>/dev/null 
                 jq -c --arg s "$s" '{($s): ((.author_model // "") | if . == "" then "unknown" else . end)}' "$m" 2>/dev/null
               done; } | jq -sc 'add // {}')"
 [ -n "$AUTHORS" ] || AUTHORS='{}'
+CORE_VER="$(jq -c '.version // null | numbers' "$BDIR/fixture/CORE.json" 2>/dev/null)"
+[ -n "$CORE_VER" ] || CORE_VER=null
 
 if [ -z "$REV" ] && [ -z "$BRANCH" ]; then
   BRANCH="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
@@ -107,7 +112,7 @@ SHA="$(git -C "$HOME_DIR" rev-parse --short=12 "${REV:-HEAD}" 2>/dev/null || tru
 
 jq -n --arg cur "$CUR_VER" --arg prev "$PREV_VER" --argjson changes "$CHANGES" \
       --arg harness "$HARNESS" --arg effort "$EFFORT" --arg mem "$MEMORY_SHA" --argjson skills "$SKILLS" \
-      --arg branch "$BRANCH" --arg sha "$SHA" --argjson authors "$AUTHORS" '
+      --arg branch "$BRANCH" --arg sha "$SHA" --argjson authors "$AUTHORS" --argjson cv "$CORE_VER" '
   def ornull: if . == "" then null else . end;
   {definition_version: ($cur | ornull),
    prev_version: ($prev | ornull),
@@ -117,4 +122,5 @@ jq -n --arg cur "$CUR_VER" --arg prev "$PREV_VER" --argjson changes "$CHANGES" \
    memory_sha: ($mem | ornull),
    skill_sources: $skills,
    author_models: $authors,
+   core_version: $cv,
    definition_ref: {branch: ($branch | ornull), sha: ($sha | ornull)}}'

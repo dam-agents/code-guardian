@@ -313,6 +313,11 @@ assert_jq '.memory_sha != null' 'memory hash recorded'
 assert_jq '.changes_since_prev == []' 'no git history degrades to an empty change list'
 assert_jq '.definition_ref.branch == null' 'no git checkout degrades definition_ref to nulls'
 assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never null'
+assert_jq '.core_version == null' 'no CORE.json → core_version null'
+mkdir -p "$SANDBOX/bench/fixture"; printf '{"version":3,"fixtures":[]}' > "$SANDBOX/bench/fixture/CORE.json"
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.core_version == 3' 'core_version comes from fixture/CORE.json'
+rm -rf "$SANDBOX/bench/fixture"
 OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.effort == "medium"' 'harness effort recorded'
 
