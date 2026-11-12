@@ -37,8 +37,8 @@
 #                             checks and sends the report (docs/audit.md)
 #   preflight.sh benchmark -> benchmark_due (create_fixture | run, with the
 #                             run settings: reference model, queue limit,
-#                             judge panel, decision rule, core version and
-#                             adaptive set) when `benchmark: enabled` and no
+#                             decision rule, core version and adaptive set;
+#                             a run adds resolve's judge panel) when `benchmark: enabled` and no
 #                             run is in progress; no schedule runs it, the
 #                             direct session does (docs/benchmark.md → Runs);
 #                             local, plus two repo GETs on a run entry
@@ -283,8 +283,8 @@ if [ "$MODE" = "benchmark" ]; then
     [ -f "${d}manifest.json" ] || continue
     d="${d%/}"; printf '%s\n' "${d##*/}"
   done 2>/dev/null | sort | jq -R . | jq -sc '[.[] | select(length > 0)]')"
-  # the run settings (docs/config.md): reference model, queue limit, judge
-  # panel, decision rule, core version
+  # the run settings (docs/config.md): reference model, queue limit,
+  # decision rule, core version (the judge panel comes from resolve below)
   BENCH_MAXP="$(cfg benchmark_max_parallel)"
   case "$BENCH_MAXP" in
     ('') BENCH_MAXP=8;;
@@ -300,10 +300,9 @@ if [ "$MODE" = "benchmark" ]; then
   esac
   BENCH_CORE_VERSION="$(jq -c '.version // null' "$BENCH_DIR/fixture/CORE.json" 2>/dev/null)"
   BENCH_SETTINGS="$(jq -n --arg rm "$(cfg benchmark_reference_model)" --argjson mp "$BENCH_MAXP" \
-    --arg bj "$(cfg benchmark_judge)" --arg dr "$BENCH_RULE" --argjson cv "${BENCH_CORE_VERSION:-null}" \
+    --arg dr "$BENCH_RULE" --argjson cv "${BENCH_CORE_VERSION:-null}" \
     --argjson ad "$BENCH_ADAPTIVE_JSON" \
     '{reference_model:(if $rm == "" then null else $rm end), max_parallel:$mp,
-      judge_panel:(if ($bj | contains(",")) then [$bj | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0)] else null end),
       decision_rule:$dr, core_version:$cv, adaptive:$ad}')"
   if [ "$BENCH_SIMPLE" -lt "$BENCH_MIN_FIXTURES" ] || [ "$BENCH_COMPLEX" -lt "$BENCH_MIN_COMPLEX" ]; then
     log "benchmark enabled, fixture set incomplete (simple $BENCH_SIMPLE/$BENCH_MIN_FIXTURES, complex $BENCH_COMPLEX/$BENCH_MIN_COMPLEX) — create_fixture due"
@@ -364,13 +363,20 @@ if [ "$MODE" = "benchmark" ]; then
   # seeded definition repo is — two GitHub GETs, on a run entry only
   BENCH_ISO_WHY="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-isolate.sh" check repos 2>/dev/null)" \
     || { BENCH_ISO_WHY="${BENCH_ISO_WHY:-the isolation check failed}"; log "benchmark isolation unavailable — $BENCH_ISO_WHY"; }
+  # the panel is resolve's served members, never the raw config ids: the run
+  # records it as judge_panel, and the validator needs judge = judge_panel[0]
+  BENCH_PANEL_JSON="$(printf '%s' "$BENCH_JUDGE_JSON" | jq -c \
+    '{judge_panel: (if ((.configured // "") | tostring | contains(",")) and ((.panel // []) | length) > 0
+                    then .panel else null end),
+      panel_note: (.panel_note // null)}' 2>/dev/null)"
+  [ -n "$BENCH_PANEL_JSON" ] || BENCH_PANEL_JSON='{"judge_panel":null,"panel_note":null}'
   local_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
     --arg j "$BENCH_JUDGE" --arg ju "$BENCH_JUDGE_WHY" --arg iu "$BENCH_ISO_WHY" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
-    --argjson set "$BENCH_SETTINGS" \
+    --argjson set "$BENCH_SETTINGS" --argjson pn "$BENCH_PANEL_JSON" \
     '{action:"run", fixtures:$f, fixture_root:$r, judge:$j,
       judge_unavailable:(if $ju == "" then null else $ju end),
       isolation_unavailable:(if $iu == "" then null else $iu end), report:$rep,
-      last_run:(if $l == "" then null else $l end)} + $set')"
+      last_run:(if $l == "" then null else $l end)} + $set + $pn')"
 fi
 
 # Is the session holding PR #<n>'s lock still working? The platform's session
@@ -2432,7 +2438,11 @@ if [ "$MODE" = "audit" ]; then
   # Both are deterministic (benchmark-validate.sh), so a regression surfaces
   # here instead of quietly scoring the wrong thing (docs/benchmark.md).
   if [ -d "$WORK/benchmark/fixture" ] && [ "$(cfg benchmark)" = "enabled" ]; then
-    bv_out="$(bash "$SCRIPT_DIR/benchmark-validate.sh" fixture "$WORK/benchmark/fixture"/*/ 2>/dev/null)"
+    # the roots, not each dir: a root also runs the core check (CORE.json)
+    # and the leak check against the frozen memory, for core and adaptive
+    bv_roots=("$WORK/benchmark/fixture")
+    [ -d "$WORK/benchmark/adaptive" ] && bv_roots+=("$WORK/benchmark/adaptive")
+    bv_out="$(bash "$SCRIPT_DIR/benchmark-validate.sh" fixture "${bv_roots[@]}" 2>/dev/null)"
     bv_bad="$(printf '%s' "$bv_out" | grep '^FAIL ' | cut -d' ' -f2 | head -4 | tr '\n' ' ')"
     if [ -n "${bv_bad// /}" ]; then
       check benchmark_fixtures fail "fixture validation failing: ${bv_bad% } — scores from this set are invalid; retire and replace it (docs/benchmark.md → Retiring a fixture set)"

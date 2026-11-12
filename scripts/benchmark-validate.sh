@@ -79,11 +79,12 @@
 #                   that never answered leaves no trace of why
 #   run_extra       optional run fields well-formed when present: run_id,
 #                   models[], reference_model, core_version, memory_source
-#                   (core-frozen needs core_version), judge_panel[] (judge =
-#                   its first member or off), author_models{}, recommendation
+#                   (core-frozen needs core_version), bridge_from (an earlier
+#                   core version), judge_panel[] (judge = its first member or
+#                   off), panel_note, author_models{}, recommendation
 #                   {rule, text, cites[], confidence high|medium|low},
 #                   comparison {"<a>|<b>": bench-stats paired output}
-#   fixture_extra   optional fixture fields well-formed: part core|adaptive,
+#   fixture_extra   optional fixture fields well-formed: part core|adaptive|bridge,
 #                   languages {<lang>: {tp, gt}}, first.fn_detail[{id, file}],
 #                   judge panel[] / disagreement / fp_class[{file, line, class}]
 #   filename        a `<ts>--<model-slug>.json` name carries the slug of its
@@ -473,6 +474,12 @@ validate_results() { # <file>
       (if has("core_version") and (.core_version != null
             and ((.core_version | type) != "number" or .core_version < 1))
        then "core_version not a version or null" else empty end),
+      (if has("bridge_from") and .bridge_from != null
+            and ((.bridge_from | type) != "number" or (.core_version | type) != "number"
+                 or .bridge_from >= .core_version)
+       then "bridge_from not an earlier core version" else empty end),
+      (if has("panel_note") and .panel_note != null and (.panel_note | type) != "string"
+       then "panel_note not a string or null" else empty end),
       (if has("memory_source") and (.memory_source | IN("core-frozen", "live") | not)
        then "memory_source not core-frozen | live"
        elif .memory_source == "core-frozen" and (.core_version // null) == null
@@ -517,7 +524,7 @@ validate_results() { # <file>
       end;
     if (.fixtures | type) != "object" then "" else
     [ .fixtures | to_entries[] | .key as $s | .value | select(type == "object")
-      | (if has("part") and (.part | IN("core", "adaptive") | not) then "\($s): part not core | adaptive" else empty end),
+      | (if has("part") and (.part | IN("core", "adaptive", "bridge") | not) then "\($s): part not core | adaptive | bridge" else empty end),
         (if (.first | type) == "object" and (.first | has("languages")) and (.first.languages | counts | not)
          then "\($s): first.languages malformed" else empty end),
         (if (.rereview | type) == "object" and (.rereview | has("languages")) and (.rereview.languages | counts | not)

@@ -429,6 +429,20 @@ check_eq "$(jq -r '.memory_sha' "$SANDBOX/st/expect.json")" "$(git hash-object "
 check_eq "$(bundle_file 1 ./work/MEMORY.md)|$(bundle_file 1 ./work/LESSONS.md)" '# Frozen memory|# Frozen lessons' 'the bundle carries the frozen files at the live paths'
 check_eq "$(bundle_file 1 ./work/CONFIG.md | grep -c frozen-config-marker)" 1 'CONFIG.md stays the live one'
 
+iso_case frozen_core_memory_of_a_retired_core
+# the old core of a bridge run carries its own frozen memory, not the current one
+mkdir -p "$WORK/benchmark/fixture/core-memory" "$WORK/benchmark/fixture/retired/core-v1/core-memory"
+printf '{"version":2,"fixtures":[]}' > "$WORK/benchmark/fixture/CORE.json"
+printf '# New memory\n' > "$WORK/benchmark/fixture/core-memory/MEMORY.md"
+printf '# New lessons\n' > "$WORK/benchmark/fixture/core-memory/LESSONS.md"
+mv "$WORK/benchmark/fixture/ts-api" "$WORK/benchmark/fixture/retired/core-v1/ts-api"
+printf '{"version":1,"fixtures":["ts-api"]}' > "$WORK/benchmark/fixture/retired/core-v1/CORE.json"
+printf '# Old memory\n' > "$WORK/benchmark/fixture/retired/core-v1/core-memory/MEMORY.md"
+printf '# Old lessons\n' > "$WORK/benchmark/fixture/retired/core-v1/core-memory/LESSONS.md"
+iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture/retired/core-v1" ts-api
+check_eq "$RC" 0 'a bridge run starts on the retired core'
+check_eq "$(bundle_file 1 ./work/MEMORY.md)|$(bundle_file 1 ./work/LESSONS.md)" '# Old memory|# Old lessons' 'the retired core bundles its own frozen memory'
+
 iso_case frozen_core_memory_missing
 printf '{"version":1}' > "$WORK/benchmark/fixture/CORE.json"
 iso start --model "$M" "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api

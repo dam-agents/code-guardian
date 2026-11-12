@@ -10,7 +10,8 @@
 # migrate — an existing fixture set becomes core version 1, idempotently:
 #   copies the live work/MEMORY.md and LESSONS.md to fixture/core-memory/,
 #   runs the validator's leak check against that copy (prints `leak <slug>`
-#   per failing fixture, moves nothing), adds ONE non-comparable line under
+#   per failing fixture and leaves it out of core v1; moves nothing — the
+#   agent retires it), adds ONE non-comparable line under
 #   the RESULTS.md header (when the file exists and the line is not there),
 #   then writes fixture/CORE.json last: {version 1, created, migrated true,
 #   memory_sha, fixtures, author_model (manifest author_model, else --author,
@@ -96,7 +97,7 @@ lock_live() { # <bdir>
 }
 
 cmd_migrate() {
-  local bdir="" author=unknown fix ver slugs n line res iso s
+  local bdir="" author=unknown fix ver slugs n line res iso s leaks
   local -a dirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -114,10 +115,16 @@ cmd_migrate() {
   [ -n "$slugs" ] || die "no fixture in $fix — nothing to migrate"
   freeze_memory "$bdir" "$fix/core-memory" || die "cannot copy the live memory to $fix/core-memory"
 
-  # leak check against the frozen copy — reported, never acted on
+  # leak check against the frozen copy: a leaking fixture is reported and
+  # left out of core v1 (its dir stays where it is — the agent retires it)
   for s in $slugs; do dirs+=("$fix/$s"); done
-  bash "$SCRIPT_DIR/benchmark-validate.sh" leak "$fix/core-memory" "${dirs[@]}" 2>/dev/null \
-    | sed -n 's/^FAIL leak_memory\[\([^]]*\)\].*/leak \1/p'
+  leaks="$(bash "$SCRIPT_DIR/benchmark-validate.sh" leak "$fix/core-memory" "${dirs[@]}" 2>/dev/null \
+    | sed -n 's/^FAIL leak_memory\[\([^]]*\)\].*/\1/p' | sort -u)"
+  if [ -n "$leaks" ]; then
+    printf '%s\n' "$leaks" | sed 's/^/leak /'
+    slugs="$(printf '%s\n' "$slugs" | grep -vxF -f <(printf '%s\n' "$leaks") || true)"
+    [ -n "$slugs" ] || { rm -rf "$fix/core-memory"; die "every fixture leaks into the frozen memory — no core v1 written"; }
+  fi
 
   iso="$(now_iso)"
   res="$bdir/RESULTS.md"

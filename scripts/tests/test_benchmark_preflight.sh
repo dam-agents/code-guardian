@@ -223,6 +223,19 @@ assert_jq '.benchmark_due.core_version == 2' 'the core version comes from CORE.j
 assert_jq '.benchmark_due.fixtures | length == 8' 'retired/ and core-memory/ are not core fixtures'
 assert_jq '.benchmark_due.adaptive == ["aa-history", "zz-escaped"]' 'the adaptive set lists every adaptive fixture with a manifest'
 
+new_case benchmark_panel_is_the_served_one
+# short config names resolve to the served ids; a member the host does not
+# serve leaves the panel, and the entry carries the one-family note
+base_config '- benchmark: enabled' '- benchmark_judge: opus, gemini'
+seed_full_set
+mkdir -p "$SANDBOX/cli"
+printf '#!/bin/sh\nprintf %s\n' "'{\"loggedIn\": true}'" > "$SANDBOX/cli/claude"; chmod +x "$SANDBOX/cli/claude"
+printf 'claude-opus-5-5\nclaude-sonnet-5-5\n' > "$SANDBOX/models"
+CG_JUDGE_CLI="$SANDBOX/cli/claude" CG_JUDGE_PI="$SANDBOX/cli/no-pi" CG_JUDGE_MODELS="$SANDBOX/models" run_preflight benchmark
+assert_jq '.benchmark_due.judge_panel == ["claude-opus-5-5"]' 'judge_panel holds the served id, not the configured name'
+assert_jq '.benchmark_due.judge == .benchmark_due.judge_panel[0]' 'judge is the first panel member'
+assert_jq '.benchmark_due.panel_note == "one family only"' 'a one-member panel carries its note'
+
 new_case benchmark_settings_invalid
 base_config '- benchmark: enabled' '- benchmark_max_parallel: many' '- benchmark_decision_rule: fastest'
 for s in ts-api react-ui; do seed_fixture "$s"; done
@@ -247,5 +260,17 @@ pr_json 1 "a new PR" '[]' "1111111111111111111111111111111111111111" | open_prs_
 run_preflight review
 assert_jq '.config.benchmark_reference_model == "acme/model-r" and .config.benchmark_max_parallel == 4' 'the configured values travel'
 assert_jq '.config.benchmark_decision_rule == "best_quality"' 'the configured rule travels'
+
+new_case audit_fixture_check_runs_the_roots
+# the weekly integrity check validates the core and adaptive roots: a stale
+# CORE.json (a listed slug gone from the root) fails it
+base_config '- benchmark: enabled'
+seed_full_set
+jq -n '{version:1, created:"2026-11-01T00:00:00Z", migrated:true, memory_sha:null,
+        fixtures:["gone-slug"], author_model:{"gone-slug":"unknown"}, bridged_from:null}' \
+  > "$WORK/benchmark/fixture/CORE.json"
+run_preflight audit
+assert_jq '.checks[] | select(.id == "benchmark_fixtures") | .status == "fail" and (.detail | contains("core"))' \
+  'a stale CORE.json fails the audit fixture check'
 
 finish

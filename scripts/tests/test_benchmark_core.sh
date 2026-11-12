@@ -64,15 +64,26 @@ assert_out_contains 'results-note present' 'an interrupted migration re-runs wit
 
 new_case core_migrate_reports_leaks
 B="$WORK/benchmark"; seed_bench "$B"
+mkfix "$B/fixture" gamma
 printf -- '- index out of range on beta limits: watch it\n' >> "$WORK/LESSONS.md"
 printf -- '- see src/alpha.go:3\n' >> "$WORK/MEMORY.md"
-OUT="$(bash "$CORE" migrate "$B")"
+OUT="$(bash "$CORE" migrate "$B" 2>&1; printf 'rc=%s' "$?")"
 assert_out_contains '^leak alpha$' 'a file:line named in the frozen memory is a leak'
 assert_out_contains '^leak beta$' 'a defect summary named in the frozen memory is a leak'
 [ -d "$B/fixture/alpha" ] && [ -d "$B/fixture/beta" ] && ok 'leaking fixtures are reported, never moved' || bad 'a leaking fixture was moved'
+assert_out_contains 'core v1 migrated: 1 fixture' 'the clean fixture alone becomes core v1'
+is 'a leaking fixture stays out of CORE.json' "$(jq -c .fixtures "$B/fixture/CORE.json")" '["gamma"]'
 OUT="$(bash "$VALIDATE" fixture "$B/fixture"; printf 'rc=%s' "$?")"
 assert_out_contains 'FAIL leak_memory\[beta\]:.*D01(summary).*fix:' 'the validator fails the leak with a fix'
 assert_out_contains 'rc=1' 'a leak fails validation'
+
+new_case core_migrate_all_leak_writes_no_core
+B="$WORK/benchmark"; seed_bench "$B"
+printf -- '- see src/alpha.go:3 and src/beta.go:3\n' >> "$WORK/MEMORY.md"
+OUT="$(bash "$CORE" migrate "$B" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'every fixture leaks' 'an all-leaking set is refused'
+assert_out_contains 'rc=1' 'the refusal fails'
+[ ! -e "$B/fixture/CORE.json" ] && [ ! -e "$B/fixture/core-memory" ] && ok 'no CORE.json and no frozen copy are left' || bad 'a partial core was left'
 
 new_case core_leak_by_code_line_and_adaptive_root
 B="$WORK/benchmark"; mkdir -p "$B/fixture/core-memory" "$B/adaptive"

@@ -116,6 +116,18 @@ backup persist
 assert_out_contains "refused" "persist refuses a snapshot that deletes the escapes ledger"
 assert_true "the escapes ledger stays on the remote" remote_has ESCAPES.jsonl
 
+new_case persist-refuses-core-delete
+new_remote; seed_state
+mkdir -p "$WORK/benchmark/fixture/core-memory"
+printf '{"version":1}\n' > "$WORK/benchmark/fixture/CORE.json"
+printf '# Memory\n' > "$WORK/benchmark/fixture/core-memory/MEMORY.md"
+backup persist
+rm -rf "$WORK/benchmark/fixture/CORE.json" "$WORK/benchmark/fixture/core-memory"
+backup persist
+assert_out_contains "refused" "persist refuses a snapshot that deletes the core version or its frozen memory"
+assert_true "the frozen memory stays on the remote" remote_has benchmark/fixture/core-memory/MEMORY.md
+assert_true "CORE.json stays on the remote" remote_has benchmark/fixture/CORE.json
+
 new_case persist-allows-prune
 new_remote; seed_state
 backup persist

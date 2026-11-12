@@ -98,6 +98,12 @@ ALL="$(for f in "$DIR"/results/*.json; do
                 | if (.fixtures | type) == "array"
                   then .fixtures = (reduce .fixtures[] as $e ({};
                          . + {($e.fixture // "unnamed"): ($e | del(.fixture))}))
+                  else . end
+                # the old-core fixtures of a bridge run (part "bridge") never mix
+                # with the current core: only the bridge link reads them
+                | if (.fixtures | type) == "object" then
+                    .bridge_fixtures = (.fixtures | with_entries(select(.value.part? == "bridge")))
+                    | .fixtures |= with_entries(select(.value.part? != "bridge"))
                   else . end' "$f" 2>/dev/null || true
        done | jq -s 'sort_by(.ts // "")')"
 RUNS="$(printf '%s' "$ALL" | jq length)"
@@ -296,14 +302,23 @@ run_rows() { printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar
   [.[] | restrict($part) | select((.fixtures | length) > 0)]
   | . as $all | to_entries[] | .key as $i | .value as $r
   # deltas compare against the previous run of the SAME harness, model,
-  # effort and isolation — a cross-configuration delta would conflate that
-  # change with the regression being watched; an "unknown" effort matches
-  # nothing.
-  | (if $part != "core" or $r.effort == "unknown" then null
-     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort
-                                 and harness_of == ($r | harness_of)
-                                 and isolation_of == ($r | isolation_of))] | last
+  # effort, isolation and core version — a cross-configuration delta would
+  # conflate that change with the regression being watched, and two core
+  # versions are two fixture sets; an "unknown" effort matches nothing.
+  | def same_conf($cv): .model == $r.model and .effort == $r.effort
+        and harness_of == ($r | harness_of) and isolation_of == ($r | isolation_of)
+        and (.core_version // null) == $cv;
+    (if $part != "core" or $r.effort == "unknown" then null
+     else [$all[0:$i][] | select(same_conf($r.core_version // null))] | last
      end) as $prev
+  # a bridge run (bridge_from N) also scored the old core (part "bridge"):
+  # its old-core index continues the vN series, the link between the versions
+  | (if $part != "core" or $r.effort == "unknown" or ($r.bridge_from // null) == null then null
+     else ($r | .fixtures = (.bridge_fixtures // {}) | run_index) as $bi
+       | ([$all[0:$i][] | select(same_conf($r.bridge_from))] | last) as $bp
+       | if $bi == null then null else
+           "<br><small class=bridge>bridge v\($r.bridge_from): \($bi | fmt)\(delta($bi; $bp | run_index))</small>" end
+     end) as $bridge
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
   | ($r | run_secs) as $sec
@@ -315,7 +330,7 @@ run_rows() { printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar
     + "<td>\($r.harness_version // "—" | @html)</td>"
     + "<td>\($r | isolation_of | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
-    + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
+    + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)\($bridge // "")</td>"
     + ($fx | avg(.first.f1) | ncell)
     + ($r | run_difficulty("easy") | ncell)
     + ($r | run_difficulty("hard") | ncell)
@@ -328,7 +343,10 @@ run_rows() { printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar
     + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs; -1))</td>"
     + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
     + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td>"
-    + (if $r | run_judged then $fx | avg(fixture_judge) else null end | acell)
+    # a panel smaller than configured (one family only) says so in its cell
+    + ((if $r | run_judged then $fx | avg(fixture_judge) else null end | acell)
+       | if ($r.panel_note // null) == null then . else
+           sub("</td>$"; "<br><small class=pnote>\($r.panel_note | @html)</small></td>") end)
     + (if $r | run_judged then $fx | avg(fixture_find_acc) else null end | acell)
     + ($r | run_fp_real | acell)
     + ($r | run_prec_assessed | acell) + "</tr>"'; }
@@ -540,6 +558,8 @@ td.idx .bar{display:block;height:3px;margin-top:3px;border-radius:2px;
 /* deltas: arrow duplicates the sign, so color is never the only signal */
 .d{font-size:.75rem;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
 .d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
+/* the bridge link of a new core version and a small judge panel's note */
+small.bridge,small.pnote{font-size:.72rem;color:var(--ink-muted);white-space:nowrap}
 td.dash{color:var(--ink-muted)}
 /* sufficiency verdicts: the word carries the meaning, color only repeats it */
 td.v .sub{font-size:.75rem;color:var(--ink-2);font-variant-numeric:tabular-nums}

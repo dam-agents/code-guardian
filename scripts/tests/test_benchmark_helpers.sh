@@ -182,6 +182,33 @@ if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" |
 else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
 
+new_case report_delta_needs_same_core_version
+seed_results
+# model-a on core v1, then a bridge run on core v2 that also scored core v1:
+# the v2 index starts a new series (no delta), the bridge link carries the
+# v1 delta; a run judged by a one-member panel says so beside its judge cell
+mk() { # <ts> <core_version> <seconds> [extra json]
+  jq -n --arg ts "$1" --argjson cv "$2" --argjson s "$3" --argjson x "${4:-{\}}" '
+    def fx($f1): {first:{f1:$f1,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:$s,tokens:null},
+      rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}};
+    {ts:$ts, trigger:"manual", model:"model-a", definition_version:"15.0.0", core_version:$cv,
+     fixtures:{"ts-api": fx(0.5)}} * $x'
+}
+mk 2026-09-01T06:00:00Z 1 100 > "$SANDBOX/bench/results/20260901T060000Z.json"
+mk 2026-10-01T06:00:00Z 2 150 '{"bridge_from":1,"judge":"j-a","judge_model_used":"j-a","judge_panel":["j-a"],"panel_note":"one family only",
+  "fixtures":{"core-v1/ts-api":{"part":"bridge","first":{"f1":0.9,"precision":0.9,"recall":0.9,"severity_accuracy":1,"fp":[],"seconds":90,"tokens":null,"judge":{"finding_accuracy":4}},
+    "rereview":{"fixed_recall":1,"still_recall":1,"new_recall":1,"false_fixed":0,"churn":0,"late_finds":0,"seconds":90,"tokens":null}},
+   "ts-api":{"first":{"judge":{"finding_accuracy":4}}}}}' > "$SANDBOX/bench/results/20261001T060000Z.json"
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+row="$(printf '%s' "$OUT" | grep '<td>2026-10-01')"
+if printf '%s' "$row" | grep -q '<b>[0-9.]*</b>' && ! printf '%s' "$row" | grep -q '</b>[^<]*<span class="d\|[0-9]* <span class="d [a-z]*">[^<]*</span></b>'; then
+  printf 'ok   %s: a run on a new core version carries no index delta against the old core\n' "$CASE"
+else printf 'FAIL %s: the core v2 index must carry no delta: %.400s\n' "$CASE" "$row"; FAILED=1; fi
+assert_out_contains '<small class=bridge>bridge v1: [0-9.]* <span class="d up">' 'the bridge link carries the old-core delta'
+assert_out_contains '<small class=pnote>one family only</small>' 'a one-family panel is named beside its judge cell'
+assert_out_absent '<h2>core-v1/ts-api' 'bridge fixtures never get a core fixture section of their own'
+rm -f "$SANDBOX/bench/results/"20260901T060000Z.json "$SANDBOX/bench/results/"20261001T060000Z.json
+
 new_case report_delta_needs_same_isolation
 seed_results
 # model-a, same effort (none recorded), but isolated: the in-pod run 1 is no

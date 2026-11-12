@@ -20,7 +20,8 @@ they are released history and stay as written.
 2. Under `benchmark: enabled`, when `work/benchmark/fixture/` holds fixtures and
    no `CORE.json`: run `bash "$HOME/scripts/benchmark-core.sh" migrate
    "$HOME/work/benchmark"` (idempotent) and report each `leak <slug>` line to
-   the operator ([docs/benchmark.md](docs/benchmark.md) → **Core and adaptive
+   the operator — that fixture stays out of core v1; on the operator's yes
+   move it to `fixture/retired/<slug>` ([docs/benchmark.md](docs/benchmark.md) → **Core and adaptive
    set**).
 3. Under `benchmark: enabled`, offer the missing keys `benchmark_reference_model`
    (default: this session's model), `benchmark_judge: <a>, <b>` (a judge panel

@@ -31,7 +31,9 @@
 # sub-agents — the seeded commit's definition fields, the snapshot's memory and
 # skills — to <state-dir>/expect.json, with memory_source. When
 # work/benchmark/fixture/CORE.json exists, the snapshot takes MEMORY.md and
-# LESSONS.md from fixture/core-memory/ (the frozen core memory, refused when
+# LESSONS.md from fixture/core-memory/ — from <fixture-root>/core-memory/ when
+# the root holds its own CORE.json, as a retired core version of a bridge run
+# does (the frozen core memory, refused when
 # either is missing) and memory_source is "core-frozen", else "live"; CONFIG.md
 # is always the live one. --snapshot reuses the snapshot, memory_source and
 # expect.json of an earlier state-dir of the same run and seeded commit, so
@@ -307,6 +309,9 @@ start() {
   [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh start [--commit sha [--branch name]] [--model m] [--effort e] [--max-parallel n] [--snapshot state-dir] [--only task]… <state-dir> <ts> <fixture-root> <slug|adaptive/slug>…"
   st="$1" ts="$2" root="${3%/}"; shift 3
   aroot="${root%/*}/adaptive"
+  # a retired core version as the root (the old core of a bridge run) bundles
+  # its own frozen memory, never the current core's
+  [ -f "$root/CORE.json" ] && CORE="$root"
   cap="$(max_parallel "$cap")"
   # every slug resolves to one fixture directory and one task id prefix
   seen=" "
