@@ -11,7 +11,7 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
-## 14.11.0
+## 14.12.0 — 2026-11-12
 
 **Upgrade:**
 1. Nothing to run. `benchmark-isolate.sh` gains `run`: Phase 1 spawns in
@@ -19,6 +19,10 @@ they are released history and stay as written.
    a `target agent deleted` start failure — is respawned once automatically.
    The next benchmark run uses it ([docs/benchmark.md](docs/benchmark.md) →
    **Isolation**).
+
+## 14.11.0 — 2026-11-09
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 14.10.0 — 2026-11-07
 
