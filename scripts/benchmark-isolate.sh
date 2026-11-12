@@ -405,7 +405,10 @@ run_all() { # <start args…> <state-dir> <ts> <fixture-root> <slug>… — wave
     done
     [ "$batch_n" -gt 0 ] || [ "$pending" -gt 0 ] || break
     # rc 3 = the wait timed out with tasks still running: wait again
-    while :; do wait_all "$st"; rc=$?; [ "$rc" -eq 3 ] || break; done
+    while :; do
+      wait_all "$st"; rc=$?
+      [ "$rc" -eq 3 ] || break
+    done
     [ "$rc" -eq 0 ] || return 1
   done
   # every expected task holds a result, or the run fails and names it
