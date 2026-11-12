@@ -8,10 +8,11 @@
 #   benchmark-core.sh memory-sha <dir>
 #
 # migrate — an existing fixture set becomes core version 1, idempotently:
-#   copies the live work/MEMORY.md and LESSONS.md to fixture/core-memory/,
-#   runs the validator's leak check against that copy (prints `leak <slug>`
-#   per failing fixture and leaves it out of core v1; moves nothing — the
-#   agent retires it), adds ONE non-comparable line under
+#   copies the live work/MEMORY.md and LESSONS.md to a temporary dir, runs the
+#   validator's leak check against that copy (prints `leak <slug>` per
+#   failing fixture and leaves it out of core v1; moves nothing — the agent
+#   retires it), moves the copy to fixture/core-memory/ only when at least
+#   one fixture passes, adds ONE non-comparable line under
 #   the RESULTS.md header (when the file exists and the line is not there),
 #   then writes fixture/CORE.json last: {version 1, created, migrated true,
 #   memory_sha, fixtures, author_model (manifest author_model, else --author,
@@ -21,7 +22,8 @@
 #   fixture/retired/core-v<N>/ and installs every fixture dir of the staged dir
 #   as version N+1, with a fresh core-memory copy of the live memory and
 #   bridged_from N. Refuses (exit 1, nothing moved) under a live run lock
-#   (.run-lock or trials/*/.run-lock younger than 6 h), without CORE.json, when
+#   (.run-lock or trials/*/.run-lock younger than BENCH_LOCK_TTL_MIN, or of
+#   no measurable age — lib/bench-lock.sh), without CORE.json, when
 #   retired/core-v<N> exists, when a staged slug already exists in fixture/,
 #   or when the staged set fails benchmark-validate.sh fixture against the new
 #   memory copy.
@@ -33,6 +35,7 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/lib/toolpath.sh" ] && . "$SCRIPT_DIR/lib/toolpath.sh" 2>/dev/null
+. "$SCRIPT_DIR/lib/bench-lock.sh"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -83,21 +86,19 @@ write_core() { # <root> <version> <migrated> <bridged|null> <author> <slug>...
     && mv "$tmp" "$root/CORE.json"
 }
 
-# a live run lock: first line `<ISO> <nonce>` younger than 6 h
+# a live run lock (lib/bench-lock.sh → bench_lock_live): younger than the
+# TTL, or of no measurable age
 lock_live() { # <bdir>
-  local l iso t now
-  now="$(date -u +%s)"
+  local l
   for l in "$1/.run-lock" "$1"/trials/*/.run-lock; do
     [ -f "$l" ] || continue
-    iso="$(head -1 "$l" | cut -d' ' -f1)"
-    t="$(date -u -d "$iso" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$iso" +%s 2>/dev/null || echo 0)"
-    [ $((now - t)) -lt 21600 ] && { printf '%s' "$l"; return 0; }
+    bench_lock_live "$l" >/dev/null && { printf '%s' "$l"; return 0; }
   done
   return 1
 }
 
 cmd_migrate() {
-  local bdir="" author=unknown fix ver slugs n line res iso s leaks
+  local bdir="" author=unknown fix ver slugs n line res iso s leaks tmpmem
   local -a dirs=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -113,18 +114,26 @@ cmd_migrate() {
   fi
   slugs="$(slugs_of "$fix")"
   [ -n "$slugs" ] || die "no fixture in $fix — nothing to migrate"
-  freeze_memory "$bdir" "$fix/core-memory" || die "cannot copy the live memory to $fix/core-memory"
+  # freeze to a temporary path: fixture/core-memory/ changes only after the
+  # leak check passes
+  tmpmem="$bdir/.core-memory.tmp.$$"
+  rm -rf "$tmpmem"
+  freeze_memory "$bdir" "$tmpmem" || { rm -rf "$tmpmem"; die "cannot copy the live memory to $tmpmem"; }
 
   # leak check against the frozen copy: a leaking fixture is reported and
   # left out of core v1 (its dir stays where it is — the agent retires it)
   for s in $slugs; do dirs+=("$fix/$s"); done
-  leaks="$(bash "$SCRIPT_DIR/benchmark-validate.sh" leak "$fix/core-memory" "${dirs[@]}" 2>/dev/null \
+  leaks="$(bash "$SCRIPT_DIR/benchmark-validate.sh" leak "$tmpmem" "${dirs[@]}" 2>/dev/null \
     | sed -n 's/^FAIL leak_memory\[\([^]]*\)\].*/\1/p' | sort -u)"
   if [ -n "$leaks" ]; then
     printf '%s\n' "$leaks" | sed 's/^/leak /'
     slugs="$(printf '%s\n' "$slugs" | grep -vxF -f <(printf '%s\n' "$leaks") || true)"
-    [ -n "$slugs" ] || { rm -rf "$fix/core-memory"; die "every fixture leaks into the frozen memory — no core v1 written"; }
+    [ -n "$slugs" ] || { rm -rf "$tmpmem"; die "every fixture leaks into the frozen memory — no core v1 written"; }
   fi
+  # a core-memory/ without CORE.json is a copy of an interrupted migrate:
+  # no run names it, so the checked copy replaces it
+  rm -rf "$fix/core-memory" && mv "$tmpmem" "$fix/core-memory" \
+    || { rm -rf "$tmpmem"; die "cannot move the frozen memory to $fix/core-memory"; }
 
   iso="$(now_iso)"
   res="$bdir/RESULTS.md"
@@ -154,7 +163,7 @@ cmd_new_version() {
   local -a dirs=()
   [ -n "$bdir" ] && [ -d "$staged" ] || die 'usage: benchmark-core.sh new-version <work/benchmark dir> <staged-core-dir>'
   fix="$bdir/fixture"
-  lock="$(lock_live "$bdir")" && die "refused: live run lock $lock — wait until the run ends or the lock is 6 h old"
+  lock="$(lock_live "$bdir")" && die "refused: live run lock $lock — wait until the run ends or the lock is $BENCH_LOCK_TTL_MIN min old"
   [ -f "$fix/CORE.json" ] || die "refused: $fix/CORE.json missing — run benchmark-core.sh migrate first"
   ver="$(jq -r '.version' "$fix/CORE.json" 2>/dev/null)"
   case "$ver" in (''|*[!0-9]*) die "refused: CORE.json version is not an integer";; esac

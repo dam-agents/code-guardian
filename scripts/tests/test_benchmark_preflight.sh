@@ -155,6 +155,9 @@ printf '%s other-nonce\n' "$(iso_ago 3600)" > "$WORK/benchmark/.run-lock"   # 1h
 run_preflight benchmark
 assert_jq '.nothing_to_do == true' 'a live run lock blocks a second run'
 assert_jq '.logs | any(contains("already in progress"))' 'the sibling is named in the logs'
+: > "$WORK/benchmark/.run-lock"   # a fresh lock whose line is empty
+run_preflight benchmark
+assert_jq '.nothing_to_do == true' 'a fresh lock with an empty line is live, not stale'
 
 new_case benchmark_stale_run_lock_taken_over
 base_config '- benchmark: enabled'
@@ -208,7 +211,9 @@ base_config '- benchmark: enabled' '- benchmark_reference_model: acme/model-r' '
 seed_full_set
 mkdir -p "$WORK/benchmark/fixture/retired/old-one" "$WORK/benchmark/fixture/core-memory"
 printf '{"fixture":"old-one","defects":[]}' > "$WORK/benchmark/fixture/retired/old-one/manifest.json"
-printf '{"version":2,"fixtures":[]}' > "$WORK/benchmark/fixture/CORE.json"
+seed_fixture leaky-one   # left out of CORE.json by migrate, not yet retired
+jq -n '{version: 2, fixtures: ["ts-api","react-ui","py-cli","infra-ci","docs-mixed","billing-service","ui-platform","deploy-pipeline"]}' \
+  > "$WORK/benchmark/fixture/CORE.json"
 for a in zz-escaped aa-history; do
   mkdir -p "$WORK/benchmark/adaptive/$a"
   printf '{"fixture":"%s","defects":[]}' "$a" > "$WORK/benchmark/adaptive/$a/manifest.json"
@@ -221,7 +226,27 @@ assert_jq '.benchmark_due.judge_panel == ["acme/judge-a", "other/judge-b"]' 'a c
 assert_jq '.benchmark_due.decision_rule == "cost_cap:2.5"' 'a cost cap rule is carried'
 assert_jq '.benchmark_due.core_version == 2' 'the core version comes from CORE.json'
 assert_jq '.benchmark_due.fixtures | length == 8' 'retired/ and core-memory/ are not core fixtures'
+assert_jq '.benchmark_due.fixtures | index("leaky-one") == null' 'a fixture dir outside CORE.json is never a core fixture'
+assert_jq '.benchmark_due.bridge == null' 'no bridge without bridged_from'
 assert_jq '.benchmark_due.adaptive == ["aa-history", "zz-escaped"]' 'the adaptive set lists every adaptive fixture with a manifest'
+
+new_case benchmark_bridge_entry
+# the first run of a core version installed by new-version also scores the
+# retired core; once a results file is on the new version, no bridge is due
+base_config '- benchmark: enabled'
+seed_full_set
+mkdir -p "$WORK/benchmark/fixture/retired/core-v1"
+jq -n '{version: 2, bridged_from: 1, fixtures: ["ts-api","react-ui","py-cli","infra-ci","docs-mixed","billing-service","ui-platform","deploy-pipeline"]}' \
+  > "$WORK/benchmark/fixture/CORE.json"
+printf '{"version":1,"fixtures":["old-a","old-b"]}' > "$WORK/benchmark/fixture/retired/core-v1/CORE.json"
+seed_result_json 2026-10-01T06:00:00Z manual   # a core v1 run (no core_version)
+run_preflight benchmark
+assert_jq '.benchmark_due.bridge.from == 1 and .benchmark_due.bridge.fixtures == ["old-a","old-b"]' 'the bridge names the retired version and its fixtures'
+assert_jq '.benchmark_due.bridge.fixture_root | endswith("/benchmark/fixture/retired/core-v1")' 'the bridge root is the retired core'
+jq '.core_version = 2' "$WORK/benchmark/results/20261001T060000Z.json" > "$SANDBOX/r" \
+  && mv "$SANDBOX/r" "$WORK/benchmark/results/20261001T060000Z.json"
+run_preflight benchmark
+assert_jq '.benchmark_due.bridge == null' 'a results file on the new core version ends the bridge'
 
 new_case benchmark_panel_is_the_served_one
 # short config names resolve to the served ids; a member the host does not

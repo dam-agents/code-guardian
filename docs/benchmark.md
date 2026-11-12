@@ -63,15 +63,18 @@ set**).
   the old core moves to `fixture/retired/core-v<N>/` and the new one gets a
   fresh memory copy. The next run is a **bridge run**: it scores the old core
   (fixture root `fixture/retired/core-v<N>`, its own `core-memory/`) and the
-  new one in one run, so the trend continues. Its results file carries
-  `bridge_from: <N>` and the old-core fixtures as `core-v<N>/<slug>` with
-  `part: "bridge"` (schema below).
+  new one in one run, so the trend continues. Preflight sets the entry's
+  `bridge` (`{from, fixture_root, fixtures}`) while no results file is on the
+  new core version; the run steps say what a non-null `bridge` adds. Its
+  results file carries `bridge_from: <N>` and the old-core fixtures as
+  `core-v<N>/<slug>` with `part: "bridge"` (schema below).
 - **Migration** — an existing set without `CORE.json` becomes core version 1:
   `bash "$HOME/scripts/benchmark-core.sh" migrate "$HOME/work/benchmark" [--author <model>]`.
-  It freezes the live memory, records `author_model` per fixture (`unknown`
-  when the backup history does not show it), marks earlier runs not comparable
+  It freezes the live memory, records `author_model` per fixture (the
+  manifest's `author_model`, else `--author`, else `unknown`), marks earlier runs not comparable
   in `RESULTS.md`, and prints `leak <slug>` for each fixture that fails the
-  check against the frozen copy. A leaking fixture stays out of `CORE.json`;
+  check against the frozen copy. A leaking fixture stays out of `CORE.json`,
+  and a run never scores it (the core list is `CORE.json`'s `fixtures`);
   move it to `fixture/retired/<slug>`. Rebuild it under `adaptive/` without
   the leaked file, line or summary when it is still worth a fixture.
   Core version 1 need not meet the language minimums (**Languages**).
@@ -240,8 +243,9 @@ No schedule runs the benchmark. A run starts in the operator's direct session:
   set. After an update to a new minor or major definition version, the
   updating session asks the operator whether to run it
   ([persistence.md](persistence.md) → **Definition version & upgrade**).
-  When the host stops serving the reference model, the operator pins a new one,
-  and its first run is a bridge run (old and new model) that starts a new series.
+  When the host stops serving the reference model, the operator pins a new one.
+  Its first run is a **Models** run of the old and the new model when the host
+  still serves both; the new model's runs start a new series.
 - **Models** — "run the benchmark for models X, Y, Z": one run, one snapshot,
   exactly the models named (the reference model is not added). Each model's
   tasks run in their own isolated sub-agents (**Isolation**).
@@ -255,7 +259,8 @@ data for its completed models.
 
 The entry carries `fixtures`, `adaptive`, `core_version`, `reference_model`,
 `max_parallel`, `judge_panel` and `panel_note` (from `resolve`: the served
-panel, null without a comma list), `decision_rule`, `fixture_root`, `judge`, `judge_unavailable`
+panel, null without a comma list), `decision_rule`, `bridge` (null, or the
+retired core this run also scores — **Core and adaptive set**), `fixture_root`, `judge`, `judge_unavailable`
 (null, or why this host cannot run the judge), `isolation_unavailable` (null,
 or why the run cannot be isolated), `report` and `last_run`. An operator-asked
 run takes `judge` and `judge_unavailable` from
@@ -267,6 +272,8 @@ run takes `judge` and `judge_unavailable` from
 bash "$HOME/scripts/benchmark-validate.sh" fixture "<fixture_root>" "$HOME/work/benchmark/adaptive"
 ```
 
+A non-null `bridge` adds its root to the same call: `"<bridge.fixture_root>"`.
+
 Non-zero exit → **abort before any review**, recording and publishing
 nothing: report the `FAIL` lines (**Retiring a fixture set** is the
 operator's), log `benchmark run aborted: fixture validation failed (<ids>)` as
@@ -276,7 +283,9 @@ a `warn` event, and end the run (no lock is held yet).
 `$HOME/work/benchmark/.run-lock` (a trial's: **Trial runs**), first line
 `<ISO> <nonce>`:
 
-- Lock present with an ISO younger than **6 h** → a sibling run is live:
+- Lock present and younger than **6 h** (`BENCH_LOCK_TTL_MIN`,
+  `scripts/lib/bench-lock.sh`; an empty or unparsable first line reads the
+  file's mtime, and a lock of no measurable age counts as live) → a sibling run is live:
   **stand down**, report it, touch nothing of the sibling's (lock, `/tmp`
   trees, phase state), and end the run.
 - Absent or older → write your own `<ISO> <NONCE>` line. **Every terminal path
@@ -348,6 +357,11 @@ seeded commit) that holds ground truth, and a public work repo.
    `collect` reports any other as a `model` mismatch. A trial adds
    `--commit <SHA> --branch <branch>`. A refusal before the first `spawned`
    line → **Isolation unavailable**; after it → abort.
+   A non-null `bridge` adds one more `start` per model, after its core and
+   adaptive tasks: state dir `$PSTATE-<n>-bridge`, fixture root
+   `<bridge.fixture_root>`, slugs `<bridge.fixtures>`, no `--snapshot` (the
+   retired root bundles its own `core-memory/`). Its `wait` and `collect`
+   follow steps 3 and 4 with the raw dir `results/raw/core-v<bridge.from>`.
 3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE-<n>"` in the
    foreground until exit 0; exit 3 means call it again (`wait` also spawns the
    queued tasks as slots free; exit 1 when the platform refuses a queued spawn —
@@ -414,7 +428,10 @@ with none, review inline and fall back to **Segmented run** when depth would
 degrade.
 
 In-pod, loop over the slugs sequentially — fixtures and phases never run
-concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
+concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). A bridge
+run loops over the `bridge.fixtures` last, with `<fixture_root>` =
+`<bridge.fixture_root>` and `core-v<bridge.from>-<slug>` in place of `<slug>`
+in the `/tmp` paths. Per fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)), with `origin/main` on the base
@@ -529,7 +546,10 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    `judge_model_used` and `judge_reason` from step 6). An isolated run merges
    `$PSTATE/expect.json` instead — the seeded commit's provenance — adds
    `isolation: "platform-subagent"` and each phase's `spawn`, and takes
-   `model`, `harness_version` and `effort` from `collect`. In-pod:
+   `model`, `harness_version` and `effort` from `collect`. A bridge run scores
+   each bridge fixture with `B="<bridge.fixture_root>/<slug>"` (steps 5–6),
+   keys it `core-v<bridge.from>/<slug>` with `part: "bridge"`, and sets
+   `bridge_from: <bridge.from>`. In-pod:
 
    ```bash
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"

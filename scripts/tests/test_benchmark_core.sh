@@ -85,6 +85,17 @@ assert_out_contains 'every fixture leaks' 'an all-leaking set is refused'
 assert_out_contains 'rc=1' 'the refusal fails'
 [ ! -e "$B/fixture/CORE.json" ] && [ ! -e "$B/fixture/core-memory" ] && ok 'no CORE.json and no frozen copy are left' || bad 'a partial core was left'
 
+new_case core_migrate_keeps_frozen_copy_on_refusal
+# a core-memory/ left by an interrupted migrate changes only after the leak
+# check passes: an all-leaking re-run keeps it
+B="$WORK/benchmark"; seed_bench "$B"
+mkdir -p "$B/fixture/core-memory"; printf 'earlier copy\n' > "$B/fixture/core-memory/MEMORY.md"
+printf -- '- see src/alpha.go:3 and src/beta.go:3\n' >> "$WORK/MEMORY.md"
+OUT="$(bash "$CORE" migrate "$B" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'rc=1' 'the all-leaking re-run is refused'
+is 'the earlier frozen copy is kept' "$(cat "$B/fixture/core-memory/MEMORY.md")" 'earlier copy'
+[ -z "$(ls -A "$B" | grep '^\.core-memory\.tmp')" ] && ok 'no temporary copy is left' || bad 'a temporary copy was left'
+
 new_case core_leak_by_code_line_and_adaptive_root
 B="$WORK/benchmark"; mkdir -p "$B/fixture/core-memory" "$B/adaptive"
 mkfix "$B/adaptive" gamma
@@ -156,6 +167,21 @@ assert_out_contains 'refused: .*retired/core-v2 exists' 'an existing retired ver
 rmdir "$B/fixture/retired/core-v2"; rm -rf "$B/fixture/retired/core-v1"
 OUT="$(bash "$CORE" new-version "$WORK/none" "$SANDBOX/s2" 2>&1; printf 'rc=%s' "$?")"
 assert_out_contains 'run benchmark-core.sh migrate first' 'no CORE.json → migrate first'
+
+new_case core_unmeasurable_lock_is_live
+B="$WORK/benchmark"; seed_bench "$B"
+bash "$CORE" migrate "$B" >/dev/null
+mkdir -p "$SANDBOX/staged"; mkfix "$SANDBOX/staged" omega
+: > "$B/.run-lock"
+OUT="$(bash "$CORE" new-version "$B" "$SANDBOX/staged" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'refused: live run lock .*\.run-lock' 'an empty fresh lock is live'
+mkdir -p "$B/trials/t1"; printf 'not-a-time run-1\n' > "$B/trials/t1/.run-lock"; rm -f "$B/.run-lock"
+OUT="$(bash "$CORE" new-version "$B" "$SANDBOX/staged" 2>&1; printf 'rc=%s' "$?")"
+assert_out_contains 'refused: live run lock .*trials/t1/\.run-lock' 'an unparsable fresh trial lock is live'
+touch -d '2020-01-01 00:00:00' "$B/trials/t1/.run-lock"
+OUT="$(bash "$CORE" new-version "$B" "$SANDBOX/staged" 2>&1; printf 'rc=%s' "$?")"
+assert_out_absent 'live run lock' 'an unparsable lock past the TTL by its mtime is stale'
+assert_out_contains 'core v2 installed' 'the new version installs over a stale lock'
 
 new_case core_memory_sha_shared_with_provenance
 mkdir -p "$FAKE_HOME/work" "$SANDBOX/bench"

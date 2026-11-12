@@ -149,9 +149,9 @@ report_surface() { # <key> <var>
   esac
 }
 
-# benchmark run lock TTL (docs/benchmark.md): a scored run never legitimately
-# exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
-BENCH_LOCK_TTL_MIN=360
+# benchmark run lock: BENCH_LOCK_TTL_MIN and the one age read, shared by the
+# benchmark-mode gate, the audit-mode tmp sweep and benchmark-core.sh
+. "$SCRIPT_DIR/lib/bench-lock.sh"
 
 # The answer of a local mode (survey, benchmark): its heartbeat, then the
 # worklist, `<mode>_due` included when one is due.
@@ -266,11 +266,18 @@ if [ "$MODE" = "benchmark" ]; then
   BENCH_DIR="$WORK/benchmark"
   # the full set per task tier (docs/benchmark.md → Task tiers)
   BENCH_MIN_FIXTURES=5; BENCH_MIN_COMPLEX=3
-  # the core set: every fixture/<slug>/ carrying a manifest (retired/ and
-  # core-memory/ carry none), with its manifest tier — absent or unreadable
-  # reads as simple
-  BENCH_SET="$(for d in "$BENCH_DIR"/fixture/*/; do
-    [ -f "${d}manifest.json" ] || continue
+  # the core set, with its manifest tier (absent or unreadable reads as
+  # simple): the `fixtures` of fixture/CORE.json when it exists — a fixture
+  # dir outside that list is never scored as core — else every fixture/<slug>/
+  # carrying a manifest (retired/ and core-memory/ carry none)
+  if [ -f "$BENCH_DIR/fixture/CORE.json" ]; then
+    BENCH_CORE_DIRS="$(jq -r '.fixtures // [] | .[] | strings | select(test("^[^/.][^/]*$"))' \
+      "$BENCH_DIR/fixture/CORE.json" 2>/dev/null | sed "s|^|$BENCH_DIR/fixture/|; s|\$|/|")"
+  else
+    BENCH_CORE_DIRS="$(for d in "$BENCH_DIR"/fixture/*/; do printf '%s\n' "$d"; done)"
+  fi
+  BENCH_SET="$(printf '%s\n' "$BENCH_CORE_DIRS" | while IFS= read -r d; do
+    [ -n "$d" ] && [ -f "${d}manifest.json" ] || continue
     t="$(jq -r 'if .tier == "complex" then "complex" else "simple" end' "${d}manifest.json" 2>/dev/null)"
     d="${d%/}"; printf '%s\t%s\n' "${d##*/}" "${t:-simple}"
   done 2>/dev/null | sort)"
@@ -284,7 +291,7 @@ if [ "$MODE" = "benchmark" ]; then
     d="${d%/}"; printf '%s\n' "${d##*/}"
   done 2>/dev/null | sort | jq -R . | jq -sc '[.[] | select(length > 0)]')"
   # the run settings (docs/config.md): reference model, queue limit,
-  # decision rule, core version (the judge panel comes from resolve below)
+  # decision rule, core version, bridge (the judge panel comes from resolve below)
   BENCH_MAXP="$(cfg benchmark_max_parallel)"
   case "$BENCH_MAXP" in
     ('') BENCH_MAXP=8;;
@@ -299,11 +306,26 @@ if [ "$MODE" = "benchmark" ]; then
     (*) log "benchmark_decision_rule '$BENCH_RULE' is unknown — using cheapest_not_worse"; BENCH_RULE=cheapest_not_worse;;
   esac
   BENCH_CORE_VERSION="$(jq -c '.version // null' "$BENCH_DIR/fixture/CORE.json" 2>/dev/null)"
+  # the bridge (docs/benchmark.md → Core and adaptive set): the core was
+  # installed by new-version (bridged_from N) and no results file is on core
+  # version N+1 yet → the run also scores the retired core v<N> from its root
+  BENCH_BRIDGE=null
+  BENCH_BRIDGE_FROM="$(jq -r '.bridged_from // empty | numbers' "$BENCH_DIR/fixture/CORE.json" 2>/dev/null)"
+  if [ -n "$BENCH_BRIDGE_FROM" ] && [ -f "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM/CORE.json" ] \
+     && ! for f in "$BENCH_DIR"/results/*.json; do
+            [ -f "$f" ] || continue
+            jq -c 'select(type == "object")' "$f" 2>/dev/null || true
+          done | jq -se --argjson cv "${BENCH_CORE_VERSION:-null}" 'any(.[]; .core_version == $cv)' >/dev/null 2>&1; then
+    BENCH_BRIDGE="$(jq -c --argjson n "$BENCH_BRIDGE_FROM" --arg r "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM" \
+      '{from: $n, fixture_root: $r, fixtures: (.fixtures // [])}' \
+      "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM/CORE.json" 2>/dev/null)"
+    [ -n "$BENCH_BRIDGE" ] || BENCH_BRIDGE=null
+  fi
   BENCH_SETTINGS="$(jq -n --arg rm "$(cfg benchmark_reference_model)" --argjson mp "$BENCH_MAXP" \
     --arg dr "$BENCH_RULE" --argjson cv "${BENCH_CORE_VERSION:-null}" \
-    --argjson ad "$BENCH_ADAPTIVE_JSON" \
+    --argjson ad "$BENCH_ADAPTIVE_JSON" --argjson br "$BENCH_BRIDGE" \
     '{reference_model:(if $rm == "" then null else $rm end), max_parallel:$mp,
-      decision_rule:$dr, core_version:$cv, adaptive:$ad}')"
+      decision_rule:$dr, core_version:$cv, adaptive:$ad, bridge:$br}')"
   if [ "$BENCH_SIMPLE" -lt "$BENCH_MIN_FIXTURES" ] || [ "$BENCH_COMPLEX" -lt "$BENCH_MIN_COMPLEX" ]; then
     log "benchmark enabled, fixture set incomplete (simple $BENCH_SIMPLE/$BENCH_MIN_FIXTURES, complex $BENCH_COMPLEX/$BENCH_MIN_COMPLEX) — create_fixture due"
     local_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
@@ -320,9 +342,9 @@ if [ "$MODE" = "benchmark" ]; then
   # it) the lock is stale and the run proceeds over it.
   BENCH_LOCK="$BENCH_DIR/.run-lock"
   if [ -f "$BENCH_LOCK" ]; then
-    BENCH_LOCK_TS="$(head -1 "$BENCH_LOCK" 2>/dev/null | cut -d' ' -f1)"
-    BENCH_LOCK_AGE_M=$(( (NOW_EPOCH - $(iso2epoch "${BENCH_LOCK_TS:-1970-01-01T00:00:00Z}")) / 60 ))
-    if [ "$BENCH_LOCK_AGE_M" -ge 0 ] && [ "$BENCH_LOCK_AGE_M" -lt "$BENCH_LOCK_TTL_MIN" ]; then
+    # an empty or unparsable first line reads the file's mtime; a lock of
+    # no measurable age is live (lib/bench-lock.sh)
+    if BENCH_LOCK_AGE_M="$(bench_lock_live "$BENCH_LOCK")"; then
       log "benchmark run already in progress (lock ${BENCH_LOCK_AGE_M}m old) — nothing to do"
       local_out true null
     fi

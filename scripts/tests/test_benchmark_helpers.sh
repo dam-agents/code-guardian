@@ -531,4 +531,28 @@ if [ -n "$(grep -o '{{[A-Z_]*}}' "$TPL")" ] && [ -z "$missing" ] && [ -z "$stray
   printf 'ok   %s: every reviewer-brief placeholder has its value in benchmark.md, and no other\n' "$CASE"
 else printf 'FAIL %s: placeholders without a value:%s; not in the template:%s\n' "$CASE" "$missing" "$stray"; FAILED=1; fi
 
+new_case report_layers_and_recommendation
+rm -rf "$SANDBOX/bench"; mkdir -p "$SANDBOX/bench/results"
+# one multi-model run: a judged fixture with a language pool under the
+# min_defects default (20), a paired comparison and the agent's recommendation
+for m in model-a model-b; do
+  jq -n --arg m "$m" '
+    {ts:"2026-11-01T06:00:00Z", run_id:"20261101T060000Z", models:["model-a","model-b"], trigger:"manual",
+     model:$m, definition_version:"15.0.0", core_version:1, judge:"j-a", judge_model_used:"j-a",
+     fixtures:{"ts-api":{first:{f1:0.5,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:100,tokens:null,
+       languages:{typescript:{tp:2,gt:3}}, judge:{finding_accuracy:4}},
+       rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}}},
+     comparison:{"model-a|model-b":{overall:{n_defects:3,only_a:1,only_b:0,delta_recall:0.333,ci95:[-0.2,0.8],mcnemar_p:1,verdict:"in_noise"}}},
+     recommendation:{rule:"cheapest_not_worse", text:"Keep model-a.", cites:["model-a|model-b in noise"], confidence:"low"}}' \
+    > "$SANDBOX/bench/results/20261101T060000Z--$m.json"
+done
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains 'class=lm title="Measured layer:[^"]*">Measured</th>' 'the Measured layer heading spans its columns'
+assert_out_contains 'class=la title="Assessed layer:[^"]*">Assessed</th>' 'the Assessed layer heading spans its columns'
+assert_out_contains '<div class=rec><b>Recommended</b> <span class=sub>(confidence: low; rule: cheapest_not_worse)</span><p>Keep model-a.</p><ul><li>model-a|model-b in noise</li></ul></div>' 'the Recommended block renders its rule, text and cites'
+assert_out_contains '<td>model-a vs model-b</td>' 'the paired comparison row names its pair'
+assert_out_contains '<td>in noise</td>' 'the comparison verdict is rendered in words'
+assert_out_contains '<td class="n dash">too few data (2/3)</td>' 'a language pool under min_defects reads too few data, never a value'
+rm -rf "$SANDBOX/bench"
+
 finish
