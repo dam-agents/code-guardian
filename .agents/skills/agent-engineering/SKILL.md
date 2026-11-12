@@ -86,11 +86,10 @@ several unrelated causes gives several findings:
 - 🟡 **Warning:** the agent does the wrong thing on a reachable path — a
   reference it follows is dead, two instructions contradict, a doc and its
   script disagree, the manifest drifts from its source, a release has no
-  migration step, a new file is not registered, changed script logic has no
-  test, a failure reads as an answer, a payload passes through argv, a tool
-  is absent from the runtime.
+  migration step, a new file is not registered, a failure reads as an answer,
+  a payload passes through argv, a tool is absent from the runtime.
 - 🟢 **Suggestion:** context growth, a restated rule, rationale in an
-  instruction doc, style.
+  instruction doc, style, changed logic that no test covers.
 
 Each finding: what is wrong, the input or state that triggers it and what
 the running agent then does, `path:line`, and a **Fix:** line stated as a

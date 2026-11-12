@@ -442,7 +442,7 @@ EOF
     grep -E '\.sh$' "$TMP/changed.present" | grep -vE "$TEST_RE" | while IFS= read -r s; do
       named="$(tr '\n' '\0' < "$TMP/tests" | xargs -0 grep -lF -- "$(basename "$s")" 2>/dev/null | head -1)"
       if [ -z "$named" ]; then
-        emit "$OUT" WARN tests "$s" "no test names this script: nothing checks its behavior"
+        emit "$OUT" NOTE tests "$s" "no test names this script: nothing checks its behavior"
       elif [ -z "$touched" ]; then
         emit "$OUT" NOTE tests "$s" "the script changed and no test did (a test that names it: $named)"
       fi

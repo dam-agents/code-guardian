@@ -196,7 +196,7 @@ g add -A >/dev/null && g commit -qm change
 check --base main
 has 'WARN	exec-bit	scripts/new.sh' "a new script without the executable bit of its siblings"
 has 'FAIL	syntax	scripts/broken.sh' "a script that does not parse"
-has 'WARN	tests	scripts/new.sh	no test names this script' "a script no test names"
+has 'NOTE	tests	scripts/new.sh	no test names this script' "a script no test names"
 has 'NOTE	tests	scripts/gate.sh	the script changed and no test did' "a changed script with no changed test"
 has "FAIL	skills	.agents/skills/demo/SKILL.md	front matter name 'other' != directory 'demo'" "a skill name that is not its directory"
 has 'FAIL	skills	.agents/skills/demo/SKILL.md	no description' "a skill with no description"

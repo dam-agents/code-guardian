@@ -12,6 +12,7 @@ Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
 ## 15.0.0 — 2026-11-11
+
 **Upgrade:**
 1. Delete the schedule `code-guardian-benchmark-monthly` when it exists — the
    benchmark runs only on the operator's request now
@@ -26,6 +27,10 @@ they are released history and stay as written.
    of two families), `benchmark_max_parallel` (8) and `benchmark_decision_rule`
    (`cheapest_not_worse`) ([docs/config.md](docs/config.md)); write each only
    on the operator's yes.
+
+## 14.11.0 — 2026-11-09
+
+**Upgrade:** Nothing — docs are re-read per run.
 
 ## 14.10.0 — 2026-11-07
 
