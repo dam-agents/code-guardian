@@ -218,7 +218,7 @@ zero files across **all** fixtures — missing fixture coverage.
 ### Isolation
 
 Phase 1 runs in **isolated platform sub-agents**, one per fixture and phase,
-all at once, each with its own volume and no connection. A sub-agent gets the
+in waves, each with its own volume and no connection. A sub-agent gets the
 definition at the seeded commit (this checkout's HEAD, or a trial's
 `--commit`) and one bundle of its task's inputs, nothing else of this volume.
 `start` snapshots the memory files and skills once per run and writes the
@@ -240,9 +240,12 @@ seeded commit) that holds ground truth, and a public work repo.
    (default 1) times in a later wave: a platform start failure such as
    `target agent deleted` (a target the pool never admitted, deleted by the
    sweep while its invocation waited) costs one respawn, not a manual retry
-   sequence. Exit 0 = every task holds a result; exit 1 = a task failed its
-   last attempt or a spawn was refused after the first `spawned` line (a
-   refusal before it → **Isolation unavailable**).
+   sequence. A wave whose wait times out is waited for again; a running task
+   is never respawned. A wave size that is not a whole number >= 1 is
+   refused. Exit 0 = every task holds a result; exit 1 = a task holds none
+   after its last attempt (named in the summary) or a spawn was refused after
+   the first `spawned` line (a refusal before it → **Isolation
+   unavailable**).
    `--effort` = this session's effort when the harness exposes one
    (`effort` of the provenance). `--model` = this session's exact model id,
    provider-qualified (Claude Code names it `claude/<provider>/<id>`; on pi

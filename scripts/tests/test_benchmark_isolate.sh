@@ -299,6 +299,37 @@ assert_out_contains 'retries needs a number >= 0' 'the refusal names the flag'
 iso run --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture"
 check_eq "$RC" 1 'run without a slug is refused'
 assert_out_contains 'usage: benchmark-isolate.sh run' 'the usage line is printed'
+for w in 0 '8 tasks' x; do
+  OUT="$(iso_env CG_BENCH_WAVES="$w" bash "$ISO" run --model claude/ibm/aws/claude-sonnet-5-5 \
+    "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api 2>>"$STDERR_LOG")"; RC=$?
+  check_eq "$RC" 1 "CG_BENCH_WAVES='$w' is refused"
+  assert_out_contains 'the wave size needs a number >= 1' "CG_BENCH_WAVES='$w': the refusal names the key"
+done
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 0 'a refused wave size spawns nothing'
+
+iso_case run_waits_again_after_a_wait_timeout
+# the first target still runs when the first wait times out, then ends
+printf '{"status":"running"}\n' > "$SANDBOX/rest/GET_invocations_inv-1.1.json"
+printf '{"status":"done","result":{"model":"m"}}\n' > "$SANDBOX/rest/GET_invocations_inv-1.2.json"
+printf '{"status":"done","result":{"model":"m"}}\n' > "$SANDBOX/rest/GET_invocations_inv-2.json"
+OUT="$(iso_env CG_BENCH_WAIT_S=0 bash "$ISO" run --waves 2 --model claude/ibm/aws/claude-sonnet-5-5 \
+  "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api 2>>"$STDERR_LOG")"; RC=$?
+check_eq "$RC" 0 'run ends ok once the running target ends'
+assert_out_contains 'still running' 'the first wait timed out'
+check_eq "$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 2 'a timed-out wait respawns nothing'
+check_eq "$(cat "$SANDBOX/st/ts-api-first.id")":"$(cat "$SANDBOX/st/attempts/ts-api-first")" inv-1:1 'the running task kept its id and one spawn'
+[ -f "$SANDBOX/st/ts-api-first.result.json" ] && check_eq ok ok 'its result was read' || check_eq missing result 'its result was read'
+
+iso_case run_fails_when_a_task_holds_no_result
+mkdir -p "$SANDBOX/st/attempts"; printf '2\n' > "$SANDBOX/st/attempts/ts-api-rereview"
+printf '{"status":"done","result":{"model":"m"}}\n' > "$SANDBOX/rest/GET_invocations_inv-1.json"
+iso run --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'a task with no result and no failure fails the run'
+assert_out_contains 'no result: ts-api-rereview (2 spawn(s) spent)' 'the summary names the task'
+printf 'two\n' > "$SANDBOX/st/attempts/ts-api-rereview"; rm -f "$SANDBOX/st/ts-api-first.result.json"
+iso run --model claude/ibm/aws/claude-sonnet-5-5 "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC" 1 'an attempts file that is no count fails the run'
+assert_out_contains "holds 'two', not a spawn count" 'the refusal names the file content'
 
 # --- wait / collect ----------------------------------------------------------------
 # a state dir as start leaves it, and a result the sub-agent reported

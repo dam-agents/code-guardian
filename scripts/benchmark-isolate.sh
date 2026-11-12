@@ -46,10 +46,12 @@
 # wave to end, and respawns a failed task up to `--retries` (default 1) times
 # in a later wave, so a platform start failure — a target the memory pool
 # never admitted and the sweep deleted ("target agent deleted") — costs one
-# respawn, not a manual retry sequence. It exits 0 when every task holds a
-# result, 1 when a task failed its last attempt, and never collects: call
-# `collect` as before. `start` stays for a spawn of the whole task list at
-# once.
+# respawn, not a manual retry sequence. A wave whose wait times out is waited
+# for again: a task that holds an id and no end is never respawned. The wave
+# size must be a whole number >= 1. It exits 0 when every task holds a
+# result, 1 when a task holds none after its last attempt (the summary names
+# it), and never collects: call `collect` as before. `start` stays for a spawn
+# of the whole task list at once.
 #
 # `wait` polls for at most CG_BENCH_WAIT_S (480) seconds: rc 0 when every task
 # ended, rc 3 while some still run. `collect` writes each result's raw review
@@ -356,52 +358,70 @@ wait_all() { # <state-dir>
   done
 }
 
+is_count() { case "$1" in (''|*[!0-9]*) return 1;; esac; }
+
+# ATT = the spawns <task> already spent, from <state-dir>/attempts/<task>
+read_attempts() { # <state-dir> <task>
+  local a=0
+  [ -f "$1/attempts/$2" ] && { read -r a < "$1/attempts/$2" || true; }
+  is_count "$a" || die "$1/attempts/$2 holds '$a', not a spawn count"
+  ATT=$((10#$a))
+}
+
 run_all() { # <start args…> <state-dir> <ts> <fixture-root> <slug>… — waves + retry
-  local waves="${CG_BENCH_WAVES:-8}" retries=1 pass_opts="" st ts root task slug ph batch_n attempts f failed_n
+  local waves="${CG_BENCH_WAVES:-8}" retries=1 pass_opts="" st ts root task slug ph batch_n pending rc failed_n
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      (--waves) [ "${2:-}" -ge 1 ] 2>/dev/null || die "--waves needs a number >= 1"; waves="$2"; shift 2;;
-      (--retries) [ "${2:-}" -ge 0 ] 2>/dev/null || die "--retries needs a number >= 0"; retries="$2"; shift 2;;
+      (--waves) is_count "${2:-}" && [ "$2" -ge 1 ] || die "--waves needs a number >= 1"; waves="$2"; shift 2;;
+      (--retries) is_count "${2:-}" || die "--retries needs a number >= 0"; retries="$2"; shift 2;;
       (--commit|--branch|--model|--effort) pass_opts="$pass_opts $1 $2"; shift 2;;
       (--only) die "run takes no --only: it schedules every task itself";;
       (*) break;;
     esac
   done
+  is_count "$waves" && [ "$waves" -ge 1 ] || die "CG_BENCH_WAVES=$waves: the wave size needs a number >= 1"
   [ "$#" -ge 4 ] || die "usage: benchmark-isolate.sh run [--waves n] [--retries n] [start options] <state-dir> <ts> <fixture-root> <slug>…"
   st="$1" ts="$2" root="${3%/}"; shift 3
   mkdir -p "$st/attempts" || die "cannot create $st/attempts"
   while :; do
-    batch_n=0
+    batch_n=0 pending=0
     for slug in "$@"; do
       for ph in $PHASES; do
         task="$slug-$ph"
         [ -f "$st/$task.result.json" ] && continue
-        attempts=0
-        [ -f "$st/attempts/$task" ] && read -r attempts < "$st/attempts/$task"
-        # attempts counts spawns already spent; a task may spawn 1 + retries times
-        [ "$attempts" -le "$retries" ] || continue
+        # a task that holds an id and no end is still running: wait for it,
+        # never respawn it — a respawn deletes its id and loses its result
+        if [ -f "$st/$task.id" ] && [ ! -f "$st/$task.failed" ]; then pending=1; continue; fi
+        # ATT counts spawns already spent; a task may spawn 1 + retries times
+        read_attempts "$st" "$task"
+        [ "$ATT" -le "$retries" ] || continue
         [ "$batch_n" -lt "$waves" ] || break 2
-        if [ "$batch_n" -eq 0 ]; then
-          # the first wave pays the setup (check, seed, snapshot); later waves
-          # spawn only the batch through --only, on the same commit and model
-          start $pass_opts --only "$task" "$st" "$ts" "$root" "$@" || return 1
-        else
-          start $pass_opts --only "$task" "$st" "$ts" "$root" "$@" || return 1
-        fi
-        attempts=$((attempts + 1)); printf '%s\n' "$attempts" > "$st/attempts/$task"
+        # every wave spawns only its batch through --only, on the same commit
+        # and model; the first spawn of the run pays the snapshot
+        start $pass_opts --only "$task" "$st" "$ts" "$root" "$@" || return 1
+        printf '%s\n' "$((ATT + 1))" > "$st/attempts/$task"
         batch_n=$((batch_n + 1))
       done
     done
-    [ "$batch_n" -gt 0 ] || break
-    wait_all "$st" || [ "$?" -eq 3 ] || return 1
+    [ "$batch_n" -gt 0 ] || [ "$pending" -gt 0 ] || break
+    # rc 3 = the wait timed out with tasks still running: wait again
+    while :; do wait_all "$st"; rc=$?; [ "$rc" -eq 3 ] || break; done
+    [ "$rc" -eq 0 ] || return 1
   done
+  # every expected task holds a result, or the run fails and names it
   failed_n=0
-  for f in "$st"/*.failed; do
-    [ -f "$f" ] || continue
-    task="${f##*/}"; task="${task%.failed}"
-    attempts=0
-    [ -f "$st/attempts/$task" ] && read -r attempts < "$st/attempts/$task"
-    [ "$attempts" -gt "$retries" ] && { printf 'failed for good: %s (%s)\n' "$task" "$(cat "$f")"; failed_n=$((failed_n + 1)); }
+  for slug in "$@"; do
+    for ph in $PHASES; do
+      task="$slug-$ph"
+      [ -f "$st/$task.result.json" ] && continue
+      read_attempts "$st" "$task"
+      if [ -f "$st/$task.failed" ]; then
+        printf 'failed for good: %s (%s)\n' "$task" "$(cat "$st/$task.failed")"
+      else
+        printf 'no result: %s (%s spawn(s) spent)\n' "$task" "$ATT"
+      fi
+      failed_n=$((failed_n + 1))
+    done
   done
   [ "$failed_n" -eq 0 ]
 }
