@@ -111,7 +111,7 @@ repository, organization, project or people.
 
 Every scheduled session is titled `<Verb> <object>`. A schedule registers its
 run's title — `Review open PRs`, `Nudge PR reviewers`, `Audit agent health`,
-`Benchmark the review model`, `Survey the codebase`, `Post the daily brief`,
+`Survey the codebase`, `Post the daily brief`,
 `Report agent alerts` (ONBOARDING Step 6) — and the run renames itself with
 `mcp__platform-outbound__rename_session`: a review run to the `title` that
 `dispatch.sh rest` prints ([worklist.md](worklist.md) → **Dispatch**), every
@@ -213,13 +213,9 @@ disabled, and its pass reports `nothing_to_do` with a log line.
 
 ## Benchmark run (mode `benchmark`, worklist has `benchmark_due`)
 
-1. Title the session (**Session titles**), then read
-   [benchmark.md](benchmark.md) and perform the entry's action:
-   `create_fixture` tops the fixture set up to ≥5 simple and ≥3 complex and
-   ends the run; `run` replays every fixture review in isolated platform
-   sub-agents, scores and records them, republishes the report and reports
-   the scores in the chat UI. **`scripts/benchmark-validate.sh` gates both.**
-2. Back up `work/` as the very last action.
+No schedule starts it: it runs in the operator's direct session or a trial
+session, per [benchmark.md](benchmark.md) → **Runs**. Back up `work/` as the
+very last action.
 
 ## Survey run (mode `survey`, worklist has `survey_due`)
 

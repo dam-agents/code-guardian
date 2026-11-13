@@ -220,7 +220,7 @@ else
 
     # A renamed/prosified key is invisible to cfg(), so the runtime silently
     # uses defaults — list what the reader will never see.
-    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch session_awareness mention_replies mention_authors project_profile guide_label approve_after_rounds slack_notifications merge_ready_nudge audit_report audit_trend audit_infographic definition_issues channel_definition_prs survey survey_report survey_report_findings survey_interval_days daily_brief brief_language benchmark benchmark_judge benchmark_report escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet agent_manifest"
+    KNOWN_KEYS="github_repo work_repo definition_repo definition_branch bot_login bot_display_name review_marker rereview_label rereview_delta_label rereview_trigger urgent_label review_progress ci_triage review_dispatch session_awareness mention_replies mention_authors project_profile guide_label approve_after_rounds slack_notifications merge_ready_nudge audit_report audit_trend audit_infographic definition_issues channel_definition_prs survey survey_report survey_report_findings survey_interval_days daily_brief brief_language benchmark benchmark_judge benchmark_report benchmark_reference_model benchmark_max_parallel benchmark_decision_rule escalation_owner monitor_owner stall_alert_threshold review_anomaly_factor model_alert_threshold github_alert_threshold classifier_alert_threshold monitor_slack_direct health_dashboard log_level active_hours active_days shepherd_scope human_review_paths auto_merge auto_merge_label auto_merge_max_lines auto_merge_method agent_fixes agent_fix_label review_interval_active review_interval_quiet agent_manifest"
     UNKNOWN_KEYS=""
     while IFS= read -r k; do
       [ -z "$k" ] && continue
@@ -290,6 +290,8 @@ EOF
     chk_enum survey_report 'dam|off' 'dam | off'
     chk_enum survey_report_findings 'enabled|disabled' 'enabled | disabled'
     chk_enum benchmark_report 'dam|off' 'dam | off'
+    chk_enum benchmark_max_parallel '[1-9][0-9]*' 'a positive integer'
+    chk_enum benchmark_decision_rule 'cheapest_not_worse|best_quality|cost_cap:[0-9]+(\.[0-9]+)?' 'cheapest_not_worse | best_quality | cost_cap:<N>'
     chk_enum log_level 'info|debug' 'info | debug'
     chk_enum stall_alert_threshold '[0-9]+|off' 'an integer | 0 | off'
     chk_enum review_anomaly_factor '0+(\.0+)?|0*[1-9][0-9]*(\.[0-9]+)?|off' 'a number of 1 or more | 0 | off'

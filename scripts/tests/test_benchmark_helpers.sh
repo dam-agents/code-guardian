@@ -39,7 +39,7 @@ assert_out_contains 'Latest run: 2026-08-01T06:00:00Z' 'latest run named'
 assert_out_contains '<td class="n idx"><b>0.769</b><span class=bar style="width:77%"></span></td>' 'run 1 quality index is the baseline (no delta), bar width tracks the value'
 assert_out_contains '<td class="n idx"><b>0.944</b><span class=bar style="width:94%"></span></td>' 'run 2 (a different model) carries NO cross-model delta'
 assert_out_absent '0\.944<span class="d ' 'deltas never compare across models'
-assert_out_contains '<td class=n>3.5</td>' 'judge column averages all dimensions on its own 1-5 scale'
+assert_out_contains '<td class="n as">3.5</td>' 'judge column averages all dimensions on its own 1-5 scale'
 assert_out_contains 'judge scores never enter it' 'page states the index is judge-free'
 assert_out_contains '<td>2.1.34 (Claude Code)</td>' 'harness version column rendered'
 assert_out_contains '<h3>3.12.0 — tested 2026-08-01T06:00:00Z (since 3.11.0)</h3>' 'version-change block names versions and run'
@@ -55,8 +55,8 @@ assert_out_absent 'src=|href="http|@import|fetch\(' 'page stays self-contained (
 if [ "$(printf '%s' "$OUT" | grep -o '<li>' | grep -c '')" = "2" ]; then
   printf 'ok   %s: release-commit subjects listed as bullets\n' "$CASE"
 else printf 'FAIL %s: changes bullet list wrong\n' "$CASE"; FAILED=1; fi
-if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "5" ]; then
-  printf 'ok   %s: all-runs table + sufficiency + version changes + one section per fixture\n' "$CASE"
+if [ "$(printf '%s' "$OUT" | grep -c '<h2>')" = "6" ]; then
+  printf 'ok   %s: core and adaptive run tables + sufficiency + version changes + one section per fixture\n' "$CASE"
 else printf 'FAIL %s: section count wrong\n' "$CASE"; FAILED=1; fi
 missing_tok_row="$(printf '%s' "$OUT" | grep -A1 'model-b' | grep -c '—' || true)"
 if [ "$missing_tok_row" -ge 1 ]; then
@@ -182,6 +182,33 @@ if printf '%s' "$row" | grep -q '<td class=n>250</td>' && ! printf '%s' "$row" |
 else printf 'FAIL %s: the unknown-effort run row must carry no delta: %.300s\n' "$CASE" "$row"; FAILED=1; fi
 rm -f "$SANDBOX/bench/results/"20260901T060000Z.json* "$SANDBOX/bench/results/"20261001T060000Z.json*
 
+new_case report_delta_needs_same_core_version
+seed_results
+# model-a on core v1, then a bridge run on core v2 that also scored core v1:
+# the v2 index starts a new series (no delta), the bridge link carries the
+# v1 delta; a run judged by a one-member panel says so beside its judge cell
+mk() { # <ts> <core_version> <seconds> [extra json]
+  jq -n --arg ts "$1" --argjson cv "$2" --argjson s "$3" --argjson x "${4:-{\}}" '
+    def fx($f1): {first:{f1:$f1,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:$s,tokens:null},
+      rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}};
+    {ts:$ts, trigger:"manual", model:"model-a", definition_version:"15.0.0", core_version:$cv,
+     fixtures:{"ts-api": fx(0.5)}} * $x'
+}
+mk 2026-09-01T06:00:00Z 1 100 > "$SANDBOX/bench/results/20260901T060000Z.json"
+mk 2026-10-01T06:00:00Z 2 150 '{"bridge_from":1,"judge":"j-a","judge_model_used":"j-a","judge_panel":["j-a"],"panel_note":"one family only",
+  "fixtures":{"core-v1/ts-api":{"part":"bridge","first":{"f1":0.9,"precision":0.9,"recall":0.9,"severity_accuracy":1,"fp":[],"seconds":90,"tokens":null,"judge":{"finding_accuracy":4}},
+    "rereview":{"fixed_recall":1,"still_recall":1,"new_recall":1,"false_fixed":0,"churn":0,"late_finds":0,"seconds":90,"tokens":null}},
+   "ts-api":{"first":{"judge":{"finding_accuracy":4}}}}}' > "$SANDBOX/bench/results/20261001T060000Z.json"
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+row="$(printf '%s' "$OUT" | grep '<td>2026-10-01')"
+if printf '%s' "$row" | grep -q '<b>[0-9.]*</b>' && ! printf '%s' "$row" | grep -q '</b>[^<]*<span class="d\|[0-9]* <span class="d [a-z]*">[^<]*</span></b>'; then
+  printf 'ok   %s: a run on a new core version carries no index delta against the old core\n' "$CASE"
+else printf 'FAIL %s: the core v2 index must carry no delta: %.400s\n' "$CASE" "$row"; FAILED=1; fi
+assert_out_contains '<small class=bridge>bridge v1: [0-9.]* <span class="d up">' 'the bridge link carries the old-core delta'
+assert_out_contains '<small class=pnote>one family only</small>' 'a one-family panel is named beside its judge cell'
+assert_out_absent '<h2>core-v1/ts-api' 'bridge fixtures never get a core fixture section of their own'
+rm -f "$SANDBOX/bench/results/"20260901T060000Z.json "$SANDBOX/bench/results/"20261001T060000Z.json
+
 new_case report_delta_needs_same_isolation
 seed_results
 # model-a, same effort (none recorded), but isolated: the in-pod run 1 is no
@@ -286,6 +313,11 @@ assert_jq '.memory_sha != null' 'memory hash recorded'
 assert_jq '.changes_since_prev == []' 'no git history degrades to an empty change list'
 assert_jq '.definition_ref.branch == null' 'no git checkout degrades definition_ref to nulls'
 assert_jq '.effort == "unknown"' 'no harness effort degrades to unknown, never null'
+assert_jq '.core_version == null' 'no CORE.json → core_version null'
+mkdir -p "$SANDBOX/bench/fixture"; printf '{"version":3,"fixtures":[]}' > "$SANDBOX/bench/fixture/CORE.json"
+OUT="$(HOME="$FAKE_HOME" bash "$PROV" "$SANDBOX/bench")"
+assert_jq '.core_version == 3' 'core_version comes from fixture/CORE.json'
+rm -rf "$SANDBOX/bench/fixture"
 OUT="$(HOME="$FAKE_HOME" CLAUDE_EFFORT=medium bash "$PROV" "$SANDBOX/bench")"
 assert_jq '.effort == "medium"' 'harness effort recorded'
 
@@ -503,5 +535,29 @@ done
 if [ -n "$(grep -o '{{[A-Z_]*}}' "$TPL")" ] && [ -z "$missing" ] && [ -z "$stray" ]; then
   printf 'ok   %s: every reviewer-brief placeholder has its value in benchmark.md, and no other\n' "$CASE"
 else printf 'FAIL %s: placeholders without a value:%s; not in the template:%s\n' "$CASE" "$missing" "$stray"; FAILED=1; fi
+
+new_case report_layers_and_recommendation
+rm -rf "$SANDBOX/bench"; mkdir -p "$SANDBOX/bench/results"
+# one multi-model run: a judged fixture with a language pool under the
+# min_defects default (20), a paired comparison and the agent's recommendation
+for m in model-a model-b; do
+  jq -n --arg m "$m" '
+    {ts:"2026-11-01T06:00:00Z", run_id:"20261101T060000Z", models:["model-a","model-b"], trigger:"manual",
+     model:$m, definition_version:"15.0.0", core_version:1, judge:"j-a", judge_model_used:"j-a",
+     fixtures:{"ts-api":{first:{f1:0.5,precision:0.6,recall:0.4,severity_accuracy:0.8,fp:[],seconds:100,tokens:null,
+       languages:{typescript:{tp:2,gt:3}}, judge:{finding_accuracy:4}},
+       rereview:{fixed_recall:0.5,still_recall:0.5,new_recall:0.5,false_fixed:0,churn:0,late_finds:0,seconds:100,tokens:null}}},
+     comparison:{"model-a|model-b":{overall:{n_defects:3,only_a:1,only_b:0,delta_recall:0.333,ci95:[-0.2,0.8],mcnemar_p:1,verdict:"in_noise"}}},
+     recommendation:{rule:"cheapest_not_worse", text:"Keep model-a.", cites:["model-a|model-b in noise"], confidence:"low"}}' \
+    > "$SANDBOX/bench/results/20261101T060000Z--$m.json"
+done
+OUT="$(bash "$REPORT" "$SANDBOX/bench")"
+assert_out_contains 'class=lm title="Measured layer:[^"]*">Measured</th>' 'the Measured layer heading spans its columns'
+assert_out_contains 'class=la title="Assessed layer:[^"]*">Assessed</th>' 'the Assessed layer heading spans its columns'
+assert_out_contains '<div class=rec><b>Recommended</b> <span class=sub>(confidence: low; rule: cheapest_not_worse)</span><p>Keep model-a.</p><ul><li>model-a|model-b in noise</li></ul></div>' 'the Recommended block renders its rule, text and cites'
+assert_out_contains '<td>model-a vs model-b</td>' 'the paired comparison row names its pair'
+assert_out_contains '<td>in noise</td>' 'the comparison verdict is rendered in words'
+assert_out_contains '<td class="n dash">too few data (2/3)</td>' 'a language pool under min_defects reads too few data, never a value'
+rm -rf "$SANDBOX/bench"
 
 finish

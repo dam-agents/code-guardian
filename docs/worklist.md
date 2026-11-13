@@ -48,7 +48,9 @@ the `worklist: <path>` line, the due keys, and the pass's `logs` to echo.
 **Entry command:** `bash "$HOME/scripts/preflight.sh" <mode>` — `review`,
 `shepherd`, `audit`, `benchmark`, `survey` or `brief`; `bash
 "$HOME/scripts/monitor.sh"` for the monitor — for a run whose prompt carries
-no worklist path. Cadence, gate and task text per run: ONBOARDING Step 6.
+no worklist path. Cadence, gate and task text per run: ONBOARDING Step 6. The
+benchmark has no schedule and no gate: the direct session runs its mode
+([benchmark.md](benchmark.md) → **Runs**).
 
 **The script detects, it never acts** — no GitHub writes, no commits, no
 pushes. It lists open PRs in one REST call and computes every decision. A
@@ -102,7 +104,7 @@ run the same way.
 | `mentions_due` | human GitHub text addressed to the bot; ledger-deduped, gated by `mention_replies` → reply, record feedback, or serve a review request, **before the PR's review** | [mentions.md](mentions.md) + [review.md](review.md); [watches.md](watches.md) with `config.watch_rules` |
 | `nudges_due` | Slack nudges with a precomputed `row_update`; the send-then-record step is yours | [shepherd.md](shepherd.md) |
 | `stats`, `checks`, `failures` | audit mode: 7-day statistics, deterministic health checks, and the week's error events grouped into signatures for you to diagnose | [audit.md](audit.md) |
-| `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` (`judge`: `benchmark-judge.sh resolve`'s, `auto` while unpicked; `judge_unavailable` / `isolation_unavailable`: why the judge cannot run / the run cannot be isolated, or null) | [benchmark.md](benchmark.md) |
+| `benchmark_due` | benchmark mode: `action: create_fixture` \| `run` (`judge`: `benchmark-judge.sh resolve`'s, `auto` while unpicked; `judge_unavailable` / `isolation_unavailable`: why the judge cannot run / the run cannot be isolated, or null), with the run settings `reference_model`, `max_parallel`, `decision_rule`, `core_version`, the `adaptive` slugs and `bridge` (`{from, fixture_root, fixtures}` of the retired core on the first run of a new core version, else null); a run entry adds `judge_panel` and `panel_note` from `resolve` (the served panel, null without a comma list) | [benchmark.md](benchmark.md) |
 | `brief_due` | brief mode: the PRs merged since the last brief, and the language to write it in | [brief.md](brief.md) |
 | `survey_due` | survey mode: the area to read this run, with its history slice | [survey.md](survey.md) |
 | `alerts_due`, `recorded`, `direct`, `suppressed` | monitor mode: the alerts to report (each with its `id`), the history-only conditions (never reported), the direct send's result, the count of alerts already sent | [monitor.md](monitor.md) |

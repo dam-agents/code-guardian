@@ -1,16 +1,21 @@
 # Model benchmark — scoring the review configuration over time
 
-Read this file when the worklist has `benchmark_due`, or when the operator asks
-to create the fixture set, run the benchmark, or show its results.
+Read this file when the operator asks to create the fixture set, run the
+benchmark, or show its results, or when the worklist has `benchmark_due`.
 
-It scores the production review configuration (session model, adopted
-definition version, configured skills) on fixed synthetic review tasks against
-known defects, with time and tokens per task. Results accumulate forever in
+It scores the review configuration (model, definition version, configured
+skills) on review tasks made for the target repository, against known defects,
+with time, tokens and cost per task. It serves two goals: **regression** of the
+definition (the core set on the reference model) and **model choice** (several
+models on one snapshot, per language). Results accumulate forever in
 `work/benchmark/`; nothing goes to GitHub.
 
 ## Layout (`work/benchmark/`)
 
 ```
+fixture/                 # the core set (Core and adaptive set)
+  CORE.json              # core version: version, fixtures, author_model, memory_sha
+  core-memory/           # frozen MEMORY.md + LESSONS.md of this core version
 fixture/<slug>/          # one benchmark project (immutable once created)
   base/                  # starting tree (the "main" branch)
   head-v1/               # PR state 1 — the seeded-defect version
@@ -20,7 +25,10 @@ fixture/<slug>/          # one benchmark project (immutable once created)
   pr.json                # simulated PR metadata (schema below)
   diff-v1.patch          # base → head-v1
   diff-v1-v2.patch       # head-v1 → head-v2
+adaptive/<slug>/         # the adaptive set: same fixture format, agent-managed
 results/<ts>.json        # one scored run, all fixtures (ts = YYYYMMDDTHHMMSSZ, UTC)
+results/<run_id>--<model-slug>.json  # one model of a multi-model run; <model-slug> =
+                         # the model id, every char outside [A-Za-z0-9._-] → _
 results/raw/<ts>-<slug>-first.md, <ts>-<slug>-rereview.md
 .run-notes-<ts>.md       # segmented-run ledger (Segmented run below); absent otherwise
 judge.json               # the judge the agent pinned under benchmark_judge: auto (Choosing the judge)
@@ -35,6 +43,64 @@ the `TIPS` dictionary of `benchmark-report.sh`. A fixture is immutable: one that
 stops representing the target repo's stack gets a new sibling slug (the set may
 grow past its minimum); retiring one is the operator's (**Retiring a fixture
 set**).
+
+## Core and adaptive set
+
+- **Core** (`fixture/`) — frozen; carries the regression trend. It changes only
+  as a whole, as a new **core version**, on the operator's order. The agent can
+  recommend one in the Recommended layer.
+- **Adaptive** (`adaptive/`) — the agent keeps it current with the repository:
+  it adds fixtures from new escaped defects ([escapes.md](escapes.md)), new
+  languages or new patterns, and retires saturated or stale ones, and it reports
+  each change in the run summary. Its results carry no trend.
+- **Frozen memory.** A benchmark reviewer never reads the live `work/MEMORY.md`
+  or `LESSONS.md`: each core version holds a copy in `fixture/core-memory/`, and
+  every run of that version bundles it (`memory_sha` = `benchmark-core.sh
+  memory-sha`, the frozen MEMORY.md's hash). The validator fails a fixture whose
+  file and defect line, or defect summary, the frozen copy names (`leak_memory`).
+- **New core version** — stage the new set, then
+  `bash "$HOME/scripts/benchmark-core.sh" new-version "$HOME/work/benchmark" <staged dir>`:
+  the old core moves to `fixture/retired/core-v<N>/` and the new one gets a
+  fresh memory copy. The next run is a **bridge run**: it scores the old core
+  (fixture root `fixture/retired/core-v<N>`, its own `core-memory/`) and the
+  new one in one run, so the trend continues. Preflight sets the entry's
+  `bridge` (`{from, fixture_root, fixtures}`) while no results file is on the
+  new core version; the run steps say what a non-null `bridge` adds. Its
+  results file carries `bridge_from: <N>` and the old-core fixtures as
+  `core-v<N>/<slug>` with `part: "bridge"` (schema below).
+- **Migration** — an existing set without `CORE.json` becomes core version 1:
+  `bash "$HOME/scripts/benchmark-core.sh" migrate "$HOME/work/benchmark" [--author <model>]`.
+  It freezes the live memory, records `author_model` per fixture (the
+  manifest's `author_model`, else `--author`, else `unknown`), marks earlier runs not comparable
+  in `RESULTS.md`, and prints `leak <slug>` for each fixture that fails the
+  check against the frozen copy. A leaking fixture stays out of `CORE.json`,
+  and a run never scores it (the core list is `CORE.json`'s `fixtures`);
+  move it to `fixture/retired/<slug>`. Rebuild it under `adaptive/` without
+  the leaked file, line or summary when it is still worth a fixture.
+  Core version 1 need not meet the language minimums (**Languages**).
+- **Confirmed real defects.** A false positive that the judge panel classes
+  `real` (**Judge panel**) and that at least 2 independent runs or models
+  report, goes into the manifest of an adaptive fixture with `confirmed_by`. A
+  core manifest never changes.
+
+## Languages
+
+A defect's language comes from its file extension (`scripts/lib/bench-lang.sh`
+→ `bench_lang`, the one mapping). A **main language** holds at least
+`min_share` % of the repository's code (`gh api "repos/$REPO/languages"`); the
+set (core and adaptive together) holds at least `min_defects` v1 defects per
+main language, from `## Benchmark languages` in `work/CONFIG.md`:
+
+```markdown
+## Benchmark languages
+
+| min_share | min_defects |
+|---|---|
+| 10 | 20 |
+```
+
+Missing table → 10 and 20. Other languages are best-effort; the report shows
+*too few data* for a pool under `min_defects`.
 
 ## Task tiers
 
@@ -60,15 +126,15 @@ the shape of the change, never its tier: the sub-agents see the slug.
 ## Session separation
 
 - `create_fixture` and `run` never share a session: the seeding session ends
-  after creating fixtures; preflight emits `run` from the next benchmark tick
-  on. The creation report offers the operator an on-demand run for an earlier
-  baseline.
+  after creating fixtures. The creation report offers the operator a run in a
+  fresh session.
 - In a `run`, Phase 1 runs in sub-agents that hold no ground truth
   (**Isolation**); `manifest.json`, `RESULTS.md` and past `results/` are read
   in the scoring phase only, after every raw review is written. Phase 1 inputs
   are exactly `pr.json`, the diff patches, the trees, `prior-review.md`, and
   the files a production review reads (docs/review.md, docs/finding-form.md,
-  docs/skills.md, `work/MEMORY.md`, `work/LESSONS.md`).
+  docs/skills.md, and the core version's frozen `MEMORY.md` and `LESSONS.md` —
+  the live ones before migration).
 
 ## Creating the fixture set (`action: create_fixture`, or operator ask)
 
@@ -83,8 +149,12 @@ planted flaw, no "seeded"/"intentional"/"bait"/"false positive" notes, nothing
 in the v2 inputs announcing the delta (`FIXED`, `still present`). Step 7
 catches a labelled defect.
 
-1. Inputs: the target repo's languages (`gh api "repos/$REPO/languages"`) and
-   the `## Review skills` table. Cover **at least 5 clearly different shapes of
+1. Inputs: the target repo itself — its languages (`gh api
+   "repos/$REPO/languages"`), modules, conventions, history, past defects and
+   fixes, escaped defects ([escapes.md](escapes.md)), human review comments —
+   and the `## Review skills` table. Build fixtures as close to the repo as
+   possible (its code style, frameworks and defect classes), and meet the
+   language minimums (**Languages**). Cover **at least 5 clearly different shapes of
    change** in those languages (`ts-api`, `react-ui`, `py-cli`, `infra-ci`,
    `docs-mixed` — the slug names the shape) so that every extension-triggered
    skill receives ≥ 1 file from ≥ 1 fixture; a later uncovered skill trigger
@@ -103,7 +173,7 @@ catches a labelled defect.
      window) and make each a **distinct pattern**: the sibling sweep merges
      same-class occurrences into one finding.
 3. Write `manifest.json`, verifying every `line_v1`/`line_v2` against the
-   actual trees.
+   actual trees, with `author_model` = this session's exact model id.
 4. Write `prior-review.md` in the posted-review format (docs/review-mechanics.md
    → **Summary body format**, marker at `head_sha_v1`) whose findings-json
    carries ~70 % of the v1 defects; set `in_prior_review: true` on exactly those
@@ -125,12 +195,18 @@ catches a labelled defect.
    session and re-run until it passes:
 
    ```bash
-   bash "$HOME/scripts/benchmark-validate.sh" fixture "$HOME/work/benchmark/fixture"/*/
+   bash "$HOME/scripts/benchmark-validate.sh" fixture "$HOME/work/benchmark/fixture" "$HOME/work/benchmark/adaptive"
    ```
 
-   Each `FAIL` line carries its own `fix:`. `leak_*` means the answers sit in
+   Pass the roots, not `*/`: the `core` check (CORE.json) and `leak_memory`
+   need them. Each `FAIL` line carries its own `fix:`. `leak_*` means the answers sit in
    the inputs; `diff_paths` means no finding can ever match the manifest.
-8. Report the per-fixture defect tables (tier; id, file:line, class, severity,
+8. First creation only: write `fixture/CORE.json` and the frozen memory with
+   `bash "$HOME/scripts/benchmark-core.sh" migrate "$HOME/work/benchmark"`.
+   Propose to the operator, and write on their yes, the keys still missing
+   (**Runs**): `benchmark_reference_model` (default: this session's model) and
+   the judge panel (**Judge panel**).
+9. Report the per-fixture defect tables (tier; id, file:line, class, severity,
    difficulty, fixed_in_v2, in_prior_review) plus the validation `PASS` line to
    the chat UI, log `benchmark fixtures created (<k> new, set now <n>, validated)`,
    and end the run (backup last).
@@ -146,6 +222,9 @@ catches a labelled defect.
               "difficulty": "hard"}]}
 ```
 
+- `author_model` (the model that made the fixture, or `unknown`); adaptive
+  only: `added` (ISO) and `source` (`escaped-defect`, `history`,
+  `confirmed-fp`, …); a defect's `confirmed_by` `[{ts, model}]`.
 - `tier` is optional: `simple` or `complex`; the validator checks a complex
   fixture for ≥ 8 base files and ≥ 5 hard v1 defects.
 - `difficulty` is optional and, when present, exactly `"hard"`; it only splits
@@ -156,9 +235,32 @@ catches a labelled defect.
   re-flagged fixes against it).
 - Introduced in v2 → `line_v1: null`.
 
+## Runs
+
+No schedule runs the benchmark. A run starts in the operator's direct session:
+
+- **Regression** — on `benchmark_reference_model` (`work/CONFIG.md`), core
+  set. After an update to a new minor or major definition version, the
+  updating session asks the operator whether to run it
+  ([persistence.md](persistence.md) → **Definition version & upgrade**).
+  When the host stops serving the reference model, the operator pins a new one.
+  Its first run is a **Models** run of the old and the new model when the host
+  still serves both; the new model's runs start a new series.
+- **Models** — "run the benchmark for models X, Y, Z": one run, one snapshot,
+  exactly the models named (the reference model is not added). Each model's
+  tasks run in their own isolated sub-agents (**Isolation**).
+- **Trial** — a branch of the definition (**Trial runs**).
+
+At most `benchmark_max_parallel` (default 8) sub-agents run at the same time.
+The queue completes one model before the next, so a stopped run keeps full
+data for its completed models.
+
 ## Running the benchmark (`action: run`, or operator ask)
 
-The entry carries `fixtures`, `fixture_root`, `judge`, `judge_unavailable`
+The entry carries `fixtures`, `adaptive`, `core_version`, `reference_model`,
+`max_parallel`, `judge_panel` and `panel_note` (from `resolve`: the served
+panel, null without a comma list), `decision_rule`, `bridge` (null, or the
+retired core this run also scores — **Core and adaptive set**), `fixture_root`, `judge`, `judge_unavailable`
 (null, or why this host cannot run the judge), `isolation_unavailable` (null,
 or why the run cannot be isolated), `report` and `last_run`. An operator-asked
 run takes `judge` and `judge_unavailable` from
@@ -167,8 +269,10 @@ run takes `judge` and `judge_unavailable` from
 **Gate first — never score an unvalidated set:**
 
 ```bash
-bash "$HOME/scripts/benchmark-validate.sh" fixture "<fixture_root>"/*/
+bash "$HOME/scripts/benchmark-validate.sh" fixture "<fixture_root>" "$HOME/work/benchmark/adaptive"
 ```
+
+A non-null `bridge` adds its root to the same call: `"<bridge.fixture_root>"`.
 
 Non-zero exit → **abort before any review**, recording and publishing
 nothing: report the `FAIL` lines (**Retiring a fixture set** is the
@@ -179,7 +283,9 @@ a `warn` event, and end the run (no lock is held yet).
 `$HOME/work/benchmark/.run-lock` (a trial's: **Trial runs**), first line
 `<ISO> <nonce>`:
 
-- Lock present with an ISO younger than **6 h** → a sibling run is live:
+- Lock present and younger than **6 h** (`BENCH_LOCK_TTL_MIN`,
+  `scripts/lib/bench-lock.sh`; an empty or unparsable first line reads the
+  file's mtime, and a lock of no measurable age counts as live) → a sibling run is live:
   **stand down**, report it, touch nothing of the sibling's (lock, `/tmp`
   trees, phase state), and end the run.
 - Absent or older → write your own `<ISO> <NONCE>` line. **Every terminal path
@@ -229,11 +335,20 @@ seeded commit) that holds ground truth, and a public work repo.
 1. `isolation_unavailable` is set, or
    `bash "$HOME/scripts/benchmark-isolate.sh" check` (a trial: `check --commit
    <SHA>`) prints a reason → **Isolation unavailable**.
-2. Spawn every task:
+2. Spawn every task — per model, one model after another, each with its own
+   state dir (`$PSTATE-<n>` for model n); every model after the first reuses
+   the first one's snapshot:
    ```bash
    bash "$HOME/scripts/benchmark-isolate.sh" start [--effort <e>] --model <m> \
-     "$PSTATE" "<TS compact>" "<fixture_root>" <slug>…
+     --max-parallel <max_parallel> [--snapshot "$PSTATE-1"] \
+     "$PSTATE-<n>" "<TS compact>" "<fixture_root>" <slug>… [adaptive/<slug>…]
    ```
+   The snapshot takes the frozen core memory when `CORE.json` exists
+   (`memory_source: core-frozen` in `expect.json`; a CORE.json without both
+   frozen files is refused). `--max-parallel` defaults to `benchmark_max_parallel`,
+   else 8; `--snapshot` needs the earlier dir's `snapshot/`, `expect.json` and
+   `memory_source` at the same seeded commit. `adaptive/<slug>` resolves under the
+   fixture root's sibling `adaptive/`; a slug that is also a core slug is refused.
    `--effort` = this session's effort when the harness exposes one
    (`effort` of the provenance). `--model` = this session's exact model id,
    provider-qualified (Claude Code names it `claude/<provider>/<id>`; on pi
@@ -242,9 +357,17 @@ seeded commit) that holds ground truth, and a public work repo.
    `collect` reports any other as a `model` mismatch. A trial adds
    `--commit <SHA> --branch <branch>`. A refusal before the first `spawned`
    line → **Isolation unavailable**; after it → abort.
-3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE"` in the
-   foreground until exit 0; exit 3 means call it again.
-4. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE" "<raw dir>"`
+   A non-null `bridge` adds one more `start` per model, after its core and
+   adaptive tasks: state dir `$PSTATE-<n>-bridge`, fixture root
+   `<bridge.fixture_root>`, slugs `<bridge.fixtures>`. The first model's
+   bridge `start` takes no `--snapshot` (the retired root bundles its own
+   `core-memory/`); every later model's takes `--snapshot "$PSTATE-1-bridge"`. Its `wait` and `collect`
+   follow steps 3 and 4 with the raw dir `results/raw/core-v<bridge.from>`.
+3. `bash "$HOME/scripts/benchmark-isolate.sh" wait "$PSTATE-<n>"` in the
+   foreground until exit 0; exit 3 means call it again (`wait` also spawns the
+   queued tasks as slots free; exit 1 when the platform refuses a queued spawn —
+   abort). `collect` fails a task still queued (`queued, never spawned`).
+4. `bash "$HOME/scripts/benchmark-isolate.sh" collect "$PSTATE-<n>" "<raw dir>"`
    (`$HOME/work/benchmark/results/raw`) writes every raw review and skill
    archive — only when nothing failed or mismatched — and prints per task
    `seconds`, `tokens`, `suppressed` and `spawn`, plus the run's `model`,
@@ -258,7 +381,7 @@ Sub-agents still running end at their deadline.
 
 ### Isolation unavailable
 
-- **Scheduled run:** stop before any review. Release the lock, record
+- **Trial session:** stop before any review. Release the lock, record
   nothing, report the reason in the chat UI, and log
   `benchmark run stopped: isolation unavailable (<reason>)` as a `warn` event.
 - **Direct session:** report the reason and ask the operator. Only on their
@@ -306,7 +429,10 @@ with none, review inline and fall back to **Segmented run** when depth would
 degrade.
 
 In-pod, loop over the slugs sequentially — fixtures and phases never run
-concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
+concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). A bridge
+run loops over the `bridge.fixtures` last, with `<fixture_root>` =
+`<bridge.fixture_root>` and `core-v<bridge.from>-<slug>` in place of `<slug>`
+in the `/tmp` paths. Per fixture:
 
 1. Build the working repo in `/tmp` (fixtures hold no `.git`, and `work/` is
    NFS — [persistence.md](persistence.md)), with `origin/main` on the base
@@ -411,27 +537,42 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
    the quality index is scorer output only. High f1 beside a low `find-acc`
    (`finding_accuracy`) marks true positives matched by position, not
    mechanism.
-7. Assemble `results/<ts>.json` (schema below). The development-tracking and
+7. Assemble `results/<ts>.json` — in a multi-model run one
+   `results/<ts>--<model-slug>.json` per model (**Layout**), all with
+   `run_id` = `<ts>` and `models` (schema below). The development-tracking and
    input-provenance fields (`prev_version`, `changes_since_prev`,
    `harness_version`, `effort`, `memory_sha`, `skill_sources`,
-   `definition_ref`) come from one deterministic call — merge its object in
+   `author_models`, `core_version`, `definition_ref`) come from one deterministic call — merge its object in
    verbatim and add what only the session knows (`model`, `trigger`, `judge`,
    `judge_model_used` and `judge_reason` from step 6). An isolated run merges
    `$PSTATE/expect.json` instead — the seeded commit's provenance — adds
    `isolation: "platform-subagent"` and each phase's `spawn`, and takes
-   `model`, `harness_version` and `effort` from `collect`. In-pod:
+   `model`, `harness_version` and `effort` from `collect`. A bridge run scores
+   each bridge fixture with `B="<bridge.fixture_root>/<slug>"` (steps 5–6),
+   keys it `core-v<bridge.from>/<slug>` with `part: "bridge"`, and sets
+   `bridge_from: <bridge.from>`. In-pod:
 
    ```bash
    bash "$HOME/scripts/benchmark-provenance.sh" "$HOME/work/benchmark"
    ```
 
+   Then the **comparison** (multi-model run): per model pair,
+   `bash "$HOME/scripts/lib/bench-stats.sh" paired <results a> <results b>`
+   into `comparison` of every file of the run — a paired test per first-review
+   v1 defect (`<slug>/<id>`; overall, `parts`, `languages`): McNemar (exact
+   below 25 discordant defects), a seeded bootstrap 95 % interval of the recall
+   delta; `a_better`/`b_better` only when p < 0.05 and the interval excludes 0,
+   else `in_noise`. `bench-stats.sh ci <results>` gives one run's pooled
+   intervals. Then the **recommendation** (**Decision rule**), mandatory every
+   run, also when it is "no change".
 8. **Validate the assembled results before anything reads them**:
 
    ```bash
    bash "$HOME/scripts/benchmark-validate.sh" results "$HOME/work/benchmark/results/<ts>.json"
    ```
 
-   Non-zero exit → fix the file (each `FAIL` names its remedy) and re-validate;
+   A multi-model run validates **every** file it wrote, one call per
+   `results/<run_id>--<model-slug>.json`. Non-zero exit → fix the file (each `FAIL` names its remedy) and re-validate;
    nothing is appended, regenerated or published until it passes. Unfixable →
    delete the file, report why, release the run lock, and end the run with
    nothing recorded.
@@ -478,7 +619,11 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
 ### `results/<ts>.json`
 
 ```json
-{"ts": "<ISO>", "trigger": "scheduled|manual", "model": "<exact session model id>",
+{"ts": "<ISO>", "trigger": "manual|trial (scheduled: before 15.0.0)", "model": "<exact session model id>",
+ "run_id": "<ts compact>", "models": ["..."], "reference_model": "<id or null>",
+ "core_version": 1, "bridge_from": "<earlier core version, bridge run only>",
+ "memory_source": "core-frozen|live", "author_models": {"<slug>": "<id|unknown>"},
+ "judge_panel": ["<a>", "<b>"], "panel_note": "<one family only, or null>", "comparison": {"<a>|<b>": {}}, "recommendation": {"rule": "...", "text": "...", "cites": [], "confidence": "high|medium|low"},
  "judge": "<resolved judge or off>", "judge_model_used": "<model or null>",
  "judge_harness": "<claude|pi or null>", "judge_reason": "<first non-ok reason or null>",
  "definition_version": "...", "prev_version": "...", "changes_since_prev": [],
@@ -489,6 +634,7 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
  "isolation_approved": "<ISO> operator (none only)",
  "fixtures": {
    "<slug>": {
+     "part": "core|adaptive|bridge",
      "skills": {"<skill>": "ran (findings=N) | skipped (<reason>)"},
      "first":    {"<scorer output>": "...", "seconds": 0, "suppressed": 0, "spawn": "<id>",
                   "tokens": {"input":0,"output":0,"cache_read":0,"cache_creation":0,"msgs":0},
@@ -499,7 +645,17 @@ concurrently (`benchmark-phase.sh` refuses an overlapping `begin`). Per fixture:
  "raw_dir": "results/raw/"}
 ```
 
-- `judge_model_used` — the model that answered, as `benchmark-judge.sh`
+- Scorer objects add `languages` `{<lang>: {tp, gt}}` and `fn_detail`; a
+  panel judge adds `panel`, `disagreement` and `fp_class` (**Judge panel**).
+- `author_models` comes from `benchmark-provenance.sh` (`CORE.json` and each
+  adaptive manifest); `judge_panel` and `panel_note` come from the entry
+  (`resolve`'s served panel). The report marks an author model's run and
+  names a one-family panel beside its judge cell.
+- A bridge run (**Core and adaptive set**) sets `bridge_from: <N>` and keys
+  the old core's fixtures `core-v<N>/<slug>` with `part: "bridge"`. Deltas
+  compare runs of one core version only; the bridge row adds the old core's
+  index and its delta against the last core-v<N> run.
+- `judge_model_used` — the model that answered (a panel: comma list), as `benchmark-judge.sh`
   printed it from the judge CLI's own usage record, or null when no call
   answered `ok`; `judge_harness` — the CLI that answered. The report shows
   judge scores only for a run whose `judge_model_used` the pinned `judge`
@@ -534,7 +690,7 @@ publish markers are added when the first publish succeeds):
 
 An approved in-pod run (**Isolation unavailable**) on a harness without
 subagents, when one session cannot give every fixture the same depth, splits
-**one fixture per session**. Operator-only; a scheduled run is never segmented.
+**one fixture per session**. Operator-only.
 
 - **One identity across segments.** Segment 1 takes `TS` + `trigger` and
   creates the ledger `$HOME/work/benchmark/.run-notes-<TS>.md` (definition
@@ -555,8 +711,26 @@ subagents, when one session cannot give every fixture the same depth, splits
   segment's raw reviews are written.
 - **Between segments** the ledger marks the run live: preflight's benchmark
   mode emits `nothing_to_do` while any `.run-notes-*.md` is younger than
-  **7 days**. An older ledger is an abandoned run — the tick is emitted over
-  it and the ledger is reported, not deleted.
+  **7 days**. An older ledger is an abandoned run — reported, not deleted.
+
+## Judge panel
+
+`benchmark_judge: <a>, <b>` is a panel of two judge models of different
+families; the agent proposes it when it creates the benchmark (`benchmark-judge.sh
+models` lists what the host serves), the operator confirms it. Every review of
+a run gets the same panel: the scores are averaged, `disagreement` shows the
+largest spread, and `fp_class` classes each false positive `real` /
+`defensible` / `fabricated` (majority, tie → `defensible`; a member without a
+valid list counts for the scores only). `benchmark-judge.sh` takes the panel as
+`<a>,<b>` in place of one judge and runs the members in parallel;
+`judge_model_used` and `judge_harness` list the members that answered `ok`.
+`resolve` adds `panel` (the served members), `panel_unavailable` and
+`panel_note` (`one family only` when one member is left — a panel of one, and
+the report says so); no member served → `judge_unavailable`. `check <a>,<b>`
+names each member that cannot run and fails only when none can; `pin` refuses
+a panel. Record `resolve`'s `panel` as the run's `judge_panel` and its
+`panel_note` as the run's `panel_note` — never the configured names. `auto` and one id keep
+the single judge below.
 
 ## Choosing the judge (`benchmark_judge: auto`)
 
@@ -593,6 +767,25 @@ while the host's model list is unknown — then pick one first.
   comparability window for the judge columns, and the chat summary says so.
 - An operator's model id in `benchmark_judge` always wins: `pin` refuses, and
   the agent never changes that id.
+
+## Decision rule
+
+`benchmark_decision_rule` in `work/CONFIG.md` (missing = `cheapest_not_worse`)
+says what a better model is: `cheapest_not_worse` — the cheapest model that is
+not significantly worse than the best one (paired test, **Running** step 7);
+`best_quality`; `cost_cap:<N>` — the best quality at most N× the cheapest
+cost. Each run records `recommendation` `{rule, text, cites, confidence}`:
+apply the rule, cite the numbers used, and never build on an `in_noise` delta.
+A model that wrote the fixtures (`author_models`) is marked: no recommendation
+of it on a within-noise win.
+
+## Report layers
+
+The report keeps three layers apart: **Measured** (scorer, time, tokens, cost —
+plain columns), **Assessed** (the judge panel, real false positives, assessed
+precision — tinted columns) and **Recommended** (the boxed recommendation with
+the rule). The core set and the adaptive set have their own run tables; only
+the core carries deltas. *Recall by language* pools each model's latest run.
 
 ## Sufficiency by tier
 
@@ -660,17 +853,19 @@ An invalid set (validation fails, or it no longer represents the repo) is
 agent reports and waits. A live run lock (`.run-lock`, `trials/*/.run-lock`)
 must finish or expire first.
 
-1. `mkdir -p fixture/retired && mv fixture/<slug> fixture/retired/<slug>` per
-   retired slug. Retired fixtures stay on disk forever — past results
-   reference them. Preflight counts only `fixture/*/` directories holding a
-   `manifest.json`, so `create_fixture` becomes due.
-2. Mark the affected history **non-comparable**: one line under the RESULTS.md
+1. **Core.** Every core change is a staged replacement set plus
+   `benchmark-core.sh new-version` (**Core and adaptive set**): it moves the
+   whole old core to `fixture/retired/core-v<N>/` and writes the new
+   `CORE.json`. Never move a single slug that `CORE.json` lists — the `core`
+   check then fails every run gate. A slug outside `CORE.json` (a `leak` from
+   the migration) moves to `fixture/retired/<slug>`.
+2. **Adaptive.** A saturated or stale adaptive fixture moves to
+   `adaptive/retired/<slug>`; the run summary names it.
+3. Retired fixtures stay on disk forever — past results reference them.
+   Mark the affected history **non-comparable**: one line under the RESULTS.md
    header naming the timestamps and the reason, e.g.
-   `_Runs <ts>… scored fixture set 1, retired <date> (ground truth leaked into the inputs) — not comparable with later runs._`
+   `_Runs <ts>… scored core version 1, retired <date> (ground truth leaked into the inputs) — not comparable with later runs._`
    Never delete a row, a `results/*.json` or a raw review.
-3. Create the replacement set in a fresh session (**Creating the fixture
-   set**), and take the first scored run in yet another session. The new
-   series starts at that run.
 
 ## Trial runs (PR development — scored, never recorded)
 
@@ -709,7 +904,7 @@ scored run.
     (**Isolation**); `trigger: "trial"`. `$PSTATE/expect.json` carries the
     commit's `definition_version` and `definition_ref: {branch, sha}`, which
     identify feature-branch code (`VERSION` alone does not).
-  - **Isolation unavailable** → stop as a scheduled run does. An approved
+  - **Isolation unavailable** → stop, record nothing, report the reason. An approved
     in-pod trial runs only in a fresh direct session, with `<SHA>` checked
     out in `$HOME`, and takes the global `.run-lock` too: in-pod Phase 1
     reads the checkout and shares the `/tmp` trees.
@@ -717,8 +912,7 @@ scored run.
     installed skills), RESULTS.md rows, `report.html` regeneration,
     publishing, and `prev_version`/`changes_since_prev`.
   - Phase 2 runs the `$HOME` checkout's scorer, judge and report (a change to
-    them is not measured by its own trial). The monthly gate reads only
-    official `trigger: scheduled` results, never `trials/`.
+    them is not measured by its own trial).
 - **Compare**: render the trial's own report —
   `bash "$HOME/scripts/benchmark-report.sh" "$TRIAL" > "$TRIAL/report.html"`
   (the script reads any directory holding `results/`) — and report the index
@@ -731,10 +925,8 @@ scored run.
 
 - "Create the benchmark fixtures" → the creation steps above (top-up to the
   full set).
-- "Run the benchmark" → the run steps with `trigger: manual`. A manual run is
-  never gated and never feeds the gate, so the scheduled run still lands on the
-  1st. The reviews run on this session's model; to benchmark another model,
-  pass it to `start` as `--model` (**Isolation**). An approved in-pod run
+- "Run the benchmark" → the run steps with `trigger: manual`, on the reference
+  model (**Runs**); "… for models X, Y, Z" → one multi-model run. An approved in-pod run
   measures the session it runs in, and on request splits one fixture per
   session (**Segmented run**).
 - "Show benchmark results" → read `RESULTS.md` / `report.html` (and

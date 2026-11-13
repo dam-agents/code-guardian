@@ -5,8 +5,8 @@
 #
 #   benchmark-report.sh <work/benchmark dir>
 #
-# Reads every scored run in <dir>/results/*.json and prints the complete
-# comparison: an all-runs table (per run: model, effort, definition version, averaged
+# Reads every scored run in <dir>/results/*.json (a multi-model run writes one
+# file per model, joined by `run_id`) and prints the complete comparison: run tables (per run: model, effort, definition version, averaged
 # headline scores across fixtures, total wall-clock seconds and output
 # tokens), then one trend table per fixture. Deterministic — the same inputs
 # render the same page; the benchmark run republishes it after every run, so
@@ -47,6 +47,13 @@
 # pooled into one sample, judged against the `## Benchmark sufficiency` bar in
 # work/CONFIG.md (lib/sufficiency.sh — the single home of the bar and the
 # verdict rule). It reads beside the index, never inside it.
+# Layers (docs/benchmark.md → **Report layers**): Measured columns plain,
+# Assessed (judge panel) columns tinted, the Recommended block (the run's
+# `recommendation` beside its paired `comparison` rows) boxed apart. The run
+# table splits into the core set (regression, deltas) and the adaptive set (no
+# deltas); `restrict` keys a fixture by its `part` (absent = core). "Recall by
+# language" pools the scorer's `languages` per model, under the
+# `## Benchmark languages` minimum (lib/sufficiency.sh → languages_json).
 # `BENCH_CONFIG` overrides the CONFIG.md path (tests).
 # `benchmark-report.sh index <dir>` prints the same per-run index (plus cost)
 # as JSON for chat summaries and trial comparisons.
@@ -74,6 +81,10 @@ CONFIG_MD="${BENCH_CONFIG:-${HOME:-/home/agent}/work/CONFIG.md}"
 . "$SCRIPT_DIR/lib/report-tip.sh"   # REPORT_TIP_CSS, REPORT_TIP_JS
 PRICES="$(prices_json "$CONFIG_MD")"
 BAR="$(sufficiency_json "$CONFIG_MD")"
+LANGS="$(languages_json "$CONFIG_MD")"
+# the operator's decision rule (docs/benchmark.md → **Decision rule**), shown
+# above every recommendation; missing = cheapest_not_worse
+RULE="$(CONFIG="$CONFIG_MD" cfg benchmark_decision_rule 2>/dev/null)"; RULE="${RULE:-cheapest_not_worse}"
 
 # Tolerant per-file load: one corrupt/truncated results file is skipped with
 # its data alone — it never discards the rest of the history. `fixtures`
@@ -87,6 +98,12 @@ ALL="$(for f in "$DIR"/results/*.json; do
                 | if (.fixtures | type) == "array"
                   then .fixtures = (reduce .fixtures[] as $e ({};
                          . + {($e.fixture // "unnamed"): ($e | del(.fixture))}))
+                  else . end
+                # the old-core fixtures of a bridge run (part "bridge") never mix
+                # with the current core: only the bridge link reads them
+                | if (.fixtures | type) == "object" then
+                    .bridge_fixtures = (.fixtures | with_entries(select(.value.part? == "bridge")))
+                    | .fixtures |= with_entries(select(.value.part? != "bridge"))
                   else . end' "$f" 2>/dev/null || true
        done | jq -s 'sort_by(.ts // "")')"
 RUNS="$(printf '%s' "$ALL" | jq length)"
@@ -128,7 +145,7 @@ JQ_COMMON="$PRICES_JQ$SUFFICIENCY_JQ"'
              cache_read: ([$t[].cache_read // 0] | add), cache_creation: ([$t[].cache_creation // 0] | add)}
             | token_usd($p) | (. * 100 | round) / 100) end;
   def bools($o): [$o // {} | to_entries[] | .value | select(type == "boolean")];
-  def jnums($o): [$o // {} | to_entries[] | .value | numbers];
+  def jnums($o): [$o // {} | to_entries[] | select(.key != "disagreement") | .value | numbers];
   # weighted, fully deterministic quality index of one fixture object —
   # scorer output only, judge never enters it. THE single home of the
   # weights (they sum to 1.00; missing components renormalize):
@@ -161,7 +178,30 @@ JQ_COMMON="$PRICES_JQ$SUFFICIENCY_JQ"'
   # (benchmark-judge.sh): a run judged by its own tested model, or one that
   # never recorded who judged, renders its judge cells as "—"
   def run_judged: (.judge // "" | tostring) as $j | (.judge_model_used // "" | tostring) as $u
-    | $j != "" and $j != "off" and $u != "" and ($u | split(",") | all(model_has($j)));
+    | ((.judge_panel // [$j]) | map(select(. != ""))) as $p
+    | $j != "" and $j != "off" and $u != "" and ($p | length) > 0
+      and ($u | split(",") | map(gsub("^\\s+|\\s+$"; "")) | all(. as $x | any($p[]; . as $m | $x | model_has($m))));
+  # the set part of a fixture (docs/benchmark.md → **Core and adaptive set**):
+  # absent = core, so every run before the split reads as core
+  def restrict($p): .fixtures = ((.fixtures // {}) | with_entries(select((.value.part // "core") == $p)));
+  # Assessed layer: false positives the judge panel classed as real defects,
+  # and the precision once those count as true
+  def fx_fp_real: [.first.judge.fp_class[]? | select(.class == "real")] | length;
+  def run_fp_real: if run_judged then [.fixtures // {} | .[] | fx_fp_real] | add // 0 else null end;
+  def run_prec_assessed: if run_judged | not then null else
+      [.fixtures // {} | .[] | .first] as $f
+      | ([$f[] | .tp // [] | length] | add // 0) as $tp
+      | ([$f[] | .fp // [] | length] | add // 0) as $fp
+      | run_fp_real as $r
+      | if ($tp + $fp) == 0 then null else ratio($tp + $r; $tp + $fp) end end;
+  # the model that wrote the fixtures scores on its own set: marked, never hidden
+  def is_author: (.model // "" | ascii_downcase) as $m
+    | any((.author_models // {})[] | select(. != "unknown" and . != "") | ascii_downcase; . as $a | $m | contains($a));
+  def model_cell: "<td>\(.model // "—" | @html)\(if is_author then " <span class=auth title=\"This model wrote the fixtures: its result can be too high.\">author</span>" else "" end)</td>";
+  # pooled first-review recall per language (scorer `languages`)
+  def run_languages: [.fixtures // {} | .[] | .first.languages // {} | to_entries[]]
+    | group_by(.key) | map({key: .[0].key, value: {tp: ([.[].value.tp] | add), gt: ([.[].value.gt] | add)}})
+    | from_entries;
   # delta vs the previous same-model, same-effort run. The arrow duplicates the sign so the
   # direction never rests on color alone; $g flips which direction is "good"
   # (1 = higher is better, -1 = lower is better, as for seconds/tokens/cost).
@@ -176,6 +216,8 @@ JQ_COMMON="$PRICES_JQ$SUFFICIENCY_JQ"'
     "<span class=bar style=\"width:\((. * 100 | round) | if . < 2 then 2 else . end)%\"></span>" end;
   # "—" cells carry a muted class so missing data recedes instead of reading as a value
   def ncell: if . == null then "<td class=\"n dash\">—</td>" else "<td class=n>\(.)</td>" end;
+  # an Assessed-layer cell: same value rules, the layer tint
+  def acell: if . == null then "<td class=\"n dash as\">—</td>" else "<td class=\"n as\">\(.)</td>" end;
 '
 
 # Column help, keyed by the header label — THE single home of the reader-facing
@@ -186,8 +228,12 @@ JQ_COMMON="$PRICES_JQ$SUFFICIENCY_JQ"'
 # page script moves it into a styled bubble.
 TIPS='{
 "run": "Date and time (UTC) of the benchmark run. One row is one full replay of the fixture set. Not a score.",
-"trigger": "Why the run started: scheduled (the monthly tick), manual (the operator asked) or trial (a test of a branch). Only scheduled runs make the regular baseline. Not a score.",
-"model": "The exact model that did the reviews. Compare rows of the same model to see what a definition change did. A different model moves almost every number.",
+"trigger": "Why the run started: manual (the operator asked, also after a version update), trial (a test of a branch), or scheduled (the old monthly tick, before 15.0.0). Not a score.",
+"Measured": "Measured layer: values a script computes from the reviews and the known defects, plus time, tokens and cost. Deterministic — the same raw reviews give the same numbers. The known defects come from the fixture author, so read them as measured against that ground truth.",
+"Assessed": "Assessed layer: values a judge panel of language models gives. The models are pinned, but a judge can drift, so these values never enter the index.",
+"real FPs": "Assessed: false alarms that the judge panel classed as probably a real defect the fixture does not list. Not a review error — it is a defect that the ground truth misses.",
+"prec*": "Assessed precision: precision when the false alarms the judge panel classed as real defects count as correct findings. Read it beside prec — the gap is what the ground truth misses.",
+"model": "The exact model that did the reviews. The word author marks the model that wrote the fixtures — its result can be too high. Compare rows of the same model to see what a definition change did. A different model moves almost every number.",
 "effort": "The reasoning effort the reviews ran at. Lower effort means less thought per review, and it moves recall and tokens as much as a model change. Compare rows of the same effort; a dash means the run did not record it, and unknown means the harness did not expose it — such a row gets no delta.",
 "version": "The agent definition version under test. If a number moves between two versions, the table of definition changes below shows what changed.",
 "harness": "The version of the software that runs the agent. A change here can move speed and token counts without any change of the definition.",
@@ -229,40 +275,62 @@ JQ_TH='
   def th($l): ($tips[$l] // "") as $t
     | "<th" + (if $t == "" then "" else " title=\"\($t | @html)\"" end)
       + ">\($l | @html)</th>";
+  def tha($l): th($l) | sub("^<th"; "<th class=as");
+  # the layer row above a table header (docs/benchmark.md → **Report layers**):
+  # $r run columns, $m Measured, $a Assessed — in a thead, so the sort script
+  # still finds the column row first in the body
+  def layers($r; $m; $a): "<thead><tr class=lay><th colspan=\($r)></th>"
+    + "<th colspan=\($m) class=lm title=\"\($tips["Measured"] | @html)\">Measured</th>"
+    + "<th colspan=\($a) class=la title=\"\($tips["Assessed"] | @html)\">Assessed</th></tr></thead>\n";
 '
 
 if [ "$OUT_MODE" = "index" ]; then
   printf '%s' "$ALL" | jq --argjson prices "$PRICES" --argjson bar "$BAR" "$JQ_COMMON"'
     [.[] | {ts, trigger, model, effort, isolation: (.isolation // "none"), definition_version,
             index: run_index, seconds: run_secs, output_tokens: run_out_tokens,
-            cost_usd: run_cost, tiers: run_tiers,
+            cost_usd: run_cost, tiers: run_tiers, run_id: (.run_id // .ts),
+            core_version, index_core: (restrict("core") | run_index),
+            index_adaptive: (restrict("adaptive") | run_index), languages: run_languages,
             fixtures: ((.fixtures // {}) | with_entries(.value |= fixture_index))}]'
   exit 0
 fi
 
-ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" "$JQ_COMMON"'
-  . as $all | to_entries[] | .key as $i | .value as $r
+# one all-runs row per run that holds a fixture of part $1 (core | adaptive);
+# only the core carries deltas — the adaptive part changes between runs by design
+run_rows() { printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
+  --arg part "$1" "$JQ_COMMON"'
+  [.[] | restrict($part) | select((.fixtures | length) > 0)]
+  | . as $all | to_entries[] | .key as $i | .value as $r
   # deltas compare against the previous run of the SAME harness, model,
-  # effort and isolation — a cross-configuration delta would conflate that
-  # change with the regression being watched; an "unknown" effort matches
-  # nothing.
-  | (if $r.effort == "unknown" then null
-     else [$all[0:$i][] | select(.model == $r.model and .effort == $r.effort
-                                 and harness_of == ($r | harness_of)
-                                 and isolation_of == ($r | isolation_of))] | last
+  # effort, isolation and core version — a cross-configuration delta would
+  # conflate that change with the regression being watched, and two core
+  # versions are two fixture sets; an "unknown" effort matches nothing.
+  | def same_conf($cv): .model == $r.model and .effort == $r.effort
+        and harness_of == ($r | harness_of) and isolation_of == ($r | isolation_of)
+        and (.core_version // null) == $cv;
+    (if $part != "core" or $r.effort == "unknown" then null
+     else [$all[0:$i][] | select(same_conf($r.core_version // null))] | last
      end) as $prev
+  # a bridge run (bridge_from N) also scored the old core (part "bridge"):
+  # its old-core index continues the vN series, the link between the versions
+  | (if $part != "core" or $r.effort == "unknown" or ($r.bridge_from // null) == null then null
+     else ($r | .fixtures = (.bridge_fixtures // {}) | run_index) as $bi
+       | ([$all[0:$i][] | select(same_conf($r.bridge_from))] | last) as $bp
+       | if $bi == null then null else
+           "<br><small class=bridge>bridge v\($r.bridge_from): \($bi | fmt)\(delta($bi; $bp | run_index))</small>" end
+     end) as $bridge
   | ($r.fixtures // {} | [.[]]) as $fx
   | ($r | run_index) as $idx
   | ($r | run_secs) as $sec
   | ($r | run_out_tokens) as $tok
   | ($r | run_cost) as $cost
   | "<tr><td>\($r.ts | fmt | @html)</td><td>\($r.trigger // "—" | @html)</td>"
-    + "<td>\($r.model // "—" | @html)</td><td>\($r.effort // "—" | @html)</td>"
+    + ($r | model_cell) + "<td>\($r.effort // "—" | @html)</td>"
     + "<td>\($r.definition_version // "—" | @html)</td>"
     + "<td>\($r.harness_version // "—" | @html)</td>"
     + "<td>\($r | isolation_of | @html)</td>"
     + "<td class=n>\($fx | length)</td>"
-    + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)</td>"
+    + "<td class=\"n idx\"><b>\($idx | fmt)\(delta($idx; $prev | run_index))</b>\($idx | bar)\($bridge // "")</td>"
     + ($fx | avg(.first.f1) | ncell)
     + ($r | run_difficulty("easy") | ncell)
     + ($r | run_difficulty("hard") | ncell)
@@ -272,11 +340,18 @@ ROWS_ALL="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar 
     + ($fx | total(if .rereview == null then null
                    else ((.rereview.churn // 0) + (.rereview.false_fixed // 0)) end) | ncell)
     + ($fx | total(.first.fp | if . == null then null else length end) | ncell)
-    + (if $r | run_judged then $fx | avg(fixture_judge) else null end | ncell)
-    + (if $r | run_judged then $fx | avg(fixture_find_acc) else null end | ncell)
     + "<td class=n>\($sec | fmt)\(delta($sec; $prev | run_secs; -1))</td>"
     + "<td class=n>\($tok | fmt)\(delta($tok; $prev | run_out_tokens; -1))</td>"
-    + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td></tr>"')"
+    + "<td class=n>\(if $cost == null then "<span class=dash>—</span>" else "$\($cost)" end)\(delta($cost; $prev | run_cost; -1))</td>"
+    # a panel smaller than configured (one family only) says so in its cell
+    + ((if $r | run_judged then $fx | avg(fixture_judge) else null end | acell)
+       | if ($r.panel_note // null) == null then . else
+           sub("</td>$"; "<br><small class=pnote>\($r.panel_note | @html)</small></td>") end)
+    + (if $r | run_judged then $fx | avg(fixture_find_acc) else null end | acell)
+    + ($r | run_fp_real | acell)
+    + ($r | run_prec_assessed | acell) + "</tr>"'; }
+ROWS_CORE="$(run_rows core)"
+ROWS_ADAPTIVE="$(run_rows adaptive)"
 
 FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
   --argjson tips "$TIPS" "$JQ_COMMON$JQ_TH"'
@@ -284,20 +359,21 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argj
   | ([.[] | (.fixtures // {}) | keys[]] | unique) as $slugs
   | $slugs[] as $s
   | ([$all[] | .fixtures[$s]?.first.tier // empty] | last // "simple") as $tier
-  | "<h2>\($s | @html) <span class=tier>\($tier | @html)</span></h2>\n<div class=scroll>\n<table>\n<tr>"
-    + ([ "run", "model", "effort", "index", "judge", "find-acc", "f1", "prec", "rec",
+  | ([$all[] | .fixtures[$s]?.part // empty] | last // "core") as $part
+  | "<h2>\($s | @html) <span class=tier>\($tier | @html)</span>\(if $part == "core" then "" else " <span class=tier>\($part | @html)</span>" end)</h2>\n<div class=scroll>\n<table>\n"
+    + layers(3; 16; 2) + "<tr>"
+    + ([ "run", "model", "effort", "index", "f1", "prec", "rec",
          "easy", "hard", "sev", "fp", "words", "fixed", "new", "churn", "false-fixed",
          "late", "sec", "out-tok" ] | map(th(.)) | add)
+    + ([ "judge", "find-acc" ] | map(tha(.)) | add)
     + "</tr>\n"
     + ([$all[] | select((.fixtures // {}) | has($s))
         | (.fixtures[$s]) as $f
         | ($f | fixture_index) as $fi
         | run_judged as $jd
-        | "<tr><td>\(.ts | fmt | @html)</td><td>\(.model // "—" | @html)</td>"
+        | "<tr><td>\(.ts | fmt | @html)</td>" + model_cell
           + "<td>\(.effort // "—" | @html)</td>"
           + "<td class=\"n idx\"><b>\($fi | fmt)</b>\($fi | bar)</td>"
-          + (if $jd then $f | fixture_judge else null end | ncell)
-          + (if $jd then $f | fixture_find_acc else null end | ncell)
           + ($f.first.f1 | ncell)
           + ($f.first.precision | ncell)
           + ($f.first.recall | ncell)
@@ -312,7 +388,9 @@ FIXTURE_SECTIONS="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argj
           + ($f.rereview.false_fixed | ncell)
           + ($f.rereview.late_finds | ncell)
           + ([$f | .first.seconds, .rereview.seconds] | total(.) | ncell)
-          + ([$f | .first.tokens.output?, .rereview.tokens.output?] | total(.) | ncell) + "</tr>"]
+          + ([$f | .first.tokens.output?, .rereview.tokens.output?] | total(.) | ncell)
+          + (if $jd then $f | fixture_judge else null end | acell)
+          + (if $jd then $f | fixture_find_acc else null end | acell) + "</tr>"]
        | join("\n"))
     + "\n</table>\n</div>"')"
 
@@ -347,6 +425,57 @@ SUFFICIENCY="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson b
          | join("\n"))
       + "\n</table>\n</div>" end')"
 
+# per-language view (docs/benchmark.md → **Languages**): the latest run of each
+# model, first-review recall pooled per language over every fixture; a
+# language under min_defects pooled defects reads "too few data", never a value
+LANGUAGE_TABLE="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
+  --argjson langs "$LANGS" --argjson tips "$TIPS" "$JQ_COMMON$JQ_TH"'
+  [.[] | select(run_languages != {})] | group_by(.model // "") | map(last) as $runs
+  | ([$runs[] | run_languages | keys[]] | unique) as $ls
+  | if ($runs | length) == 0 then "" else
+    "<h2>Recall by language</h2>\n<p class=\"meta\">Measured. The latest run of each model; first reviews pooled per language "
+    + "(the language comes from the file extension). Fewer than \($langs.min_defects) pooled defects of a language read "
+    + "<i>too few data</i>. A comparison between models uses the paired test of the Comparison section, not this table.</p>\n"
+    + "<div class=scroll>\n<table>\n<tr>" + (["run", "model"] | map(th(.)) | add)
+    + ($ls | map("<th title=\"Measured: first-review recall on the defects in \(. | @html) files, pooled over the fixtures, with found/known.\">\(. | @html)</th>") | add) + "</tr>\n"
+    + ($runs | map(run_languages as $l
+        | "<tr><td>\(.ts | fmt | @html)</td>" + model_cell
+          + ($ls | map($l[.] as $c
+              | if $c == null then "<td class=\"n dash\">—</td>"
+                elif $c.gt < $langs.min_defects then "<td class=\"n dash\">too few data (\($c.tp)/\($c.gt))</td>"
+                else "<td class=n>\(ratio($c.tp; $c.gt) | fmt) <span class=sub>(\($c.tp)/\($c.gt))</span></td>" end) | add)
+          + "</tr>") | join("\n"))
+    + "\n</table>\n</div>" end')"
+
+# Recommended layer (docs/benchmark.md → **Decision rule**): per run id of the
+# latest runs, the paired comparisons the session recorded (Measured) and the
+# agent's recommendation under the operator's rule — a separate block, never a
+# number cell
+RECOMMENDATION="$(printf '%s' "$ALL" | jq -r --argjson prices "$PRICES" --argjson bar "$BAR" \
+  --arg rule "$RULE" --argjson tips "$TIPS" "$JQ_COMMON$JQ_TH"'
+  def vword: {a_better: "first model better", b_better: "second model better", in_noise: "in noise"}[.] // (. // "—");
+  [.[] | select(.recommendation != null or .comparison != null)] | group_by(.run_id // .ts) | map(last)
+  | sort_by(.ts // "") | reverse | .[0:5]
+  | if length == 0 then "" else
+    "<h2>Comparison and recommendation</h2>\n<p class=\"meta\">Decision rule (work/CONFIG.md): <b>\($rule | @html)</b>. "
+    + "The comparison rows are measured: a paired test per defect on one snapshot. The recommendation is the agent&#39;s "
+    + "opinion under that rule; it cites the numbers it uses.</p>\n"
+    + (map(. as $r
+        | "<h3>Run \(.run_id // .ts | @html)" + (if .models then " — " + (.models | join(", ") | @html) else "" end) + "</h3>\n"
+          + (if (.comparison // {}) == {} then "" else
+              "<div class=scroll>\n<table>\n<tr>" + (["pair", "defects", "only first", "only second", "Δ recall", "95 % interval", "p", "verdict"] | map(th(.)) | add) + "</tr>\n"
+              + ([.comparison | to_entries[] | .value as $c | (.value.overall // .value) as $o
+                  | "<tr><td>\(.key | sub("\\|"; " vs ") | @html)</td>" + ($o.n_defects | ncell) + ($o.only_a | ncell) + ($o.only_b | ncell)
+                    + ($o.delta_recall | ncell) + "<td class=n>\($o.ci95 // [] | map(tostring) | join(" … ") | if . == "" then "—" else . end)</td>"
+                    + ($o.mcnemar_p | ncell) + "<td>\($o.verdict | vword | @html)</td></tr>"] | join("\n"))
+              + "\n</table>\n</div>\n" end)
+          + (if .recommendation == null then "<div class=rec><b>Recommended</b> — none recorded for this run.</div>"
+             else "<div class=rec><b>Recommended</b> <span class=sub>(confidence: \(.recommendation.confidence // "—" | @html); rule: \(.recommendation.rule // $rule | @html))</span>"
+               + "<p>\(.recommendation.text // "" | @html)</p>"
+               + (if (.recommendation.cites // []) == [] then "" else "<ul>" + (.recommendation.cites | map("<li>\(. | @html)</li>") | add) + "</ul>" end)
+               + "</div>" end))
+      | join("\n")) end')"
+
 # definition releases between tested versions — for development tracking
 VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
   [.[] | select((.changes_since_prev // []) | length > 0)] as $c
@@ -361,9 +490,11 @@ VERSION_CHANGES="$(printf '%s' "$ALL" | jq -r '
     end')"
 
 HEAD_ALL="$(jq -rn --argjson tips "$TIPS" "$JQ_TH"'
-  [ "run", "trigger", "model", "effort", "version", "harness", "isolation", "fixtures", "index",
-    "avg f1", "easy rec", "hard rec", "avg sev", "avg fixed", "avg new", "circles", "FPs", "judge",
-    "find-acc", "sec", "out-tok", "est $" ] | map(th(.)) | add')"
+  layers(8; 12; 4) + "<tr>"
+  + ([ "run", "trigger", "model", "effort", "version", "harness", "isolation", "fixtures", "index",
+    "avg f1", "easy rec", "hard rec", "avg sev", "avg fixed", "avg new", "circles", "FPs",
+    "sec", "out-tok", "est $" ] | map(th(.)) | add)
+  + ([ "judge", "find-acc", "real FPs", "prec*" ] | map(tha(.)) | add) + "</tr>"')"
 
 GENERATED="$(printf '%s' "$ALL" | jq -r '(last // {}) | .ts // "no runs yet"')"
 
@@ -384,13 +515,13 @@ cat <<EOF
   --surface:#fcfcfb;--plane:#f9f9f7;--head:#f2f2f0;
   --ink:#0b0b0b;--ink-2:#52514e;--ink-muted:#898781;
   --rule:#e1e0d9;--rule-strong:#c3c2b7;
-  --seq:#2a78d6;--good:#006300;--bad:#d03b3b;
+  --seq:#2a78d6;--good:#006300;--bad:#d03b3b;--assess:#b8860b;--rec:#7a4fc4;
 }
 @media (prefers-color-scheme:dark){:root{
   --surface:#1a1a19;--plane:#0d0d0d;--head:#232322;
   --ink:#fff;--ink-2:#c3c2b7;--ink-muted:#898781;
   --rule:#2c2c2a;--rule-strong:#383835;
-  --seq:#3987e5;--good:#0ca30c;--bad:#e66767;
+  --seq:#3987e5;--good:#0ca30c;--bad:#e66767;--assess:#d8a531;--rec:#a07ce0;
 }}
 body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0 auto;
   padding:2rem 1rem;max-width:84rem;color:var(--ink);background:var(--plane);
@@ -427,6 +558,8 @@ td.idx .bar{display:block;height:3px;margin-top:3px;border-radius:2px;
 /* deltas: arrow duplicates the sign, so color is never the only signal */
 .d{font-size:.75rem;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
 .d.up{color:var(--good)}.d.down{color:var(--bad)}.d.z{color:var(--ink-muted)}
+/* the bridge link of a new core version and a small judge panel's note */
+small.bridge,small.pnote{font-size:.72rem;color:var(--ink-muted);white-space:nowrap}
 td.dash{color:var(--ink-muted)}
 /* sufficiency verdicts: the word carries the meaning, color only repeats it */
 td.v .sub{font-size:.75rem;color:var(--ink-2);font-variant-numeric:tabular-nums}
@@ -440,6 +573,16 @@ td.v.ok b{color:var(--good)}td.v.no b{color:var(--bad)}td.v.mid b{color:var(--in
 .tbar button:hover:not(:disabled){border-color:var(--seq);color:var(--seq)}
 .tbar button:disabled{opacity:.35;cursor:default}
 .tbar .info{color:var(--ink-muted);margin-left:auto;font-variant-numeric:tabular-nums}
+/* layers: Measured plain, Assessed tinted — one table, visibly apart */
+tr.lay th{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;cursor:default}
+tr.lay th.lm{border-top:3px solid var(--seq)}
+tr.lay th.la,th.as,td.as{background:color-mix(in srgb,var(--assess) 12%,var(--surface))}
+tr.lay th.la{border-top:3px solid var(--assess)}
+.auth{font-size:.68rem;padding:0 .3rem;border:1px solid var(--assess);border-radius:3px;color:var(--ink-2)}
+.sub{font-size:.75rem;color:var(--ink-2)}
+.rec{margin:.6rem 0 1.2rem;padding:.6rem .8rem;border-left:4px solid var(--rec);
+  background:color-mix(in srgb,var(--rec) 10%,var(--surface));font-size:.85rem}
+.rec p{margin:.3rem 0}
 ul{margin:.2rem 0 .6rem;padding-left:1.1rem;font-size:.82rem;color:var(--ink-2)}
 li{margin:.1rem 0}
 </style>
@@ -452,15 +595,28 @@ index is that same 0–1 value; unbounded columns get no bar. Deltas (▲▼) co
 against the previous run of the <b>same harness, model, effort and isolation</b> — green means moved
 the good way for that column, so ▼ on sec/tokens/cost is green. Comparison
 across models or efforts is the table itself. The index is deterministic — computed from scorer output only,
-judge scores never enter it. Click a header to sort, type to filter, page long
+judge scores never enter it. Three layers stay apart: <b>Measured</b> (plain
+columns), <b>Assessed</b> (tinted columns, the judge panel) and <b>Recommended</b>
+(the boxed text of the agent). Click a header to sort, type to filter, page long
 histories. Full semantics: docs/benchmark.md.</p>
-<h2>All runs</h2>
+${RECOMMENDATION}
+<h2>Core set — regression</h2>
+<p class="meta">The frozen core. Deltas compare runs of the same configuration on it.</p>
 <div class=scroll>
 <table>
-<tr>${HEAD_ALL}</tr>
-${ROWS_ALL}
+${HEAD_ALL}
+${ROWS_CORE}
 </table>
 </div>
+<h2>Adaptive set — current repository</h2>
+<p class="meta">The part the agent keeps current with the repository. It changes between runs, so it carries no deltas and no trend.</p>
+<div class=scroll>
+<table>
+${HEAD_ALL}
+${ROWS_ADAPTIVE}
+</table>
+</div>
+${LANGUAGE_TABLE}
 ${SUFFICIENCY}
 ${VERSION_CHANGES}
 ${FIXTURE_SECTIONS}

@@ -29,6 +29,19 @@ sufficiency_json() { # <config.md path>
                       else {recall: .r, precision: .p, min_defects: .n} end)})'
 }
 
+# `## Benchmark languages` — one row `| min_share | min_defects |` (docs/benchmark.md
+# → **Languages**): a main language holds ≥ min_share % of the repo's code and
+# needs ≥ min_defects pooled defects for a verdict. Missing → 10 and 20.
+languages_json() { # <config.md path>
+  CONFIG="${1:-}" cfg_table 'Benchmark languages' \
+    | jq -Rn '[inputs | split("|") | map(gsub("^\\s+|\\s+$"; ""))
+               | select(length >= 4)
+               | {s: (.[1] | tonumber?), n: (.[2] | tonumber?)}
+               | select(.s != null and .n != null)] | first
+              | {min_share: (.s // 10), min_defects: (.n // 20)}' 2>/dev/null \
+    || printf '{"min_share":10,"min_defects":20}'
+}
+
 # jq over a list of fixture objects ({first, rereview}) of one run:
 # tier_stats($t) pools the fixtures of tier $t — summed counts, so a tier
 # reads as one sample, never as an average of small fractions — and

@@ -35,10 +35,14 @@
 #   preflight.sh audit     -> weekly health check: 7-day stats + deterministic
 #                             checks + failures[]; the agent adds the judgment
 #                             checks and sends the report (docs/audit.md)
-#   preflight.sh benchmark -> benchmark_due (create_fixture | run) when
-#                             `benchmark: enabled` and the monthly gate passes
-#                             (docs/benchmark.md); local, plus two repo GETs
-#                             on a due run (isolation_unavailable)
+#   preflight.sh benchmark -> benchmark_due (create_fixture | run, with the
+#                             run settings: reference model, queue limit,
+#                             decision rule, core version and adaptive set;
+#                             a run adds resolve's judge panel) when `benchmark: enabled` and no
+#                             run is in progress; no schedule runs it, the
+#                             direct session does (docs/benchmark.md → Runs);
+#                             local, plus two repo GETs on a run entry
+#                             (isolation_unavailable)
 #   preflight.sh brief     -> brief_due (the merged PRs since the last brief,
 #                             the window end `until` and the language) when `daily_brief: enabled` and a
 #                             PR merged (docs/brief.md)
@@ -145,9 +149,9 @@ report_surface() { # <key> <var>
   esac
 }
 
-# benchmark run lock TTL (docs/benchmark.md): a scored run never legitimately
-# exceeds it; shared by the benchmark-mode gate and the audit-mode tmp sweep
-BENCH_LOCK_TTL_MIN=360
+# benchmark run lock: BENCH_LOCK_TTL_MIN and the one age read, shared by the
+# benchmark-mode gate, the audit-mode tmp sweep and benchmark-core.sh
+. "$SCRIPT_DIR/lib/bench-lock.sh"
 
 # The answer of a local mode (survey, benchmark): its heartbeat, then the
 # worklist, `<mode>_due` included when one is due.
@@ -244,16 +248,14 @@ if [ "$MODE" = "survey" ]; then
 fi
 
 # ========================================================= BENCHMARK MODE ====
-# Local — deciding a benchmark run needs no GitHub call, so this block
-# sits before the target-repo resolution (whose last fallback is a gh call)
-# and the open-PR fetch: a disabled or gated benchmark tick never touches the
-# network, and a missing CONFIG degrades to nothing_to_do instead of a
-# resolution failure. The actions live in docs/benchmark.md: create_fixture
-# (set incomplete) and run (monthly). The scheduled cadence is monthly; the
-# 27-day floor keeps a drifting cron from double-running inside one calendar
-# month, and only `trigger: scheduled` results feed it — manual and trial
-# runs never move the official cadence. A due run alone reads GitHub: the
-# isolation check's two repository GETs.
+# Local — deciding a benchmark run needs no GitHub call, so this block sits
+# before the target-repo resolution (whose last fallback is a gh call) and the
+# open-PR fetch: a disabled benchmark never touches the network, and a missing
+# CONFIG degrades to nothing_to_do instead of a resolution failure. No schedule
+# runs this mode: the operator's direct session and a trial session do
+# (docs/benchmark.md → Runs). The actions live in docs/benchmark.md:
+# create_fixture (core set incomplete) and run. A run entry alone reads
+# GitHub: the isolation check's two repository GETs.
 if [ "$MODE" = "benchmark" ]; then
   BENCH="$(cfg benchmark)"
   if [ "$BENCH" != "enabled" ]; then
@@ -264,10 +266,18 @@ if [ "$MODE" = "benchmark" ]; then
   BENCH_DIR="$WORK/benchmark"
   # the full set per task tier (docs/benchmark.md → Task tiers)
   BENCH_MIN_FIXTURES=5; BENCH_MIN_COMPLEX=3
-  # the active set: every fixture/<slug>/ carrying a manifest (each immutable),
-  # with its manifest tier — absent or unreadable reads as simple
-  BENCH_SET="$(for d in "$BENCH_DIR"/fixture/*/; do
-    [ -f "${d}manifest.json" ] || continue
+  # the core set, with its manifest tier (absent or unreadable reads as
+  # simple): the `fixtures` of fixture/CORE.json when it exists — a fixture
+  # dir outside that list is never scored as core — else every fixture/<slug>/
+  # carrying a manifest (retired/ and core-memory/ carry none)
+  if [ -f "$BENCH_DIR/fixture/CORE.json" ]; then
+    BENCH_CORE_DIRS="$(jq -r '.fixtures // [] | .[] | strings | select(test("^[^/.][^/]*$"))' \
+      "$BENCH_DIR/fixture/CORE.json" 2>/dev/null | sed "s|^|$BENCH_DIR/fixture/|; s|\$|/|")"
+  else
+    BENCH_CORE_DIRS="$(for d in "$BENCH_DIR"/fixture/*/; do printf '%s\n' "$d"; done)"
+  fi
+  BENCH_SET="$(printf '%s\n' "$BENCH_CORE_DIRS" | while IFS= read -r d; do
+    [ -n "$d" ] && [ -f "${d}manifest.json" ] || continue
     t="$(jq -r 'if .tier == "complex" then "complex" else "simple" end' "${d}manifest.json" 2>/dev/null)"
     d="${d%/}"; printf '%s\t%s\n' "${d##*/}" "${t:-simple}"
   done 2>/dev/null | sort)"
@@ -275,12 +285,54 @@ if [ "$MODE" = "benchmark" ]; then
   BENCH_COUNT="$(printf '%s' "$BENCH_SLUGS_JSON" | jq length)"
   BENCH_COMPLEX="$(printf '%s\n' "$BENCH_SET" | grep -c '	complex$')"
   BENCH_SIMPLE=$(( BENCH_COUNT - BENCH_COMPLEX ))
+  # the adaptive set: every adaptive/<slug>/ carrying a manifest
+  BENCH_ADAPTIVE_JSON="$(for d in "$BENCH_DIR"/adaptive/*/; do
+    [ -f "${d}manifest.json" ] || continue
+    d="${d%/}"; printf '%s\n' "${d##*/}"
+  done 2>/dev/null | sort | jq -R . | jq -sc '[.[] | select(length > 0)]')"
+  # the run settings (docs/config.md): reference model, queue limit,
+  # decision rule, core version, bridge (the judge panel comes from resolve below)
+  BENCH_MAXP="$(cfg benchmark_max_parallel)"
+  case "$BENCH_MAXP" in
+    ('') BENCH_MAXP=8;;
+    (*[!0-9]*|0*) log "benchmark_max_parallel '$BENCH_MAXP' is not a positive integer — using 8"; BENCH_MAXP=8;;
+  esac
+  BENCH_RULE="$(cfg benchmark_decision_rule)"
+  case "$BENCH_RULE" in
+    ('') BENCH_RULE=cheapest_not_worse;;
+    (cheapest_not_worse|best_quality) ;;
+    (cost_cap:*) [[ "${BENCH_RULE#cost_cap:}" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+      || { log "benchmark_decision_rule '$BENCH_RULE' has no number — using cheapest_not_worse"; BENCH_RULE=cheapest_not_worse; };;
+    (*) log "benchmark_decision_rule '$BENCH_RULE' is unknown — using cheapest_not_worse"; BENCH_RULE=cheapest_not_worse;;
+  esac
+  BENCH_CORE_VERSION="$(jq -c '.version // null' "$BENCH_DIR/fixture/CORE.json" 2>/dev/null)"
+  # the bridge (docs/benchmark.md → Core and adaptive set): the core was
+  # installed by new-version (bridged_from N) and no results file is on core
+  # version N+1 yet → the run also scores the retired core v<N> from its root
+  BENCH_BRIDGE=null
+  BENCH_BRIDGE_FROM="$(jq -r '.bridged_from // empty | numbers' "$BENCH_DIR/fixture/CORE.json" 2>/dev/null)"
+  if [ -n "$BENCH_BRIDGE_FROM" ] && [ -f "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM/CORE.json" ] \
+     && ! for f in "$BENCH_DIR"/results/*.json; do
+            [ -f "$f" ] || continue
+            jq -c 'select(type == "object")' "$f" 2>/dev/null || true
+          done | jq -se --argjson cv "${BENCH_CORE_VERSION:-null}" 'any(.[]; .core_version == $cv)' >/dev/null 2>&1; then
+    BENCH_BRIDGE="$(jq -c --argjson n "$BENCH_BRIDGE_FROM" --arg r "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM" \
+      '{from: $n, fixture_root: $r, fixtures: (.fixtures // [])}' \
+      "$BENCH_DIR/fixture/retired/core-v$BENCH_BRIDGE_FROM/CORE.json" 2>/dev/null)"
+    [ -n "$BENCH_BRIDGE" ] || BENCH_BRIDGE=null
+  fi
+  BENCH_SETTINGS="$(jq -n --arg rm "$(cfg benchmark_reference_model)" --argjson mp "$BENCH_MAXP" \
+    --arg dr "$BENCH_RULE" --argjson cv "${BENCH_CORE_VERSION:-null}" \
+    --argjson ad "$BENCH_ADAPTIVE_JSON" --argjson br "$BENCH_BRIDGE" \
+    '{reference_model:(if $rm == "" then null else $rm end), max_parallel:$mp,
+      decision_rule:$dr, core_version:$cv, adaptive:$ad, bridge:$br}')"
   if [ "$BENCH_SIMPLE" -lt "$BENCH_MIN_FIXTURES" ] || [ "$BENCH_COMPLEX" -lt "$BENCH_MIN_COMPLEX" ]; then
     log "benchmark enabled, fixture set incomplete (simple $BENCH_SIMPLE/$BENCH_MIN_FIXTURES, complex $BENCH_COMPLEX/$BENCH_MIN_COMPLEX) — create_fixture due"
     local_out false "$(jq -n --argjson e "$BENCH_SLUGS_JSON" --argjson m "$BENCH_MIN_FIXTURES" \
       --argjson mc "$BENCH_MIN_COMPLEX" --argjson s "$BENCH_SIMPLE" --argjson c "$BENCH_COMPLEX" \
+      --argjson set "$BENCH_SETTINGS" \
       '{action:"create_fixture", existing:$e, min:$m, min_complex:$mc,
-        missing:{simple:([0, $m - $s] | max), complex:([0, $mc - $c] | max)}}')"
+        missing:{simple:([0, $m - $s] | max), complex:([0, $mc - $c] | max)}} + $set')"
   fi
   # run lock: one scored run at a time. The lock is a file the running
   # session writes (first line: <ISO> <nonce>) and removes when it ends,
@@ -290,19 +342,19 @@ if [ "$MODE" = "benchmark" ]; then
   # it) the lock is stale and the run proceeds over it.
   BENCH_LOCK="$BENCH_DIR/.run-lock"
   if [ -f "$BENCH_LOCK" ]; then
-    BENCH_LOCK_TS="$(head -1 "$BENCH_LOCK" 2>/dev/null | cut -d' ' -f1)"
-    BENCH_LOCK_AGE_M=$(( (NOW_EPOCH - $(iso2epoch "${BENCH_LOCK_TS:-1970-01-01T00:00:00Z}")) / 60 ))
-    if [ "$BENCH_LOCK_AGE_M" -ge 0 ] && [ "$BENCH_LOCK_AGE_M" -lt "$BENCH_LOCK_TTL_MIN" ]; then
+    # an empty or unparsable first line reads the file's mtime; a lock of
+    # no measurable age is live (lib/bench-lock.sh)
+    if BENCH_LOCK_AGE_M="$(bench_lock_live "$BENCH_LOCK")"; then
       log "benchmark run already in progress (lock ${BENCH_LOCK_AGE_M}m old) — nothing to do"
       local_out true null
     fi
     log "stale benchmark run lock (${BENCH_LOCK_AGE_M}m ≥ ${BENCH_LOCK_TTL_MIN}m) — emitting run over it"
   fi
 
-  # segmented-run ledger (docs/benchmark.md → Segmented run): a manual run
-  # paused between one-fixture segments holds no lock, so the ledger is what
-  # keeps a scheduled tick from starting a second run mid-pause. Past 7 days
-  # the run counts as abandoned and the tick is emitted over it.
+  # segmented-run ledger (docs/benchmark.md → Segmented run): a run paused
+  # between one-fixture segments holds no lock, so the ledger is what keeps a
+  # second run from starting mid-pause. Past 7 days the run counts as
+  # abandoned and a new run is emitted over it.
   for rn in "$BENCH_DIR"/.run-notes-*.md; do
     [ -f "$rn" ] || continue
     if [ -n "$(find "$rn" -maxdepth 0 -mtime -7 2>/dev/null)" ]; then
@@ -312,22 +364,14 @@ if [ "$MODE" = "benchmark" ]; then
     log "stale segmented-run notes ($(basename "$rn"), >7d) — emitting run over it"
   done
 
-  # monthly gate: newest scheduled run in the canonical results/*.json (the
-  # RESULTS.md index is presentation; manual/trial runs never feed the gate).
-  # Per-file tolerant load — one corrupt results file never erases the gate.
+  # the newest run of any trigger, from the canonical results/*.json (the
+  # RESULTS.md index is presentation). Per-file tolerant load — one corrupt
+  # results file never hides the others.
   LAST_TS="$(for f in "$BENCH_DIR"/results/*.json; do
                [ -f "$f" ] || continue
                jq -c 'select(type == "object")' "$f" 2>/dev/null || true
-             done | jq -rs '[.[] | select(.trigger == "scheduled") | .ts // empty]
-                            | sort | last // empty')"
-  if [ -n "$LAST_TS" ]; then
-    BENCH_AGE_D=$(( (NOW_EPOCH - $(iso2epoch "$LAST_TS")) / 86400 ))
-    if [ "$BENCH_AGE_D" -lt 27 ]; then
-      log "benchmark ran ${BENCH_AGE_D}d ago (< 27d) — nothing to do"
-      local_out true null
-    fi
-  fi
-  log "benchmark run due on $BENCH_COUNT fixture(s) (last scheduled run: ${LAST_TS:-never})"
+             done | jq -rs '[.[] | .ts // empty] | sort | last // empty')"
+  log "benchmark run ready on $BENCH_COUNT core and $(printf '%s' "$BENCH_ADAPTIVE_JSON" | jq length) adaptive fixture(s) (last run: ${LAST_TS:-never})"
   # the judge every run uses (benchmark_judge, or the agent's pick under
   # auto), and a judge this host cannot run is known before the run: the run
   # makes no judge call and reports the reason once (docs/benchmark.md, step 6)
@@ -338,15 +382,23 @@ if [ "$MODE" = "benchmark" ]; then
   [ -n "$BENCH_JUDGE_WHY" ] && log "benchmark judge unavailable — $BENCH_JUDGE_WHY"
   # isolation (docs/benchmark.md → Isolation): the reviews run in sub-agents
   # that hold no ground truth only while the work repo is not public and the
-  # seeded definition repo is — two GitHub GETs, on a due run only
+  # seeded definition repo is — two GitHub GETs, on a run entry only
   BENCH_ISO_WHY="$(WORK_DIR="$WORK" bash "$SCRIPT_DIR/benchmark-isolate.sh" check repos 2>/dev/null)" \
     || { BENCH_ISO_WHY="${BENCH_ISO_WHY:-the isolation check failed}"; log "benchmark isolation unavailable — $BENCH_ISO_WHY"; }
+  # the panel is resolve's served members, never the raw config ids: the run
+  # records it as judge_panel, and the validator needs judge = judge_panel[0]
+  BENCH_PANEL_JSON="$(printf '%s' "$BENCH_JUDGE_JSON" | jq -c \
+    '{judge_panel: (if ((.configured // "") | tostring | contains(",")) and ((.panel // []) | length) > 0
+                    then .panel else null end),
+      panel_note: (.panel_note // null)}' 2>/dev/null)"
+  [ -n "$BENCH_PANEL_JSON" ] || BENCH_PANEL_JSON='{"judge_panel":null,"panel_note":null}'
   local_out false "$(jq -n --argjson f "$BENCH_SLUGS_JSON" --arg r "$BENCH_DIR/fixture" \
     --arg j "$BENCH_JUDGE" --arg ju "$BENCH_JUDGE_WHY" --arg iu "$BENCH_ISO_WHY" --arg rep "$EFF_REPORT" --arg l "${LAST_TS:-}" \
+    --argjson set "$BENCH_SETTINGS" --argjson pn "$BENCH_PANEL_JSON" \
     '{action:"run", fixtures:$f, fixture_root:$r, judge:$j,
       judge_unavailable:(if $ju == "" then null else $ju end),
       isolation_unavailable:(if $iu == "" then null else $iu end), report:$rep,
-      last_run:(if $l == "" then null else $l end)}')"
+      last_run:(if $l == "" then null else $l end)} + $set + $pn')"
 fi
 
 # Is the session holding PR #<n>'s lock still working? The platform's session
@@ -588,6 +640,7 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
   --arg am "$(cfg auto_merge)" --arg aml "$(cfg auto_merge_label)" --arg amx "$(cfg auto_merge_max_lines)" --arg amm "$(cfg auto_merge_method)" \
   --arg af "$(cfg agent_fixes)" --arg afl "$(cfg agent_fix_label)" --arg aar "$(cfg approve_after_rounds)" \
   --arg bench "$(cfg benchmark)" --arg bj "$(cfg benchmark_judge)" --arg br "$(cfg benchmark_report)" \
+  --arg brm "$(cfg benchmark_reference_model)" --arg bmp "$(cfg benchmark_max_parallel)" --arg bdr "$(cfg benchmark_decision_rule)" \
   --arg mrn "$(cfg merge_ready_nudge)" --arg sv "$(cfg survey)" --arg sr "$(cfg survey_report)" --arg srf "$(cfg survey_report_findings)" --arg sid "$(cfg survey_interval_days)" \
   --arg db2 "$(cfg daily_brief)" --arg bl "$(cfg brief_language)" \
   --arg tl "$(token_login)" --argjson skills "$SKILLS_TABLE" --argjson watches "$WATCH_RULES" \
@@ -626,6 +679,9 @@ CONFIG_JSON="$(jq -nc --arg repo "$REPO" --arg host "$REPO_HOST" --arg bot "$BOT
    agent_fix_label:(if $afl=="" then null else $afl end),
    project_profile:$pp, benchmark:(if $bench=="" then "disabled" else $bench end),
    benchmark_judge:(if $bj=="" then "off" else $bj end), benchmark_report:(if $br=="off" then "off" else "dam" end),
+   benchmark_reference_model:(if $brm=="" then null else $brm end),
+   benchmark_max_parallel:(if ($bmp|test("^[1-9][0-9]*$")) then ($bmp|tonumber) else 8 end),
+   benchmark_decision_rule:(if ($bdr|test("^(cheapest_not_worse|best_quality|cost_cap:[0-9]+([.][0-9]+)?)$")) then $bdr else "cheapest_not_worse" end),
    merge_ready_nudge:(if $mrn=="enabled" then "enabled" else "disabled" end),
    survey:(if $sv=="enabled" then "enabled" else "disabled" end), survey_report:(if $sr=="off" then "off" else "dam" end),
    survey_report_findings:(if $srf=="enabled" then "enabled" else "disabled" end),
@@ -2263,9 +2319,9 @@ if [ "$MODE" = "audit" ]; then
   last_age_m=$(( last_e > 0 ? (hb_now - last_e) / 60 : -1 ))
   # each mode's newest pass, idle or not: a gated fire that found no work logs
   # its line here and starts no session (audit task 5, Firing)
-  LAST_PASS="$(grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ [a-z_-]+ ' "$WORK/HEARTBEAT.log" 2>/dev/null \
+  LAST_GATE_RUN="$(grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ [a-z_-]+ ' "$WORK/HEARTBEAT.log" 2>/dev/null \
     | jq -Rcn '[inputs | split(" ") | {key: .[1], value: .[0]}] | from_entries' 2>/dev/null)"
-  [ -n "$LAST_PASS" ] || LAST_PASS='null'
+  [ -n "$LAST_GATE_RUN" ] || LAST_GATE_RUN='null'
   if [ "$hb_total" -eq 0 ]; then check heartbeats fail "no review heartbeats logged in the last 7 days"
   elif [ "$max_gap" -gt "$HB_GAP_MAX_S" ]; then check heartbeats warn "$hb_total heartbeats; largest gap $((max_gap/60)) min (over the $((HB_GAP_MAX_S/60))-min quiet-cadence tolerance); last ${last_age_m}m ago"
   else check heartbeats ok "$hb_total heartbeats, largest gap $((max_gap/60)) min, last ${last_age_m}m ago"; fi
@@ -2404,7 +2460,11 @@ if [ "$MODE" = "audit" ]; then
   # Both are deterministic (benchmark-validate.sh), so a regression surfaces
   # here instead of quietly scoring the wrong thing (docs/benchmark.md).
   if [ -d "$WORK/benchmark/fixture" ] && [ "$(cfg benchmark)" = "enabled" ]; then
-    bv_out="$(bash "$SCRIPT_DIR/benchmark-validate.sh" fixture "$WORK/benchmark/fixture"/*/ 2>/dev/null)"
+    # the roots, not each dir: a root also runs the core check (CORE.json)
+    # and the leak check against the frozen memory, for core and adaptive
+    bv_roots=("$WORK/benchmark/fixture")
+    [ -d "$WORK/benchmark/adaptive" ] && bv_roots+=("$WORK/benchmark/adaptive")
+    bv_out="$(bash "$SCRIPT_DIR/benchmark-validate.sh" fixture "${bv_roots[@]}" 2>/dev/null)"
     bv_bad="$(printf '%s' "$bv_out" | grep '^FAIL ' | cut -d' ' -f2 | head -4 | tr '\n' ' ')"
     if [ -n "${bv_bad// /}" ]; then
       check benchmark_fixtures fail "fixture validation failing: ${bv_bad% } — scores from this set are invalid; retire and replace it (docs/benchmark.md → Retiring a fixture set)"
@@ -3434,7 +3494,7 @@ if [ "$MODE" = "audit" ]; then
   STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
       "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
       "${REACTIONS:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
-      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" "${LAST_PASS:-null}" \
+      "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" "${LAST_GATE_RUN:-null}" \
     | jq -cs --arg since "$SINCE_ISO" '
     . as [$al, $open, $ra, $dur, $ph, $hb, $idle, $np, $le, $lw, $tw, $sw,
           $rx, $proj, $wk, $rs, $disk, $ses, $ovr, $guard, $gd, $lp]

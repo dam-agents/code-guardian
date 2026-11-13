@@ -238,21 +238,36 @@ exception (`benchmark_judge`).
   (`English`, `Czech`). **Missing = `English`.** Every other outward text stays
   in ASD-STE100.
 - **`benchmark`** — `enabled` | `disabled`. **Missing = `disabled`.** The
-  monthly self-benchmark: replays ≥5 simple and ≥3 complex synthetic review
-  fixtures through the full pipeline and scores each against its known defects
-  ([benchmark.md](benchmark.md)). Needs a non-public `work_repo` and a public
-  definition repo ([benchmark.md](benchmark.md) → **Isolation**).
+  benchmark runs on the operator's request only, never on a schedule, and a
+  migration to a new minor or major version asks whether to run it
+  ([benchmark.md](benchmark.md) → **Runs**). Needs a non-public `work_repo`
+  and a public definition repo ([benchmark.md](benchmark.md) → **Isolation**).
+- **`benchmark_reference_model`** — the model id of the regression runs.
+  **Missing = none:** the agent proposes one when it creates the fixture set
+  and writes it after the operator's OK; the version-bump question then says
+  that none is set ([benchmark.md](benchmark.md) → **Runs**).
+- **`benchmark_max_parallel`** — the most benchmark sub-agents that run at the
+  same time. **Missing or not a positive integer = `8`** (an invalid value is
+  logged once) ([benchmark.md](benchmark.md) → **Runs**).
 - **`benchmark_judge`** — the judge of the benchmark's LLM-judged quality
-  scores: `auto` | a model id | `off`. **Missing = `off`** (deterministic
-  scoring only). `auto` = the agent picks the judge once and every later run
-  uses that pick; a model id pins the operator's choice by any name the host's
-  model list matches; a name the host does not serve fails before the run
-  ([benchmark.md](benchmark.md) → **Choosing the judge**). The judge runs as
-  its own `claude -p` call (`pi` as fallback on the same model), whatever
-  model the reviews ran on ([benchmark.md](benchmark.md) → step 6), so the host
-  needs the `claude` CLI signed in (`claude auth login` once, or
-  `ANTHROPIC_API_KEY`) or a `pi` CLI; without them the run keeps deterministic
-  scores and the monitor alerts `judge_unavailable`. A changed judge starts a new comparability window.
+  scores: `<a>, <b>` (a panel of two model ids of different families) | `auto`
+  | a model id | `off`. **Missing = `off`** (deterministic scoring only). The
+  panel's score is the average of its members; a member the host does not
+  serve leaves it, and the report says so ([benchmark.md](benchmark.md) →
+  **Judge panel**). `auto` = the agent picks one judge once and every later
+  run uses that pick; a model id pins the operator's choice by any name the
+  host's model list matches; a name the host does not serve fails before the
+  run ([benchmark.md](benchmark.md) → **Choosing the judge**). The judge runs
+  as its own `claude -p` call (`pi` as fallback on the same model), whatever
+  model the reviews ran on, so the host needs the `claude` CLI signed in
+  (`claude auth login` once, or `ANTHROPIC_API_KEY`) or a `pi` CLI; without
+  them the run keeps deterministic scores and the monitor alerts
+  `judge_unavailable`. A changed judge starts a new comparability window.
+- **`benchmark_decision_rule`** — what "a better model" means for the run's
+  recommendation: `cheapest_not_worse` | `best_quality` | `cost_cap:<N>`.
+  **Missing or unknown = `cheapest_not_worse`** (the cheapest model not
+  significantly worse than the best one) ([benchmark.md](benchmark.md) →
+  **Decision rule**).
 - **`benchmark_report`** — publish surface for the accumulated report
   artifact: `dam` (default) | `off`, as `audit_trend`.
 - **`## Benchmark model prices` table** — optional per-MTok USD prices keyed by
@@ -264,6 +279,11 @@ exception (`benchmark_judge`).
   `complex`: recall, precision, min_defects) for the report's sufficiency
   verdicts ([benchmark.md](benchmark.md) → **Sufficiency by tier**). Missing
   table or tier = recall 0.8, precision 0.7, min_defects 20.
+- **`## Benchmark languages` table** — optional, one row `| min_share |
+  min_defects |`: a language with at least `min_share` % of the code is a main
+  language, and the fixture set holds at least `min_defects` defects of each;
+  below that, the report shows the language as too few data ([benchmark.md](benchmark.md) → **Languages**, **Core and adaptive set**).
+  Missing table or cell = 10 and 20.
 
 ### Monitor
 
@@ -340,8 +360,8 @@ the operator for the slug, never guess.
   review, which is refused.
 - On first Slack enablement, build the roster and register the shepherd
   schedule (ONBOARDING Step 4 items 8–9, Step 6b); on disablement, disable
-  that schedule. `benchmark`, `survey` and `daily_brief` do the same with their
-  schedules (Steps 6d, 6e, 6g).
+  that schedule. `survey` and `daily_brief` do the same with their schedules
+  (Steps 6e, 6g); `benchmark` has none (Step 6d).
 - An edited cadence key takes effect once the schedules are reconciled per
   ONBOARDING Step 6.
 - **Missing `work/CONFIG.md`** = not onboarded, or state lost: apply per-key

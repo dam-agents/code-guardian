@@ -65,7 +65,7 @@ Never skip a task: one impossible this week (missing data, API error) is a
 5. `mcp__platform-outbound__list_schedules`: every schedule ONBOARDING Step 6
    defines for this config (review heartbeat `…-review-active` plus the
    `…-review-quiet` / `…-review-offdays` the cadence keys call for, shepherd,
-   benchmark, survey, daily brief under their keys, monitor, this audit)
+   survey, daily brief under their keys, monitor, this audit)
    exists, is **enabled**, and its cron matches Step 6. Missing or disabled →
    **fail**.
    - **Firing, not merely enabled:** the newest sign of firing lies within

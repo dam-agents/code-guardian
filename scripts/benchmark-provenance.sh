@@ -5,7 +5,8 @@
 #   benchmark-provenance.sh [--commit <sha>] [--branch <name>] [--state-root <dir>] <work/benchmark dir>
 #
 #   {definition_version, prev_version, changes_since_prev[], harness_version,
-#    effort, memory_sha, skill_sources{}, definition_ref{branch,sha}}
+#    effort, memory_sha, skill_sources{}, author_models{}, core_version,
+#    definition_ref{branch,sha}}
 #
 # Deterministic and read-only, so every run assembles these fields the same
 # way whatever model executes it. The caller merges in what only the session
@@ -23,6 +24,10 @@
 #   value stays visible in the report.
 # - skill_sources: every entry of the preflight skill-install cache
 #   (short source SHA per installed repo-sourced skill).
+# - author_models: <slug> → the model that made the fixture, from
+#   fixture/CORE.json and each adaptive manifest (`unknown` when not known).
+# - core_version: fixture/CORE.json's `version`, null before the migration —
+#   the bridge gate of preflight.sh reads it from the results files.
 # - definition_ref: the checkout's branch + short sha — on a feature branch
 #   (trial runs) VERSION alone does not identify the code.
 #
@@ -76,7 +81,7 @@ fi
 
 HARNESS="$(cg_harness_version)"
 EFFORT="$(cg_harness_effort)"
-MEMORY_SHA="$(git hash-object "$STATE_ROOT/work/MEMORY.md" 2>/dev/null || true)"
+MEMORY_SHA="$(bash "$SCRIPT_DIR/benchmark-core.sh" memory-sha "$STATE_ROOT/work" 2>/dev/null || true)"
 
 SKILLS='{}'
 SKILL_CACHE="$STATE_ROOT/.claude/skills/.cache"
@@ -87,6 +92,19 @@ if ls "$SKILL_CACHE"/*.sha >/dev/null 2>&1; then
             done | jq -R 'split("\t") | {(.[0]): .[1]}' | jq -s 'add // {}')"
 fi
 
+# author_models: the model that made each fixture — the core's from
+# fixture/CORE.json, each adaptive one's from its manifest (`unknown` when the
+# manifest names none). The report marks a run of an author model.
+AUTHORS="$( { jq -c '.author_model // {}' "$BDIR/fixture/CORE.json" 2>/dev/null || printf '{}\n'
+              for m in "$BDIR"/adaptive/*/manifest.json; do
+                [ -f "$m" ] || continue
+                s="${m%/manifest.json}"; s="${s##*/}"
+                jq -c --arg s "$s" '{($s): ((.author_model // "") | if . == "" then "unknown" else . end)}' "$m" 2>/dev/null
+              done; } | jq -sc 'add // {}')"
+[ -n "$AUTHORS" ] || AUTHORS='{}'
+CORE_VER="$(jq -c '.version // null | numbers' "$BDIR/fixture/CORE.json" 2>/dev/null)"
+[ -n "$CORE_VER" ] || CORE_VER=null
+
 if [ -z "$REV" ] && [ -z "$BRANCH" ]; then
   BRANCH="$(git -C "$HOME_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 fi
@@ -94,7 +112,7 @@ SHA="$(git -C "$HOME_DIR" rev-parse --short=12 "${REV:-HEAD}" 2>/dev/null || tru
 
 jq -n --arg cur "$CUR_VER" --arg prev "$PREV_VER" --argjson changes "$CHANGES" \
       --arg harness "$HARNESS" --arg effort "$EFFORT" --arg mem "$MEMORY_SHA" --argjson skills "$SKILLS" \
-      --arg branch "$BRANCH" --arg sha "$SHA" '
+      --arg branch "$BRANCH" --arg sha "$SHA" --argjson authors "$AUTHORS" --argjson cv "$CORE_VER" '
   def ornull: if . == "" then null else . end;
   {definition_version: ($cur | ornull),
    prev_version: ($prev | ornull),
@@ -103,4 +121,6 @@ jq -n --arg cur "$CUR_VER" --arg prev "$PREV_VER" --argjson changes "$CHANGES" \
    effort: $effort,
    memory_sha: ($mem | ornull),
    skill_sources: $skills,
+   author_models: $authors,
+   core_version: $cv,
    definition_ref: {branch: ($branch | ornull), sha: ($sha | ornull)}}'
