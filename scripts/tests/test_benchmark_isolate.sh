@@ -142,6 +142,16 @@ check_eq "$(printf '%s' "$B1" | jq -r '.prompt | test("usage-nonce:bench-2026110
 JOINED="$(printf '%s' "$B1" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' | base64 -d | sha256sum | cut -d' ' -f1)"
 check_eq "$JOINED" "$(printf '%s' "$B1" | jq -r '.env[] | select(.name == "CG_BENCH_SHA256") | .value')" 'the chunks carry the bundle intact'
 
+# a bundle past one argv entry's cap (128 KiB) still builds its request
+iso_case start_bundle_over_one_argv_entry
+head -c 200000 /dev/urandom > "$F/head-v1/big.bin"
+iso start --model claude/ibm/aws/claude-sonnet-5-5 --only ts-api-first "$SANDBOX/st" 20261101T060000Z "$WORK/benchmark/fixture" ts-api
+check_eq "$RC:$(grep -c '^POST /invocations$' "$SANDBOX/rest.log")" 0:1 'start spawns a task whose bundle exceeds one argv entry'
+B1="$(sed -n 1p "$SANDBOX/rest.log.body")"
+check_eq "$(printf '%s' "$B1" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value | length] | add > 131072')" true 'the bundle is larger than the cap'
+JOINED="$(printf '%s' "$B1" | jq -r '[.env[] | select(.name | startswith("CG_BENCH_B64_")) | .value] | join("")' | base64 -d | sha256sum | cut -d' ' -f1)"
+check_eq "$JOINED" "$(printf '%s' "$B1" | jq -r '.env[] | select(.name == "CG_BENCH_SHA256") | .value')" 'the large bundle arrives intact'
+
 check_eq "$(jq -r '[.definition_ref.sha, .skill_sources["sec-check"]] | join("|")' "$SANDBOX/st/expect.json")" "${HEAD_SHA:0:12}|abc123" 'start writes the expected provenance of the seeded commit and the snapshot'
 check_eq "$(cat "$SANDBOX/st/snapshot/.claude/skills/sec-check/SKILL.md")" skill 'the snapshot holds the skills the run bundles'
 

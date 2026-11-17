@@ -388,23 +388,25 @@ start() {
       bundle "$dir" "$ph" "$tgz" "$st/snapshot" || return 1
       b64="$st/$task.b64"; base64 < "$tgz" | tr -d '\n' > "$b64"
       sum="$(sha256 < "$tgz")"
-      env="$(fold -w "$CHUNK" "$b64" | jq -R . | jq -s --arg sum "$sum" --arg h "$h" '
+      # the bundle travels in a file: one argv entry is capped at 128 KiB (MAX_ARG_STRLEN)
+      env="$st/$task.env"
+      fold -w "$CHUNK" "$b64" | jq -R . | jq -s --arg sum "$sum" --arg h "$h" '
         [to_entries[] | {name: ("CG_BENCH_B64_" + (.key | tostring | if length < 2 then "0" + . else . end)), value: .value}]
         + [{name: "CG_BENCH_SHA256", value: $sum}, {name: "CG_BENCH_HARNESS", value: $h},
-           {name: "CG_BENCHMARK_CHILD", value: "1"}]')"
+           {name: "CG_BENCHMARK_CHILD", value: "1"}]' > "$env" || die "$task: bundle not encoded"
       prompt="$(sed -e "s/{{SLUG}}/$slug/g" -e "s/{{PHASE}}/$ph/g" -e "s/{{TS}}/$ts/g" -e "s/{{NONCE}}/$nonce/g" \
         "$SCRIPT_DIR/templates/benchmark-child.md")"
       body="$st/$task.req"
       jq -n --arg h "$h" --arg p "$prompt" --argjson schema "$RESULT_SCHEMA" --arg l "cg-bench $task" \
-        --argjson ttl "$TTL_MS" --arg url "$url" --arg sha "$sha" --argjson env "$env" \
+        --argjson ttl "$TTL_MS" --arg url "$url" --arg sha "$sha" --slurpfile env "$env" \
         --arg model "$model" --arg effort "$effort" '
         {harness: $h, prompt: $p, schema: $schema, label: $l, ttlMs: $ttl, connections: [],
          seed: {url: $url, commit: $sha, into: "home"},
-         install: {command: "bash \"$HOME/scripts/benchmark-child.sh\" unpack"}, env: $env}
+         install: {command: "bash \"$HOME/scripts/benchmark-child.sh\" unpack"}, env: $env[0]}
         + {harnessConfig: ({model: $model}
              + (if $effort == "" or $h != "claude-code" then {} else {configOptions: {effort: $effort}} end))}' \
         > "$body" || die "$task: request not built"
-      rm -f "$b64"
+      rm -f "$b64" "$env"
       seq=$((seq + 1)); printf '%s\n' "$seq" > "$st/$task.queued"; printf '%s\n' "$nonce" > "$st/$task.nonce"
       n=$((n + 1))
     done
