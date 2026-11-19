@@ -416,9 +416,10 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 ```
 
 - **Always sent, green or not**, and always echoed to the chat UI. Under
-  `slack_notifications: enabled` it goes to Slack every week via
-  `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
-  `chatId`); a failure sends the full report to the chat UI and logs.
+  `slack_notifications: enabled` it goes to the shared Slack channel every week
+  ([config.md](config.md) → **Slack, audit, survey, benchmark**,
+  `slack_notifications`); a failure sends the full report to the chat UI and
+  logs.
 
 **Infographic** — under `audit_infographic: enabled` and after the Slack
 post succeeded: make a directory with `d="$(mktemp -d "$HOME/cg-audit.XXXXXX")"`

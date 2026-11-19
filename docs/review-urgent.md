@@ -15,9 +15,9 @@ first; Check 1 re-verifies the label and reviews normally when it is gone.
 for every open urgent PR whose history file lacks an `urgent-announced`
 marker. Send these **before any PR work**:
 
-1. `mcp__platform-outbound__send_channel_message`, addressed to the channel
-   alone — the alert carries no @-mention: `🚨 **<bot_display_name>** — URGENT:
-   PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). Rapid
+1. A post to the shared channel ([config.md](config.md) → **Slack, audit,
+   survey, benchmark**, `slack_notifications`) — the alert carries no
+   @-mention: `🚨 **<bot_display_name>** — URGENT: PR #<n> "<title>" by <author> needs eyes now (\`<urgent_label>\`). Rapid
    review incoming. <url>`
 2. **Write the marker immediately after a successful send** —
    `<!-- urgent-announced: <ISO timestamp> -->` into `reviews/pr-<n>.md`,

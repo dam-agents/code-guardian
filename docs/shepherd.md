@@ -30,9 +30,9 @@ your post-send record step.**
   "$HOME/work/DEVELOPERS.md"` with the final text on stdin (a quoted heredoc):
   it must exit 0; a failure names the bad tokens — fix the message, never send
   it.
-- **One shared channel, no DMs**: send via
-  `mcp__platform-outbound__send_channel_message` (`channel: "slack"`, omit
-  `chatId`).
+- **One shared channel, no DMs**: send to the shared channel
+  ([config.md](config.md) → **Slack, audit, survey, benchmark**,
+  `slack_notifications`).
 
 ## Scope and brief
 

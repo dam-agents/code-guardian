@@ -169,7 +169,8 @@ elif [ -r "$CONFIG" ]; then
     case "$key" in (*_*) grep -qwF -- "$key" "$card" && leaks="$leaks $key";; esac
     for part in $(echo "$val" | tr ',' ' '); do
       [ "${#part}" -ge 4 ] || continue
-      case "$part" in (enabled|disabled|true|false|none|off|on|dam|both|label|chat) continue;; esac
+      # documented mode keywords (docs/config.md) are no private value
+      case "$part" in (enabled|disabled|true|false|none|off|on|dam|both|label|chat|auto|anyone|collaborators|needs_human|all|review-request|squash|merge|rebase|info|debug|cheapest_not_worse|best_quality) continue;; esac
       grep -qwF -- "$part" "$card" && leaks="$leaks $key"
     done
   done < <(grep -E '^- [a-z_]+:' "$CONFIG")
