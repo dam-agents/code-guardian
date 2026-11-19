@@ -119,6 +119,10 @@ log()     { LOGS+=("$1"); logev info preflight "$1"; }
 log_warn() { LOGS+=("$1"); logev warn preflight "$1"; }
 # the worklist's `logs`: every line logged so far, as a JSON array
 logs_json() { printf '%s\n' "${LOGS[@]:-}" | jq -R . | jq -sc '[.[] | select(length>0)]'; }
+# the error streak of a gated mode (fail_out below): a pass that decides ends it
+GATE_ERROR_REPEAT_S=3600
+case "$MODE" in (review|shepherd|survey|brief) GATE_ERROR_MARK="$WORK/.gate-error-$MODE";; (*) GATE_ERROR_MARK="";; esac
+gate_error_clear() { [ -z "$GATE_ERROR_MARK" ] || rm -f "$GATE_ERROR_MARK" 2>/dev/null || true; }
 
 # Pod-restart marker: $HOME persists across restarts but the rest of the
 # filesystem is reset, so an ephemeral sentinel outside $HOME is absent iff the
@@ -156,6 +160,7 @@ report_surface() { # <key> <var>
 # The answer of a local mode (survey, benchmark): its heartbeat, then the
 # worklist, `<mode>_due` included when one is due.
 local_out() { # <nothing_to_do bool> <due json | null>
+  gate_error_clear
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$1 ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   logev info heartbeat "mode=$MODE nothing_to_do=$1 $MODE=$([ "$1" = "false" ] && echo 1 || echo 0)"
   jq -n --arg mode "$MODE" --argjson nothing "$1" --argjson due "$2" --argjson logs "$(logs_json)" \
@@ -746,8 +751,26 @@ PROFILE_JSON_OUT='null'
 # preflight could not decide (no repo, no answer from the API): the JSON names
 # the cause in `error` and the exit code is 2, so the gate reports a broken
 # gate and the session starts (precheck.sh), never an idle tick.
+#
+# One session per error streak and gated mode, at most one each
+# GATE_ERROR_REPEAT_S (set above): `work/.gate-error-<mode>` holds the epoch
+# of the last `error` answer, and a pass that decides removes it. An
+# error inside that window answers `nothing_to_do` with `gate_error_repeat`,
+# so the gate skips the fire. The `error` event is logged on every pass, so
+# the monitor's GitHub alert and the audit still count each tick.
 fail_out() {
   logev error preflight "$1"
+  if [ -n "$GATE_ERROR_MARK" ]; then
+    local last; last="$(head -c 20 "$GATE_ERROR_MARK" 2>/dev/null | tr -d '\n')"
+    case "$last" in (''|*[!0-9]*) last=0;; esac
+    if [ "$last" -gt 0 ] && [ $((NOW_EPOCH - last)) -lt "$GATE_ERROR_REPEAT_S" ]; then
+      LOGS+=("gate error again — its session started $(( (NOW_EPOCH - last) / 60 )) min ago, the next one starts $(( GATE_ERROR_REPEAT_S / 60 )) min after it: $1")
+      jq -n --arg mode "$MODE" --arg err "$1" --argjson logs "$(logs_json)" \
+        '{mode:$mode, nothing_to_do:true, gate_error_repeat:$err, logs:$logs}'
+      exit 0
+    fi
+    printf '%s\n' "$NOW_EPOCH" > "$GATE_ERROR_MARK" 2>/dev/null || true
+  fi
   jq -n --arg mode "$MODE" --arg err "$1" \
     --argjson logs "$(logs_json)" \
     '{mode:$mode, nothing_to_do:true, error:$err, logs:$logs}'
@@ -1040,6 +1063,7 @@ emit() { # reviews label_cleanups selfheals prunes nudges alerts mentions skills
       printf '%s\n' "$NOW_ISO" "$hk_keys" > "$HOUSEKEEPING_SINCE" 2>/dev/null || true
     fi
   fi
+  gate_error_clear
   printf '%s\n' "$NOW_ISO $MODE nothing_to_do=$nothing ${LOGS[*]:-}" >> "$WORK/HEARTBEAT.log" 2>/dev/null
   # the audit's wake-up count reads these keys back (stats.wakeups); the
   # audit_wakeups_roundtrip test holds writer and reader together
