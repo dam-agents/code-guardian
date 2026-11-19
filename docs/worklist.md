@@ -36,6 +36,13 @@ the `worklist: <path>` line, the due keys, and the pass's `logs` to echo.
   that could not decide (no target repo, no answer from the GitHub API) — and
   the session starts anyway with the reason in its prompt: run the entry
   command yourself.
+- **One session per error streak.** The first `error` of a gated mode starts
+  the session; each later `error` of the same streak answers `nothing_to_do`
+  with `gate_error_repeat`, so the fire costs no model call. One more session
+  starts 60 min after the last one while the streak lasts. A pass that decides
+  ends the streak (`work/.gate-error-<mode>`). The `error` event of every pass
+  stays in the structured log, so the monitor's `github_unavailable` alert and
+  the audit count each tick.
 - **A runtime without precheck support ignores the field**: every fire starts
   a session with nothing from the gate, and the same fallback applies — only
   the saving is missing. The fix is a runtime upgrade (operator-only).
@@ -82,6 +89,9 @@ object — through the gate above, or on stdout in an ungated run.
 fallback → echo its `logs` to the chat UI as a one-line summary ("no new
 changes") and **end the run** — no state writes, no API calls, no self-check
 narration.
+
+**`gate_error_repeat`** — the error streak already had its session
+(**The schedule gate** above): handle it as `nothing_to_do`.
 
 **`error`** — preflight could not decide and exits 2 (a broken gate). Put the
 `error` text in the one chat line in place of "no new changes", then end the

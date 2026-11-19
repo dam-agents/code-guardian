@@ -23,7 +23,10 @@
 #                    the gate's own budget (below the platform's limit).
 #   error         -> exit 2 with the pass's `error`: it could not decide (no
 #                    target repo, no answer from the API), which is a broken
-#                    gate, never an idle tick.
+#                    gate, never an idle tick. The pass answers the later
+#                    errors of one streak with `nothing_to_do` and
+#                    `gate_error_repeat` (preflight.sh -> fail_out), so one
+#                    streak starts one session per 60 min.
 #
 # Every fire gets one run id, `<mode>-<UTC stamp>-<pid>` (docs/logging.md →
 # The events log): exported as CG_RUN_ID to the pass, so the gate and the pass
