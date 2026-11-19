@@ -112,6 +112,38 @@ assert_out_contains 'manually' 'and tells the run to do the work itself'
 assert_file_contains "$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl" 'HTTP 503' \
   'the cause also reaches the structured log'
 
+# --- one error streak starts one session per 60 min ------------------------
+# an outage on a */5 schedule must not start a session on every fire: the
+# first error starts one, the next ones skip the fire, the error event of each
+# pass stays in the log, and a pass that decides ends the streak
+new_case precheck_error_streak
+base_config
+fx_fail 'api repos/acme/widgets/pulls?state=open&per_page=100' 1
+fx_err 'api repos/acme/widgets/pulls?state=open&per_page=100' 'HTTP 401: Bad credentials'
+EVENTS="$WORK/logs/events-$(date -u +%Y-%m-%d).jsonl"
+run_precheck review
+assert_rc 2 'the first error of a streak starts the session'
+run_precheck review
+assert_rc 1 'a second error inside 60 min skips the fire'
+if [ -z "$OUT" ]; then printf 'ok   %s: the skipped fire prints nothing\n' "$CASE"
+else printf 'FAIL %s: the skipped fire printed: %.200s\n' "$CASE" "$OUT"; FAILED=1; fi
+if [ "$(jq -s '[.[] | select(.event == "preflight" and .level == "error" and (.msg | test("Bad credentials")))] | length' "$EVENTS" 2>/dev/null)" -ge 2 ]; then
+  printf 'ok   %s: every pass of the streak logs its error event\n' "$CASE"
+else printf 'FAIL %s: the skipped pass logged no error event\n' "$CASE"; FAILED=1; fi
+assert_file_contains "$EVENTS" 'gate error again' 'the gate records why it skipped the fire'
+printf '%s\n' "$(( $(date -u +%s) - 3700 ))" > "$WORK/.gate-error-review"
+run_precheck review
+assert_rc 2 'the streak starts one more session 60 min after the last'
+rm -f "$GH_FIXTURES/$(fx_for 'api repos/acme/widgets/pulls?state=open&per_page=100').rc"
+printf '[]' | fx 'api repos/acme/widgets/pulls?state=open&per_page=100'
+run_precheck review
+assert_rc 1 'the outage is over: an idle fire'
+if [ ! -e "$WORK/.gate-error-review" ]; then printf 'ok   %s: a pass that decides ends the streak\n' "$CASE"
+else printf 'FAIL %s: the streak marker outlived a pass that decided\n' "$CASE"; FAILED=1; fi
+fx_fail 'api repos/acme/widgets/pulls?state=open&per_page=100' 1
+run_precheck review
+assert_rc 2 'a new streak starts a session again'
+
 new_case precheck_api_garbage
 base_config
 printf '<html>gateway error</html>' | fx 'api repos/acme/widgets/pulls?state=open&per_page=100'
