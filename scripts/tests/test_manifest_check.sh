@@ -219,10 +219,10 @@ assert_rc 1 'the target repo is private by default'
 assert_out_contains 'private config keys or their values appear: github_repo' 'the target repo key is named'
 OUT="$(MANIFEST_PUBLIC_KEYS='bot_login github_repo' WORK_DIR="$WORK" MANIFEST_SCHEMA="$SCHEMA" bash "$CHECK" check "$SANDBOX/repo.json" 2>>"$STDERR_LOG")"
 assert_out_contains 'ok   privacy-config' 'MANIFEST_PUBLIC_KEYS replaces the list for one test run'
-write_config '- benchmark_judge: auto' '- shepherd_scope: needs_human' '- auto_merge_method: squash'
-jq '.trust += ["No auto-merge: a person merges (squash), and needs_human scope stays."]' "$SANDBOX/card.json" > "$SANDBOX/mode.json"
+write_config '- benchmark_judge: auto' '- shepherd_scope: needs_human' '- auto_merge_method: squash' '- active_days: Mon-Sun'
+jq '.trust += ["No auto-merge: a person merges (squash), needs_human scope stays, reviews run Mon-Sun."]' "$SANDBOX/card.json" > "$SANDBOX/mode.json"
 run_check check "$SANDBOX/mode.json"
-assert_out_contains 'ok   privacy-config' 'a documented mode keyword (auto, needs_human, squash) is no private value'
+assert_out_contains 'ok   privacy-config' 'a documented mode keyword (auto, needs_human, squash, Mon-Sun) is no private value'
 write_config
 
 new_case manifest_privacy_shapes

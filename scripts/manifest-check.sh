@@ -170,7 +170,7 @@ elif [ -r "$CONFIG" ]; then
     for part in $(echo "$val" | tr ',' ' '); do
       [ "${#part}" -ge 4 ] || continue
       # documented mode keywords (docs/config.md) are no private value
-      case "$part" in (enabled|disabled|true|false|none|off|on|dam|both|label|chat|auto|anyone|collaborators|needs_human|all|review-request|squash|merge|rebase|info|debug|cheapest_not_worse|best_quality) continue;; esac
+      case "$part" in (enabled|disabled|true|false|none|off|on|dam|both|label|chat|auto|anyone|collaborators|needs_human|all|review-request|squash|merge|rebase|info|debug|cheapest_not_worse|best_quality|Mon-Fri|Mon-Sun) continue;; esac
       grep -qwF -- "$part" "$card" && leaks="$leaks $key"
     done
   done < <(grep -E '^- [a-z_]+:' "$CONFIG")
