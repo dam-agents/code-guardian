@@ -120,6 +120,8 @@ say(r.body.data.settings.keys.ci_triage.value === 'enabled', 'the data shows the
   say(r.status === 200 && !mem.split('\n').includes(l.line) && mem.includes('## Review Style'), "the owner's delete takes out that one line"); }
 r = await call('GET', '/api/artifacts/..%2F..%2Fetc/page');
 say(r.status === 404, 'only a page the data names is served');
+const ph = (await import('node:fs')).readFileSync(join(R, 'scripts/desk/page.html'), 'utf8');
+say(ph.includes('const measureHtml =') && ph.includes('measureHtml(f.srcdoc, f.clientWidth)'), 'a kept page measures in a ShadowRoot when the host frame has an opaque origin');
 EOF
 OUT="$(PORT="$PORT" WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/routes.mjs" 2>>"$STDERR_LOG")"
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null

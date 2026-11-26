@@ -2657,9 +2657,16 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     manifest: "Code Guardian's public interface card: what it does, its triggers and its contracts, for people and for other agents.", trends: "The weekly audit, week by week: reviews, findings, cost, speed.",
     survey: "The security survey: what a slow pass over one area of the code found.", benchmark: "How well the review finds known defects, version by version." };
   const pages_ = new Map();
-  // a kept page shows at its full height: its scripts do not run (no allow-scripts), so the same origin only lets the Desk measure it
-  // the height goes to 0 before it is read: scrollHeight never reads below the frame's own height, so a short page shrinks and no width change adds to it
-  const fitFrame = (f) => { const was = f.style.height; try { f.style.height = "0px"; const h = f.contentDocument?.documentElement?.scrollHeight; f.style.height = h ? `${h + 2}px` : was; } catch { f.style.height = was; /* not measurable: the CSS height stays */ } };
+  // a kept page shows at its full height: its scripts do not run (no allow-scripts); when the host frame has an opaque origin (DAM's sandboxed preview), contentDocument is null and an offscreen ShadowRoot measures the static HTML at the frame's width
+  const measureHtml = (raw, w) => {
+    if (!raw || !w) return 0;
+    const doc = new DOMParser().parseFromString(raw, "text/html"); doc.querySelectorAll("script").forEach((s) => s.remove());
+    const css = [...doc.querySelectorAll("style")].map((s) => s.textContent.replace(/:root\b/g, ":host").replace(/\b(html|body)(?=[\s,{])/g, ":host").replace(/(-?\d*\.?\d+)rem\b/g, (_, n) => `${parseFloat(n) * 16}px`).replace(/(-?\d*\.?\d+)vh\b/g, (_, n) => `${parseFloat(n) * 6.2}px`)).join("\n");
+    const host = document.createElement("div"); host.style.cssText = `position:fixed;left:-99999px;top:0;width:${w}px;visibility:hidden;pointer-events:none;display:flow-root;box-sizing:border-box;font:16px/normal initial`;
+    host.attachShadow({ mode: "open" }).innerHTML = `<style>:host{display:flow-root;box-sizing:border-box;width:${w}px}${css}</style>${doc.body ? doc.body.innerHTML : ""}`;
+    document.body.appendChild(host); const h = Math.ceil(host.getBoundingClientRect().height); host.remove(); return h ? h + 20 : 0;
+  };
+  const fitFrame = (f) => { const was = f.style.height; try { f.style.height = "0px"; const h = f.contentDocument?.documentElement?.scrollHeight; f.style.height = h ? `${h + 2}px` : `${measureHtml(f.srcdoc, f.clientWidth) || parseInt(was, 10) || 620}px`; } catch { const h = measureHtml(f.srcdoc, f.clientWidth); f.style.height = h ? `${h}px` : was; } };
   // only a new width measures again: a page sized in vh units grows with its frame, so a height change never does
   const frameW = new WeakMap(), frameSizes = new ResizeObserver((es) => es.forEach((e) => { const w = Math.round(e.contentRect.width); if (frameW.get(e.target) !== w) { frameW.set(e.target, w); fitFrame(e.target); } }));
   document.addEventListener("load", (e) => { if (e.target.matches?.("iframe.cg-frame")) { fitFrame(e.target); frameSizes.observe(e.target); } }, true);
