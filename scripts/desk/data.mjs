@@ -248,6 +248,7 @@ export function build(work, now = Date.now()) {
       overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,
       latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null,
+      for_human: /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(last?.body ?? '')?.[1]?.trim().slice(0, 4000) || null,
       // urgent (review-urgent.md): the Slack alert's marker, or a rapid review on the PR
       urgent: row ? (h?.urgent ?? (row.verdict === 'RAPID' || rs.some((r) => r.verdict === 'RAPID') ? row.ts ?? true : null)) : null };
   }).sort((a, b) => String(b.utc ?? '').localeCompare(String(a.utc ?? '')) || b.n - a.n);

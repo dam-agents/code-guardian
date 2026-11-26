@@ -4,7 +4,7 @@
 //   asks.jsonl     the page's chat: {id A-<n>, utc, role, email, text, context}
 //   answers.jsonl  Code Guardian's answers: {id A-<n>, utc, text}
 //   PEOPLE.md      the roster: | email | role | changed_utc |
-//   notes.json     per email: which notifications the person read
+//   notes.json     per caller: which notifications the person read
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { read, jsonl } from './data.mjs';
@@ -20,7 +20,7 @@ export function jobs(file) {
   const m = new Map();
   for (const r of jsonl(read(file))) {
     if (!JOB_RE.test(r.id ?? '') || !['queued', 'started', 'done', 'failed'].includes(r.event)) continue;
-    if (r.event === 'queued') { if (!m.has(r.id)) m.set(r.id, { id: r.id, utc: r.utc, command: r.command, label: r.label ?? null, item: r.item ?? null, note: r.note ?? null, role: r.role, platform: r.platform, email: r.email ?? null, state: 'queued', started: null, finished: null, text: null }); continue; }
+    if (r.event === 'queued') { if (!m.has(r.id)) m.set(r.id, { id: r.id, utc: r.utc, command: r.command, label: r.label ?? null, item: r.item ?? null, note: r.note ?? null, role: r.role, platform: r.platform, email: r.email ?? null, caller: callerOf(r), state: 'queued', started: null, finished: null, text: null }); continue; }
     const j = m.get(r.id); if (!j) continue;
     j.state = r.event;
     if (r.event === 'started') j.started = r.utc; else { j.finished = r.utc; j.text = typeof r.text === 'string' ? r.text.slice(0, 2000) : null; }
@@ -29,7 +29,7 @@ export function jobs(file) {
 }
 export function queue(file, job, now) {
   const id = `J-${jobs(file).length + 1}`;
-  append(file, { id, utc: now, event: 'queued', command: job.command, label: job.label ?? null, item: job.item ?? null, ...(job.note ? { note: job.note } : {}), role: job.role, platform: job.platform, email: job.email ?? null });
+  append(file, { id, utc: now, event: 'queued', command: job.command, label: job.label ?? null, item: job.item ?? null, ...(job.note ? { note: job.note } : {}), role: job.role, platform: job.platform, caller: job.caller ?? null });
   return id;
 }
 export function step(file, id, event, text, now) {
@@ -78,10 +78,15 @@ export function setRole(file, email, role, now) {
   return { email: e, old, role };
 }
 
+// One caller: the verified email, else the platform's subject id (the relay sends the email only
+// when the identity provider verified it). A record written before 15.1.0's caller field keys on its email.
+export const callerId = (email, sub) => (email ? `email:${email}` : sub ? `sub:${sub}` : null);
+export const callerOf = (r) => r?.caller ?? callerId(r?.email, null);
+
 // ------------------------------------------------ the chat
 export const asks = (file) => jsonl(read(file)).filter((a) => /^A-\d+$/.test(a.id ?? ''));
 export function recordAsk(file, who, text, context) {
-  const row = { id: `A-${asks(file).length + 1}`, utc: utc(), role: who.access, email: who.email, text, context };
+  const row = { id: `A-${asks(file).length + 1}`, utc: utc(), role: who.access, caller: who.id, text, context };
   append(file, row);
   return row;
 }

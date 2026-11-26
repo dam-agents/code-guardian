@@ -21,7 +21,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, mtime, read, sources } from './data.mjs';
-import { answers, asks, jobs as jobsOf, may, people, queue, recordAsk, roleOf, setRole, ROLES, STATES, utc, writeFile } from './lib.mjs';
+import { answers, asks, callerId, callerOf as recCaller, jobs as jobsOf, may, people, queue, recordAsk, roleOf, setRole, ROLES, STATES, utc, writeFile } from './lib.mjs';
 import { setValue, KEYS as SETTING_KEYS } from './settings.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,24 @@ function spend(key) {
 }
 
 // ------------------------------------------------ the data: built again when a source changes
+// What the page gets: no review text and no run steps (their own routes serve them), and under the
+// relay's cap. Over it, the oldest finished runs, then the oldest closed PRs' reviews and findings,
+// then the oldest health hours go, a tenth at a time; `trimmed` says how many.
+function pageData(full) {
+  const out = { ...full, runs: full.runs.map(({ events, ...r }) => ({ ...r, events: null })), reviews: full.reviews.map(({ body, ...r }) => ({ ...r, body: null, has_body: !!body })),
+    health: { ...full.health, hours: full.health.hours.slice() }, trimmed: { runs: 0, reviews: 0, findings: 0, hours: 0 } };
+  const closed = new Set(full.prs.filter((p) => p.state !== 'open').map((p) => p.n));
+  const tenth = (list, keep, n) => { const idx = list.map((x, k) => (keep(x) ? -1 : k)).filter((k) => k >= 0).slice(0, Math.max(1, Math.ceil(n / 10))); for (const k of idx.reverse()) list.splice(k, 1); return idx.length; };
+  for (let guard = 0; guard < 60 && Buffer.byteLength(JSON.stringify(out)) > MAX_REPLY - 16 * 1024; guard++) {
+    let n = out.runs.length > 40 ? tenth(out.runs, (r) => r.state === 'running', out.runs.length) : 0;
+    if (n) { out.trimmed.runs += n; continue; }
+    n = tenth(out.reviews, (r) => !closed.has(r.pr), out.reviews.length); if (n) { out.trimmed.reviews += n; continue; }
+    n = tenth(out.findings, (f) => !closed.has(f.pr), out.findings.length); if (n) { out.trimmed.findings += n; continue; }
+    n = out.health.hours.length > 24 ? tenth(out.health.hours, () => false, out.health.hours.length) : 0; if (n) { out.trimmed.hours += n; continue; }
+    break;
+  }
+  return out;
+}
 let cache = { key: '', data: null };
 function data() {
   const key = createHash('sha1').update(sources(WORK).map((f) => `${f}:${mtime(f)}`).join('|')).digest('hex');
@@ -79,12 +97,12 @@ const readNotes = () => { try { const o = JSON.parse(read(NOTES) ?? '{}'); retur
 const whose = (role) => `a${role === 'admin' ? 'n' : ''} ${role}`;
 const VERDICT_WORD = { APPROVE: 'approved', REQUEST_CHANGES: 'asked for changes', COMMENT: 'commented', RAPID: 'posted a rapid review' };
 function notifications(who) {
-  const since = new Date(Date.now() - 30 * 864e5).toISOString(), out = [], mine = (e) => !!who.email && e === who.email, d = data();
+  const since = new Date(Date.now() - 30 * 864e5).toISOString(), out = [], mine = (r) => !!who.id && recCaller(r) === who.id, d = data();
   for (const j of jobsOf(JOBS)) {
     if (!j.finished || j.finished < since) continue;
-    out.push({ id: `job:${j.id}`, utc: j.finished, kind: j.state === 'done' ? 'done' : 'failed', mine: mine(j.email), title: `${j.state === 'done' ? 'Done' : 'Did not work'}: ${j.label || j.command}`, text: j.text, who: mine(j.email) ? 'you' : whose(j.role), item: j.item });
+    out.push({ id: `job:${j.id}`, utc: j.finished, kind: j.state === 'done' ? 'done' : 'failed', mine: mine(j), title: `${j.state === 'done' ? 'Done' : 'Did not work'}: ${j.label || j.command}`, text: j.text, who: mine(j.email) ? 'you' : whose(j.role), item: j.item });
   }
-  const asked = new Map(asks(ASKS).filter((r) => mine(r.email)).map((r) => [r.id, r]));
+  const asked = new Map(asks(ASKS).filter((r) => mine(r)).map((r) => [r.id, r]));
   for (const [id, a] of answers(ANSWERS)) { const q = asked.get(id); if (!q || !a.utc || a.utc < since) continue;
     out.push({ id: `ans:${id}`, utc: a.utc, kind: 'answer', mine: true, title: `${d.bot} answered your question`, text: a.text.slice(0, 300), quote: String(q.text ?? '').slice(0, 160), item: q.context?.item ?? null }); }
   for (const r of d.reviews) { if (r.ts < since) continue;
@@ -93,7 +111,7 @@ function notifications(who) {
       title: `${d.bot} ${VERDICT_WORD[r.verdict] || 'reviewed'} on #${r.pr}`, text: blocking ? `${blocking} blocking finding${blocking === 1 ? '' : 's'}` : null, item: r.id }); }
   for (const r of d.runs) if (r.state === 'fail' && r.end >= since) out.push({ id: `run:${r.id}`, utc: r.end, kind: 'failed', mine: false, title: `A ${r.job} run logged ${r.errors} error${r.errors === 1 ? '' : 's'}`, text: r.events.find((e) => e.level === 'error')?.msg ?? null, item: r.id });
   for (const i of d.health.incidents) if (i.first && i.first >= since) out.push({ id: `inc:${i.id}`, utc: i.first, kind: i.open ? 'alert' : 'done', mine: false, title: `${i.open ? 'Incident' : 'Incident closed'}: ${i.kind}`, text: i.detail ?? null, item: `health:${i.id}` });
-  const list = out.sort((a, b) => b.utc.localeCompare(a.utc)).slice(0, 60), n = who.email ? readNotes()[who.email] ?? {} : {}, seen = new Set(n.read ?? []);
+  const list = out.sort((a, b) => b.utc.localeCompare(a.utc)).slice(0, 60), n = who.id ? readNotes()[who.id] ?? {} : {}, seen = new Set(n.read ?? []);
   const rows = list.map((x) => ({ ...x, unread: !seen.has(x.id) && (!n.seen || x.utc > n.seen) }));
   return { notifications: rows, unread_mine: rows.filter((x) => x.unread && x.mine).length, unread: rows.filter((x) => x.unread).length };
 }
@@ -104,7 +122,8 @@ function callerOf(req) {
   const role = req.headers['x-platform-caller-role'];
   if (role !== 'owner' && role !== 'viewer') return null;
   const email = String(req.headers['x-platform-caller-email'] || '').trim().toLowerCase() || null;
-  return { role, email, sub: String(req.headers['x-platform-caller-sub'] || ''), access: roleOf(PEOPLE, role, email) };
+  const sub = String(req.headers['x-platform-caller-sub'] || '').trim().slice(0, 200);
+  return { role, email, sub, id: callerId(email, sub), access: roleOf(PEOPLE, role, email) };
 }
 async function body(req) {
   const chunks = []; let n = 0;
@@ -112,7 +131,13 @@ async function body(req) {
   if (!n) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new Said(400, 'The body is not JSON.'); }
 }
-const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
+// The platform's relay carries at most 1 MiB a response: a body over MAX_REPLY goes as a 413 with `big`.
+const MAX_REPLY = 960 * 1024;
+const send = (res, code, obj, big = 'This answer is too large for the platform to carry.') => {
+  let text = JSON.stringify(obj);
+  if (Buffer.byteLength(text) > MAX_REPLY) { code = 413; text = JSON.stringify({ error: big }); log('warn', 'desk_too_large', `${res.req?.url ?? ''} over ${MAX_REPLY} bytes`); }
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(text);
+};
 const refusal = (access) => (access === 'viewer' ? 'You can read the Desk and ask questions. An admin gives you a role to do more.' : 'Only an admin does this. Ask an admin.');
 const clean = (v, n) => (typeof v === 'string' && v.trim() ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : null);
 // Each page has its own chat session: the open item, else the tab and its page (the platform's key shape).
@@ -125,12 +150,22 @@ async function route(req, res, url, who) {
   const p = url.pathname.split('/').filter(Boolean), m = req.method;
   if (m === 'GET' && p[1] === 'me') {
     const link = (read(join(DIR, 'artifact.url')) ?? '').trim();
-    return send(res, 200, { role: who.access, owner: who.role === 'owner', email: who.email, name: data().bot, version: data().version, link: /^https:\/\/[^\s#]{1,500}$/.test(link) ? link : null });
+    const { email } = who;
+    return send(res, 200, { role: who.access, owner: who.role === 'owner', email, name: data().bot, version: data().version, link: /^https:\/\/[^\s#]{1,500}$/.test(link) ? link : null });
   }
   if (m === 'GET' && p[1] === 'data') {
-    const d = data();
-    if (url.searchParams.get('have') === d.hash) return send(res, 200, { hash: d.hash, unchanged: true });
-    return send(res, 200, { hash: d.hash, data: d });
+    const built = data();
+    if (url.searchParams.get('have') === built.hash) return send(res, 200, { hash: built.hash, unchanged: true });
+    return send(res, 200, { hash: built.hash, data: pageData(built) });
+  }
+  // An item's long parts come on their own: a review's text, a run's logged steps.
+  if (m === 'GET' && p[1] === 'reviews' && p[2] && !p[3]) {
+    const r = data().reviews.find((x) => x.id === p[2]); if (!r) throw new Said(404, 'There is no such review.');
+    return send(res, 200, { id: r.id, body: r.body });
+  }
+  if (m === 'GET' && p[1] === 'runs' && p[2] && !p[3]) {
+    const r = data().runs.find((x) => x.id === p[2]); if (!r) throw new Said(404, 'There is no such run.');
+    return send(res, 200, { id: r.id, events: r.events, count: r.count });
   }
   if (m === 'GET' && p[1] === 'status') return send(res, 200, status());
   if (m === 'GET' && p[1] === 'artifacts' && p[2] && p[3] === 'page') {
@@ -138,28 +173,27 @@ async function route(req, res, url, who) {
     const f = a && pagePath(a.page);
     if (!f) throw new Said(404, 'No local copy of this page is kept here. Its link opens it.');
     const html = readFileSync(f, 'utf8');
-    if (html.length > 6e6) throw new Said(413, 'This page is too large to show here. Its link opens it.');
-    return send(res, 200, { id: a.id, html });
+    return send(res, 200, { id: a.id, html }, 'This page is too large to show here. Its link opens it.');
   }
   if (m === 'POST' && p[1] === 'jobs' && !p[2]) {
     const b = await body(req), command = typeof b.command === 'string' ? b.command : '';
     if (!command || command.length > 300 || !allowed(command)) throw new Said(400, `This is not work the Desk gives ${data().bot}. Use a button of the page.`);
     if (!may(who.access, command)) throw new Said(403, refusal(who.access));
-    spend(who.email || who.sub || who.role);
-    const id = queue(JOBS, { command, label: clean(b.label, 80), item: clean(b.item, 200), note: clean(b.note, 1000), role: who.access, platform: who.role, email: who.email }, utc());
+    spend(who.id || who.role);
+    const id = queue(JOBS, { command, label: clean(b.label, 80), item: clean(b.item, 200), note: clean(b.note, 1000), role: who.access, platform: who.role, caller: who.id }, utc());
     log('info', 'desk_job', `${id} from ${who.access}`);
     return send(res, 201, { id, ping: `do desk job ${id}`, ping_conversation: conversationOf({ item: clean(b.item, 200) }) });
   }
   if (m === 'GET' && p[1] === 'jobs' && !p[2]) return send(res, 200, { jobs: jobsOf(JOBS).slice(-80).reverse().map((j) => ({ id: j.id, utc: j.utc, command: j.command, label: j.label, item: j.item, state: j.state, state_word: STATES[j.state],
-    started: j.started, finished: j.finished, text: j.text, mine: !!who.email && j.email === who.email, by: !!who.email && j.email === who.email ? 'you' : whose(j.role) })) });
+    started: j.started, finished: j.finished, text: j.text, mine: !!who.id && recCaller(j) === who.id, by: !!who.id && recCaller(j) === who.id ? 'you' : whose(j.role) })) });
   if (m === 'GET' && p[1] === 'asks') {
     const ans = answers(ANSWERS);
-    return send(res, 200, { asks: asks(ASKS).filter((r) => r.email && r.email === who.email).slice(-60).map(({ id, utc: at, text, context }) => ({ id, utc: at, text, context, answer: ans.get(id) ?? null })) });
+    return send(res, 200, { asks: asks(ASKS).filter((r) => !!who.id && recCaller(r) === who.id).slice(-60).map(({ id, utc: at, text, context }) => ({ id, utc: at, text, context, answer: ans.get(id) ?? null })) });
   }
   if (m === 'POST' && p[1] === 'asks') {
     const b = await body(req), text = typeof b.text === 'string' ? b.text.trim() : '';
     if (!text || text.length > 2000 || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) throw new Said(400, 'Write a question of at most 2000 letters.');
-    spend(who.email || who.sub || who.role);
+    spend(who.id || who.role);
     const c = b.context && typeof b.context === 'object' ? b.context : {};
     const context = { tab: /^[a-z]{1,20}$/.test(c.tab ?? '') ? c.tab : null, page: /^[a-z]{1,20}(?:\/[a-z-]{1,20})?$/.test(c.page ?? '') ? c.page : null,
       item: typeof c.item === 'string' && c.item.length <= 200 && !/[\u0000-\u001f]/.test(c.item) ? c.item : null, label: clean(c.label, 200) };
@@ -191,11 +225,11 @@ async function route(req, res, url, who) {
   }
   if (m === 'GET' && p[1] === 'notifications' && !p[2]) return send(res, 200, notifications(who));
   if (m === 'POST' && p[1] === 'notifications' && (p[2] === 'read' || p[2] === 'seen') && !p[3]) {
-    if (!who.email) return send(res, 200, { ok: true });
-    const b = p[2] === 'read' ? await body(req) : {}, notes = readNotes(), mine = notes[who.email] ?? { seen: null, read: [] };
+    if (!who.id) return send(res, 200, { ok: true });
+    const b = p[2] === 'read' ? await body(req) : {}, notes = readNotes(), mine = notes[who.id] ?? notes[who.email] ?? { seen: null, read: [] };
     if (p[2] === 'read') { if (typeof b.id !== 'string' || !/^[a-z]{3}:[A-Za-z0-9:_-]{1,80}$/.test(b.id)) throw new Said(400, 'There is no such notification.'); if (!mine.read.includes(b.id)) mine.read = [...mine.read, b.id].slice(-500); }
     else { mine.seen = utc(); mine.read = []; }
-    notes[who.email] = mine; writeFile(NOTES, JSON.stringify(notes));
+    notes[who.id] = mine; delete notes[who.email]; writeFile(NOTES, JSON.stringify(notes));
     return send(res, 200, { ok: true });
   }
   throw new Said(404, `There is no route ${m} ${url.pathname}.`);

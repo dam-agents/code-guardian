@@ -41,9 +41,9 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const P = process.env.PORT, W = process.env.WORK_DIR, R = process.env.REPO_ROOT;
 const say = (ok, what) => console.log(`${ok ? 'ok  ' : 'FAIL'} desk: ${what}`);
-const call = async (method, path, body, role = 'owner', email = 'own@example.com') => {
+const call = async (method, path, body, role = 'owner', email = 'own@example.com', sub = '') => {
   const r = await fetch(`http://127.0.0.1:${P}${path}`, { method, body: body ? JSON.stringify(body) : undefined,
-    headers: { 'content-type': 'application/json', ...(role ? { 'x-platform-caller-role': role, 'x-platform-caller-email': email } : {}) } });
+    headers: { 'content-type': 'application/json', ...(role ? { 'x-platform-caller-role': role, ...(email ? { 'x-platform-caller-email': email } : {}), ...(sub ? { 'x-platform-caller-sub': sub } : {}) } : {}) } });
   return { status: r.status, body: await r.json() };
 };
 const cli = (...a) => execFileSync('node', [join(R, 'scripts/desk/jobs.mjs'), ...a], { env: { ...process.env, WORK_DIR: W }, encoding: 'utf8' });
@@ -54,6 +54,11 @@ say(r.body.role === 'admin' && r.body.owner === true, 'the owner is an admin');
 r = await call('GET', '/api/data');
 const hash = r.body.hash;
 say(r.status === 200 && r.body.data.prs.length > 20, 'the data comes');
+say(r.body.data.runs.every((x) => x.events === null) && r.body.data.reviews.every((x) => x.body === null), 'the data leaves out review text and run steps');
+const rid = r.body.data.reviews.find((x) => x.has_body)?.id, sid = r.body.data.runs.at(-1).id;
+r = await call('GET', `/api/reviews/${rid}`);
+const r2 = await call('GET', `/api/runs/${sid}`);
+say(r.status === 200 && r.body.body.length > 20 && r2.status === 200 && r2.body.events.length > 0, 'a review\'s text and a run\'s steps come on their own routes');
 r = await call('GET', `/api/data?have=${hash}`);
 say(r.body.unchanged === true, 'unchanged data is not sent again');
 r = await call('POST', '/api/jobs', { command: 'rm -rf /' });
@@ -78,6 +83,10 @@ r = await call('GET', '/api/asks', null, 'viewer', 'pat@example.com');
 say(r.body.asks[0]?.answer?.text === 'Round 2 is posted.', 'the answer comes back to the asker');
 r = await call('GET', '/api/asks', null, 'viewer', 'other@example.com');
 say(r.body.asks.length === 0, 'another person does not see the question');
+r = await call('POST', '/api/asks', { text: 'Who am I?', context: { tab: 'prs' } }, 'viewer', '', 'sub-123');
+r = await call('GET', '/api/asks', null, 'viewer', '', 'sub-123');
+const r3 = await call('GET', '/api/asks', null, 'viewer', '', 'sub-456');
+say(r.body.asks.length === 1 && r3.body.asks.length === 0, 'a caller without an email keeps their own questions');
 r = await call('GET', '/api/artifacts/health/page');
 say(r.status === 200 && /<html/i.test(r.body.html), 'a page\'s local copy is served');
 r = await call('POST', '/api/settings', { key: 'ci_triage', value: 'enabled' }, 'viewer', 'dev@example.com');

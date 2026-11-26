@@ -2201,11 +2201,10 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // Pages: a menu of the published pages, each opens on the Desk; the review guides are one list.
   // The health dashboard lives under Health.
-  const reportPages = () => arts().filter((a) => a.kind !== "guide" && a.id !== "health");
+  const reportPages = () => arts().filter((a) => !["guide", "health", "manifest"].includes(a.kind) && !["health", "manifest"].includes(a.id));
   function pagesMenu() {
-    const gs = arts().filter((a) => a.kind === "guide").length, cur = S.tab === "pages";
+    const cur = S.tab === "pages";
     return `<details class="more navmenu"><summary aria-current="${cur}" title="The pages Code Guardian published">${esc(TABS.pages)}</summary><div class="menu">`
-      + `<button class="btn" data-tab="pages" aria-current="${cur && !String(S.item || "").startsWith("page:") || (cur && /^page:guide:/.test(S.item || ""))}" title="A guide for the human reviewer of one PR">Review guides${gs ? ` <span class="count">${gs}</span>` : ""}</button>`
       + reportPages().map((a) => `<button class="btn" data-goto="pages" data-item="page:${esc(a.id)}" aria-current="${S.item === `page:${a.id}`}" title="${esc(PAGE_ABOUT[a.kind] || "")}">${esc(a.title)}</button>`).join("")
       + `</div></details>`;
   }
@@ -2296,10 +2295,10 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         [whenFact("started", r.start), now ? fact("now", now.label, now.tip) : r.secs ? fact("took", dur(r.secs)) : "", r.posted.length ? fact("posted", r.posted.map((x) => verdictOf(x.verdict)[0]).join(", ")) : "", cost ? fact("cost", cost.text, cost.tip) : ""].join("")); });
       empty = S.runPage === "running" ? "No review runs now. Done shows the last 14 days." : "No review runs here in the last 14 days.";
     } else if (S.tab === "pages") {
-      head = `<div class="subtabs"><b style="padding:8px 4px">Review guides</b></div>`;
-      rows = arts().filter((a) => a.kind === "guide").map((a) => row(`page:${a.id}`, `#${a.pr} ${prOf(a.pr)?.title || ""}`.trim(), "", dot(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published"),
-        [whenFact("published", a.utc), a.sha ? fact("commit", String(a.sha).slice(0, 7)) : "", fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
-      empty = "No review guide published yet.";
+      head = `<div class="subtabs"><b style="padding:8px 4px">Reports</b></div>`;
+      rows = reportPages().map((a) => row(`page:${a.id}`, a.title, "", dot(a.state === "error" ? "fail" : "pass", a.state === "error" ? "Not published" : "Published"),
+        [whenFact("published", a.utc), fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
+      empty = "No report published yet.";
     } else if (S.tab === "health") {
       head = pages("hPage", [["incidents", "Incidents", incidents().length, "Something that stopped or slowed Code Guardian"], ["alerts", "Alerts", alerts().length, "What the health check told the operator"]]);
       rows = S.hPage === "alerts" ? alerts().map((a) => row(`alert:${a.id}`, human(a.kind || a.id), "", dot(a.claimed ? "pass" : "look", a.claimed ? "Taken" : "Sent"), [whenFact("first", a.first), whenFact("sent", a.sent)].join("")))
@@ -2416,14 +2415,15 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     const tlHtml = tl.length ? `<ol class="cg-tl">${tl.sort((a, b) => (a[0] || "~") < (b[0] || "~") ? -1 : (a[0] || "~") > (b[0] || "~") ? 1 : 0).map(([t, ink, txt, html, cls]) => `<li class="${cls || ""}" style="--c: var(${ink})"><span class="d"></span><span class="w" title="${esc(when(t))}">${t ? esc(tlWhen(t)) : "Now"}</span><span class="t">${html ? txt : esc(txt)}</span></li>`).join("")}</ol>` : "";
     const open = fs.filter((f) => f.state === "open");
     const flist = (list) => `<ul class="cg-flist">${list.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0], FSTATE[f.state][2])}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></li>`).join("")}</ul>`;
-    const lastBody = rs.at(-1)?.body || "", forHuman = /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(lastBody)?.[1]?.trim();
+    const forHuman = p.for_human;
     const sh = p.shepherd;
     return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip" style="background: var(--bad-soft); color: var(--bad); font-weight: 600" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
       + statusBox(s, w, help, acts, now)
       + (p.triage ? `<p class="cg-pr-head">${p.triage.class === "quick-check" ? `<span class="chip ok" title="${esc(p.triage.why || "")}">A quick check is enough</span>` : `<span class="chip warn" title="${esc(p.triage.why || "")}">Needs a human review</span>`}${p.triage.minutes ? `<span>about ${esc(p.triage.minutes)} min for a person</span>` : ""}${p.size?.files ? `<span>${esc(p.size.files)} files · +${esc(p.size.additions ?? "?")} −${esc(p.size.deletions ?? "?")}</span>` : ""}</p>` : "")
       + sect("Open findings", open.length ? flist(open) : rs.length ? `<p class="k">No finding is open.</p>` : "", open.length ? plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block") + " the merge" : "")
       + sect("How it went", tlHtml)
-      + (g ? sect("Review guide", `<div class="cg-cards" style="margin:0"><button class="cg-card" data-goto="pages" data-item="page:${esc(g.id)}" title="Opens the guide here, on the Desk"><b>${esc(g.title)}</b><span class="k">${g.utc ? `Published ${esc(ago(g.utc))}` : "Published"}${g.sha ? ` · for <code>${esc(g.sha)}</code>` : ""}</span><span class="k">Where to start, and what matters in this change.</span></button></div>`) : p.guide_owed ? sect("Review guide", `<p class="k">A guide is owed: it comes with the next round.</p>`) : "")
+      + (g ? sect("Review guide", `<div class="cg-cards" style="margin:0"><button class="cg-card" data-goto="prs" data-item="page:${esc(g.id)}" title="Opens the guide here, on the Desk"><b>${esc(g.title)}</b><span class="k">${g.utc ? `Published ${esc(ago(g.utc))}` : "Published"}${g.sha ? ` · for <code>${esc(g.sha)}</code>` : ""}</span><span class="k">Where to start, and what matters in this change.</span></button></div>`) : p.guide_owed ? sect("Review guide", `<p class="k">A guide is owed: it comes with the next round.</p>`)
+        : p.state === "open" && rs.length ? sect("Review guide", `<p class="k">No guide for this PR yet. A guide shows the human reviewer where to start and what matters.</p>${cmdBtn(`publish the review guide of #${p.n}`, "Ask for a review guide", "Code Guardian publishes a review guide for this PR")}`) : "")
       + (forHuman ? sect("For the human reviewer", `<div class="cg-md">${mdLite(forHuman)}</div>`) : "")
       + sect("Every finding", fs.length ? findingsTable(fs, rs) : "", fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
       + (sh ? sect("Human reviewers", `<dl class="cg-facts"><dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}` : "none yet"}</dd></dl>`) : "")
@@ -2465,7 +2465,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + `<p class="cg-pr-head">${all.map((x, j) => x === r ? `<b>Round ${j + 1}</b>` : itemA("reviews", x.id, `Round ${j + 1}`)).join(" · ")}</p>`
       + sect("Findings", fs.length ? `<ul class="cg-flist">${fs.map((f) => `<li data-st="${esc(f.status === "fixed" ? "fixed" : "open")}">${sevChip(f.severity)}<span class="s">${fid(f) ? itemA("findings", fid(f), f.summary) : esc(f.summary)}</span>${stw(f.status === "fixed" ? "pass" : "fail", f.status === "fixed" ? "Fixed" : f.status === "still" ? "Still open" : "New")}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></li>`).join("")}</ul>` : `<p class="k">No findings in this round.</p>`)
       + (r.meta?.checks?.length ? sect("Checks it ran", `<ul class="cg-flist">${r.meta.checks.map((x) => `<li><span class="k">check</span><span>${esc(x.for)}</span><span class="stw" data-s="pass">${esc(x.clean || "")}</span><span class="loc">${esc(x.run)}</span></li>`).join("")}</ul>`, "so the author can run them too") : "")
-      + sect("The review as posted", r.body ? `<div class="cg-md"><div class="body">${mdLite(r.body)}</div></div>` : `<p class="k">The full text is no longer kept here: the PR is closed. ${gh(ghPr(r.pr), "Read it on GitHub ↗")}</p>`)
+      + sect("The review as posted", (() => { const part = r.has_body ? partOf("reviews", r.id) : false;
+          return part ? (part.body ? `<div class="cg-md"><div class="body">${mdLite(part.body)}</div></div>` : "") : part === null ? `<p class="k">Loading the text…</p>` : `<p class="k">The full text is no longer kept here. ${gh(ghPr(r.pr), "Read it on GitHub ↗")}</p>`; })())
       + sect("About this review", `<dl class="cg-facts">${r.size?.files ? `<dt>Size</dt><dd>${esc(r.size.files)} files, +${esc(r.size.additions ?? "?")} −${esc(r.size.deletions ?? "?")}</dd>` : ""}${r.def ? `<dt>Definition</dt><dd>${esc(r.def)}</dd>` : ""}${r.ste?.sentences ? `<dt>Plain words</dt><dd>${esc(r.ste.sentences)} sentences, ${esc(r.ste.avg_sentence_words ?? "?")} words each on average</dd>` : ""}${r.suppressed?.total ? `<dt>Held back</dt><dd>${esc(plural(r.suppressed.total, "finding", "findings"))} a rule or a decision explained</dd>` : ""}</dl>`);
   }
 
@@ -2555,6 +2556,13 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return (cards ? chartBox(live.length > 1 ? `Running now · ${live.length} side by side` : "Running now", cards + phaseLegend(true)) : `<div class="cg-now"><div>No review runs now. ${S.runPage === "running" ? "Done shows the last 14 days." : ""}</div></div>`)
       + dayTimeline() + costBars();
   }
+  // An item's long parts, asked for when its page opens (the data leaves them out: docs/desk.md → The server).
+  const parts_ = new Map();
+  function partOf(kind, id) {
+    const k = `${kind}:${id}`, v = parts_.get(k);
+    if (v === undefined) { parts_.set(k, null); api("GET", `/api/${kind}/${encodeURIComponent(id)}`).then((r) => { parts_.set(k, r); renderDetail(); }).catch(() => { parts_.set(k, false); renderDetail(); }); }
+    return parts_.get(k);
+  }
   function renderRun(r) {
     const words = { pass: "OK", look: "Warning", fail: "Error", running: "Running" };
     const look = ["fail", "look"].includes(r.state) ? cmdBtn(`look into ${r.id}`, "Look into it", "Code Guardian reads this run's log and says what went wrong and what fixes it", true) : "";
@@ -2567,7 +2575,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + (r.aborted.length ? sect("What stopped", `<ul>${r.aborted.map((x) => `<li>${prA(x.pr)}: ${esc(x.why)}</li>`).join("")}</ul>`) : "")
       + (r.prs.length && !r.posted.length ? sect("Pull requests", r.prs.map((n) => prA(n)).join(" ")) : "")
       + (t ? sect("Cost", `<dl class="cg-facts"><dt>Model</dt><dd>${esc(t.model || "not known")}</dd><dt>Tokens</dt><dd>${esc(Math.round(t.input / 1000))}k in · ${esc(Math.round(t.output / 1000))}k out · ${esc(Math.round(t.cache_read / 1000))}k read from cache</dd>${t.subagents ? `<dt>Helpers</dt><dd>${esc(plural(t.subagents, "sub-agent", "sub-agents"))}</dd>` : ""}</dl>`) : "")
-      + sect("Step by step", `<ul class="cg-log">${r.events.map((e) => `<li data-l="${esc(e.level)}"><span class="k" title="${esc(when(e.ts))}">${esc(new Date(e.ts).toLocaleTimeString("en", { timeStyle: "medium" }))}</span><span class="stw" data-s="${e.level === "error" ? "fail" : e.level === "warn" ? "look" : "none"}">${esc(e.level)}</span><span class="e">${esc(e.event)}</span><span class="m">${mdLite(e.msg).replace(/^<p>|<\/p>$/g, "")}</span></li>`).join("")}</ul>`, r.count > r.events.length ? `the last ${r.events.length} of ${r.count}` : "")
+      + ((ev) => ev === null ? sect("Step by step", `<p class="k">Loading the steps…</p>`) : !ev ? "" : sect("Step by step", `<ul class="cg-log">${ev.events.map((e) => `<li data-l="${esc(e.level)}"><span class="k" title="${esc(when(e.ts))}">${esc(new Date(e.ts).toLocaleTimeString("en", { timeStyle: "medium" }))}</span><span class="stw" data-s="${e.level === "error" ? "fail" : e.level === "warn" ? "look" : "none"}">${esc(e.level)}</span><span class="e">${esc(e.event)}</span><span class="m">${mdLite(e.msg).replace(/^<p>|<\/p>$/g, "")}</span></li>`).join("")}</ul>`, ev.count > ev.events.length ? `the last ${ev.events.length} of ${ev.count}` : ""))(partOf("runs", r.id))
       + `<p class="k">Run id <code>${esc(r.run)}</code>${r.gate ? ` · started by <code>${esc(r.gate)}</code>` : ""}</p>`;
   }
   const PAGE_ABOUT = { guide: "A page for the human reviewer of one PR: where to start, what matters, what the tests prove.", health: "Code Guardian's own health: services, incidents and the last two weeks, hour by hour.",
@@ -2808,7 +2816,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return null;
   }
   // Where an item lives: its tab and its page of the tab.
-  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : id === "page:health" ? "health" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
+  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : id === "page:health" ? "health" : /^page:guide:/.test(id) ? "prs" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
   const place = () => { const id = S.item || "", it = findItem(id); if (!it) return;
     if (it.kind === "pr" && !PR_PAGE[S.prPage](it.x)) S.prPage = it.x.state === "closed" ? "closed" : "open";
     if (it.kind === "escape") S.fPage = "escaped"; else if (it.kind === "finding" && S.fPage === "escaped") S.fPage = "all";
@@ -3101,7 +3109,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   // ---------- loading ----------
   async function refresh() {
     const r = await api("GET", `/api/data${S.hash ? `?have=${encodeURIComponent(S.hash)}` : ""}`, undefined, DATA_WAIT);
-    if (!r.unchanged) { S.data = r.data; S.hash = r.hash; }
+    if (!r.unchanged) { S.data = r.data; S.hash = r.hash; parts_.clear(); }
     try { S.status = await api("GET", "/api/status"); } catch (e) { if (!(e instanceof Said)) throw e; }
     await Promise.all([loadJobs(), loadNotes(), S.tab === "settings" ? loadPeople() : null]);
   }

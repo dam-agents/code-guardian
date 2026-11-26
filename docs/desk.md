@@ -24,8 +24,11 @@ dashboard takes them over — one family of pages; only the product's colour (in
 
 `server.mjs` listens on `127.0.0.1:5555`, the platform's Artifact API port (`CG_DESK_PORT` changes
 it). It answers only the platform's relay, which names the caller on every request
-(`x-platform-caller-role` `owner` or `viewer`, the verified email); the page cannot forge those
-headers. The routes are in the file's header. It writes only `work/desk/`, and one `CONFIG.md` bullet for the owner's Settings; a job is stored as data
+(`x-platform-caller-role` `owner` or `viewer`, the verified email when there is one, the subject
+id); the page cannot forge those headers. A person's questions, jobs and read marks key on the
+email, else on the subject id. Every answer stays under the relay's 1 MiB: `/api/data` carries no
+review text and no run steps — `/api/reviews/R-<n>` and `/api/runs/S-<n>` serve them — and drops
+the oldest finished runs, closed PRs' reviews and health hours while it is over. The routes are in the file's header. It writes only `work/desk/`, and one `CONFIG.md` bullet for the owner's Settings; a job is stored as data
 and goes to the agent as the page's ping — the server executes nothing a page sends.
 
 - **Check:** `curl -s 127.0.0.1:5555/health` answers `{"ok":true,…}`. Its log is the Login item's
@@ -59,8 +62,9 @@ says fixed), **Not raised again** (a later round dropped it, or the PR closed wi
 ## The page
 
 One row of tabs, the same as Quality Inspector's: **Pull requests** leads (the page opens on it,
-on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the published
-pages — and **Health**; then **+ Review a PR**.
+on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the reports:
+trends, survey, benchmark — and **Health**; then **+ Review a PR**. A review guide opens from its PR's
+page, which asks for one when the PR has none.
 At the right: the search, the person's menu (Settings, How it works, day or night) and the bell.
 
 | Tab | The question it answers | An item's page |
@@ -69,7 +73,7 @@ At the right: the search, the person's menu (Settings, How it works, day or nigh
 | Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | four cards (what, where, what fixes it), round by round, an escape that names its file |
 | Reviews (All, First, Re-reviews) | What did each review say? | its findings, the checks it ran, the body as posted, its rounds as links |
 | Runs (Running, Done, With problems) — review runs only | What does a review do now, and what did it cost? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; what it posted or stopped on; every logged step |
-| Pages (a menu: Review guides, then each report) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
+| Pages (a menu of the reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
 | Health (Incidents, Alerts) | Is Code Guardian well? The health dashboard opens here | the incident, the runs in that time |
 
 Nothing open, each tab shows its overview: Pull requests **Now / Waiting / Next** and an open
@@ -110,10 +114,12 @@ reads from the page:
 | `dismiss F-<k> as <reason>` · `reopen F-<k>` | developer | add or take out the PR-local override `Ignore: <file:line> — <reason> (Desk)` in `reviews/pr-<n>.md` ([preferences.md](preferences.md)) |
 | `look into S-<k>` | developer | read the run's events and say what went wrong and what fixes it; change nothing |
 | `run audit now` · `run survey now` · `run benchmark now` · `run monitor now` · `run brief now` | admin | that run once, as its schedule's task text says |
-| `republish guide:<n>` · `republish health` · `… manifest` · `… trends` · `… survey` · `… benchmark` | admin | that page's publish step, at the same link |
+| `republish guide:<n>` | developer | the review guide of PR #N again, at the same link ([artifact.md](artifact.md) → **Review guide**) |
+| `republish health` · `… manifest` · `… trends` · `… survey` · `… benchmark` | admin | that page's publish step, at the same link |
 
 **"do desk job J-<n>"** — `node "$HOME/scripts/desk/jobs.mjs" show J-<n>` gives the command, the
-label, the item that was open and the role of who pressed (never an email), and `may`; a command
+label, the item that was open and the role of who pressed (never an email), and `may` — the
+recorded `may` decides, as this table does; a command
 that names `F-<k>` or `S-<k>` also gets `about` — the finding's PR, file, line and summary, or the
 run's id, job and times.
 `may: false` → `jobs.mjs fail J-<n> <file>` with why, end. Else `jobs.mjs start J-<n>`, do the
