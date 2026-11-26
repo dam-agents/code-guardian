@@ -190,6 +190,8 @@ put('health/incidents.jsonl', [
   { id: 'I-7', kind: 'model_down', first: iso(NOW - 53 * H), last_seen: iso(NOW - 51 * H), open: false, end: iso(NOW - 50 * H), detail: 'The model provider answered 529 for 3 hours.' },
   { id: 'I-8', kind: 'classifier_refusal', first: iso(NOW - 31 * H), last_seen: iso(NOW - 31 * H), open: false, end: iso(NOW - 30 * H), detail: 'One review stopped on a refused git command.' },
   { id: 'I-9', kind: 'github_slow', first: iso(NOW - 2 * H), last_seen: iso(NOW - 20 * MIN), open: true, end: null, detail: 'GitHub API answers take 4–9 s.' },
+  { id: 'harness:automode-rules', kind: 'harness_drift', first: iso(NOW - 3 * H), last_seen: iso(NOW - 20 * MIN), open: true, end: null, detail: { parts: ['automode-rules'] } },
+  { id: 'anomaly:6588:a2eb69a', kind: 'review_anomaly', first: iso(NOW - 40 * H), last_seen: iso(NOW - 40 * H), open: false, end: iso(NOW - 40 * H), detail: { pr: 6588, by_event: { findings: 14, inline: 9 } } },
 ].map((x) => JSON.stringify(x)).join('\n') + '\n');
 put('health/status.json', JSON.stringify({ ts: iso(NOW - 4 * MIN), tokens_adapter: 'claude-code', services: [
   { key: 'platform', name: 'Platform', state: 'ok', note: 'schedules fire on time' }, { key: 'harness', name: 'Harness', state: 'ok', note: 'claude-code' },

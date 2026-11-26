@@ -197,7 +197,9 @@ async function route(req, res, url, who) {
     spend(who.id || who.role);
     const c = b.context && typeof b.context === 'object' ? b.context : {};
     const context = { tab: /^[a-z]{1,20}$/.test(c.tab ?? '') ? c.tab : null, page: /^[a-z]{1,20}(?:\/[a-z-]{1,20})?$/.test(c.page ?? '') ? c.page : null,
-      item: typeof c.item === 'string' && c.item.length <= 200 && !/[\u0000-\u001f]/.test(c.item) ? c.item : null, label: clean(c.label, 200) };
+      item: typeof c.item === 'string' && c.item.length <= 200 && !/[\u0000-\u001f]/.test(c.item) ? c.item : null, label: clean(c.label, 200),
+      pr: Number.isInteger(c.pr) && c.pr > 0 ? c.pr : null, review: /^R-\d{1,7}$/.test(c.review ?? '') ? c.review : null,
+      guide: /^reviews\/pr-artifacts\/pr-\d{1,9}\.guide\.html$/.test(c.guide ?? '') ? c.guide : null };
     const row = recordAsk(ASKS, who, text, context);
     log('info', 'desk_ask', `${row.id} from ${who.access}`);
     return send(res, 201, { id: row.id, ping: `answer desk question ${row.id}`, ping_conversation: conversationOf(context) });
