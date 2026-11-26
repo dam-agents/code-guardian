@@ -1654,33 +1654,33 @@
   .cg-walk > li[data-who="product"] .wn { border-style: dashed; }
   .cg-steplist .wl { display: flex; gap: 6px; align-items: baseline; }
   /* A test's runs: when, build, result, what was wrong — one line each. */
-  .cg-runs { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: 980px; }
+  .cg-runs { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: var(--content-w); }
   .cg-runs li { display: grid; grid-template-columns: 9.5em 8em 8.5em minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 8px 12px; font-size: var(--fs-meta); }
   .cg-runs li + li { border-top: 1px solid var(--line); } .cg-runs li[data-st="fail"] { background: var(--closed-soft); } .cg-runs li[data-st="look"], .cg-runs li[data-st="blocked"] { background: var(--waiting-soft); }
   .cg-runs .rs { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; } .cg-runs .re { color: var(--text, inherit); overflow-wrap: anywhere; } .cg-runs .rl { text-align: right; white-space: nowrap; }
   .cg-runs.has-ck li { grid-template-columns: 9.5em 8em 8.5em auto minmax(0, 1fr) auto; } .cg-runs li.rh { padding-top: 4px; padding-bottom: 4px; background: var(--soft); }
-  .cg-runs .rc { display: inline-flex; gap: 6px; align-items: center; } .cg-runs .rc > * { width: 3.2em; display: inline-flex; justify-content: center; } .cg-runs li.rh .num { font-size: 11px; }
+  .cg-runs .rc { display: inline-flex; gap: 6px; align-items: center; } .cg-runs .rc > * { width: 3.2em; display: inline-flex; justify-content: center; } .cg-runs li.rh .num { font-size: var(--fs-micro); }
   /* A test case: the diamond of a check, by its state; not reached is an empty dashed one; this page's check has a ring. */
   .cg-dm { display: inline-block; width: 11px; height: 11px; transform: rotate(45deg); border-radius: 2px; background: var(--muted); border: 1.5px solid transparent; box-sizing: border-box; flex: none; }
   .cg-dm[data-s="pass"] { background: var(--approved); } .cg-dm[data-s="fail"] { background: var(--closed); } .cg-dm[data-s="look"] { background: var(--waiting); } .cg-dm[data-s="blocked"] { background: var(--decided); }
   .cg-dm[data-nr] { background: transparent; border: 1.5px dashed var(--muted); } .cg-dm[data-me] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--ink); }
-  .cg-walk { max-width: 980px; margin: 4px 0 14px; } .cg-walk .track { position: relative; height: 46px; margin: 0 14px; }
+  .cg-walk { max-width: var(--content-w); margin: 4px 0 14px; } .cg-walk .track { position: relative; height: 46px; margin: 0 14px; }
   .cg-walk .ln { position: absolute; top: 13px; left: 0; height: 2px; background: var(--ink); opacity: .55; } .cg-walk .ln.nr { right: 0; width: auto; background: none; border-top: 2px dashed var(--muted); height: 0; opacity: 1; }
   .cg-walk .track > b { position: absolute; top: 10px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); box-sizing: border-box; opacity: .7; }
   .cg-walk .track > b[data-nr] { border-style: dashed; border-color: var(--muted); }
   .cg-walk .ck { all: unset; position: absolute; top: 3px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: default; }
   .cg-walk button.ck { cursor: pointer; } .cg-walk .ck .cg-dm { width: 16px; height: 16px; } .cg-walk button.ck:hover .lb, .cg-walk button.ck:focus-visible .lb { text-decoration: underline; }
-  .cg-walk .lb { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; } .cg-walk .lb.me { color: var(--ink); }
+  .cg-walk .lb { font-size: var(--fs-micro); font-weight: 600; color: var(--muted); white-space: nowrap; } .cg-walk .lb.me { color: var(--ink); }
   .cg-walkkey { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; margin-left: 8px; } .cg-walkkey > span { display: inline-flex; gap: 6px; align-items: center; }
   .cg-walkkey b.d { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--ink); box-sizing: border-box; opacity: .7; }
-  .cg-checks { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); max-width: 980px; }
+  .cg-checks { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); max-width: var(--content-w); }
   .cg-checks li { display: grid; grid-template-columns: 4.5em minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; padding: 8px 12px; }
   .cg-checks li + li { border-top: 1px solid var(--line); } .cg-checks li[data-me] { background: var(--soft); }
   .cg-spark { display: inline-flex; gap: 5px; align-items: center; min-width: 9em; justify-content: flex-end; }
   @media (max-width: 720px) { .cg-runs.has-ck li { grid-template-columns: 1fr auto; } .cg-checks li { grid-template-columns: 4.5em minmax(0, 1fr); } .cg-spark { justify-content: flex-start; } .cg-runs li.rh { display: none; } }
   @media (max-width: 720px) { .cg-runs li { grid-template-columns: 1fr auto; } .cg-runs .re { grid-column: 1 / -1; } .cg-runs .rb, .cg-runs .rl { text-align: left; } }
   /* The problem in short: four cards, each with its ink. */
-  .cg-diag-s { max-width: none; } .cg-diag { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; max-width: 980px; }
+  .cg-diag-s { max-width: none; } .cg-diag { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; max-width: var(--content-w); }
   .cg-diag-c { padding: 12px 14px; border-radius: var(--r-md); background: var(--c-soft); border-left: 4px solid var(--c); }
   .cg-diag-c h4 { margin: 0 0 6px; display: flex; gap: 6px; align-items: center; font-size: var(--fs-meta); color: var(--c); }
   .cg-diag-c svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
@@ -1704,7 +1704,7 @@
   .cg-exp { padding: 8px 12px; border-radius: var(--r-md); border-left: 3px solid var(--approved); background: var(--soft); margin: 0 0 8px; } .cg-exp h4 { margin: 0 0 4px; font-size: var(--fs-meta); }
   .cg-note { margin: 0 0 8px; }
   details.cg-fold { margin: 8px 0 0; } details.cg-fold > summary { cursor: pointer; font-size: var(--fs-meta); font-weight: 600; padding: 4px 0; }
-  .cg-nospec { margin: 12px 0; padding: 12px 16px; border-radius: var(--r-md); border: 2px solid var(--warn); background: var(--waiting-soft); font-size: var(--fs-body, 15px); }
+  .cg-nospec { margin: 12px 0; padding: 12px 16px; border-radius: var(--r-md); border: 2px solid var(--warn); background: var(--waiting-soft); font-size: var(--fs-ui); }
   .cg-nospec b { display: block; margin-bottom: 4px; color: var(--waiting); font-size: 1.05em; }
   .cg-upkeep { margin: 8px 0 12px; padding: 8px 12px; border-radius: var(--r-md); border-left: 3px solid var(--accent); background: var(--soft); } .cg-upkeep p { margin: 0; } .cg-upkeep p + p { margin-top: 4px; }
   .cg-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
@@ -1737,12 +1737,12 @@
   .cg-hist li > .tag { min-width: 96px; }
   .cg-hist .why { color: var(--muted); flex-basis: 100%; padding-left: 108px; }
   .cg-counts { display: flex; flex-wrap: wrap; gap: 8px; }
-  .cg-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; max-width: 900px; margin: 0 auto 16px; }
+  .cg-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; max-width: var(--content-w); margin: 0 auto 16px; }
   .cg-tile { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 4px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .cg-tile:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--line)); }
   .cg-tile .n { font-size: var(--fs-title); font-weight: 600; line-height: 1.2; color: var(--t, var(--ink)); }
   .cg-tile .w { font-weight: 600; } .cg-tile .s { font-size: var(--fs-meta); color: var(--muted); }
-  .cg-now { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-radius: var(--radius); background: var(--info-soft); max-width: 900px; margin: 0 auto 16px; }
+  .cg-now { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-radius: var(--radius); background: var(--info-soft); max-width: var(--content-w); margin: 0 auto 16px; }
   .cg-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
   .cg-list { margin: 0; padding-left: 20px; } .cg-list li { margin-bottom: 4px; }
   /* A scenario request's steps: done green, now in the product's colour and moving, to come grey, stopped slate. */
@@ -1870,14 +1870,14 @@
   .cg-bar { display: flex; width: 100%; height: 4px; margin-top: 6px; border-radius: 999px; overflow: hidden; background: var(--soft); }
   .cg-bar i { display: block; height: 100%; } .cg-bar i.pass { background: var(--approved); } .cg-bar i.look { background: var(--waiting); }
   .cg-tile.still { cursor: default; } .cg-tile .n small { font-size: var(--fs-ui); color: var(--muted); font-weight: 500; }
-  .cg-note { max-width: 900px; margin: 0 auto 16px; font-size: var(--fs-meta); color: var(--muted); }
+  .cg-note { max-width: var(--content-w); margin: 0 auto 16px; font-size: var(--fs-meta); color: var(--muted); }
   .cg-set { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .cg-set:last-child { border-bottom: 0; } .cg-set > div:first-child { display: grid; gap: 2px; min-width: 0; }
   .cg-set-in { display: inline-flex; gap: 8px; align-items: center; } .cg-set-in input { width: auto; padding: 4px 8px; height: 26px; font-size: var(--fs-meta); }
   .cg-bad { font-size: var(--fs-meta); color: var(--bad); }
   .ask-about { margin: 0; padding: 8px 12px; border-radius: var(--r-md); background: var(--info-soft); font-size: var(--fs-meta); }
   /* Settings: one page. The week strip, then the checks grouped by when they run, each row opening in place. */
-  .cg-settings { max-width: 900px; }
+  .cg-settings { max-width: var(--content-w); }
   .cg-week { display: grid; gap: 4px; margin: 16px 0 8px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); font-size: var(--fs-meta); }
   .cg-wk-h, .cg-wk-r { display: grid; grid-template-columns: minmax(120px, 180px) repeat(7, minmax(0, 1fr)) 48px; gap: 4px; align-items: center; }
   .cg-wk-h span { color: var(--muted); text-align: center; } .cg-wk-h span.today { color: var(--ink); font-weight: 600; }
@@ -1901,21 +1901,21 @@
   .cg-switch[aria-checked="true"] { background: var(--accent); } .cg-switch[aria-checked="true"] span { left: 18px; }
   .cg-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Problems' overview: the blockers, then Now · Waiting · Next in one quiet row. */
-  .cg-ov { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 900px; margin: 0 auto 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .cg-ov { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: var(--content-w); margin: 0 auto 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .cg-ov > div { display: grid; gap: 2px; align-content: start; padding: 12px 16px; min-width: 0; } .cg-ov > div + div { border-left: 1px solid var(--line); }
   .cg-ov > div.busy { background: var(--info-soft); border-radius: var(--radius) 0 0 var(--radius); }
   .cg-ov b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cg-ov .k .spin { margin-right: 6px; }
   @media (max-width: 720px) { .cg-ov { grid-template-columns: 1fr; } .cg-ov > div + div { border-left: 0; border-top: 1px solid var(--line); } }
-  .cg-blk { display: flex; align-items: center; gap: 12px; max-width: 900px; margin: 0 auto 8px; padding: 8px 12px 8px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--closed-soft); }
+  .cg-blk { display: flex; align-items: center; gap: 12px; max-width: var(--content-w); margin: 0 auto 8px; padding: 8px 12px 8px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--closed-soft); }
   .cg-blk > div:nth-child(2) { flex: 1; min-width: 0; } .cg-blk .actions { display: flex; gap: 8px; flex: none; }
   .cg-bdot { width: 8px; height: 8px; border-radius: 50%; background: var(--closed); flex: none; }
   /* Numbers and history in a tab's pane: quiet charts in the state inks. */
-  .cg-chart { max-width: 900px; margin: 0 auto 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .cg-chart { max-width: var(--content-w); margin: 0 auto 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .cg-chart h3 { margin: 0 0 8px; font-size: var(--fs-meta); font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: baseline; } .cg-chart h3 .k { font-weight: 400; margin-left: auto; }
   .cg-svg { width: 100%; height: auto; display: block; } .cg-svg a { cursor: pointer; } .cg-svg a:hover rect { opacity: .8; }
-  .cg-ax { font-size: 10px; fill: var(--muted); }
+  .cg-ax { font-size: var(--fs-micro); fill: var(--muted); }
   .cg-legend span[data-c="accent"] { --hc: var(--accent); } .cg-legend span[data-c="fail"] { --hc: var(--closed); } .cg-legend span[data-c="blocked"] { --hc: var(--decided); }
-  .cg-look { max-width: 900px; margin: 0 auto 16px; }
+  .cg-look { max-width: var(--content-w); margin: 0 auto 16px; }
   .cg-hgrid { display: grid; grid-template-columns: minmax(80px, max-content) repeat(var(--n), minmax(14px, 1fr)); gap: 3px 4px; align-items: center; font-size: var(--fs-micro); }
   .cg-hb { color: var(--muted); text-align: center; font-family: var(--mono); } .cg-hn { justify-self: start; font-size: var(--fs-micro); }
   .cg-hc { all: unset; display: block; height: 14px; border-radius: 3px; background: var(--c, transparent); box-shadow: inset 0 0 0 1px var(--line); } button.cg-hc { cursor: pointer; } button.cg-hc:hover { outline: 2px solid var(--ink); }
@@ -1976,15 +1976,18 @@
   body.na [data-setting], body.na [data-set] { pointer-events: none; }
 </style>
 <style data-cg-page>
+  /* One width for the content of an item's page, the overview and Settings; one edge for a state's ink. */
+  :root { --content-w: 900px; }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); font-weight: 600; } .cg-listtitle { padding: 8px 4px; font-weight: 600; }
   .cg-ftab tr { border-left: 3px solid var(--fc, transparent); } .cg-ftab tr[data-st="open"] { --fc: var(--closed); } .cg-ftab tr[data-st="fixed"] { --fc: var(--approved); }
   .cg-ftab tr[data-st="dismissed"] { --fc: var(--decided); } .cg-ftab tr[data-st="gone"], .cg-ftab tr[data-st="left"] { --fc: var(--muted); }
   .cg-ftab tr[data-st="fixed"] td.f a, .cg-ftab tr[data-st="gone"] td.f a { color: var(--muted); }
-  details.cg-fmore { margin-top: 8px; max-width: 900px; } details.cg-fmore > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-meta); padding: 6px 0; } details.cg-fmore > .cg-ftab { margin-top: 4px; }
+  details.cg-fmore { margin-top: 8px; max-width: var(--content-w); } details.cg-fmore > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-meta); padding: 4px 0; } details.cg-fmore > .cg-ftab { margin-top: 4px; }
 
-  .cg-answers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: 900px; } .cg-answers li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: var(--fs-meta); padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .cg-answers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: var(--content-w); } .cg-answers li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: var(--fs-meta); padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
   .cg-answers li > span:nth-child(odd):last-child { flex-basis: 100%; }
-  .cg-esc { max-width: 900px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--closed); border-radius: var(--r-md); margin-bottom: 8px; font-size: var(--fs-meta); }
-  .cg-esc .h { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; } .cg-esc p { margin: 6px 0 0; } .cg-esc details { margin-top: 6px; } .cg-esc summary { cursor: pointer; color: var(--accent); }
+  .cg-esc { max-width: var(--content-w); padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--closed); border-radius: var(--r-md); margin-bottom: 8px; font-size: var(--fs-meta); }
+  .cg-esc .h { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; } .cg-esc p { margin: 4px 0 0; } .cg-esc details { margin-top: 4px; } .cg-esc summary { cursor: pointer; color: var(--accent); }
   details.navmenu .menu hr.sep-h { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
   .cg-about { flex-basis: 100%; color: var(--muted); font-size: var(--fs-meta); font-weight: 400; } .cg-mod-t .cg-about { padding-left: 20px; }
@@ -2000,15 +2003,15 @@
   details.navmenu > summary:hover, details.navmenu[open] > summary { background: var(--soft); color: var(--ink); } details.navmenu > summary[aria-current="true"] { background: var(--soft); color: var(--ink); font-weight: 600; }
   details.navmenu .menu { min-width: 220px; } details.navmenu .menu .btn { justify-content: flex-start; width: 100%; } details.navmenu .menu .btn[aria-current="true"] { background: var(--soft); font-weight: 600; }
 
-  .cg-ftab { width: 100%; max-width: 900px; border-collapse: collapse; font-size: var(--fs-meta); display: block; }
+  .cg-ftab { width: 100%; max-width: var(--content-w); border-collapse: collapse; font-size: var(--fs-meta); display: block; }
   .cg-ftab thead { display: none; } .cg-ftab tbody { display: block; border: 1px solid var(--line); border-radius: var(--r-md); }
-  .cg-ftab tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; } .cg-ftab tr + tr { border-top: 1px solid var(--line); }
+  .cg-ftab tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 8px 12px; } .cg-ftab tr + tr { border-top: 1px solid var(--line); }
   .cg-ftab td { padding: 0; display: block; min-width: 0; } .cg-ftab td.f { grid-column: 1; } .cg-ftab td.st { grid-column: 2; grid-row: 1; text-align: right; }
-  .cg-ftab td.meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; color: var(--muted); }
-  .cg-ftab td.why { grid-column: 1 / -1; color: var(--muted); padding-top: 2px; } .cg-ftab td.why:empty { display: none; } .cg-ftab td.why b { color: var(--ink); font-weight: 600; }
+  .cg-ftab td.meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; color: var(--muted); }
+  .cg-ftab td.why { grid-column: 1 / -1; color: var(--muted); } .cg-ftab td.why:empty { display: none; } .cg-ftab td.why b { color: var(--ink); font-weight: 600; }
   .cg-ftab td.f { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; } .cg-ftab td.f .loc { flex-basis: 100%; margin-top: 0; } .cg-ftab td.meta { gap: 4px 16px; }
-  .cg-ftab .loc { display: block; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
-  .cg-ftab .life { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; } .cg-ftab .life i { width: 10px; height: 6px; border-radius: 2px; background: var(--c, var(--line)); }
+  .cg-ftab .loc { display: block; color: var(--muted); font-family: var(--mono); font-size: var(--fs-micro); overflow-wrap: anywhere; }
+  .cg-ftab .life { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; } .cg-ftab .life i { width: 10px; height: 6px; border-radius: 2px; background: var(--c, var(--line)); }
 
   /* The phases of a review run: one ink each, the same in every chart. */
   :root { --ph-prepare: #b4b2e3; --ph-diff: #7d79d6; --ph-skills: #4a47b8; --ph-compose: #2c8a7e; --ph-post: #8a6fb8; }
@@ -2019,46 +2022,46 @@
   .cg-legend span[data-c="ph-compose"] { --hc: var(--ph-compose); } .cg-legend span[data-c="ph-post"] { --hc: var(--ph-post); } .cg-legend span[data-c="ph-next"]::before { border-style: dashed; background: none; --hc: var(--muted); }
   .cg-ph .run { animation: cg-ph-run 1.2s linear infinite; } @keyframes cg-ph-run { to { stroke-dashoffset: -16; } }
   @media (prefers-reduced-motion: reduce) { .cg-ph .run { animation: none; } }
-  .cg-ph text.l { fill: var(--ink); font-size: 12px; } .cg-ph text.s { fill: var(--muted); font-size: 11px; }
+  .cg-ph text.l { fill: var(--ink); font-size: var(--fs-meta); } .cg-ph text.s { fill: var(--muted); font-size: var(--fs-micro); }
   .cg-phnote { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; font-size: var(--fs-meta); color: var(--muted); } .cg-phnote b { color: var(--ink); font-weight: 600; }
-  .cg-runcard { margin: 0 0 12px; } .cg-runcard h4 { margin: 0 0 6px; font-size: var(--fs-body); display: flex; gap: 8px; align-items: baseline; }
+  .cg-runcard { margin: 0 0 12px; } .cg-runcard h4 { margin: 0 0 4px; font-size: var(--fs-ui); display: flex; gap: 8px; align-items: baseline; }
 
   /* Code Guardian's own parts, on the Desk's tokens and scale (docs/desk.md → The look). */
   .sev { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
   .sev[data-v="critical"] { background: var(--closed-soft); color: var(--closed); } .sev[data-v="warning"] { background: var(--waiting-soft); color: var(--waiting); }
   .sev[data-v="suggestion"] { background: var(--soft); color: var(--muted); }
-  .cg-tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-width: 900px; }
+  .cg-tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-width: var(--content-w); }
   .cg-tl li { display: grid; grid-template-columns: 22px 9em minmax(0, 1fr); gap: 8px; align-items: baseline; position: relative; padding: 4px 0; font-size: var(--fs-meta); }
   .cg-tl li::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--line); }
   .cg-tl li:first-child::before { top: 12px; } .cg-tl li:last-child::before { bottom: calc(100% - 12px); }
   .cg-tl .d { position: relative; z-index: 1; width: 12px; height: 12px; margin: 0 0 0 5px; border-radius: 50%; background: var(--c, var(--muted)); box-shadow: 0 0 0 3px var(--panel); }
   .cg-tl .w { color: var(--muted); white-space: nowrap; } .cg-tl .t { min-width: 0; }
   .cg-tl li.now .d { animation: pulse 1.2s ease-in-out infinite; }
-  .cg-flist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: 980px; }
+  .cg-flist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: var(--content-w); }
   .cg-flist li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 8px 12px; font-size: var(--fs-meta); }
   .cg-flist li + li { border-top: 1px solid var(--line); } .cg-flist .loc { grid-column: 2 / -1; color: var(--muted); font-family: var(--mono); font-size: var(--fs-micro); overflow-wrap: anywhere; }
   .cg-flist li[data-st="fixed"] .s { text-decoration: line-through; color: var(--muted); }
-  .cg-rounds { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: 980px; }
+  .cg-rounds { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; max-width: var(--content-w); }
   .cg-rounds li { display: grid; grid-template-columns: 4.5em 9.5em 10em minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 8px 12px; font-size: var(--fs-meta); }
   .cg-rounds li + li { border-top: 1px solid var(--line); } .cg-rounds li[aria-current="true"] { background: var(--soft); }
   @media (max-width: 720px) { .cg-rounds li { grid-template-columns: 1fr auto; } .cg-flist li { grid-template-columns: 1fr auto; } }
   .cg-md { max-width: var(--measure); font-size: var(--fs-ui); } .cg-md h4 { margin: 16px 0 4px; font-size: var(--fs-ui); } .cg-md h3 { margin: 16px 0 4px; font-size: var(--fs-head); }
   .cg-md p { margin: 4px 0 8px; } .cg-md ul { margin: 4px 0 8px; padding-left: 20px; } .cg-md code { font: var(--fs-meta) var(--mono); background: var(--soft); padding: 0 4px; border-radius: var(--r-xs); }
   .cg-md .body { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
-  .cg-log { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); max-width: 1100px; font-size: var(--fs-meta); max-height: 520px; overflow: auto; }
+  .cg-log { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); max-width: var(--content-w); font-size: var(--fs-meta); max-height: 520px; overflow: auto; }
   .cg-log li { display: grid; grid-template-columns: 5.5em 4em 9em minmax(0, 1fr); gap: 8px; padding: 4px 12px; align-items: baseline; }
   .cg-log li + li { border-top: 1px solid var(--line); } .cg-log li[data-l="error"] { background: var(--closed-soft); } .cg-log li[data-l="warn"] { background: var(--waiting-soft); }
   .cg-log .m { overflow-wrap: anywhere; } .cg-log .e { font-family: var(--mono); font-size: var(--fs-micro); color: var(--muted); }
-  .cg-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; max-width: 900px; font-size: var(--fs-meta); }
+  .cg-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; max-width: var(--content-w); font-size: var(--fs-meta); }
   .cg-facts dt { color: var(--muted); } .cg-facts dd { margin: 0; overflow-wrap: anywhere; }
-  .cg-frame { width: 100%; max-width: 1100px; height: 620px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
-  .cg-svc { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; max-width: 900px; margin: 0 auto 16px; }
-  .cg-svc > div { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); border-left: 4px solid var(--c, var(--line)); font-size: var(--fs-meta); }
+  .cg-frame { width: 100%; height: 620px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+  .cg-svc { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; max-width: var(--content-w); margin: 0 auto 16px; }
+  .cg-svc > div { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); border-left: 3px solid var(--c, var(--line)); font-size: var(--fs-meta); }
   .cg-svc b { display: block; font-size: var(--fs-ui); } .cg-svc .k { color: var(--muted); }
   .cg-rule { display: flex; gap: 12px; align-items: baseline; padding: 4px 0; font-size: var(--fs-meta); } .cg-rule .when { flex: none; width: 7em; color: var(--muted); }
-  .cg-rule .from { flex: none; } .cg-cfg { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 24px; font-size: var(--fs-meta); max-width: 700px; }
+  .cg-rule .from { flex: none; } .cg-cfg { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 24px; font-size: var(--fs-meta); max-width: var(--content-w); }
   .cg-cfg code { font-family: var(--mono); } .cg-cfg .k { color: var(--muted); }
-  .cg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; max-width: 900px; margin: 0 auto 16px; }
+  .cg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; max-width: var(--content-w); margin: 0 auto 16px; }
   .cg-card { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 4px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); border-top: 3px solid var(--accent); }
   .cg-card:hover { border-color: var(--accent); } .cg-card .k { color: var(--muted); font-size: var(--fs-meta); }
   .cg-pr-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: var(--fs-meta); color: var(--muted); margin: -4px 0 8px; }
@@ -2310,7 +2313,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         [whenFact("started", r.start), now ? fact("now", now.label, now.tip) : r.secs ? fact("took", dur(r.secs)) : "", r.posted.length ? fact("posted", r.posted.map((x) => verdictOf(x.verdict)[0]).join(", ")) : "", cost ? fact("cost", cost.text, cost.tip) : ""].join("")); });
       empty = S.runPage === "running" ? "No review runs now. Done shows the last 14 days." : "No review runs here in the last 14 days.";
     } else if (S.tab === "pages") {
-      head = `<div class="subtabs"><b style="padding:8px 4px">Reports</b></div>`;
+      head = `<div class="subtabs"><b class="cg-listtitle">Reports</b></div>`;
       rows = reportPages().map((a) => row(`page:${a.id}`, a.title, "", dot(a.state === "error" ? "fail" : "pass", a.state === "error" ? "Not published" : "Published"),
         [whenFact("published", a.utc), fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
       empty = "No report published yet.";
@@ -2447,7 +2450,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     const flist = (list) => `<ul class="cg-flist">${list.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0], FSTATE[f.state][2])}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></li>`).join("")}</ul>`;
     const forHuman = p.for_human;
     const sh = p.shepherd;
-    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip" style="background: var(--bad-soft); color: var(--bad); font-weight: 600" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
+    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip bad" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
       + statusBox(s, w, help, acts, now)
       + (p.triage ? `<p class="cg-pr-head">${p.triage.class === "quick-check" ? `<span class="chip ok" title="${esc(p.triage.why || "")}">A quick check is enough</span>` : `<span class="chip warn" title="${esc(p.triage.why || "")}">Needs a human review</span>`}${p.triage.minutes ? `<span>about ${esc(p.triage.minutes)} min for a person</span>` : ""}${p.size?.files ? `<span>${esc(p.size.files)} files · +${esc(p.size.additions ?? "?")} −${esc(p.size.deletions ?? "?")}</span>` : ""}</p>` : "")
       + sect("Findings", fs.length ? findingsTable(fs, rs) : rs.length ? `<p class="k">No findings in ${esc(plural(rs.length, "round", "rounds"))}.</p>` : "", open.length ? `${plural(open.length, "is", "are")} open, ${plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block")} the merge` : fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
@@ -2490,10 +2493,11 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderLearning(l) {
     const LAYER = { memory: "Every review", area: "Reviews of its paths", lessons: "Every run" };
     const fs = findings().filter((f) => (f.answers || []).some((a) => a.id === l.id)), es = escapes().filter((e) => e.learned === l.id);
+    const del = isOwner() ? `<button class="btn" data-learning-remove="${esc(l.id)}" title="Takes the line out of ${esc(l.file)}; the next run no longer reads it">Delete…</button>` : "";
     return head(l.text.length > 90 ? l.text.slice(0, 88) + "…" : l.text, l.id, `${esc(l.section || "")} · <code>${esc(l.file)}</code>`)
-      + `<dl class="cg-facts"><dt>The rule</dt><dd>${mdLite(l.text).replace(/^<p>|<\/p>$/g, "")}</dd><dt>Read by</dt><dd>${esc(LAYER[l.layer] || "")}${l.scope?.length ? ` — <code>${esc(l.scope.join(", "))}</code>` : ""}</dd>`
-      + `${l.from ? `<dt>From</dt><dd>${esc(l.from === "user" ? "a person" : l.from === "escape" ? "an escaped defect" : l.from)}</dd>` : ""}${l.date ? `<dt>Since</dt><dd>${esc(day(l.date + "T12:00:00Z"))}</dd>` : ""}${l.seen ? `<dt>Seen</dt><dd>${esc(plural(l.seen, "time", "times"))}</dd>` : ""}${l.pr ? `<dt>PR</dt><dd>${prA(l.pr)}</dd>` : ""}</dl>`
-      + (isOwner() ? `<p><button class="btn" data-learning-remove="${esc(l.id)}" title="Takes the line out of ${esc(l.file)}; the next run no longer reads it">Delete this ${l.layer === "lessons" ? "lesson" : "rule"}…</button></p>` : "")
+      + statusBox("pass", "In force", `${LAYER[l.layer] || ""} reads it.`, del, "")
+      + sect("The rule", `<dl class="cg-facts"><dt>The rule</dt><dd>${mdLite(l.text).replace(/^<p>|<\/p>$/g, "")}</dd><dt>Read by</dt><dd>${esc(LAYER[l.layer] || "")}${l.scope?.length ? ` — <code>${esc(l.scope.join(", "))}</code>` : ""}</dd>`
+      + `${l.from ? `<dt>From</dt><dd>${esc(l.from === "user" ? "a person" : l.from === "escape" ? "an escaped defect" : l.from)}</dd>` : ""}${l.date ? `<dt>Since</dt><dd>${esc(day(l.date + "T12:00:00Z"))}</dd>` : ""}${l.seen ? `<dt>Seen</dt><dd>${esc(plural(l.seen, "time", "times"))}</dd>` : ""}${l.pr ? `<dt>PR</dt><dd>${prA(l.pr)}</dd>` : ""}</dl>`)
       + (l.archive ? sect("The story behind it", `<div class="cg-md">${mdLite(l.archive)}</div>`, `from <code>archive/${esc(l.archive_ref)}</code>`) : "")
       + (es.length ? sect("The escapes that taught it", es.map(escapeCard).join("")) : "")
       + (fs.length ? sect("Findings it answers", `<ul class="cg-flist">${fs.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0])}<span class="loc">${esc(f.file || "")}</span></li>`).join("")}</ul>`) : "");
@@ -2752,7 +2756,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     if (S.tab === "pages") return `<div class="cg-cards">${reportPages().map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
     if (S.tab === "learnings") { const ls = learnings(), c = (f) => ls.filter(f).length;
       return pick + `<div class="cg-tiles">${tile("lPage:rules", c((l) => l.layer === "memory" && l.from !== "escape"), "Rules", "every review reads them", "--accent")}${tile("lPage:areas", c((l) => l.layer === "area"), "Area rules", "for one part of the code", "--decided")}${tile("lPage:escaped", c((l) => l.from === "escape"), "Escaped classes", "learned from errors after merge", "--closed")}${tile("lPage:lessons", c((l) => l.layer === "lessons"), "Lessons", "about its tools and environment", "--waiting")}</div>` + renderIntro(); }
-    if (S.tab === "health") return pick + (arts().some((a) => a.id === "health") ? `<div class="cg-cards" style="max-width:900px;margin:0 auto 16px"><button class="cg-card" data-item="page:health"><b>The health dashboard</b><span class="k">${esc(PAGE_ABOUT.health)}</span></button></div>` : "") + services() + healthHours() + renderIntro();
+    if (S.tab === "health") return pick + (arts().some((a) => a.id === "health") ? `<div class="cg-cards"><button class="cg-card" data-item="page:health"><b>The health dashboard</b><span class="k">${esc(PAGE_ABOUT.health)}</span></button></div>` : "") + services() + healthHours() + renderIntro();
     return pick;
   }
 
