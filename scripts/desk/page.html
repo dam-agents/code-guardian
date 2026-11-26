@@ -1976,12 +1976,39 @@
   body.na [data-setting], body.na [data-set] { pointer-events: none; }
 </style>
 <style data-cg-page>
+  details.navmenu { position: relative; display: inline-block; } details.navmenu > summary { list-style: none; padding: 8px 12px; border-radius: var(--r-md); cursor: pointer; color: var(--muted); font-size: var(--fs-ui); display: inline-flex; align-items: center; gap: 4px; }
+  details.navmenu > summary::-webkit-details-marker { display: none; } details.navmenu > summary::after { content: "▾"; font-size: 10px; }
+  details.navmenu > summary:hover, details.navmenu[open] > summary { background: var(--soft); color: var(--ink); } details.navmenu > summary[aria-current="true"] { background: var(--soft); color: var(--ink); font-weight: 600; }
+  details.navmenu .menu { min-width: 220px; } details.navmenu .menu .btn { justify-content: flex-start; width: 100%; } details.navmenu .menu .btn[aria-current="true"] { background: var(--soft); font-weight: 600; }
+
+  .cg-ftab { width: 100%; max-width: 900px; border-collapse: collapse; font-size: var(--fs-meta); display: block; }
+  .cg-ftab thead { display: none; } .cg-ftab tbody { display: block; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .cg-ftab tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; } .cg-ftab tr + tr { border-top: 1px solid var(--line); }
+  .cg-ftab td { padding: 0; display: block; min-width: 0; } .cg-ftab td.f { grid-column: 1; } .cg-ftab td.st { grid-column: 2; grid-row: 1; text-align: right; }
+  .cg-ftab td.meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; color: var(--muted); }
+  .cg-ftab td.note { grid-column: 1 / -1; color: var(--muted); } .cg-ftab td.note:empty { display: none; } .cg-ftab td.note b { color: var(--ink); font-weight: 600; }
+  .cg-ftab .loc { display: block; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+  .cg-ftab .life { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; } .cg-ftab .life i { width: 10px; height: 6px; border-radius: 2px; background: var(--c, var(--line)); }
+
+  /* The phases of a review run: one ink each, the same in every chart. */
+  :root { --ph-prepare: #b4b2e3; --ph-diff: #7d79d6; --ph-skills: #4a47b8; --ph-compose: #2c8a7e; --ph-post: #8a6fb8; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ph-prepare: #4a4880; --ph-diff: #6f6bd0; --ph-skills: #a9a6ff; --ph-compose: #5cc4b5; --ph-post: #c3a8f0; } }
+  :root[data-theme="dark"] { --ph-prepare: #4a4880; --ph-diff: #6f6bd0; --ph-skills: #a9a6ff; --ph-compose: #5cc4b5; --ph-post: #c3a8f0; }
+  .cg-legend span[data-c^="ph-"]::before { background: var(--hc); }
+  .cg-legend span[data-c="ph-prepare"] { --hc: var(--ph-prepare); } .cg-legend span[data-c="ph-diff"] { --hc: var(--ph-diff); } .cg-legend span[data-c="ph-skills"] { --hc: var(--ph-skills); }
+  .cg-legend span[data-c="ph-compose"] { --hc: var(--ph-compose); } .cg-legend span[data-c="ph-post"] { --hc: var(--ph-post); } .cg-legend span[data-c="ph-next"]::before { border-style: dashed; background: none; --hc: var(--muted); }
+  .cg-ph .run { animation: cg-ph-run 1.2s linear infinite; } @keyframes cg-ph-run { to { stroke-dashoffset: -16; } }
+  @media (prefers-reduced-motion: reduce) { .cg-ph .run { animation: none; } }
+  .cg-ph text.l { fill: var(--ink); font-size: 12px; } .cg-ph text.s { fill: var(--muted); font-size: 11px; }
+  .cg-phnote { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; font-size: var(--fs-meta); color: var(--muted); } .cg-phnote b { color: var(--ink); font-weight: 600; }
+  .cg-runcard { margin: 0 0 12px; } .cg-runcard h4 { margin: 0 0 6px; font-size: var(--fs-body); display: flex; gap: 8px; align-items: baseline; }
+
   /* Code Guardian's own parts, on the Desk's tokens and scale (docs/desk.md → The look). */
   .sev { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
   .sev[data-v="critical"] { background: var(--closed-soft); color: var(--closed); } .sev[data-v="warning"] { background: var(--waiting-soft); color: var(--waiting); }
   .sev[data-v="suggestion"] { background: var(--soft); color: var(--muted); }
   .cg-tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-width: 900px; }
-  .cg-tl li { display: grid; grid-template-columns: 22px 9.5em minmax(0, 1fr); gap: 8px; align-items: baseline; position: relative; padding: 4px 0; font-size: var(--fs-meta); }
+  .cg-tl li { display: grid; grid-template-columns: 22px 9em minmax(0, 1fr); gap: 8px; align-items: baseline; position: relative; padding: 4px 0; font-size: var(--fs-meta); }
   .cg-tl li::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--line); }
   .cg-tl li:first-child::before { top: 12px; } .cg-tl li:last-child::before { bottom: calc(100% - 12px); }
   .cg-tl .d { position: relative; z-index: 1; width: 12px; height: 12px; margin: 0 0 0 5px; border-radius: 50%; background: var(--c, var(--muted)); box-shadow: 0 0 0 3px var(--panel); }
@@ -2099,7 +2126,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // ---------- state ----------
   const S = { me: null, data: null, hash: null, status: null, tab: "prs", item: null, offline: false,
-    prPage: "open", prFilter: "all", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "all", runFilter: "all", pgPage: "all", hPage: "incidents" };
+    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents" };
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeUrl = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
@@ -2131,7 +2158,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     : p.status === "awaiting_label" ? ["New commits, waiting", "blocked"] : verdictOf(p.verdict);
   const needsYou = (p) => p.state === "open" && (p.status === "awaiting_label" || (p.verdict === "APPROVE" && p.shepherd?.status === "open") || (p.shepherd?.nudges > 0));
   const PR_PAGE = { open: (p) => p.state === "open", you: needsYou, closed: (p) => p.state === "closed" };
-  const PR_FILTER = { all: () => true, changes: (p) => p.verdict === "REQUEST_CHANGES", approved: (p) => p.verdict === "APPROVE", waiting: (p) => ["in_progress", "awaiting_label"].includes(p.status) || !p.rounds };
+  const PR_FILTER = { all: () => true, changes: (p) => p.verdict === "REQUEST_CHANGES", approved: (p) => p.verdict === "APPROVE", reviewing: (p) => ["in_progress", "awaiting_label"].includes(p.status) || !p.rounds };
   const prList = (f = S.prFilter, pg = S.prPage) => prs().filter((p) => PR_PAGE[pg](p) && PR_FILTER[f](p));
   const escapes = () => D().escapes || [];
   const F_PAGE = { all: () => true, blocking: (f) => f.severity !== "suggestion", suggestions: (f) => f.severity === "suggestion" };
@@ -2140,8 +2167,9 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const RV_PAGE = { all: () => true, first: (r) => r.kind !== "re-review", re: (r) => r.kind === "re-review" };
   const RV_FILTER = { all: () => true, changes: (r) => r.verdict === "REQUEST_CHANGES", approved: (r) => r.verdict === "APPROVE", commented: (r) => r.verdict === "COMMENT" || r.verdict === "RAPID" };
   const rvList = (f = S.rvFilter, pg = S.rvPage) => reviews().filter((r) => RV_PAGE[pg](r) && RV_FILTER[f](r)).reverse();
-  const RUN_PAGE = { all: () => true, review: (r) => r.job === "review", monitor: (r) => r.job === "monitor", other: (r) => !["review", "monitor"].includes(r.job) };
-  const runList = (f = S.runFilter, pg = S.runPage) => runs().filter((r) => RUN_PAGE[pg](r) && (f === "all" || ["fail", "look"].includes(r.state)));
+  const RUN_PAGE = { running: (r) => r.state === "running", done: (r) => r.state !== "running", problems: (r) => ["fail", "look"].includes(r.state) };
+  const reviewRuns = () => runs().filter((r) => r.job === "review");
+  const runList = (pg = S.runPage) => reviewRuns().filter(RUN_PAGE[pg]).reverse();
   const runTitle = (r) => r.job === "review" ? (r.prs.length ? `Review of ${r.prs.slice(0, 3).map((n) => `#${n}`).join(", ")}${r.prs.length > 3 ? " …" : ""}` : "Review run") : JOB[r.job] || human(r.job);
   const arts = () => D().artifacts || [];
   const PG_PAGE = { all: () => true, guides: (a) => a.kind === "guide", reports: (a) => a.kind !== "guide" };
@@ -2163,16 +2191,26 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const sevChip = (s) => `<span class="sev" data-v="${esc(s)}" title="${esc(SEV[s]?.[1] || "")}">${esc(SEV[s]?.[0] || s)}</span>`;
   const stw = (s, w, tip) => `<span class="stw" data-s="${esc(s)}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(w)}</span>`;
 
+  // Pages: a menu of the published pages, each opens on the Desk; the review guides are one list.
+  // The health dashboard lives under Health.
+  const reportPages = () => arts().filter((a) => a.kind !== "guide" && a.id !== "health");
+  function pagesMenu() {
+    const gs = arts().filter((a) => a.kind === "guide").length, cur = S.tab === "pages";
+    return `<details class="more navmenu"><summary aria-current="${cur}" title="The pages Code Guardian published">${esc(TABS.pages)}</summary><div class="menu">`
+      + `<button class="btn" data-tab="pages" aria-current="${cur && !String(S.item || "").startsWith("page:") || (cur && /^page:guide:/.test(S.item || ""))}" title="A guide for the human reviewer of one PR">Review guides${gs ? ` <span class="count">${gs}</span>` : ""}</button>`
+      + reportPages().map((a) => `<button class="btn" data-goto="pages" data-item="page:${esc(a.id)}" aria-current="${S.item === `page:${a.id}`}" title="${esc(PAGE_ABOUT[a.kind] || "")}">${esc(a.title)}</button>`).join("")
+      + `</div></details>`;
+  }
   // Every tab looks alike: only the open one is marked, every count is grey; Findings turns amber while a blocking finding is open.
   function renderNav() {
     const you = prs().filter(needsYou).length, blocking = findings().filter((f) => f.state === "open" && f.severity !== "suggestion").length;
-    const failing = runs().filter((r) => r.state === "fail" && Date.now() - Date.parse(r.end) < 864e5).length, openInc = incidents().filter((i) => i.open).length;
+    const liveRv = runs().filter((r) => r.job === "review" && r.state === "running").length, openInc = incidents().filter((i) => i.open).length;
     const tab = ([k, n, warn, tip]) => `<button data-tab="${k}" aria-current="${S.tab === k}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(TABS[k])}${n ? `<span class="count${warn ? " warn" : ""}"${warn ? ` title="${esc(warn)}"` : ""}>${n}</span>` : ""}</button>`;
     const sep = `<span class="sep" aria-hidden="true"></span>`;
     const html = [[["prs", you, "", "Where each open pull request stands; the count: the ones that need a person"], ["findings", blocking, blocking && `${plural(blocking, "blocking finding is", "blocking findings are")} open`, "What the reviews found, followed to fixed"]],
-      [["reviews", 0, "", "Every review Code Guardian posted"], ["runs", failing, "", "Every run of Code Guardian; the count: runs with an error in the last day"]],
-      [["pages", 0, "", "The pages Code Guardian published: review guides and reports"], ["health", openInc, openInc && `${plural(openInc, "incident is", "incidents are")} open`, "Is Code Guardian well: services, incidents, alerts"]]]
-      .map((g) => g.map(tab).join("")).join(sep);
+      [["reviews", 0, "", "Every review Code Guardian posted"], ["runs", liveRv, "", "Every review run: its phases, its skills side by side, its cost; the count: the ones running now"]],
+      [["pages"], ["health", openInc, openInc && `${plural(openInc, "incident is", "incidents are")} open`, "Is Code Guardian well: services, incidents, alerts"]]]
+      .map((g) => g.map((t) => (t[0] === "pages" ? pagesMenu() : tab(t))).join("")).join(sep);
     const nav = $("#nav"); if (nav.drawn !== html) keepFocus(nav, () => { nav.innerHTML = html; nav.drawn = html; });
     $("#help").setAttribute("aria-current", String(S.tab === "guide")); $("#settings").setAttribute("aria-current", String(S.tab === "settings"));
   }
@@ -2222,9 +2260,9 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     let head = "", rows = [], empty = "Nothing here.";
     if (S.tab === "prs") {
       head = pages("prPage", [["open", "Open", prs().filter(PR_PAGE.open).length, "Every open pull request Code Guardian follows"], ["you", "Needs you", prs().filter(needsYou).length, "A person's move: new commits wait for a re-review label, an approved PR waits for a human review, or a reviewer was reminded"], ["closed", "Closed", prs().filter(PR_PAGE.closed).length, "Merged or closed pull requests of the last 180 days"]])
-        + `<div class="filterbar">${seg("prFilter", [["all", "All", prList("all").length], ["changes", "Changes requested", prList("changes").length, "A blocking finding is open"], ["approved", "Approved", prList("approved").length], ["waiting", "Waiting", prList("waiting").length, "In review now, or waiting for a trigger"]])}</div>`;
-      rows = prList().map((p) => { const [w, s] = prState(p);
-        return row(`#${p.n}`, p.title || `Pull request #${p.n}`, `#${p.n}`, dot(s, w), [whenFact("reviewed", p.utc), p.rounds ? fact("rounds", String(p.rounds)) : "", p.open_findings ? fact("open", plural(p.open_findings, "finding", "findings"), `${p.blocking} of them blocking`) : "",
+        + `<div class="filterbar">${seg("prFilter", [["reviewing", "Reviewing", prList("reviewing").length, "In review now, or waiting for a trigger"], ["changes", "Changes requested", prList("changes").length, "A blocking finding is open"], ["approved", "Approved", prList("approved").length], ["all", "All", prList("all").length]])}</div>`;
+      rows = prList().slice().sort((a, b) => !!b.urgent - !!a.urgent).map((p) => { const [w, s] = prState(p);
+        return row(`#${p.n}`, p.title || `Pull request #${p.n}`, `#${p.n}`, dot(s, w) + urgentDot(p), [whenFact("reviewed", p.utc), p.rounds ? fact("rounds", String(p.rounds)) : "", p.open_findings ? fact("open", plural(p.open_findings, "finding", "findings"), `${p.blocking} of them blocking`) : "",
           p.guide ? fact("guide", "Yes", "A review guide is published for it") : "", p.shepherd?.nudges ? fact("reminded", plural(p.shepherd.nudges, "time", "times"), "Code Guardian reminded its reviewers on Slack") : "", p.triage ? fact("needs", p.triage.class === "quick-check" ? "Quick check" : "A human review", p.triage.why) : ""].join("")); });
       empty = S.prPage === "you" ? "Nothing waits for you. Every open pull request has what it needs." : S.prPage === "closed" ? "No closed pull requests in the record yet." : "No open pull requests.";
     } else if (S.tab === "findings" && S.fPage === "escaped") {
@@ -2244,16 +2282,16 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         return row(r.id, `#${r.pr} ${p?.title || ""}`.trim(), r.id, dot(s, w), [whenFact("posted", r.ts), fact("round", r.kind === "re-review" ? "Again" : "First"), fact("findings", String(n)), r.size?.files ? fact("size", `${r.size.files} files`, `+${r.size.additions ?? "?"} −${r.size.deletions ?? "?"}`) : ""].join("")); });
       empty = "No review posted yet.";
     } else if (S.tab === "runs") {
-      head = pages("runPage", [["all", "All", runs().length], ["review", "Reviews", runs().filter(RUN_PAGE.review).length], ["monitor", "Health checks", runs().filter(RUN_PAGE.monitor).length], ["other", "Other", runs().filter(RUN_PAGE.other).length, "Audits, surveys, reminders, benchmarks"]])
-        + `<div class="filterbar">${seg("runFilter", [["all", "All", runList("all").length], ["problems", "With problems", runList("problems").length, "An error or a warning"]])}</div>`;
-      rows = runList().map((r) => row(r.id, runTitle(r), r.id, dot(r.state, r.state === "running" ? "Running" : r.state === "fail" ? "Error" : r.state === "look" ? "Warning" : "OK", RUN_TIP[r.state]),
-        [whenFact("ran", r.start), fact("job", JOB[r.job] || r.job), r.secs ? fact("took", dur(r.secs)) : "", r.posted.length ? fact("posted", plural(r.posted.length, "review", "reviews")) : "", r.tokens ? fact("tokens", `${Math.round(tokSum(r.tokens) / 1000)}k`, "Input, output and cache writes; cache reads not counted") : ""].join("")));
-      empty = "No runs in the last 14 days.";
+      head = pages("runPage", [["running", "Running", runList("running").length, "Reviews that work now"], ["done", "Done", runList("done").length, "Review runs of the last 14 days"], ["problems", "With problems", runList("problems").length, "An error, a warning or a stopped review"]]);
+      rows = runList().map((r) => { const now = nowPhase(r), cost = runCost(r);
+        return row(r.id, runTitle(r), r.id, dot(r.state, r.state === "running" ? "Running" : r.state === "fail" ? "Error" : r.state === "look" ? "Warning" : "OK", RUN_TIP[r.state]),
+        [whenFact("started", r.start), now ? fact("now", now.label, now.tip) : r.secs ? fact("took", dur(r.secs)) : "", r.posted.length ? fact("posted", r.posted.map((x) => verdictOf(x.verdict)[0]).join(", ")) : "", cost ? fact("cost", cost.text, cost.tip) : ""].join("")); });
+      empty = S.runPage === "running" ? "No review runs now. Done shows the last 14 days." : "No review runs here in the last 14 days.";
     } else if (S.tab === "pages") {
-      head = pages("pgPage", [["all", "All", arts().length], ["guides", "Review guides", arts().filter(PG_PAGE.guides).length, "A guide for the human reviewer of one PR"], ["reports", "Reports", arts().filter(PG_PAGE.reports).length, "Health, trends, survey, benchmark, the interface card"]]);
-      rows = arts().filter(PG_PAGE[S.pgPage]).map((a) => row(`page:${a.id}`, a.title, "", dot(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published"),
-        [whenFact("published", a.utc), a.pr ? linkFact("PR", prA(a.pr)) : "", fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
-      empty = "Nothing published yet.";
+      head = `<div class="subtabs"><b style="padding:8px 4px">Review guides</b></div>`;
+      rows = arts().filter((a) => a.kind === "guide").map((a) => row(`page:${a.id}`, `#${a.pr} ${prOf(a.pr)?.title || ""}`.trim(), "", dot(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published"),
+        [whenFact("published", a.utc), a.sha ? fact("commit", String(a.sha).slice(0, 7)) : "", fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
+      empty = "No review guide published yet.";
     } else if (S.tab === "health") {
       head = pages("hPage", [["incidents", "Incidents", incidents().length, "Something that stopped or slowed Code Guardian"], ["alerts", "Alerts", alerts().length, "What the health check told the operator"]]);
       rows = S.hPage === "alerts" ? alerts().map((a) => row(`alert:${a.id}`, human(a.kind || a.id), "", dot(a.claimed ? "pass" : "look", a.claimed ? "Taken" : "Sent"), [whenFact("first", a.first), whenFact("sent", a.sent)].join("")))
@@ -2327,6 +2365,26 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     .split(/\n{2,}/).map((p) => /^#{2,4} /.test(p) ? `<h4>${p.replace(/^#{2,4} /, "")}</h4>` : /^- /m.test(p) ? `<ul>${p.split(/\n(?=- )/).filter((l) => l.trim()).map((l) => `<li>${l.replace(/^- /, "").replace(/\n/g, "<br>")}</li>`).join("")}</ul>` : `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
 
   // A pull request's page: where it stands, its timeline, its open findings, its rounds, its guide, its people.
+  const tlWhen = (t) => { const d = new Date(t), w = dayWord(t), hm = d.toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" }); return /^(Today|Yesterday)$/.test(w) ? `${w} ${hm}` : `${d.toLocaleDateString("en", { month: "short", day: "numeric" })}, ${hm}`; };
+  // Every finding of a PR: the round that found it, how many rounds it lived, its state now, and why it
+  // stays (a person's rule) or what fixes it.
+  function findingsTable(fs, rs) {
+    const roundOf = (id) => { const k = rs.findIndex((r) => r.id === id); return k < 0 ? null : k + 1; };
+    const order = { open: 0, left: 1, dismissed: 2, gone: 3, fixed: 4 }, sev = { critical: 0, warning: 1, suggestion: 2 };
+    const list = fs.slice().sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || (sev[a.severity] ?? 9) - (sev[b.severity] ?? 9));
+    return `<table class="cg-ftab"><thead><tr><th>Finding</th><th>Now</th><th>Rounds</th><th>Why it stays, or what fixes it</th></tr></thead><tbody>${list.map((f) => {
+      const [w, st, tip] = FSTATE[f.state], fx = (f.rounds || []).find((x) => x.status === "fixed"), fixedIn = fx ? roundOf(fx.review) : null, r0 = f.rounds?.[0], k0 = r0 ? roundOf(r0.review) : null, named = (f.rounds || []).filter((x) => x.status !== "fixed").length;
+      const life = (f.rounds || []).map((x) => `<i style="--c: var(${x.status === "fixed" ? "--approved" : x.status === "new" ? "--closed" : "--waiting"})" title="${esc(`Round ${roundOf(x.review) ?? "?"}: ${x.status === "new" ? "found" : x.status === "fixed" ? "fixed" : "still open"}`)}"></i>`).join("");
+      const why = f.override ? `<b>A person's rule:</b> ${esc(String(f.override).replace(/^Ignore:\s*\S+\s*[—-]\s*/, ""))}`
+        : f.state === "fixed" ? "" : f.fix ? `<b>Fix:</b> ${esc(f.fix)}` : f.state === "left" ? "The PR closed with it open." : f.state === "gone" ? "A later round did not name it again." : "";
+      return `<tr><td class="f">${sevChip(f.severity)} ${itemA("findings", f.id, f.summary)}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></td>
+        <td class="st">${stw(st, w, tip)}</td>
+        <td class="meta"><span>Found in ${k0 ? `${k0 === 1 ? "the first review" : `round ${k0}`}${r0 ? ` ${itemA("reviews", r0.review)}` : ""}` : "—"}</span><span title="The rounds that named it: red found, amber still open, green fixed">${named > 1 ? `Open for ${esc(plural(named, "round", "rounds"))}` : "Open for 1 round"}<span class="life">${life}</span></span>${fixedIn ? `<span>Fixed in round ${fixedIn}</span>` : ""}</td>
+        <td class="note">${why}</td></tr>`; }).join("")}</tbody></table>`;
+  }
+  // An urgent PR (review-urgent.md): a red ! under the row's state dot, as Design Desk marks a card
+  // that goes against a decision; pointing at it unfolds the word.
+  const urgentDot = (p) => p.urgent ? `<span class="sdot vdot"><span class="chip tag" title="${esc(`Urgent${typeof p.urgent === "string" ? ` since ${when(p.urgent)}` : ""}: Code Guardian posts a rapid review first, then the full one`)}"><span class="w">Urgent</span></span></span>` : "";
   function renderPr(p) {
     const [w, s] = prState(p), rs = p.reviews.map(reviewOf).filter(Boolean), fs = findings().filter((f) => f.pr === p.n);
     const g = arts().find((a) => a.id === `guide:${p.n}`);
@@ -2340,26 +2398,26 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     // Timeline: opened, first review, each round, each reminder, now.
     const tl = [];
     if (p.shepherd?.eligible_since || p.events.find((e) => e.kind === "first_review")) { const e = p.events.find((x) => x.kind === "first_review"); tl.push([e?.eligible_since || p.shepherd?.eligible_since, "--muted", "Ready for review"]); }
-    rs.forEach((r, k) => { const [vw, vs] = verdictOf(r.verdict); tl.push([r.ts, `var(--${{ pass: "approved", fail: "closed", look: "waiting" }[vs] || "muted"})`.replace(/^var\(/, "").replace(/\)$/, ""), `${k ? "Round " + (k + 1) : "First review"} ${itemA("reviews", r.id)}: ${stw(vs, vw)}${k === 0 && p.latency_h != null ? ` <span class="k">· ${esc(hrs(p.latency_h))} after it was ready</span>` : ""}`, true]); });
+    rs.forEach((r, k) => { const [vw, vs] = verdictOf(r.verdict), c = (x) => r.findings.filter((f) => f.status === x).length;
+      const counts = [c("new") && `${c("new")} new`, c("still") && `${c("still")} still open`, c("fixed") && `${c("fixed")} fixed`].filter(Boolean).join(" · ") || "no findings";
+      tl.push([r.ts, `--${{ pass: "approved", fail: "closed", look: "waiting" }[vs] || "muted"}`, `${k ? "Round " + (k + 1) : "First review"} ${itemA("reviews", r.id)} ${stw(vs, vw)} <span class="k">· ${esc(counts)} · <code title="The commit it reviewed">${esc(String(r.sha || "").slice(0, 7))}</code>${k === 0 && p.latency_h != null ? ` · ${esc(hrs(p.latency_h))} after it was ready` : ""}</span>`, true]); });
     for (const e of p.events.filter((x) => x.kind === "nudged")) tl.push([e.ts, "--live", `Reminded its reviewers on Slack${e.level ? ` <span class="k">(${esc(e.level)})</span>` : ""}`, true]);
     for (const e of p.events.filter((x) => x.kind === "conflict")) tl.push([e.ts, "--waiting", "A merge conflict", true]);
     if (p.status === "in_progress") tl.push([p.utc, "--accent", "Reviewing now", true, "now"]);
     else if (p.status === "awaiting_label") tl.push([null, "--decided", `New commits wait for the label <code>${esc(D().labels?.rereview || "")}</code>`, true]);
-    const tlHtml = tl.length ? `<ol class="cg-tl">${tl.sort((a, b) => String(a[0] || "~").localeCompare(String(b[0] || "~"))).map(([t, ink, txt, html, cls]) => `<li class="${cls || ""}" style="--c: var(${ink})"><span class="d"></span><span class="w" title="${esc(when(t))}">${t ? esc(`${dayWord(t)} ${new Date(t).toLocaleTimeString("en", { timeStyle: "short" })}`) : "Now"}</span><span class="t">${html ? txt : esc(txt)}</span></li>`).join("")}</ol>` : "";
+    const tlHtml = tl.length ? `<ol class="cg-tl">${tl.sort((a, b) => (a[0] || "~") < (b[0] || "~") ? -1 : (a[0] || "~") > (b[0] || "~") ? 1 : 0).map(([t, ink, txt, html, cls]) => `<li class="${cls || ""}" style="--c: var(${ink})"><span class="d"></span><span class="w" title="${esc(when(t))}">${t ? esc(tlWhen(t)) : "Now"}</span><span class="t">${html ? txt : esc(txt)}</span></li>`).join("")}</ol>` : "";
     const open = fs.filter((f) => f.state === "open");
     const flist = (list) => `<ul class="cg-flist">${list.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0], FSTATE[f.state][2])}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></li>`).join("")}</ul>`;
     const lastBody = rs.at(-1)?.body || "", forHuman = /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(lastBody)?.[1]?.trim();
     const sh = p.shepherd;
-    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
+    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip" style="background: var(--bad-soft); color: var(--bad); font-weight: 600" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
       + statusBox(s, w, help, acts, now)
       + (p.triage ? `<p class="cg-pr-head">${p.triage.class === "quick-check" ? `<span class="chip ok" title="${esc(p.triage.why || "")}">A quick check is enough</span>` : `<span class="chip warn" title="${esc(p.triage.why || "")}">Needs a human review</span>`}${p.triage.minutes ? `<span>about ${esc(p.triage.minutes)} min for a person</span>` : ""}${p.size?.files ? `<span>${esc(p.size.files)} files · +${esc(p.size.additions ?? "?")} −${esc(p.size.deletions ?? "?")}</span>` : ""}</p>` : "")
       + sect("Open findings", open.length ? flist(open) : rs.length ? `<p class="k">No finding is open.</p>` : "", open.length ? plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block") + " the merge" : "")
       + sect("How it went", tlHtml)
       + (g ? sect("Review guide", `<div class="cg-cards" style="margin:0"><button class="cg-card" data-goto="pages" data-item="page:${esc(g.id)}" title="Opens the guide here, on the Desk"><b>${esc(g.title)}</b><span class="k">${g.utc ? `Published ${esc(ago(g.utc))}` : "Published"}${g.sha ? ` · for <code>${esc(g.sha)}</code>` : ""}</span><span class="k">Where to start, and what matters in this change.</span></button></div>`) : p.guide_owed ? sect("Review guide", `<p class="k">A guide is owed: it comes with the next round.</p>`) : "")
       + (forHuman ? sect("For the human reviewer", `<div class="cg-md">${mdLite(forHuman)}</div>`) : "")
-      + sect("Rounds", rs.length ? `<ul class="cg-rounds">${rs.slice().reverse().map((r) => { const [vw, vs] = verdictOf(r.verdict), c = (k) => r.findings.filter((f) => f.status === k).length;
-          return `<li>${itemA("reviews", r.id)}<span class="when" title="${esc(when(r.ts))}">${esc(dayWord(r.ts))} ${esc(new Date(r.ts).toLocaleTimeString("en", { timeStyle: "short" }))}</span>${stw(vs, vw)}<span class="k">${[c("new") && `${c("new")} new`, c("still") && `${c("still")} still open`, c("fixed") && `${c("fixed")} fixed`].filter(Boolean).join(" · ") || "no findings"}</span><code class="k">${esc(String(r.sha || "").slice(0, 7))}</code></li>`; }).join("")}</ul>` : "")
-      + sect("Earlier findings", fs.filter((f) => f.state !== "open").length ? flist(fs.filter((f) => f.state !== "open")) : "")
+      + sect("Every finding", fs.length ? findingsTable(fs, rs) : "", fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
       + (sh ? sect("Human reviewers", `<dl class="cg-facts"><dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}` : "none yet"}</dd></dl>`) : "")
       + (p.overrides.length ? sect("Rules for this PR", `<ul>${p.overrides.map((o) => `<li>${mdLite(o).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul>`, "what a person told Code Guardian about this PR") : "");
   }
@@ -2402,6 +2460,93 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + sect("The review as posted", r.body ? `<div class="cg-md"><div class="body">${mdLite(r.body)}</div></div>` : `<p class="k">The full text is no longer kept here: the PR is closed. ${gh(ghPr(r.pr), "Read it on GitHub ↗")}</p>`)
       + sect("About this review", `<dl class="cg-facts">${r.size?.files ? `<dt>Size</dt><dd>${esc(r.size.files)} files, +${esc(r.size.additions ?? "?")} −${esc(r.size.deletions ?? "?")}</dd>` : ""}${r.def ? `<dt>Definition</dt><dd>${esc(r.def)}</dd>` : ""}${r.ste?.sentences ? `<dt>Plain words</dt><dd>${esc(r.ste.sentences)} sentences, ${esc(r.ste.avg_sentence_words ?? "?")} words each on average</dd>` : ""}${r.suppressed?.total ? `<dt>Held back</dt><dd>${esc(plural(r.suppressed.total, "finding", "findings"))} a rule or a decision explained</dd>` : ""}</dl>`);
   }
+
+  // ------------------------------------------------ a review run's phases (data.mjs → phasesOf)
+  const PH_INK = { prepare: "--ph-prepare", diff: "--ph-diff", skills: "--ph-skills", compose: "--ph-compose", post: "--ph-post" };
+  const PH_TIP = { prepare: "Lock the PR and fetch the change", diff: "Read the diff and the PR's context", skills: "The review skills read the change side by side", compose: "Check the findings and write the review", post: "Post the review on GitHub" };
+  const typ = () => D().review_typical || { phases: {}, skills: {} };
+  const phaseLegend = (next) => `<p class="cg-legend">${Object.keys(PH_INK).map((k) => `<span data-c="ph-${k}" title="${esc(PH_TIP[k])}">${esc({ prepare: "Get ready", diff: "Read the change", skills: "Skills", compose: "Write the review", post: "Post" }[k])}</span>`).join("")}${next ? `<span data-c="ph-next" title="Not started: drawn at its usual length">Next (usual length)</span>` : ""}</p>`;
+  const lastRv = (r) => (r.reviews || []).at(-1);
+  function nowPhase(r) {
+    if (r.state !== "running") return null;
+    const x = lastRv(r), p = x?.phases.find((q) => q.state === "running"); if (!p) return { label: "Working", tip: `Last step ${ago(r.end)}` };
+    return { label: p.key === "skills" && x.parallel ? `Skills · ${x.parallel} side by side` : p.label, tip: `${PH_TIP[p.key]} — started ${ago(p.start)}` };
+  }
+  function runCost(r) {
+    const T = typ();
+    if (r.cost_usd != null) return { text: `$${r.cost_usd.toFixed(2)}`, tip: "Its tokens priced by the price table in CONFIG.md" };
+    if (r.state === "running" && T.cost_usd != null) return { text: `≈ $${T.cost_usd.toFixed(2)}`, tip: `What a review usually costs (the median of ${T.runs}). The real cost comes when the run ends.` };
+    if (r.tokens) return { text: `${Math.round(tokSum(r.tokens) / 1000)}k tokens`, tip: T.priced ? "The model is not in the price table" : "No price table in CONFIG.md (## Benchmark model prices)" };
+    return null;
+  }
+  // The bars of one PR's review: done phases solid, the running one striped up to now, the phases
+  // still to come dashed at their usual length; each skill on its own row, side by side.
+  function phaseBars(x, running) {
+    const T = typ(), now = Date.now(), ms = (t) => Date.parse(t), rows = [];
+    let cursor = null;
+    for (const p of x.phases) {
+      const u = (T.phases[p.key] ?? 60) * 1000;
+      if (p.state === "done" || p.state === "stopped") rows.push({ k: p.key, label: p.label, segs: [{ a: ms(p.start), b: ms(p.end || x.end || p.start), kind: p.state }] });
+      else if (p.state === "running") { const exp = Math.max(now + 15e3, ms(p.start) + u); rows.push({ k: p.key, label: p.label, segs: [{ a: ms(p.start), b: now, kind: "running" }, { a: now, b: exp, kind: "next" }] }); cursor = exp; }
+      else if (p.state === "next") { const a = cursor ?? now; rows.push({ k: p.key, label: p.label, segs: [{ a, b: a + u, kind: "next" }] }); cursor = a + u; }
+      if (p.key === "skills" && p.start) {
+        const fan = ms(p.start);
+        if (x.skills?.length) for (const sk of x.skills) rows.push({ k: "skills", sub: true, label: sk.name, segs: [{ a: fan, b: ms(sk.end), kind: "done" }], tip: `${sk.name}: ${dur(sk.secs)}${T.skills[sk.name] ? ` · usually ${dur(Math.round(T.skills[sk.name]))}` : ""}` });
+        else if (p.state === "running" && x.parallel) for (let k = 0; k < x.parallel; k++) rows.push({ k: "skills", sub: true, label: `Skill ${k + 1} of ${x.parallel}`, segs: [{ a: fan, b: now, kind: "running" }], tip: "The names and times come when the skills are collected" });
+      }
+    }
+    return { rows, eta: running ? cursor : null };
+  }
+  function phaseChart(x, running, compact = false) {
+    const { rows, eta } = phaseBars(x, running); if (!rows.length) return "";
+    const t0 = Math.min(...rows.flatMap((r) => r.segs.map((s) => s.a))), t1 = Math.max(Date.now() * (running ? 1 : 0), ...rows.flatMap((r) => r.segs.map((s) => s.b)));
+    const W = 600, L = compact ? 120 : 150, RH = compact ? 16 : 20, H = rows.length * RH + 22, span = Math.max(60e3, t1 - t0), X = (t) => L + ((t - t0) / span) * (W - L - 8);
+    const stepMin = span > 40 * 60e3 ? 10 : span > 16 * 60e3 ? 5 : span > 6 * 60e3 ? 2 : 1, ticks = [];
+    for (let m = 0; m * 60e3 <= span; m += stepMin) ticks.push(m);
+    const bar = (r, s, y) => { const x0 = X(s.a), w = Math.max(2, X(s.b) - x0), h = r.sub ? RH - 9 : RH - 6, yy = y + (RH - h) / 2, ink = `var(${s.kind === "stopped" ? "--closed" : PH_INK[r.k]})`;
+      const t = `${r.label}: ${s.kind === "next" ? `usually ${dur(Math.round((s.b - s.a) / 1000))}, not started` : s.kind === "running" ? `running for ${dur(Math.round((s.b - s.a) / 1000))}` : dur(Math.round((s.b - s.a) / 1000))}${s.kind === "stopped" ? " — stopped here" : ""}`;
+      return s.kind === "next" ? `<rect x="${x0}" y="${yy}" width="${w}" height="${h}" rx="3" fill="none" stroke="${ink}" stroke-dasharray="4 3" opacity=".7"><title>${esc(r.tip || t)}</title></rect>`
+        : s.kind === "running" ? `<rect x="${x0}" y="${yy}" width="${w}" height="${h}" rx="3" fill="${ink}" opacity=".45"/><rect class="run" x="${x0}" y="${yy}" width="${w}" height="${h}" rx="3" fill="none" stroke="${ink}" stroke-width="2" stroke-dasharray="6 2"><title>${esc(r.tip || t)}</title></rect>`
+        : `<rect x="${x0}" y="${yy}" width="${w}" height="${h}" rx="3" fill="${ink}" opacity="${r.sub ? .8 : 1}"><title>${esc(r.tip || t)}</title></rect>`; };
+    const body = rows.map((r, k) => { const y = k * RH; return `<text class="${r.sub ? "s" : "l"}" x="${r.sub ? 14 : 0}" y="${y + RH / 2 + 4}">${esc(r.label.length > 22 ? r.label.slice(0, 21) + "…" : r.label)}</text>${r.segs.map((s) => bar(r, s, y)).join("")}`; }).join("");
+    const nowX = running ? X(Date.now()) : null;
+    return `<svg class="cg-svg cg-ph" viewBox="0 0 ${W} ${H}" role="img" aria-label="The phases of the review of #${x.pr}">${ticks.map((m) => `<line x1="${X(t0 + m * 60e3)}" x2="${X(t0 + m * 60e3)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t0 + m * 60e3)}" y="${H - 3}" text-anchor="middle">${m ? `${m} min` : esc(new Date(t0).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${body}${nowX != null ? `<line x1="${nowX}" x2="${nowX}" y1="0" y2="${H - 16}" stroke="var(--ink)" stroke-dasharray="2 2"/><text class="cg-ax" x="${nowX + 3}" y="10">now</text>` : ""}</svg>`
+      + `<div class="cg-phnote">${phaseNote(x, running, eta)}</div>`;
+  }
+  function phaseNote(x, running, eta) {
+    const T = typ(), took = x.end ? Math.round((Date.parse(x.end) - Date.parse(x.start)) / 1000) : null, out = [];
+    if (running) { out.push(`<span>Running for <b>${esc(dur(Math.round((Date.now() - Date.parse(x.start)) / 1000)))}</b></span>`); if (eta) out.push(`<span title="Each phase still to come at its usual length (the median of ${T.runs} reviews)">Ends in about <b>${esc(dur(Math.max(30, Math.round((eta - Date.now()) / 1000))))}</b></span>`); }
+    else if (took != null) out.push(`<span>Took <b>${esc(dur(took))}</b>${T.secs ? ` · usually ${esc(dur(Math.round(T.secs)))}` : ""}</span>`);
+    if (x.parallel) out.push(`<span title="Each skill runs as its own sub-agent, all at once">${esc(plural(x.parallel, "skill", "skills"))} side by side</span>`);
+    if (x.aborted) out.push(`<span>Stopped: ${esc(x.aborted)}</span>`);
+    return out.join("");
+  }
+  function runCostLine(r) {
+    const c = runCost(r), T = typ(); if (!c) return "";
+    return `<span title="${esc(c.tip)}">Cost <b>${esc(c.text)}</b>${r.cost_usd != null && T.cost_usd != null ? ` · usually $${T.cost_usd.toFixed(2)}` : ""}</span>`;
+  }
+  // The reviews of the last 24 hours on one time line: a row per run, runs that overlap on rows of their own.
+  function dayTimeline() {
+    const now = Date.now(), from = now - 24 * 36e5, rs = reviewRuns().filter((r) => Date.parse(r.end) >= from && r.reviews?.length);
+    if (!rs.length) return "";
+    const lanesEnd = [], placed = rs.map((r) => { const a = Math.max(from, Date.parse(r.start)), b = r.state === "running" ? now : Date.parse(r.end); let k = lanesEnd.findIndex((e) => e < a - 60e3); if (k < 0) { k = lanesEnd.length; lanesEnd.push(0); } lanesEnd[k] = b; return { r, k }; });
+    const W = 600, L = 8, RH = 16, H = lanesEnd.length * RH + 20, X = (t) => L + ((t - from) / (now - from)) * (W - L - 8);
+    const hrs = []; for (let h = 0; h <= 24; h += 6) hrs.push(from + h * 36e5);
+    const segs = placed.map(({ r, k }) => r.reviews.flatMap((x) => x.phases.filter((p) => p.start).map((p) => { const a = Date.parse(p.start), b = p.end ? Date.parse(p.end) : now;
+      return `<rect x="${X(a)}" y="${k * RH + 3}" width="${Math.max(1.5, X(b) - X(a))}" height="${RH - 6}" fill="var(${p.state === "stopped" ? "--closed" : PH_INK[p.key]})" opacity="${p.state === "running" ? .55 : 1}"/>`; })).join("")
+      + `<rect x="${X(Math.max(from, Date.parse(r.start)))}" y="${k * RH + 1}" width="${Math.max(4, X(r.state === "running" ? now : Date.parse(r.end)) - X(Math.max(from, Date.parse(r.start))))}" height="${RH - 2}" fill="transparent" data-goto="runs" data-item="${esc(r.id)}" style="cursor:pointer"><title>${esc(`${r.id} · ${runTitle(r)} · ${when(r.start)}${r.secs ? ` · ${dur(r.secs)}` : ""}${r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ""}`)}</title></rect>`).join("");
+    const most = Math.max(...lanesEnd.map((_, k) => placed.filter((p) => p.k === k).length) , 0);
+    return chartBox("The last 24 hours", `<svg class="cg-svg cg-ph" viewBox="0 0 ${W} ${H}" role="img" aria-label="Review runs of the last 24 hours by phase">${hrs.map((t) => `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t)}" y="${H - 3}" text-anchor="${t === from ? "start" : t >= now - 1 ? "end" : "middle"}">${t >= now - 1 ? "now" : esc(new Date(t).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${segs}</svg>${phaseLegend(false)}`,
+      `${plural(rs.length, "run", "runs")} · at most ${lanesEnd.length} at once`);
+  }
+  const costBars = () => typ().priced ? dayBars("Review cost each day", (d) => { const rs = reviewRuns().filter((r) => r.start.startsWith(d) && r.cost_usd != null); return [["--accent", Math.round(rs.reduce((a, r) => a + r.cost_usd, 0) * 100) / 100, "USD for reviews"]]; },
+    [["accent", "Reviews, USD"]], `usually $${(typ().cost_usd ?? 0).toFixed(2)} a review`) : tokenBars();
+  function runsOverview() {
+    const live = reviewRuns().filter((r) => r.state === "running").reverse();
+    const cards = live.map((r) => `<div class="cg-runcard"><h4>${itemA("runs", r.id)} <span>${esc(runTitle(r))}</span> <span class="k">${runCostLine(r)}</span></h4>${(r.reviews || []).map((x) => phaseChart(x, true, true)).join("")}</div>`).join("");
+    return (cards ? chartBox(live.length > 1 ? `Running now · ${live.length} side by side` : "Running now", cards + phaseLegend(true)) : `<div class="cg-now"><div>No review runs now. ${S.runPage === "running" ? "Done shows the last 14 days." : ""}</div></div>`)
+      + dayTimeline() + costBars();
+  }
   function renderRun(r) {
     const words = { pass: "OK", look: "Warning", fail: "Error", running: "Running" };
     const look = ["fail", "look"].includes(r.state) ? cmdBtn(`look into ${r.id}`, "Look into it", "Code Guardian reads this run's log and says what went wrong and what fixes it", true) : "";
@@ -2410,6 +2555,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + statusBox(r.state, words[r.state], RUN_TIP[r.state], look, r.state === "running" ? `Last step ${esc(ago(r.end))}` : [r.errors && plural(r.errors, "error", "errors"), r.warns && plural(r.warns, "warning", "warnings")].filter(Boolean).join(" · "))
       + (r.posted.length ? sect("What it posted", `<ul class="cg-rounds">${r.posted.map((x) => { const rv = reviews().find((y) => y.pr === x.pr && String(y.sha).startsWith(String(x.sha).slice(0, 7))); const [vw, vs] = verdictOf(x.verdict);
           return `<li>${prA(x.pr)}<span>${esc(prOf(x.pr)?.title || "")}</span>${stw(vs, vw)}<span></span>${rv ? itemA("reviews", rv.id) : ""}</li>`; }).join("")}</ul>`) : "")
+      + (r.reviews?.length ? sect("How the review went", r.reviews.map((x) => (r.reviews.length > 1 ? `<p>${prA(x.pr)}</p>` : "") + phaseChart(x, r.state === "running")).join("") + phaseLegend(r.state === "running") + `<div class="cg-phnote">${runCostLine(r)}</div>`) : "")
       + (r.aborted.length ? sect("What stopped", `<ul>${r.aborted.map((x) => `<li>${prA(x.pr)}: ${esc(x.why)}</li>`).join("")}</ul>`) : "")
       + (r.prs.length && !r.posted.length ? sect("Pull requests", r.prs.map((n) => prA(n)).join(" ")) : "")
       + (t ? sect("Cost", `<dl class="cg-facts"><dt>Model</dt><dd>${esc(t.model || "not known")}</dd><dt>Tokens</dt><dd>${esc(Math.round(t.input / 1000))}k in · ${esc(Math.round(t.output / 1000))}k out · ${esc(Math.round(t.cache_read / 1000))}k read from cache</dd>${t.subagents ? `<dt>Helpers</dt><dd>${esc(plural(t.subagents, "sub-agent", "sub-agents"))}</dd>` : ""}</dl>`) : "")
@@ -2520,15 +2666,15 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderEmpty() {
     const tile = (k, n, w, s, t) => `<button class="cg-tile" data-filter="${k}" style="--t: var(${t})"><span class="n">${n}</span><span class="w">${esc(w)}</span><span class="s">${esc(s)}</span></button>`;
     const n = $("#list").querySelectorAll(".row.item").length, pick = `<p class="pick">${n ? "Pick something on the left." : ""}</p>`;
-    if (S.tab === "prs") return pick + renderOverview() + `<div class="cg-tiles">${tile("prFilter:changes", prList("changes").length, "Changes requested", "a blocking finding is open", "--closed")}${tile("prFilter:approved", prList("approved").length, "Approved", "nothing blocks the merge", "--approved")}${tile("prFilter:waiting", prList("waiting").length, "Waiting", "in review, or for a trigger", "--decided")}</div>` + latencyChart() + renderIntro();
+    if (S.tab === "prs") return pick + renderOverview() + `<div class="cg-tiles">${tile("prFilter:changes", prList("changes").length, "Changes requested", "a blocking finding is open", "--closed")}${tile("prFilter:approved", prList("approved").length, "Approved", "nothing blocks the merge", "--approved")}${tile("prFilter:reviewing", prList("reviewing").length, "Reviewing", "in review, or waiting for a trigger", "--decided")}</div>` + latencyChart() + renderIntro();
     if (S.tab === "findings") { const fs = findings(), c = (st) => fs.filter((f) => f.state === st).length;
       return pick + `<div class="cg-tiles">${tile("fFilter:open", c("open"), "Open", "the newest review names them", "--closed")}${tile("fFilter:fixed", c("fixed"), "Fixed", "a later round saw the fix", "--approved")}${tile("fFilter:left", c("left") + c("gone"), "Not raised again", "closed with them, or dropped", "--waiting")}${tile("fFilter:dismissed", c("dismissed"), "Dismissed", "a rule for that PR", "--decided")}</div>`
         + dayBars("Findings each day", (d) => { const fsd = fs.filter((f) => f.first.startsWith(d)); return [["--closed", fsd.filter((f) => f.severity === "critical").length, "blocking"], ["--waiting", fsd.filter((f) => f.severity === "warning").length, "should fix"], ["--line", fsd.filter((f) => f.severity === "suggestion").length, "suggestions"]]; }, [["fail", "Blocking"], ["look", "Should fix"], ["none", "Suggestion"]], "new findings, by the day they were first raised")
         + renderIntro(); }
     if (S.tab === "reviews") return pick + reviewBars() + weekTrend() + renderIntro();
-    if (S.tab === "runs") return pick + (S.status?.live?.length ? `<div class="cg-now"><span class="spin"></span><div><b>Now:</b> ${S.status.live.map((r) => `${itemA("runs", r.id)} ${esc(JOB[r.job] || r.job)}`).join("; ")}</div></div>` : "") + lanes() + tokenBars() + renderIntro();
-    if (S.tab === "pages") return pick + `<div class="cg-cards">${arts().filter((a) => a.kind !== "guide").map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
-    if (S.tab === "health") return pick + services() + healthHours() + renderIntro();
+    if (S.tab === "runs") return pick + runsOverview() + renderIntro();
+    if (S.tab === "pages") return pick + `<div class="cg-cards">${reportPages().map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
+    if (S.tab === "health") return pick + (arts().some((a) => a.id === "health") ? `<div class="cg-cards" style="max-width:900px;margin:0 auto 16px"><button class="cg-card" data-item="page:health"><b>The health dashboard</b><span class="k">${esc(PAGE_ABOUT.health)}</span></button></div>` : "") + services() + healthHours() + renderIntro();
     return pick;
   }
 
@@ -2605,7 +2751,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return null;
   }
   // Where an item lives: its tab and its page of the tab.
-  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
+  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : id === "page:health" ? "health" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
   const place = () => { const id = S.item || "", it = findItem(id); if (!it) return;
     if (it.kind === "pr" && !PR_PAGE[S.prPage](it.x)) S.prPage = it.x.state === "closed" ? "closed" : "open";
     if (it.kind === "escape") S.fPage = "escaped"; else if (it.kind === "finding" && S.fPage === "escaped") S.fPage = "all";
@@ -2792,6 +2938,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const moreClose = () => { for (const d of document.querySelectorAll("details.more[open]")) d.open = false; };
   document.addEventListener("click", (e) => { for (const d of document.querySelectorAll("details.more[open]")) if (!d.contains(e.target) || e.target.closest(".menu button:not([data-notes-tab]):not([data-notes-seen])")) d.open = false; }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") moreClose(); });
+  document.addEventListener("click", (e) => { if (e.target.closest?.("details.navmenu .menu [data-item], details.navmenu .menu [data-tab]")) moreClose(); else if (!e.target.closest?.("details.navmenu")) for (const d of document.querySelectorAll("details.navmenu[open]")) d.open = false; }, true);
   window.addEventListener("hashchange", () => goTo(location.hash));
 
   // ---------- previews: a number of another item shows what it is and how it stands, on hover or focus ----------
@@ -2926,6 +3073,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     document.body.classList.toggle("ro", !canAct()); $("#ask-review").hidden = !canAct(); document.querySelector("header > .head-sep").hidden = !canAct();
     document.title = S.me.name || "Code Guardian";
     for (const k of ["prPage", "prFilter", "fPage", "fFilter", "rvPage", "rvFilter", "runPage", "runFilter", "pgPage", "hPage"]) { const v = store.get(`cg-${k}`); if (v) S[k] = v; }
+    if (!PR_FILTER[S.prFilter]) S.prFilter = "reviewing"; if (!RUN_PAGE[S.runPage]) S.runPage = "running";
     renderTheme();
     await Promise.all([refresh(), loadAsks()]);
     if (!goTo(location.hash)) draw();

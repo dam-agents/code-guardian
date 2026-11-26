@@ -50,7 +50,8 @@ export function history(text) {
     const body = p.split('\n').slice(1).join('\n').replace(/\n---\s*(\n<!-- [a-z-]+(?::[^>]*)? -->\s*)*$/m, '').trim();
     return { sha: head[1] ?? null, ts: head[2] ?? null, verdict: head[3] ?? null, body, guide_owed: /<!-- guide-owed -->/.test(p), guide_seen: /<!-- guide-label-seen -->/.test(p) };
   }).filter((r) => ISO.test(r.ts ?? ''));
-  return { title, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
+  const urgent = /<!-- urgent-announced: (\S+) -->/.exec(t)?.[1] ?? null;
+  return { title, urgent, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
 }
 
 // A review body as a person reads it: the hidden lines out, at most 24k letters.
@@ -60,7 +61,73 @@ const VERDICT_RE = /^(APPROVE|COMMENT|REQUEST_CHANGES|RAPID)$/;
 // One run of the event log: its id, its job, when, what it did. A gated fire logs under the gate's id
 // (CG_RUN_ID, "<mode>-<stamp>-<pid>") and its session under the session's: the gate's events join the
 // session's run of the same job that starts within 3 minutes after them (logging.md).
-function runsOf(work, now) {
+// The price table of work/CONFIG.md (`## Benchmark model prices`, per million tokens), as
+// scripts/lib/prices.sh reads it: the longest cell the model id contains prices it; a cell that ends
+// in a digit does not price a later version ("claude-opus-5" leaves "claude-opus-5-5" unpriced).
+function pricesOf(work) {
+  const text = String(read(join(work, 'CONFIG.md')) ?? ''), at = text.search(/^##\s+Benchmark model prices\s*$/m);
+  if (at < 0) return [];
+  const out = [];
+  for (const l of text.slice(at).split('\n').slice(1)) {
+    if (/^##\s/.test(l)) break;
+    const c = l.split('|').map((x) => x.trim()); if (c.length < 6) continue;
+    const [m, i, o, cr, cw] = [c[1].replace(/\s*\[.*\]$/, ''), +c[2], +c[3], +c[4], +c[5]];
+    if (m && ![i, o, cr, cw].some((x) => Number.isNaN(x)) && c[2] !== '') out.push({ m, i, o, cr, cw });
+  }
+  return out;
+}
+function usd(prices, t) {
+  if (!t?.model) return null;
+  const has = (p) => { const k = t.model.indexOf(p.m); if (k < 0) return false; return !(/\d$/.test(p.m) && /^-\d{1,2}(?!\d)/.test(t.model.slice(k + p.m.length))); };
+  const p = prices.filter(has).sort((a, b) => b.m.length - a.m.length)[0];
+  return p ? Math.round(((t.input * p.i + t.output * p.o + t.cache_read * p.cr + t.cache_creation * p.cw) / 1e6) * 100) / 100 : null;
+}
+const median = (xs) => { const v = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
+
+// The phases of one PR's review in a run, from its review_step milestones (review.md → Progress
+// logging) and the skills' finish times from skill_timing. While the skills run, the log knows only
+// how many run side by side; their names and times come when they are collected.
+const PHASES = [['prepare', 'Get ready', 'locked'], ['diff', 'Read the change', 'cloned'], ['skills', 'Skills', 'fanned'], ['compose', 'Write the review', 'verified'], ['post', 'Post', 'composed']];
+const MILESTONES = ['locked', 'cloned', 'fanned', 'verified', 'composed', 'posted', 'done'];
+function phasesOf(ev, running) {
+  const per = new Map();
+  for (const e of ev) {
+    const m = /^PR #(\d+)(?: \[(\w+)\])? (.*)$/.exec(e.msg ?? ''); if (!m) continue;
+    const x = per.get(+m[1]) ?? { pr: +m[1], sha: m[2] || null, at: {}, skills: [], n: null, verdict: null, aborted: null };
+    const step = m[3], t = e.ts;
+    if (e.event === 'review_step') {
+      if (step === 'locked') x.at.locked ??= t;
+      else if (/^cloned/.test(step)) x.at.cloned ??= t;
+      else if (/^fanned out/.test(step)) { x.at.fanned ??= t; x.n = +(/n=(\d+)/.exec(step)?.[1] ?? 0) || null; }
+      else if (/^verified/.test(step)) x.at.verified ??= t;
+      else if (/^composed/.test(step)) x.at.composed ??= t;
+      else if (/^posted/.test(step)) { x.at.posted ??= t; x.verdict = step.split(' ')[1] ?? null; }
+      else if (/^done/.test(step)) x.at.done ??= t;
+      else if (/^aborted/.test(step)) { x.at.aborted ??= t; x.aborted = step.replace(/^aborted\s*/, ''); }
+      if (!x.sha && m[2]) x.sha = m[2];
+    } else if (e.event === 'skill_timing') {
+      for (const [, name, sec] of step.matchAll(/([\w.-]+?)(?:\.txt)?=(\d+)/g)) x.skills.push({ name, end: new Date(+sec * 1000).toISOString() });
+    }
+    per.set(x.pr, x);
+  }
+  return [...per.values()].filter((x) => x.at.locked).map((x) => {
+    const stop = x.at.aborted ?? null;
+    const phases = PHASES.map(([key, label, from], k) => {
+      const start = x.at[from] ?? null;
+      const later = MILESTONES.slice(MILESTONES.indexOf(from) + 1).filter((m) => key !== 'post' || m !== 'posted' || !x.at.done);
+      let end = key === 'post' ? (x.at.done ?? x.at.posted ?? null) : (later.map((m) => x.at[m]).find(Boolean) ?? null);
+      if (!end && start && stop) end = stop;
+      const state = !start ? (running && !stop && !x.at.posted ? 'next' : 'skipped') : end ? (stop && end === stop && !x.at.posted ? 'stopped' : 'done') : running ? 'running' : 'stopped';
+      return { key, label, start, end, state };
+    }).filter((p) => p.state !== 'skipped');
+    const fan = x.at.fanned;
+    const skills = x.skills.length ? x.skills.map((s) => ({ ...s, start: fan, secs: fan ? Math.max(0, Math.round((Date.parse(s.end) - Date.parse(fan)) / 1000)) : null }))
+      : null;
+    return { pr: x.pr, sha: x.sha, start: x.at.locked, end: x.at.done ?? x.at.posted ?? stop ?? null, verdict: x.verdict, aborted: x.aborted, parallel: x.n ?? (skills ? skills.length : null), phases, skills };
+  });
+}
+
+function runsOf(work, now, prices = []) {
   const files = ls(join(work, 'logs')).filter((f) => /^events-\d{4}-\d\d-\d\d\.jsonl$/.test(f)).sort();
   const by = new Map();
   for (const f of files) for (const e of jsonl(read(join(work, 'logs', f)))) {
@@ -97,7 +164,8 @@ function runsOf(work, now) {
     const ended = ev.some((e) => /^(run_end|session_end)$/.test(e.event) || (e.event === 'review_step' && /\b(done|aborted)\b/.test(e.msg ?? ''))) || tok || quiet > 20 * 60e3;
     const state = !ended ? 'running' : errors.length ? 'fail' : warns.length || aborted.length ? 'look' : 'pass';
     return { id: `S-${k + 1}`, run: r.run, gate: r.gate ?? null, job: r.job, start: r.start, end: r.end, secs: Math.round((Date.parse(r.end) - Date.parse(r.start)) / 1000),
-      state, prs: [...prs].sort((a, b) => a - b).slice(0, 40), posted, aborted, tokens: tok, errors: errors.length, warns: warns.length,
+      state, prs: [...prs].sort((a, b) => a - b).slice(0, 40), posted, aborted, tokens: tok, cost_usd: usd(prices, tok), errors: errors.length, warns: warns.length,
+      reviews: r.job === 'review' ? phasesOf(ev, state === 'running') : [],
       events: ev.slice(-160).map((e) => ({ ts: e.ts, level: e.level, event: e.event, msg: String(e.msg ?? '').slice(0, 400) })), count: ev.length };
   });
 }
@@ -178,12 +246,23 @@ export function build(work, now = Date.now()) {
       utc: row?.ts ?? last?.ts ?? null, rounds: rs.length, reviews: rs.map((r) => r.id), first: rs[0]?.ts ?? null, guide: h?.guide ?? null, guide_owed: !!rs.at(-1)?.guide_owed,
       overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,
-      latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null };
+      latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null,
+      // urgent (review-urgent.md): the Slack alert's marker, or a rapid review on the PR
+      urgent: row ? (h?.urgent ?? (row.verdict === 'RAPID' || rs.some((r) => r.verdict === 'RAPID') ? row.ts ?? true : null)) : null };
   }).sort((a, b) => String(b.utc ?? '').localeCompare(String(a.utc ?? '')) || b.n - a.n);
   for (const p of prs) if (p.guide) { const r = reviews.filter((x) => x.pr === p.n && x.sha && p.guide.sha && p.guide.sha.startsWith(String(x.sha).slice(0, 7))).at(-1); p.guide_utc = r?.ts ?? null; }
 
   // ------------------------------------------------ runs, artifacts, health and the rest
-  const runs = runsOf(work, now);
+  const prices = pricesOf(work);
+  const runs = runsOf(work, now, prices);
+  // What a finished review usually takes: each phase, each skill, the whole run and its cost — the
+  // estimate a running review is drawn against.
+  const doneRv = runs.filter((r) => r.job === 'review' && r.state !== 'running').slice(-40);
+  const span = (a, b) => (a && b ? (Date.parse(b) - Date.parse(a)) / 1000 : NaN);
+  const typical = { priced: prices.length > 0, phases: {}, skills: {}, secs: median(doneRv.filter((r) => r.posted.length).map((r) => r.secs)), cost_usd: median(doneRv.filter((r) => r.posted.length).map((r) => r.cost_usd ?? NaN)), runs: doneRv.length };
+  for (const [key] of PHASES) typical.phases[key] = median(doneRv.flatMap((r) => r.reviews).flatMap((x) => x.phases.filter((p) => p.key === key && p.state === 'done').map((p) => span(p.start, p.end))));
+  const names = new Set(doneRv.flatMap((r) => r.reviews.flatMap((x) => (x.skills ?? []).map((s) => s.name))));
+  for (const n of names) typical.skills[n] = median(doneRv.flatMap((r) => r.reviews.flatMap((x) => (x.skills ?? []).filter((s) => s.name === n).map((s) => s.secs))));
   const artifacts = artifactsOf(work, prs);
   const since14 = new Date(now - 14 * 864e5).toISOString().slice(0, 13);
   const hours = jsonl(read(join(work, 'health', 'hours.jsonl'))).filter((h) => typeof h.h === 'string' && h.h >= since14);
@@ -212,7 +291,7 @@ export function build(work, now = Date.now()) {
   }
   const data = { repo, repo_url: repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? `https://github.com/${repo}` : null, bot: cfg.bot_display_name || 'Code Guardian', version: String(read(join(work, 'VERSION')) ?? '').trim() || null,
     labels: { rereview: cfg.rereview_label || 'code-guardian:rereview', guide: cfg.guide_label || null },
-    prs, reviews, findings, runs, artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length) };
+    prs, reviews, findings, runs, review_typical: typical, artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length) };
   data.hash = createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 16);
   return data;
 }

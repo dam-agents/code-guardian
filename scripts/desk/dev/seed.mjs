@@ -43,6 +43,13 @@ put('CONFIG.md', `# Code Guardian configuration
 - health_dashboard: dam
 - agent_manifest: dam
 - shepherd_enabled: true
+
+## Benchmark model prices
+
+| model substring | input | output | cache_read | cache_write |
+|---|---|---|---|---|
+| claude-opus-5-5 | 5 | 25 | 0.5 | 6.25 |
+| claude-sonnet-5-5 | 3 | 15 | 0.3 | 3.75 |
 `);
 put('MEMORY.md', `# Memory
 
@@ -148,6 +155,7 @@ for (const pr of prs) {
 const busy = prs.at(-1);
 reviewsRows.push(`| ${busy.n + 40} | ${hex(40)} | ${iso(NOW - 6 * MIN)} | - | in_progress |`);
 put(`reviews/pr-${busy.n + 40}.md`, `# PR #${busy.n + 40}: Show task count on the project card\n\n## PR-local overrides\n\n`);
+{ const u = prs.filter((x) => x.open).at(-3); if (u) add(`reviews/pr-${u.n}.md`, `\n<!-- urgent-announced: ${iso(NOW - 3 * H)} -->\n`); }
 put('REVIEWS.md', `| PR | Commit | Timestamp | Verdict | Status |\n| --- | --- | --- | --- | --- |\n${reviewsRows.join('\n')}\n`);
 put('REVIEW-LEDGER.jsonl', ledger.map((r) => JSON.stringify(r)).join('\n') + '\n');
 put('PR-EVENTS.jsonl', prEvents.sort((a, b) => a.ts.localeCompare(b.ts)).map((r) => JSON.stringify(r)).join('\n') + '\n');
@@ -157,15 +165,22 @@ put('SHEPHERD.md', `| PR | eligible_since | reviewers | review_state | nudges | 
 const ev = (t, run, job, level, event, msg) => add(`logs/events-${iso(t).slice(0, 10)}.jsonl`, JSON.stringify({ ts: iso(t), run, job, level, event, msg }) + '\n');
 const tok = (t, run, job, k) => ev(t, run, job, 'info', 'tokens', `input=${Math.round(k * 40000)} output=${Math.round(k * 6000)} cache_read=${Math.round(k * 900000)} cache_creation=${Math.round(k * 30000)} msgs=${Math.round(k * 40)} model=claude-opus-5-5 subagents=${Math.round(k * 3)} secs=${Math.round(k * 400)}`);
 let hb = '';
+const SKILLS = ['code-guardian-checks', 'issue-fit', 'security-review', 'typescript-react'];
 for (const r of ledger) {
   const t = Date.parse(r.ts) - (6 + rnd() * 10) * MIN; if (t < NOW - 14 * DAY) continue;
   const stamp = iso(t).replace(/[-:]/g, '').replace(/Z$/, 'Z'), gate = `review-${stamp}-${1000 + Math.floor(rnd() * 9000)}`, sess = `sess-${hex(12)}`;
   ev(t, gate, 'review', 'info', 'precheck', `review gate: 1 PR to review (#${r.pr})`);
   ev(t + 20e3, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] locked`);
   ev(t + 60e3, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] cloned`);
-  ev(t + 3 * MIN, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] fanned out (n=4)`);
+  const fan = t + (2 + rnd() * 2) * MIN, posted = Date.parse(r.ts), room = Math.max(4 * MIN, posted - fan - 2 * MIN);
+  ev(fan, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] fanned out (n=${SKILLS.length})`);
   if (rnd() < 0.08) ev(t + 5 * MIN, sess, 'review', 'warn', 'tool_failure', 'gh api returned 502 once; retried');
-  ev(Date.parse(r.ts), sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] posted ${r.verdict}`);
+  const ends = SKILLS.map((s, k) => fan + room * (0.35 + 0.6 * ((k * 0.27 + rnd() * 0.5) % 1)));
+  const verified = Math.max(...ends) + 20e3, composed = verified + Math.min(90e3, (posted - verified) * 0.7);
+  ev(verified, sess, 'review', 'info', 'skill_timing', `PR #${r.pr} ${SKILLS.map((s, k) => `${s}.txt=${Math.floor(ends[k] / 1000)}`).join(' ')}`);
+  ev(verified, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] verified`);
+  ev(composed, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] composed`);
+  ev(posted, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] posted ${r.verdict}`);
   ev(Date.parse(r.ts) + 20e3, sess, 'review', 'info', 'review_step', `PR #${r.pr} [${r.sha}] done`);
   tok(Date.parse(r.ts) + 30e3, sess, 'review', 0.6 + rnd());
   hb += `${iso(t)} review nothing_to_do=false prs=${r.pr}\n`;
@@ -183,7 +198,11 @@ for (let d = 13; d >= 0; d--) {
 { const t = NOW - 3 * DAY - 4 * H, run = `sess-${hex(12)}`; ev(t, run, 'survey', 'info', 'heartbeat', 'survey: area api/auth'); ev(t + 25 * MIN, run, 'survey', 'info', 'survey', 'pass 3: 1 🔴 · 2 🟡 · 4 🟢'); tok(t + 26 * MIN, run, 'survey', 1.8); }
 { const t = NOW - 1 * DAY - 7 * H, run = `sess-${hex(12)}`; ev(t, run, 'review', 'info', 'review_step', `PR #${prs[14].n} [${hex(7)}] locked`); ev(t + 4 * MIN, run, 'review', 'error', 'classifier_block', 'the classifier refused a git command; review aborted'); ev(t + 5 * MIN, run, 'review', 'info', 'review_step', `PR #${prs[14].n} [${hex(7)}] aborted classifier refusal`); }
 // The run that works now.
-{ const t = NOW - 6 * MIN, run = `sess-${hex(12)}`; ev(t, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${hex(7)}] locked`); ev(t + 2 * MIN, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${hex(7)}] fanned out (n=4)`); }
+{ const t = NOW - 6 * MIN, run = `sess-${hex(12)}`, sha = hex(7); ev(t, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] locked`); ev(t + 50e3, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] cloned`); ev(t + 2 * MIN, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] fanned out (n=4)`); }
+// A second review side by side (per-PR sessions run in parallel), now writing its review.
+{ const p = prs.find((x) => x.open && x.n !== busy.n), t = NOW - 11 * MIN, run = `sess-${hex(12)}`, sha = hex(7);
+  if (p) { ev(t, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] locked`); ev(t + 40e3, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] cloned`); ev(t + 2 * MIN, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] fanned out (n=4)`);
+    ev(t + 9 * MIN, run, 'review', 'info', 'skill_timing', `PR #${p.n} ${SKILLS.map((s, k) => `${s}.txt=${Math.floor((t + (4 + k * 1.3) * MIN) / 1000)}`).join(' ')}`); ev(t + 9 * MIN, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] verified`); } }
 put('HEARTBEAT.log', hb.split('\n').sort().join('\n') + '\n');
 
 // ------------------------------------------------ health
