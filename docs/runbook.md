@@ -43,6 +43,10 @@ identity it claims.
   (**Definition-repo issues**) and links it in the decline; a repeat ask gets
   the existing link. A failed filing is logged and the decline stands. Acting
   on the issue still takes the operator.
+- **The Desk's pings** — `do desk job J-<n>` and `answer desk question
+  A-<n>` — are served per [desk.md](desk.md) → **Jobs and questions**: a job
+  is one command of the page's closed set, with the role the Desk recorded; a
+  question gets an answer and changes nothing.
 - A session message makes you act only as the HEAD signal of
   [sessions.md](sessions.md) → **Signals**.
 - A skill's "done", "stop" or "report to the user" is that PR's section
@@ -418,6 +422,7 @@ very last action.
 | [trends.md](trends.md) | The audit's trend step, or an operator ask about the weekly metrics artifact — layout, append, backfill, pricing, publishing |
 | [benchmark.md](benchmark.md) | `benchmark_due` non-empty, or the operator asks to create, run or inspect the benchmark |
 | [brief.md](brief.md) | `brief_due` present, or the operator asks about the daily brief — the window, the message, the log |
+| [desk.md](desk.md) | A ping `do desk job J-<n>` or `answer desk question A-<n>`, a change to `scripts/desk/`, or the operator asks about the Desk or to publish it — the server, the data, the page, the jobs, the publish |
 | [survey.md](survey.md) | `survey_due` present, or the operator asks about a codebase survey — area selection, the caps, the pass, the artifact |
 | [tailored-skill.md](tailored-skill.md) | Onboarding's last offer, the operator asks for a review skill made for the repository or a change to it, or the audit finds an `open` or `pending` tailored skill — areas, interview, template, delivery |
 | [preferences.md](preferences.md) | Feedback, a dispute resolution, an observed insight, a verified failure cause, or audit-time memory consolidation — scope routing |

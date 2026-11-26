@@ -44,6 +44,12 @@ anomalous reviews from local logs; with the opt-ins it DMs its alerts itself and
 publishes a health dashboard ([`docs/monitor.md`](docs/monitor.md),
 [`docs/health.md`](docs/health.md)).
 
+**The Desk** — one interactive page, published on the operator's ask: the pull
+requests and where each stands, the findings followed to fixed, every review and
+run, the published pages and the agent's health, with a chat and buttons that
+give the agent work. A small server on the agent's machine feeds it
+([`docs/desk.md`](docs/desk.md)).
+
 **Weekly audit** — Friday morning by default, under `audit_report`. 7-day
 statistics, deterministic and judgment health checks, a traffic-light report to
 the chat UI and Slack ([`docs/audit.md`](docs/audit.md)), and the accumulated

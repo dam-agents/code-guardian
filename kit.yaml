@@ -13,7 +13,9 @@ description: >-
   minutes (model or GitHub outages, classifier refusals, a silent heartbeat)
   and can publish a health dashboard. Every instance also publishes a public
   card of the agent's own interface — its surfaces, triggers, contracts and
-  handoffs — for people and for other agents.
+  handoffs — for people and for other agents. An interactive Desk shows the
+  pull requests, findings, reviews, runs, published pages and health in one
+  place, with a chat and buttons that give the agent work.
 tagline: Every pull request gets a review, within minutes.
 category: software
 icon: code
@@ -144,5 +146,13 @@ schedules:
     enabled: false
     task: >-
       Daily brief. The precheck already ran preflight and found merged PRs: read the worklist JSON at the path its output names, and never run preflight.sh again this run. If the prompt carries no worklist path, run `bash "$HOME/scripts/preflight.sh" brief` yourself. Then follow CLAUDE.md → "Brief run": read docs/brief.md, read the merged PRs in brief_due, write the brief in brief_due.language, post it to Slack, append brief_due.until to BRIEF.log only after the post succeeds, and back up work/ (`scripts/work-backup.sh persist`).
+# The Desk's server (docs/desk.md → The server): the interactive page asks it for its data and sends
+# its jobs and questions through it. Loopback only, on the platform's Artifact API port; the platform
+# names the caller on every request.
+startupItems:
+  - name: code-guardian-desk
+    description: The Desk's data, jobs and questions on the Artifact API port (loopback only)
+    command: ~/scripts/desk/serve.sh
+    args: []
 bundledSkills:
   path: .agents/skills

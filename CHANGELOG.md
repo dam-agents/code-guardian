@@ -11,6 +11,16 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 15.1.0 — 2026-11-25
+
+**Upgrade:**
+1. The Desk's server is a Login item now (`kit.yaml` → `startupItems`,
+   `code-guardian-desk`): an agent created before 15.1.0 has none. Tell the
+   operator once that the platform adds it from the kit, or that they add it
+   (command `~/scripts/desk/serve.sh`); nothing else changes until then.
+2. Publish the Desk only when the operator asks ([docs/desk.md](docs/desk.md)
+   → **Publish**).
+
 ## 15.0.2 — 2026-11-19
 
 **Upgrade:** Nothing — scripts are re-read per run.
