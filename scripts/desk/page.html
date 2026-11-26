@@ -1976,6 +1976,14 @@
   body.na [data-setting], body.na [data-set] { pointer-events: none; }
 </style>
 <style data-cg-page>
+  .cg-about { flex-basis: 100%; color: var(--muted); font-size: var(--fs-meta); font-weight: 400; } .cg-mod-t .cg-about { padding-left: 20px; }
+  .cg-mod-t .chev { display: inline-block; width: 12px; color: var(--muted); transition: transform .12s; } .cg-mod.open .cg-mod-t .chev { transform: rotate(90deg); }
+  .cg-mod-t[disabled] { cursor: default; } .cg-mod-b { padding: 0 0 12px 20px; } .cg-grp .cg-mod-b .cg-set:last-child { border-bottom: 0; } .cg-bad { font-size: var(--fs-meta); color: var(--bad); }
+  .cg-switch { flex: none; position: relative; width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: var(--line); cursor: pointer; }
+  .cg-switch span { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--panel); transition: left .12s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .cg-switch[aria-checked="true"] { background: var(--accent); } .cg-switch[aria-checked="true"] span { left: 18px; } .cg-switch[disabled] { cursor: default; opacity: .7; }
+  .cg-set .filters .btn[disabled] { cursor: default; }
+
   details.navmenu { position: relative; display: inline-block; } details.navmenu > summary { list-style: none; padding: 8px 12px; border-radius: var(--r-md); cursor: pointer; color: var(--muted); font-size: var(--fs-ui); display: inline-flex; align-items: center; gap: 4px; }
   details.navmenu > summary::-webkit-details-marker { display: none; } details.navmenu > summary::after { content: "▾"; font-size: 10px; }
   details.navmenu > summary:hover, details.navmenu[open] > summary { background: var(--soft); color: var(--ink); } details.navmenu > summary[aria-current="true"] { background: var(--soft); color: var(--ink); font-weight: 600; }
@@ -2126,7 +2134,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // ---------- state ----------
   const S = { me: null, data: null, hash: null, status: null, tab: "prs", item: null, offline: false,
-    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents" };
+    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents", openMods: new Set() };
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeUrl = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
@@ -2682,18 +2690,67 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const DAYN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const cronDays = (c) => { const dow = String(c || "").split(/\s+/)[4]; if (!dow || dow === "*") return [0, 1, 2, 3, 4, 5, 6]; if (/^\d$/.test(dow)) return [+dow]; const m = /^(\d)-(\d)$/.exec(dow); return m ? Array.from({ length: +m[2] - +m[1] + 1 }, (_, k) => +m[1] + k) : []; };
   const cronWords = (c) => { const [mi, h] = String(c || "").split(/\s+/); if (/^\*\/\d+$/.test(mi)) return `${mi.slice(2)} min`; if (/^\d+-\d+$/.test(h)) return `${h.replace("-", "–")} h`; if (/^\d+$/.test(h)) return `${h.padStart(2, "0")}:${mi.padStart(2, "0")}`; return c; };
+  // Settings (docs/desk.md → Settings), as Quality Inspector's: the week at a glance, then what Code
+  // Guardian does, grouped by when; a row opens in place with its settings. The page's owner — the
+  // operator — changes them at once; anyone else sees what is set.
+  const SET_GROUPS = [["pr", "With each pull request"], ["merge", "Help to merge"], ["slack", "Slack and reminders"], ["week", "Each week"], ["health", "Its own health"]];
+  const VAL_WORD = { enabled: "On", disabled: "Off", off: "Off", dam: "Publish", label: "The label", "review-request": "A review request", both: "Both", collaborators: "Collaborators", anyone: "Anyone", needs_human: "Needs a person", all: "Every PR", squash: "Squash", merge: "Merge", rebase: "Rebase", info: "Normal", debug: "Debug" };
+  const isOwner = () => !!S.me?.owner;
+  const SK = () => D().settings?.keys || {};
+  const setTip = (what) => isOwner() ? `Sets it to ${what}; it applies from the next run` : "Only the operator, the owner of this page, changes it";
+  function setCtl(k, v) {
+    if (v.type === "switch") { const on = v.value === "enabled";
+      return `<button type="button" class="cg-switch" role="switch" aria-checked="${on}" ${isOwner() ? `data-setting="${esc(`${k}|${on ? "disabled" : "enabled"}`)}"` : "disabled"} title="${esc(setTip(on ? "off" : "on"))}"><span></span></button>`; }
+    if (v.type === "enum") return `<div class="filters" role="group" aria-label="${esc(v.label || k)}">${v.values.map((x) => x === v.value ? `<button type="button" class="btn small on" aria-pressed="true" title="The current value">${esc(VAL_WORD[x] || human(x))}</button>`
+      : `<button type="button" class="btn small" ${isOwner() ? `data-setting="${esc(`${k}|${x}`)}"` : "disabled"} title="${esc(setTip(VAL_WORD[x] || x))}">${esc(VAL_WORD[x] || human(x))}</button>`).join("")}</div>`;
+    if (v.type === "fixed" || !isOwner()) return `<code>${esc(v.value || "not set")}</code>`;
+    return `<span class="cg-set-in"><input data-kept data-set="${esc(k)}" value="${esc(v.value)}" aria-label="${esc(v.label || k)}" size="${v.type === "text" ? 24 : 6}" ${v.type === "text" ? "" : `inputmode="numeric"`}/><button type="button" class="btn small" data-set-go title="Saves it; it applies from the next run">Change</button></span>`;
+  }
+  function setRow(k) {
+    const v = SK()[k]; if (!v) return "";
+    const hint = [v.type === "int" || v.type === "int_off" ? `${v.min}–${v.max}${v.type === "int_off" ? " or off" : ""}` : "", v.def != null && v.def !== "" && String(v.def) !== String(v.value) ? `default ${VAL_WORD[v.def] || v.def}` : ""].filter(Boolean).join(" · ");
+    return `<div class="cg-set"><div><b>${esc(v.label || human(k))}</b>${v.about ? `<span class="cg-about">${esc(v.about)}</span>` : ""}${hint ? `<span class="k">${esc(hint)}</span>` : ""}${v.invalid ? `<span class="cg-bad">CONFIG.md holds “${esc(v.raw)}”, which is not allowed: the default applies.</span>` : ""}</div>${setCtl(k, v)}</div>`;
+  }
+  const featOn = (f) => !f.switch || SK()[f.switch]?.value === "enabled";
+  function featRow(f) {
+    const open = S.openMods.has(f.id), on = featOn(f), sw = f.switch && SK()[f.switch];
+    const facts = f.keys.map((k) => SK()[k]).filter((v) => v && v.type !== "fixed" && v.type !== "text" && v.type !== "switch").slice(0, 2).map((v) => `${(v.label || "").toLowerCase()}: ${VAL_WORD[v.value] || v.value}`).join(" · ");
+    return `<div class="cg-mod${open ? " open" : ""}${on ? "" : " off"}" id="mod-${esc(f.id)}"><div class="cg-mod-h"><button type="button" class="cg-mod-t" data-mod="${esc(f.id)}" aria-expanded="${open}"${f.keys.length ? "" : " disabled"}><span class="chev" aria-hidden="true">${f.keys.length ? "›" : ""}</span><b>${esc(f.title)}</b>${facts ? `<span class="k">${esc(facts)}</span>` : ""}<span class="cg-about">${esc(f.about)}</span></button>${sw ? setCtl(f.switch, sw) : `<span class="k">Always on</span>`}</div>`
+      + (open && f.keys.length ? `<div class="cg-mod-b">${f.keys.map(setRow).join("")}</div>` : "") + `</div>`;
+  }
   function renderSettings() {
     const order = [1, 2, 3, 4, 5, 6, 0], today = new Date().getDay(), sc = D().schedules || [];
     const week = sc.length ? `<div class="cg-week" role="table" aria-label="When Code Guardian runs this week"><div class="cg-wk-h" role="row"><span></span>${order.map((d) => `<span${d === today ? ' class="today"' : ""}>${DAYN[d]}</span>`).join("")}<span></span></div>`
       + sc.map((s) => `<div class="cg-wk-r${s.enabled ? "" : " off"}" role="row"><span title="${esc(s.name)}">${esc(SCHED_NAME(s.name))}${s.enabled ? "" : ' <span class="k">(off)</span>'}</span>${order.map((x) => `<i class="${s.enabled && cronDays(s.cron).includes(x) ? "on" : ""}${x === today ? " today" : ""}"></i>`).join("")}<span class="k" title="${esc(`${s.cron} (UTC)`)}">${esc(cronWords(s.cron))}</span></div>`).join("") + `</div>` : `<p class="k">The schedules come with the next health check.</p>`;
     const rules = (D().memory || []).map((s) => `<h4>${esc(s.name)}</h4>${s.rules.map((r) => `<div class="cg-rule"><span class="when">${esc(r.date || "")}</span><span class="from">${r.from ? `<span class="chip">${esc(r.from === "user" ? "a person" : r.from)}</span>` : ""}</span><span>${mdLite(r.text).replace(/^<p>|<\/p>$/g, "")}</span></div>`).join("")}`).join("");
-    const cfg = Object.entries(D().config || {});
-    return `<h2>Settings</h2><p class="lead">When Code Guardian runs, what it follows, and who may do what. A change of these goes to the operator: ask in the chat, and Code Guardian explains how.</p>`
-      + `<section class="cg-grp"><h3>The week at a glance</h3>${week}</section>`
+    const st = D().settings, fs = st?.features || [];
+    return `<h2>Settings</h2><p class="lead">What Code Guardian does, and when. ${isOwner() ? "You own this page: your changes go to <code>CONFIG.md</code> at once and apply from the next run." : "Only the operator, the owner of this page, changes them. You see what is set."}</p>`
+      + (fs.length ? `<p class="k">${fs.filter(featOn).length} of ${fs.length} on</p>` : "")
+      + (week ? `<section class="cg-grp"><h3>The week at a glance</h3>${week}</section>` : "")
+      + SET_GROUPS.map(([g, label]) => { const xs = fs.filter((f) => f.group === g); return xs.length ? `<section class="cg-grp"><h3>${esc(label)}</h3>${xs.map(featRow).join("")}</section>` : ""; }).join("")
+      + (st?.fixed || []).map(([label, keys, about]) => `<section class="cg-grp"><h3>${esc(label)}</h3><p class="k">${esc(about)}</p><div class="cg-mod open"><div class="cg-mod-b" style="padding-left:0">${keys.filter((k) => SK()[k]?.value).map(setRow).join("")}</div></div></section>`).join("")
       + (rules ? `<section class="cg-grp"><h3>What Code Guardian follows</h3><p class="k">The rules people gave it, and what it learned from escaped defects. Each review reads them.</p>${rules}</section>` : "")
-      + (cfg.length ? `<section class="cg-grp"><h3>The setup</h3><div class="cg-cfg">${cfg.map(([k, v]) => `<span class="k">${esc(human(k))}</span><code>${esc(v)}</code>`).join("")}</div></section>` : "")
       + peopleSection();
   }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-mod]"); if (!b) return;
+    const id = b.dataset.mod; if (S.openMods.has(id)) S.openMods.delete(id); else S.openMods.add(id); renderDetail();
+  });
+  async function writeSetting(key, value) {
+    const r = await api("POST", "/api/settings", { key, value });
+    const f = (D().settings?.features || []).find((x) => x.switch === key);
+    toast(`Saved: ${SK()[key]?.label || f?.title || human(key)} — ${VAL_WORD[r.value] || r.value}. It applies from the next run.`);
+    await refresh(); draw();
+  }
+  document.addEventListener("click", guard(async (e) => {
+    const b = e.target.closest?.("[data-setting], [data-set-go]"); if (!b) return;
+    e.preventDefault();
+    if (b.matches("[data-setting]")) { const [k, v] = b.dataset.setting.split("|"); return writeSetting(k, v); }
+    const inp = b.previousElementSibling, k = inp.dataset.set, v = inp.value.trim(), d = SK()[k];
+    const ok = d.type === "text" ? v.length <= 300 && !/[\u0000-\u001f]/.test(v) : (d.type === "int_off" && v === "off") || (/^\d{1,5}$/.test(v) && +v >= d.min && +v <= d.max);
+    if (!ok) { toast(d.type === "text" ? "This value is too long." : `Write a number from ${d.min} to ${d.max}${d.type === "int_off" ? ", or off" : ""}.`); inp.focus(); return; }
+    return writeSetting(k, v);
+  }));
   const ROLE_DO = { admin: "Does everything: also runs the audit, the survey and the benchmark out of turn, publishes the reports again, and gives people their roles.", developer: "Asks for reviews and re-reviews, review guides and fixes; dismisses findings; looks into runs.", viewer: "Reads the Desk and asks questions. Presses nothing that changes anything." };
   function peopleSection() {
     const P = S.people, roles = P?.roles || ["admin", "developer", "viewer"];

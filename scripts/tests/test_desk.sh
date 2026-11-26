@@ -80,6 +80,17 @@ r = await call('GET', '/api/asks', null, 'viewer', 'other@example.com');
 say(r.body.asks.length === 0, 'another person does not see the question');
 r = await call('GET', '/api/artifacts/health/page');
 say(r.status === 200 && /<html/i.test(r.body.html), 'a page\'s local copy is served');
+r = await call('POST', '/api/settings', { key: 'ci_triage', value: 'enabled' }, 'viewer', 'dev@example.com');
+say(r.status === 403, 'only the owner changes a setting');
+r = await call('POST', '/api/settings', { key: 'github_repo', value: 'evil/repo' });
+say(r.status === 400, 'a key outside the Settings table is refused');
+r = await call('POST', '/api/settings', { key: 'auto_merge_max_lines', value: '99999' });
+say(r.status === 400, 'a value outside its limits is refused');
+r = await call('POST', '/api/settings', { key: 'ci_triage', value: 'enabled' });
+const cfg = (await import('node:fs')).readFileSync(join(W, 'CONFIG.md'), 'utf8');
+say(r.status === 200 && /^- ci_triage: enabled$/m.test(cfg) && /^- github_repo: acme\/tasklane$/m.test(cfg), "the owner's change is one CONFIG.md bullet");
+r = await call('GET', '/api/data');
+say(r.body.data.settings.keys.ci_triage.value === 'enabled', 'the data shows the new value at once');
 r = await call('GET', '/api/artifacts/..%2F..%2Fetc/page');
 say(r.status === 404, 'only a page the data names is served');
 EOF

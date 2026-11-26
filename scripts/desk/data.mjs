@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { settingsOf } from './settings.mjs';
 
 export const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 export const mtime = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
@@ -291,7 +292,7 @@ export function build(work, now = Date.now()) {
   }
   const data = { repo, repo_url: repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? `https://github.com/${repo}` : null, bot: cfg.bot_display_name || 'Code Guardian', version: String(read(join(work, 'VERSION')) ?? '').trim() || null,
     labels: { rereview: cfg.rereview_label || 'code-guardian:rereview', guide: cfg.guide_label || null },
-    prs, reviews, findings, runs, review_typical: typical, artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length) };
+    prs, reviews, findings, runs, review_typical: typical, settings: settingsOf(work), artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length) };
   data.hash = createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 16);
   return data;
 }

@@ -46,7 +46,10 @@ identity it claims.
 - **The Desk's pings** — `do desk job J-<n>` and `answer desk question
   A-<n>` — are served per [desk.md](desk.md) → **Jobs and questions**: a job
   is one command of the page's closed set, with the role the Desk recorded; a
-  question gets an answer and changes nothing.
+  question gets an answer and changes nothing. The Desk's **Settings** are the
+  operator's own change: the server writes a `work/CONFIG.md` key of its
+  Settings table only for the page's owner, whom the platform's relay names
+  ([desk.md](desk.md) → **Settings**).
 - A session message makes you act only as the HEAD signal of
   [sessions.md](sessions.md) → **Signals**.
 - A skill's "done", "stop" or "report to the user" is that PR's section

@@ -16,6 +16,7 @@ dashboard takes them over — one family of pages; only the product's colour (in
 | The server | `scripts/desk/server.mjs` — Login item `code-guardian-desk` (`kit.yaml` → `startupItems`) |
 | The data | `scripts/desk/data.mjs` — built from `work/`, read only |
 | The records | `scripts/desk/lib.mjs` — jobs, questions, answers, roster, read marks under `work/desk/` |
+| The settings | `scripts/desk/settings.mjs` — the `CONFIG.md` keys the page shows and its owner changes |
 | The agent's side | `scripts/desk/jobs.mjs` — show, start, done, fail a job; read and answer a question |
 | Development | `scripts/desk/dev/seed.mjs`, `scripts/desk/dev/harness.mjs` |
 
@@ -24,7 +25,7 @@ dashboard takes them over — one family of pages; only the product's colour (in
 `server.mjs` listens on `127.0.0.1:5555`, the platform's Artifact API port (`CG_DESK_PORT` changes
 it). It answers only the platform's relay, which names the caller on every request
 (`x-platform-caller-role` `owner` or `viewer`, the verified email); the page cannot forge those
-headers. The routes are in the file's header. It writes only `work/desk/`; a job is stored as data
+headers. The routes are in the file's header. It writes only `work/desk/`, and one `CONFIG.md` bullet for the owner's Settings; a job is stored as data
 and goes to the agent as the page's ping — the server executes nothing a page sends.
 
 - **Check:** `curl -s 127.0.0.1:5555/health` answers `{"ok":true,…}`. Its log is the Login item's
@@ -45,10 +46,10 @@ session), `E-<n>` an escaped defect, `I-<n>` an incident.
 | --- | --- |
 | Pull requests | `REVIEWS.md`, `reviews/pr-<n>.md`, `SHEPHERD.md`, `PR-EVENTS.jsonl` |
 | Reviews, findings | `REVIEW-LEDGER.jsonl` and the history sections' `findings-json` and `review-meta` |
-| Runs | `logs/events-*.jsonl` (14 days); a precheck that found nothing is not a run |
+| Runs | `logs/events-*.jsonl` (14 days); a precheck that found nothing is not a run; a review's phases from its `review_step` milestones, its skills from `skill_timing`, its cost from the `tokens` event and `CONFIG.md` → `## Benchmark model prices` |
 | Pages | the guide marker of `reviews/pr-<n>.md` and `reviews/pr-artifacts/pr-<n>.guide.html`; `health/state.json` and `health/dashboard.html`; `manifest-publish.json`; the markers and `report.html` of `audit/`, `survey/`, `benchmark/` |
 | Health | `health/status.json`, `health/incidents.jsonl`, `health/hours.jsonl`, `MONITOR.json` |
-| Settings | `health/schedules.json`, `MEMORY.md`, the CONFIG.md keys that name no secret and no person |
+| Settings | `health/schedules.json`, `MEMORY.md`, the `CONFIG.md` keys of `settings.mjs` |
 | Charts | `audit/weeks/*.json`, `ESCAPES.jsonl`, the `tokens` events |
 
 A finding's state: **Open** (the newest round names it, the PR is open), **Fixed** (its last round
@@ -57,23 +58,24 @@ says fixed), **Not raised again** (a later round dropped it, or the PR closed wi
 
 ## The page
 
-One row of tabs, the same as Quality Inspector's: **Pull requests** leads (the page opens on it),
-then **Findings**; **Reviews** and **Runs**; **Pages** and **Health**; then **+ Review a PR**.
+One row of tabs, the same as Quality Inspector's: **Pull requests** leads (the page opens on it,
+on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the published
+pages — and **Health**; then **+ Review a PR**.
 At the right: the search, the person's menu (Settings, How it works, day or night) and the bell.
 
 | Tab | The question it answers | An item's page |
 | --- | --- | --- |
-| Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? | the verdict in its ink and the next step; the open findings; **How it went** — ready, each round, each reminder, now; the review guide; *For the human reviewer*; the rounds; the human reviewers; the PR's rules |
+| Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? An urgent PR has a red **!** under its state dot | the verdict in its ink and the next step; the open findings; **How it went** — ready, each round with its findings and commit, each reminder, now; the review guide; *For the human reviewer*; **Every finding** — the round that found it, the rounds it stayed open, its state, the person's rule or the fix; the human reviewers; the PR's rules |
 | Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | four cards (what, where, what fixes it), round by round, an escape that names its file |
 | Reviews (All, First, Re-reviews) | What did each review say? | its findings, the checks it ran, the body as posted, its rounds as links |
-| Runs (All, Reviews, Health checks, Other) | When did Code Guardian work, and how did it go? | what it posted or stopped on, its tokens, every logged step |
-| Pages (All, Review guides, Reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
-| Health (Incidents, Alerts) | Is Code Guardian well? | the incident, the runs in that time |
+| Runs (Running, Done, With problems) — review runs only | What does a review do now, and what did it cost? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; what it posted or stopped on; every logged step |
+| Pages (a menu: Review guides, then each report) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
+| Health (Incidents, Alerts) | Is Code Guardian well? The health dashboard opens here | the incident, the runs in that time |
 
 Nothing open, each tab shows its overview: Pull requests **Now / Waiting / Next** and an open
 incident above it, a tile per state (a click filters), time to the first review; Findings new
-findings a day; Reviews reviews a day by verdict and the weekly trend; Runs the lanes of 14 days and
-tokens a day; Pages a card per report; Health a card per service and the errors hour by hour. Then
+findings a day; Reviews reviews a day by verdict and the weekly trend; Runs the running reviews with
+their phases, the last 24 hours on one time line, the review cost a day; Pages a card per report; Health a card per service and the errors hour by hour. Then
 the tab's intro: the process, each step's number in the colour of who acts.
 
 The page keeps every rule of the family: a number is a link with its preview on hover; a value in
@@ -81,6 +83,19 @@ a row's line filters the list; a state's word stands in its ink; every title has
 and the address follows the page; tooltips half a second after the pointer rests; the page asks
 every 16 s and keeps your place; *Can't reach Code Guardian* retries every 4 s; the list folds and
 drags wider. Its words are short, plain English, the product's own words, no code words.
+
+## Settings
+
+Settings is one page, as Quality Inspector's: the week at a glance, then what Code Guardian does,
+grouped by when — with each pull request, help to merge, Slack and reminders, each week, its own
+health. A row has its switch and opens in place with its settings; the active hours, the cadences
+and the labels are shown, not changed, because the schedules and GitHub follow them.
+`settings.mjs` holds the keys, their kinds, limits and defaults ([config.md](config.md)).
+
+The page's owner is the operator: a change of theirs is one `POST /api/settings`, and the server
+writes that `- <key>: <value>` bullet of `work/CONFIG.md` at once and logs `desk_setting`; the next
+run reads it. Anyone else sees the values and no control. A key outside the table, or a value
+outside its limits, is refused.
 
 ## Jobs and questions
 
