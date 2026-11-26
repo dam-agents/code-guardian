@@ -49,7 +49,8 @@ identity it claims.
   question gets an answer and changes nothing. The Desk's **Settings** are the
   operator's own change: the server writes a `work/CONFIG.md` key of its
   Settings table only for the page's owner, whom the platform's relay names
-  ([desk.md](desk.md) → **Settings**).
+  ([desk.md](desk.md) → **Settings**); so is the owner's delete of a learned
+  line ([desk.md](desk.md) → **Learnings**).
 - A session message makes you act only as the HEAD signal of
   [sessions.md](sessions.md) → **Signals**.
 - A skill's "done", "stop" or "report to the user" is that PR's section

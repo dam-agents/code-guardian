@@ -103,6 +103,14 @@ const cfg = (await import('node:fs')).readFileSync(join(W, 'CONFIG.md'), 'utf8')
 say(r.status === 200 && /^- ci_triage: enabled$/m.test(cfg) && /^- github_repo: acme\/tasklane$/m.test(cfg), "the owner's change is one CONFIG.md bullet");
 r = await call('GET', '/api/data');
 say(r.body.data.settings.keys.ci_triage.value === 'enabled', 'the data shows the new value at once');
+{ const d0 = (await call('GET', '/api/data')).body.data, l = d0.learnings.find((x) => x.file === 'MEMORY.md');
+  r = await call('POST', '/api/learnings/remove', { file: l.file, line: l.line }, 'viewer', 'dev@example.com');
+  say(r.status === 403, 'only the owner deletes a learning');
+  r = await call('POST', '/api/learnings/remove', { file: '../CONFIG.md', line: '- github_repo: acme/tasklane' });
+  say(r.status === 400, 'a file outside the learnings is refused');
+  r = await call('POST', '/api/learnings/remove', { file: l.file, line: l.line });
+  const mem = (await import('node:fs')).readFileSync(join(W, 'MEMORY.md'), 'utf8');
+  say(r.status === 200 && !mem.split('\n').includes(l.line) && mem.includes('## Review Style'), "the owner's delete takes out that one line"); }
 r = await call('GET', '/api/artifacts/..%2F..%2Fetc/page');
 say(r.status === 404, 'only a page the data names is served');
 EOF

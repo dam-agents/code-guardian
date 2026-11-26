@@ -76,7 +76,7 @@ At the right: the search, the person's menu (Settings, How it works, day or nigh
 | Reviews (All, First, Re-reviews) | What did each review say? | its findings, the checks it ran, the body as posted, its rounds as links |
 | Runs (Running, Done, With problems) — review runs only | What does a review do now, and what did it cost? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; what it posted or stopped on; every logged step |
 | Pages (a menu of the reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
-| Learnings (Rules, Area rules, Escaped classes, Lessons) | What did Code Guardian learn, and why? | the rule, who gave it and when, the story from the archive, the escapes that taught it, the findings it answers |
+| Learnings (Rules, Area rules, Escaped classes, Lessons) | What did Code Guardian learn, and why? | the rule, who gave it and when, the story from the archive, the escapes that taught it, the findings it answers; **Delete…** for the owner |
 | Health (Incidents, Alerts) | Is Code Guardian well? The health dashboard opens here | the incident, the runs in that time |
 
 Nothing open, each tab shows its overview: Pull requests **Now / Waiting / Next** and an open
@@ -103,6 +103,13 @@ The page's owner is the operator: a change of theirs is one `POST /api/settings`
 writes that `- <key>: <value>` bullet of `work/CONFIG.md` at once and logs `desk_setting`; the next
 run reads it. Anyone else sees the values and no control. A key outside the table, or a value
 outside its limits, is refused.
+
+## Learnings
+
+The page's owner deletes a learned line from its page, asked first: `POST /api/learnings/remove`
+takes that one `- ` line, matched whole, out of `MEMORY.md`, `LESSONS.md` or `memory/<topic>.md`,
+and logs `desk_learning_removed`. Its archive entry stays. Anyone else sees no button. The line
+numbers `L-<n>` follow the files, so they move after a delete.
 
 ## Jobs and questions
 

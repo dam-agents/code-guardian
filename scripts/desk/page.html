@@ -1976,6 +1976,11 @@
   body.na [data-setting], body.na [data-set] { pointer-events: none; }
 </style>
 <style data-cg-page>
+  .cg-ftab tr { border-left: 3px solid var(--fc, transparent); } .cg-ftab tr[data-st="open"] { --fc: var(--closed); } .cg-ftab tr[data-st="fixed"] { --fc: var(--approved); }
+  .cg-ftab tr[data-st="dismissed"] { --fc: var(--decided); } .cg-ftab tr[data-st="gone"], .cg-ftab tr[data-st="left"] { --fc: var(--muted); }
+  .cg-ftab tr[data-st="fixed"] td.f a, .cg-ftab tr[data-st="gone"] td.f a { color: var(--muted); }
+  details.cg-fmore { margin-top: 8px; max-width: 900px; } details.cg-fmore > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-meta); padding: 6px 0; } details.cg-fmore > .cg-ftab { margin-top: 4px; }
+
   .cg-answers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: 900px; } .cg-answers li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: var(--fs-meta); padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
   .cg-answers li > span:nth-child(odd):last-child { flex-basis: 100%; }
   .cg-esc { max-width: 900px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--closed); border-radius: var(--r-md); margin-bottom: 8px; font-size: var(--fs-meta); }
@@ -2000,7 +2005,8 @@
   .cg-ftab tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; } .cg-ftab tr + tr { border-top: 1px solid var(--line); }
   .cg-ftab td { padding: 0; display: block; min-width: 0; } .cg-ftab td.f { grid-column: 1; } .cg-ftab td.st { grid-column: 2; grid-row: 1; text-align: right; }
   .cg-ftab td.meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; color: var(--muted); }
-  .cg-ftab td.note { grid-column: 1 / -1; color: var(--muted); } .cg-ftab td.note:empty { display: none; } .cg-ftab td.note b { color: var(--ink); font-weight: 600; }
+  .cg-ftab td.why { grid-column: 1 / -1; color: var(--muted); padding-top: 2px; } .cg-ftab td.why:empty { display: none; } .cg-ftab td.why b { color: var(--ink); font-weight: 600; }
+  .cg-ftab td.f { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; } .cg-ftab td.f .loc { flex-basis: 100%; margin-top: 0; } .cg-ftab td.meta { gap: 4px 16px; }
   .cg-ftab .loc { display: block; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
   .cg-ftab .life { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; } .cg-ftab .life i { width: 10px; height: 6px; border-radius: 2px; background: var(--c, var(--line)); }
 
@@ -2399,15 +2405,19 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     const roundOf = (id) => { const k = rs.findIndex((r) => r.id === id); return k < 0 ? null : k + 1; };
     const order = { open: 0, left: 1, dismissed: 2, gone: 3, fixed: 4 }, sev = { critical: 0, warning: 1, suggestion: 2 };
     const list = fs.slice().sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || (sev[a.severity] ?? 9) - (sev[b.severity] ?? 9));
-    return `<table class="cg-ftab"><thead><tr><th>Finding</th><th>Now</th><th>Rounds</th><th>Why it stays, or what fixes it</th></tr></thead><tbody>${list.map((f) => {
+    const rowOf = (f) => {
       const [w, st, tip] = FSTATE[f.state], fx = (f.rounds || []).find((x) => x.status === "fixed"), fixedIn = fx ? roundOf(fx.review) : null, r0 = f.rounds?.[0], k0 = r0 ? roundOf(r0.review) : null, named = (f.rounds || []).filter((x) => x.status !== "fixed").length;
       const life = (f.rounds || []).map((x) => `<i style="--c: var(${x.status === "fixed" ? "--approved" : x.status === "new" ? "--closed" : "--waiting"})" title="${esc(`Round ${roundOf(x.review) ?? "?"}: ${x.status === "new" ? "found" : x.status === "fixed" ? "fixed" : "still open"}`)}"></i>`).join("");
       const why = f.override ? `<b>A person's rule:</b> ${esc(String(f.override).replace(/^Ignore:\s*\S+\s*[—-]\s*/, ""))}`
         : f.state === "fixed" ? "" : f.fix ? `<b>Fix:</b> ${esc(f.fix)}` : f.state === "left" ? "The PR closed with it open." : f.state === "gone" ? "A later round did not name it again." : "";
-      return `<tr><td class="f">${sevChip(f.severity)} ${itemA("findings", f.id, f.summary)}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></td>
+      return `<tr data-st="${esc(f.state)}"><td class="f">${sevChip(f.severity)} ${itemA("findings", f.id, f.summary)}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></td>
         <td class="st">${stw(st, w, tip)}</td>
         <td class="meta"><span>Found in ${k0 ? `${k0 === 1 ? "the first review" : `round ${k0}`}${r0 ? ` ${itemA("reviews", r0.review)}` : ""}` : "—"}</span><span title="The rounds that named it: red found, amber still open, green fixed">${named > 1 ? `Open for ${esc(plural(named, "round", "rounds"))}` : "Open for 1 round"}<span class="life">${life}</span></span>${fixedIn ? `<span>Fixed in round ${fixedIn}</span>` : ""}</td>
-        <td class="note">${why}</td></tr>`; }).join("")}</tbody></table>`;
+        <td class="why">${why}</td></tr>`; };
+    const tab = (xs) => `<table class="cg-ftab"><thead><tr><th>Finding</th><th>Now</th><th>Rounds</th><th>Why it stays, or what fixes it</th></tr></thead><tbody>${xs.map(rowOf).join("")}</tbody></table>`;
+    const open = list.filter((f) => f.state === "open"), rest = list.filter((f) => f.state !== "open");
+    return (open.length ? tab(open) : `<p class="k">No finding is open.</p>`)
+      + (rest.length ? `<details class="cg-fmore"${open.length ? "" : " open"}><summary>${esc(plural(rest.length, "earlier finding", "earlier findings"))} — ${esc(["fixed", "dismissed", "gone", "left"].map((k) => [k, rest.filter((f) => f.state === k).length]).filter(([, n]) => n).map(([k, n]) => `${n} ${FSTATE[k][0].toLowerCase()}`).join(", "))}</summary>${tab(rest)}</details>` : "");
   }
   // An urgent PR (review-urgent.md): a red ! under the row's state dot, as Design Desk marks a card
   // that goes against a decision; pointing at it unfolds the word.
@@ -2440,12 +2450,11 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip" style="background: var(--bad-soft); color: var(--bad); font-weight: 600" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
       + statusBox(s, w, help, acts, now)
       + (p.triage ? `<p class="cg-pr-head">${p.triage.class === "quick-check" ? `<span class="chip ok" title="${esc(p.triage.why || "")}">A quick check is enough</span>` : `<span class="chip warn" title="${esc(p.triage.why || "")}">Needs a human review</span>`}${p.triage.minutes ? `<span>about ${esc(p.triage.minutes)} min for a person</span>` : ""}${p.size?.files ? `<span>${esc(p.size.files)} files · +${esc(p.size.additions ?? "?")} −${esc(p.size.deletions ?? "?")}</span>` : ""}</p>` : "")
-      + sect("Open findings", open.length ? flist(open) : rs.length ? `<p class="k">No finding is open.</p>` : "", open.length ? plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block") + " the merge" : "")
+      + sect("Findings", fs.length ? findingsTable(fs, rs) : rs.length ? `<p class="k">No findings in ${esc(plural(rs.length, "round", "rounds"))}.</p>` : "", open.length ? `${plural(open.length, "is", "are")} open, ${plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block")} the merge` : fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
       + sect("How it went", tlHtml)
       + (g ? sect("Review guide", `<div class="cg-cards" style="margin:0"><button class="cg-card" data-goto="prs" data-item="page:${esc(g.id)}" title="Opens the guide here, on the Desk"><b>${esc(g.title)}</b><span class="k">${g.utc ? `Published ${esc(ago(g.utc))}` : "Published"}${g.sha ? ` · for <code>${esc(g.sha)}</code>` : ""}</span><span class="k">Where to start, and what matters in this change.</span></button></div>`) : p.guide_owed ? sect("Review guide", `<p class="k">A guide is owed: it comes with the next round.</p>`)
         : p.state === "open" && rs.length ? sect("Review guide", `<p class="k">No guide for this PR yet. A guide shows the human reviewer where to start and what matters.</p>${cmdBtn(`publish the review guide of #${p.n}`, "Ask for a review guide", "Code Guardian publishes a review guide for this PR")}`) : "")
       + (forHuman ? sect("For the human reviewer", `<div class="cg-md">${mdLite(forHuman)}</div>`) : "")
-      + sect("Every finding", fs.length ? findingsTable(fs, rs) : "", fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
       + (sh ? sect("Human reviewers", `<dl class="cg-facts"><dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}` : "none yet"}</dd></dl>`) : "")
       + (p.overrides.length ? sect("Rules for this PR", `<ul>${p.overrides.map((o) => `<li>${mdLite(o).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul>`, "what a person told Code Guardian about this PR") : "");
   }
@@ -2484,10 +2493,18 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return head(l.text.length > 90 ? l.text.slice(0, 88) + "…" : l.text, l.id, `${esc(l.section || "")} · <code>${esc(l.file)}</code>`)
       + `<dl class="cg-facts"><dt>The rule</dt><dd>${mdLite(l.text).replace(/^<p>|<\/p>$/g, "")}</dd><dt>Read by</dt><dd>${esc(LAYER[l.layer] || "")}${l.scope?.length ? ` — <code>${esc(l.scope.join(", "))}</code>` : ""}</dd>`
       + `${l.from ? `<dt>From</dt><dd>${esc(l.from === "user" ? "a person" : l.from === "escape" ? "an escaped defect" : l.from)}</dd>` : ""}${l.date ? `<dt>Since</dt><dd>${esc(day(l.date + "T12:00:00Z"))}</dd>` : ""}${l.seen ? `<dt>Seen</dt><dd>${esc(plural(l.seen, "time", "times"))}</dd>` : ""}${l.pr ? `<dt>PR</dt><dd>${prA(l.pr)}</dd>` : ""}</dl>`
+      + (isOwner() ? `<p><button class="btn" data-learning-remove="${esc(l.id)}" title="Takes the line out of ${esc(l.file)}; the next run no longer reads it">Delete this ${l.layer === "lessons" ? "lesson" : "rule"}…</button></p>` : "")
       + (l.archive ? sect("The story behind it", `<div class="cg-md">${mdLite(l.archive)}</div>`, `from <code>archive/${esc(l.archive_ref)}</code>`) : "")
       + (es.length ? sect("The escapes that taught it", es.map(escapeCard).join("")) : "")
       + (fs.length ? sect("Findings it answers", `<ul class="cg-flist">${fs.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0])}<span class="loc">${esc(f.file || "")}</span></li>`).join("")}</ul>`) : "");
   }
+  document.addEventListener("click", guard(async (e) => {
+    const b = e.target.closest?.("[data-learning-remove]"); if (!b) return;
+    const l = learnings().find((x) => x.id === b.dataset.learningRemove); if (!l) return;
+    if (!(await askFirst(`Delete ${l.id}?`, `Code Guardian stops following it: “${l.text.slice(0, 160)}”. The line leaves ${l.file}; its story stays in the archive. To have it back, tell Code Guardian again.`, "Delete"))) return;
+    await api("POST", "/api/learnings/remove", { file: l.file, line: l.line });
+    toast(`Deleted: ${l.id}. The next run no longer reads it.`); S.item = null; await refresh(); draw();
+  }));
   function renderEscape(e) {
     return head(e.class || "An escaped defect", e.id, `Reported ${esc(day(e.at))} from ${esc(e.env || "a running environment")}${e.url ? ` · ${gh(e.url, "The report ↗", "Opens the report")}` : ""}`)
       + statusBox(e.review === "missed" ? "fail" : "look", e.review === "missed" ? "The review missed it" : "Found, but not fixed", e.review === "missed" ? "No review named this defect before the merge." : "A review named it; the PR merged with it open.", e.pr ? prA(e.pr, `PR #${e.pr}`).replace('class="anchor"', 'class="btn"') : "")
@@ -2900,7 +2917,10 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   ];
   async function confirmPress(cmd) {
     const hit = CONFIRM.map(([re, fn]) => [re.exec(cmd), fn]).find(([m]) => m); if (!hit) return true;
-    const [title, text, yes] = hit[1](hit[0]), dlg = $("#confirm-dialog");
+    return askFirst(...hit[1](hit[0]));
+  }
+  function askFirst(title, text, yes) {
+    const dlg = $("#confirm-dialog");
     $("#confirm-title").textContent = title; $("#confirm-text").textContent = text; $("#confirm-yes").textContent = yes;
     dlg.showModal();
     return new Promise((ok) => dlg.addEventListener("close", () => ok(dlg.returnValue === "yes"), { once: true }));

@@ -12,6 +12,7 @@
 //   GET  /api/notifications · POST /api/notifications/read {id} · /seen
 //   GET  /api/people · POST /api/people {email, role|null}   the roster (an admin's)
 //   POST /api/settings {key, value}                         one CONFIG.md setting (the page's owner only)
+//   POST /api/learnings/remove {file, line}                 one learned line out (the page's owner only)
 // Only the platform relay reaches /api/: it sets x-platform-caller-role/-email/-sub on every request,
 // which the page cannot forge. Loopback only. Nothing sent here is executed here: a job is stored as
 // data and goes to the agent as the page's message.
@@ -22,7 +23,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, mtime, read, sources } from './data.mjs';
 import { answers, asks, callerId, callerOf as recCaller, jobs as jobsOf, may, people, queue, recordAsk, roleOf, setRole, ROLES, STATES, utc, writeFile } from './lib.mjs';
-import { setValue, KEYS as SETTING_KEYS } from './settings.mjs';
+import { setValue, removeLearning, KEYS as SETTING_KEYS } from './settings.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORK = process.env.WORK_DIR ?? join(process.env.HOME ?? '/home/agent', 'work');
@@ -222,6 +223,14 @@ async function route(req, res, url, who) {
     log('info', 'desk_setting', `${done.key}: ${done.old ?? '-'} → ${done.value} by the owner`);
     cache = { key: "", data: null };
     return send(res, 200, { ok: true, ...done });
+  }
+  if (m === 'POST' && p[1] === 'learnings' && p[2] === 'remove' && !p[3]) {
+    if (who.role !== 'owner') throw new Said(403, 'Only the operator, the owner of this page, takes a learning out.');
+    const b = await body(req); spend(`learnings:${who.id || who.role}`);
+    try { removeLearning(WORK, b.file, b.line); } catch (e) { throw new Said(400, e.message); }
+    log('info', 'desk_learning_removed', `${b.file}: ${String(b.line).slice(0, 160)} by the owner`);
+    cache = { key: '', data: null };
+    return send(res, 200, { ok: true });
   }
   if (m === 'GET' && p[1] === 'notifications' && !p[2]) return send(res, 200, notifications(who));
   if (m === 'POST' && p[1] === 'notifications' && (p[2] === 'read' || p[2] === 'seen') && !p[3]) {

@@ -106,3 +106,16 @@ export function setValue(work, key, value) {
   writeFile(f, out);
   return { key, old, value: v };
 }
+
+// Takes one learned line out (docs/desk.md → Learnings): only a "- " line of MEMORY.md, LESSONS.md or
+// an area file work/memory/<topic>.md, matched whole. The archive keeps its story.
+export const LEARNING_FILE = /^(MEMORY\.md|LESSONS\.md|memory\/[\w.-]{1,60}\.md)$/;
+export function removeLearning(work, file, line) {
+  if (!LEARNING_FILE.test(file ?? '') || file.includes('..')) throw new Error('This file holds no learnings.');
+  if (typeof line !== 'string' || !/^- \S/.test(line) || line.length > 600 || /[\r\n]/.test(line)) throw new Error('This is not a learned line.');
+  const f = join(work, file); if (!existsSync(f)) throw new Error('The file is gone.');
+  const ls = readFileSync(f, 'utf8').split('\n'), at = ls.findIndex((l) => l === line || l.slice(0, 600) === line);
+  if (at < 0) throw new Error('This line is not in the file any more. Load the page again.');
+  ls.splice(at, 1); writeFile(f, ls.join('\n'));
+  return { file, line: ls.length };
+}

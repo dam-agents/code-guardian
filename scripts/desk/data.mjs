@@ -214,7 +214,7 @@ function learningsOf(work) {
       const m = TAG_RE.exec(l), tag = m?.[1] ?? null, body = (m?.[2] ?? l.slice(2)).trim();
       const ref = / → archive\/([\w.-]+\.md)\s*$/.exec(body);
       const from = tag ? (/^escape\b/.test(tag) ? 'escape' : /from ([^\],]+)/.exec(tag)?.[1]?.trim() ?? null) : null;
-      out.push({ id: `L-${out.length + 1}`, layer, file, section: sec, scope, tag, date: tag?.match(/\d{4}-\d\d-\d\d/)?.[0] ?? null, from,
+      out.push({ id: `L-${out.length + 1}`, layer, file, line: l.slice(0, 600), section: sec, scope, tag, date: tag?.match(/\d{4}-\d\d-\d\d/)?.[0] ?? null, from,
         pr: +(tag?.match(/PR #(\d+)/)?.[1] ?? body.match(/PR #(\d+)/)?.[1] ?? 0) || null, seen: +(tag?.match(/seen (\d+)×/)?.[1] ?? 0) || null,
         text: (ref ? body.slice(0, ref.index) : body).slice(0, 400), archive_ref: ref?.[1] ?? null, archive: ref ? archiveEntry(work, ref[1], tag) : null });
     }
