@@ -121,7 +121,7 @@ say(r.body.data.settings.keys.ci_triage.value === 'enabled', 'the data shows the
 r = await call('GET', '/api/artifacts/..%2F..%2Fetc/page');
 say(r.status === 404, 'only a page the data names is served');
 const ph = (await import('node:fs')).readFileSync(join(R, 'scripts/desk/page.html'), 'utf8');
-say(ph.includes('const measureHtml =') && ph.includes('measureHtml(f.srcdoc, f.clientWidth)'), 'a kept page measures in a ShadowRoot when the host frame has an opaque origin');
+say(ph.includes('const frameDoc =') && ph.includes('scrolling="no"') && ph.includes('e.data?.cgFrame'), 'a kept page strips page scripts, hides inner scrollbar, and reports its own scrollHeight via postMessage');
 EOF
 OUT="$(PORT="$PORT" WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/routes.mjs" 2>>"$STDERR_LOG")"
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null

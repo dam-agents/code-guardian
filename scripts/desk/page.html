@@ -2657,18 +2657,11 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     manifest: "Code Guardian's public interface card: what it does, its triggers and its contracts, for people and for other agents.", trends: "The weekly audit, week by week: reviews, findings, cost, speed.",
     survey: "The security survey: what a slow pass over one area of the code found.", benchmark: "How well the review finds known defects, version by version." };
   const pages_ = new Map();
-  // a kept page shows at its full height: its scripts do not run (no allow-scripts); when the host frame has an opaque origin (DAM's sandboxed preview), contentDocument is null and an offscreen ShadowRoot measures the static HTML at the frame's width
-  const measureHtml = (raw, w) => {
-    if (!raw || !w) return 0;
-    const doc = new DOMParser().parseFromString(raw, "text/html"); doc.querySelectorAll("script").forEach((s) => s.remove());
-    const css = [...doc.querySelectorAll("style")].map((s) => s.textContent.replace(/:root\b/g, ":host").replace(/\b(html|body)(?=[\s,{])/g, ":host").replace(/(-?\d*\.?\d+)rem\b/g, (_, n) => `${parseFloat(n) * 16}px`).replace(/(-?\d*\.?\d+)vh\b/g, (_, n) => `${parseFloat(n) * 6.2}px`)).join("\n");
-    const host = document.createElement("div"); host.style.cssText = `position:fixed;left:-99999px;top:0;width:${w}px;visibility:hidden;pointer-events:none;display:flow-root;box-sizing:border-box;font:16px/normal initial`;
-    host.attachShadow({ mode: "open" }).innerHTML = `<style>:host{display:flow-root;box-sizing:border-box;width:${w}px}${css}</style>${doc.body ? doc.body.innerHTML : ""}`;
-    document.body.appendChild(host); const h = Math.ceil(host.getBoundingClientRect().height); host.remove(); return h ? h + 20 : 0;
-  };
-  const fitFrame = (f) => { const was = f.style.height; try { f.style.height = "0px"; const h = f.contentDocument?.documentElement?.scrollHeight; f.style.height = h ? `${h + 2}px` : `${measureHtml(f.srcdoc, f.clientWidth) || parseInt(was, 10) || 620}px`; } catch { const h = measureHtml(f.srcdoc, f.clientWidth); f.style.height = h ? `${h}px` : was; } };
-  // only a new width measures again: a page sized in vh units grows with its frame, so a height change never does
+  // a kept page shows at its full height with no inner vertical scrollbar: its own <script> tags are stripped and a width-gated resize probe reports its scrollHeight via postMessage (works inside DAM's opaque-origin artifact sandbox too)
+  const frameDoc = (raw) => String(raw ?? "").replace(/<script\b[\s\S]*?<\/script>/gi, "") + "<style>html,body{overflow-y:hidden!important}</style><script>(()=>{let w=0;const s=()=>{if(!document.body||innerWidth===w)return;w=innerWidth;const b=document.body,d=document.documentElement,h=Math.ceil(Math.max(b.scrollHeight,d.scrollHeight,b.offsetHeight,d.offsetHeight));parent.postMessage({cgFrame:h},'*')};addEventListener('load',()=>{w=0;s()});addEventListener('resize',s);s()})()<\/script>";
+  const fitFrame = (f) => { const was = f.style.height; try { f.style.height = "0px"; const h = f.contentDocument?.documentElement?.scrollHeight; f.style.height = h ? `${h + 4}px` : was; } catch { f.style.height = was; } };
   const frameW = new WeakMap(), frameSizes = new ResizeObserver((es) => es.forEach((e) => { const w = Math.round(e.contentRect.width); if (frameW.get(e.target) !== w) { frameW.set(e.target, w); fitFrame(e.target); } }));
+  window.addEventListener("message", (e) => { for (const f of document.querySelectorAll("iframe.cg-frame")) if (f.contentWindow === e.source && Number.isFinite(e.data?.cgFrame) && e.data.cgFrame > 0) f.style.height = `${e.data.cgFrame + 4}px`; });
   document.addEventListener("load", (e) => { if (e.target.matches?.("iframe.cg-frame")) { fitFrame(e.target); frameSizes.observe(e.target); } }, true);
   function renderPage(a) {
     const kept = pages_.get(a.id);
@@ -2680,7 +2673,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + statusBox(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published", a.error || PAGE_ABOUT[a.kind] || "",
         open + more([cmdBtn(`republish ${kind}`, "Publish it again", "Code Guardian builds the page anew and publishes it at the same link"), a.url ? `<button class="btn" data-copy="${esc(a.url)}" title="Copies the page's link">Copy its link</button>` : ""]))
       + `<p class="lead">${esc(PAGE_ABOUT[a.kind] || "")}</p>`
-      + (a.page ? (kept ? `<iframe class="cg-frame" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(a.title)}" srcdoc="${esc(kept)}"></iframe>` : kept === false ? `<p class="k">The copy here could not be read. ${open ? "Its link opens it." : ""}</p>` : `<p class="k">Loading the page…</p>`)
+      + (a.page ? (kept ? `<iframe class="cg-frame" sandbox="allow-scripts allow-same-origin" scrolling="no" referrerpolicy="no-referrer" title="${esc(a.title)}" srcdoc="${esc(frameDoc(kept))}"></iframe>` : kept === false ? `<p class="k">The copy here could not be read. ${open ? "Its link opens it." : ""}</p>` : `<p class="k">Loading the page…</p>`)
         : `<p class="k">No copy of it is kept here${a.dam ? ` (DAM ${esc(a.dam)})` : ""}. ${a.url ? "Its link opens it." : "Its link is kept on the platform."}</p>`);
   }
   function renderIncident(i) {
