@@ -1912,7 +1912,7 @@
   /* Numbers and history in a tab's pane: quiet charts in the state inks. */
   .cg-chart { max-width: var(--content-w); margin: 0 auto 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .cg-chart h3 { margin: 0 0 8px; font-size: var(--fs-meta); font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: baseline; } .cg-chart h3 .k { font-weight: 400; margin-left: auto; }
-  .cg-svg { width: 100%; height: auto; display: block; } .cg-svg a { cursor: pointer; } .cg-svg a:hover rect { opacity: .8; }
+  .cg-svg { width: auto; max-width: 100%; height: auto; display: block; } .cg-svg a { cursor: pointer; } .cg-svg a:hover rect { opacity: .8; }
   .cg-ax { font-size: var(--fs-micro); fill: var(--muted); }
   .cg-legend span[data-c="accent"] { --hc: var(--accent); } .cg-legend span[data-c="fail"] { --hc: var(--closed); } .cg-legend span[data-c="blocked"] { --hc: var(--decided); }
   .cg-look { max-width: var(--content-w); margin: 0 auto 16px; }
@@ -2022,7 +2022,7 @@
   .cg-legend span[data-c="ph-compose"] { --hc: var(--ph-compose); } .cg-legend span[data-c="ph-post"] { --hc: var(--ph-post); } .cg-legend span[data-c="ph-next"]::before { border-style: dashed; background: none; --hc: var(--muted); }
   .cg-ph .run { animation: cg-ph-run 1.2s linear infinite; } @keyframes cg-ph-run { to { stroke-dashoffset: -16; } }
   @media (prefers-reduced-motion: reduce) { .cg-ph .run { animation: none; } }
-  .cg-ph text.l { fill: var(--ink); font-size: var(--fs-meta); } .cg-ph text.s { fill: var(--muted); font-size: var(--fs-micro); }
+  .cg-svg.cg-ph { width: auto; max-width: 100%; } .cg-ph text.l { fill: var(--ink); font-size: var(--fs-meta); } .cg-ph text.s { fill: var(--muted); font-size: var(--fs-micro); }
   .cg-phnote { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; font-size: var(--fs-meta); color: var(--muted); } .cg-phnote b { color: var(--ink); font-weight: 600; }
   .cg-runcard { margin: 0 0 12px; } .cg-runcard h4 { margin: 0 0 4px; font-size: var(--fs-ui); display: flex; gap: 8px; align-items: baseline; }
 
@@ -2535,6 +2535,9 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   }
 
   // ------------------------------------------------ a review run's phases (data.mjs → phasesOf)
+  // A chart drawn at the pane's own width, so its text is the page's text size, not scaled.
+  const chartW = (pad) => Math.max(320, Math.min(($("#detail")?.clientWidth || 700) - 2 * parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pad-x") || 32) - pad, 900));
+  { let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(renderDetail, 200); }); }
   const PH_INK = { prepare: "--ph-prepare", diff: "--ph-diff", skills: "--ph-skills", compose: "--ph-compose", post: "--ph-post" };
   const PH_TIP = { prepare: "Lock the PR and fetch the change", diff: "Read the diff and the PR's context", skills: "The review skills read the change side by side", compose: "Check the findings and write the review", post: "Post the review on GitHub" };
   const typ = () => D().review_typical || { phases: {}, skills: {} };
@@ -2573,7 +2576,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function phaseChart(x, running, compact = false) {
     const { rows, eta } = phaseBars(x, running); if (!rows.length) return "";
     const t0 = Math.min(...rows.flatMap((r) => r.segs.map((s) => s.a))), t1 = Math.max(Date.now() * (running ? 1 : 0), ...rows.flatMap((r) => r.segs.map((s) => s.b)));
-    const W = 600, L = compact ? 120 : 150, RH = compact ? 16 : 20, H = rows.length * RH + 22, span = Math.max(60e3, t1 - t0), X = (t) => L + ((t - t0) / span) * (W - L - 8);
+    const W = chartW(compact ? 64 : 32), L = Math.min(compact ? 150 : 170, Math.round(W * .3)), RH = compact ? 18 : 22, H = rows.length * RH + 22, span = Math.max(60e3, t1 - t0), X = (t) => L + ((t - t0) / span) * (W - L - 8);
     const stepMin = span > 40 * 60e3 ? 10 : span > 16 * 60e3 ? 5 : span > 6 * 60e3 ? 2 : 1, ticks = [];
     for (let m = 0; m * 60e3 <= span; m += stepMin) ticks.push(m);
     const bar = (r, s, y) => { const x0 = X(s.a), w = Math.max(2, X(s.b) - x0), h = r.sub ? RH - 9 : RH - 6, yy = y + (RH - h) / 2, ink = `var(${s.kind === "stopped" ? "--closed" : PH_INK[r.k]})`;
@@ -2583,7 +2586,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         : `<rect x="${x0}" y="${yy}" width="${w}" height="${h}" rx="3" fill="${ink}" opacity="${r.sub ? .8 : 1}"><title>${esc(r.tip || t)}</title></rect>`; };
     const body = rows.map((r, k) => { const y = k * RH; return `<text class="${r.sub ? "s" : "l"}" x="${r.sub ? 14 : 0}" y="${y + RH / 2 + 4}">${esc(r.label.length > 22 ? r.label.slice(0, 21) + "…" : r.label)}</text>${r.segs.map((s) => bar(r, s, y)).join("")}`; }).join("");
     const nowX = running ? X(Date.now()) : null;
-    return `<svg class="cg-svg cg-ph" viewBox="0 0 ${W} ${H}" role="img" aria-label="The phases of the review of #${x.pr}">${ticks.map((m) => `<line x1="${X(t0 + m * 60e3)}" x2="${X(t0 + m * 60e3)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t0 + m * 60e3)}" y="${H - 3}" text-anchor="middle">${m ? `${m} min` : esc(new Date(t0).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${body}${nowX != null ? `<line x1="${nowX}" x2="${nowX}" y1="0" y2="${H - 16}" stroke="var(--ink)" stroke-dasharray="2 2"/><text class="cg-ax" x="${nowX + 3}" y="10">now</text>` : ""}</svg>`
+    return `<svg class="cg-svg cg-ph" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="The phases of the review of #${x.pr}">${ticks.map((m) => `<line x1="${X(t0 + m * 60e3)}" x2="${X(t0 + m * 60e3)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t0 + m * 60e3)}" y="${H - 3}" text-anchor="middle">${m ? `${m} min` : esc(new Date(t0).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${body}${nowX != null ? `<line x1="${nowX}" x2="${nowX}" y1="0" y2="${H - 16}" stroke="var(--ink)" stroke-dasharray="2 2"/><text class="cg-ax" x="${nowX + 3}" y="10">now</text>` : ""}</svg>`
       + `<div class="cg-phnote">${phaseNote(x, running, eta)}</div>`;
   }
   function phaseNote(x, running, eta) {
@@ -2603,13 +2606,13 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     const now = Date.now(), from = now - 24 * 36e5, rs = reviewRuns().filter((r) => Date.parse(r.end) >= from && r.reviews?.length);
     if (!rs.length) return "";
     const lanesEnd = [], placed = rs.map((r) => { const a = Math.max(from, Date.parse(r.start)), b = r.state === "running" ? now : Date.parse(r.end); let k = lanesEnd.findIndex((e) => e < a - 60e3); if (k < 0) { k = lanesEnd.length; lanesEnd.push(0); } lanesEnd[k] = b; return { r, k }; });
-    const W = 600, L = 8, RH = 16, H = lanesEnd.length * RH + 20, X = (t) => L + ((t - from) / (now - from)) * (W - L - 8);
+    const W = chartW(64), L = 8, RH = 16, H = lanesEnd.length * RH + 20, X = (t) => L + ((t - from) / (now - from)) * (W - L - 8);
     const hrs = []; for (let h = 0; h <= 24; h += 6) hrs.push(from + h * 36e5);
     const segs = placed.map(({ r, k }) => r.reviews.flatMap((x) => x.phases.filter((p) => p.start).map((p) => { const a = Date.parse(p.start), b = p.end ? Date.parse(p.end) : now;
       return `<rect x="${X(a)}" y="${k * RH + 3}" width="${Math.max(1.5, X(b) - X(a))}" height="${RH - 6}" fill="var(${p.state === "stopped" ? "--closed" : PH_INK[p.key]})" opacity="${p.state === "running" ? .55 : 1}"/>`; })).join("")
       + `<rect x="${X(Math.max(from, Date.parse(r.start)))}" y="${k * RH + 1}" width="${Math.max(4, X(r.state === "running" ? now : Date.parse(r.end)) - X(Math.max(from, Date.parse(r.start))))}" height="${RH - 2}" fill="transparent" data-goto="runs" data-item="${esc(r.id)}" style="cursor:pointer"><title>${esc(`${r.id} · ${runTitle(r)} · ${when(r.start)}${r.secs ? ` · ${dur(r.secs)}` : ""}${r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ""}`)}</title></rect>`).join("");
     const most = Math.max(...lanesEnd.map((_, k) => placed.filter((p) => p.k === k).length) , 0);
-    return chartBox("The last 24 hours", `<svg class="cg-svg cg-ph" viewBox="0 0 ${W} ${H}" role="img" aria-label="Review runs of the last 24 hours by phase">${hrs.map((t) => `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t)}" y="${H - 3}" text-anchor="${t === from ? "start" : t >= now - 1 ? "end" : "middle"}">${t >= now - 1 ? "now" : esc(new Date(t).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${segs}</svg>${phaseLegend(false)}`,
+    return chartBox("The last 24 hours", `<svg class="cg-svg cg-ph" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Review runs of the last 24 hours by phase">${hrs.map((t) => `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 16}" stroke="var(--line)" stroke-width=".6"/><text class="cg-ax" x="${X(t)}" y="${H - 3}" text-anchor="${t === from ? "start" : t >= now - 1 ? "end" : "middle"}">${t >= now - 1 ? "now" : esc(new Date(t).toLocaleTimeString("en", { timeStyle: "short" }))}</text>`).join("")}${segs}</svg>${phaseLegend(false)}`,
       `${plural(rs.length, "run", "runs")} · at most ${lanesEnd.length} at once`);
   }
   const costBars = () => typ().priced ? dayBars("Review cost each day", (d) => { const rs = reviewRuns().filter((r) => r.start.startsWith(d) && r.cost_usd != null); return [["--accent", Math.round(rs.reduce((a, r) => a + r.cost_usd, 0) * 100) / 100, "USD for reviews"]]; },
@@ -2700,8 +2703,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const days14 = () => { const out = []; for (let k = 13; k >= 0; k--) { const d = new Date(Date.now() - k * 864e5); out.push(d.toISOString().slice(0, 10)); } return out; };
   // Stacked bars, one a day: parts [[ink, count, word]…]; a bar opens what `go` says.
   function dayBars(title, perDay, legend, note = "") {
-    const ds = days14(), W = 600, H = 120, bw = (W - 20) / ds.length, top = Math.max(1, ...ds.map((d) => perDay(d).reduce((a, [, n]) => a + n, 0)));
-    return chartBox(title, `<svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">${ds.map((d, k) => { let y0 = H - 14; const x0 = 10 + k * bw;
+    const ds = days14(), W = chartW(64), H = 120, bw = (W - 20) / ds.length, top = Math.max(1, ...ds.map((d) => perDay(d).reduce((a, [, n]) => a + n, 0)));
+    return chartBox(title, `<svg class="cg-svg" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">${ds.map((d, k) => { let y0 = H - 14; const x0 = 10 + k * bw;
       return perDay(d).filter(([, n]) => n).map(([ink, n, w]) => { const h = (n * (H - 30)) / top; y0 -= h; return `<rect x="${x0 + 2}" y="${y0}" width="${bw - 4}" height="${h}" fill="var(${ink})" rx="2"><title>${esc(`${day(d + "T12:00:00Z")}: ${n} ${w}`)}</title></rect>`; }).join(""); }).join("")}
       <text x="10" y="${H - 2}" class="cg-ax">${esc(day(ds[0] + "T12:00:00Z"))}</text><text x="${W - 10}" y="${H - 2}" text-anchor="end" class="cg-ax">Today</text></svg><p class="cg-legend">${legend.map(([c, w]) => `<span data-c="${c}">${esc(w)}</span>`).join("")}</p>`, note);
   }
@@ -2709,15 +2712,15 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     [["pass", "Approved"], ["fail", "Changes requested"], ["look", "Commented"]], `${reviews().filter((r) => Date.now() - Date.parse(r.ts) < 14 * 864e5).length} in 14 days`);
   function latencyChart() {
     const ps = prs().filter((p) => p.latency_h != null && p.first).slice(0, 30).reverse(); if (ps.length < 2) return "";
-    const W = 600, H = 110, top = Math.max(1, ...ps.map((p) => p.latency_h)), bw = (W - 20) / ps.length, med = ps.map((p) => p.latency_h).sort((a, b) => a - b)[Math.floor(ps.length / 2)];
-    return chartBox("Time to the first review", `<svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours from ready to the first review, by PR">${ps.map((p, k) => { const h = Math.max(2, (p.latency_h * (H - 24)) / top);
+    const W = chartW(64), H = 110, top = Math.max(1, ...ps.map((p) => p.latency_h)), bw = (W - 20) / ps.length, med = ps.map((p) => p.latency_h).sort((a, b) => a - b)[Math.floor(ps.length / 2)];
+    return chartBox("Time to the first review", `<svg class="cg-svg" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Hours from ready to the first review, by PR">${ps.map((p, k) => { const h = Math.max(2, (p.latency_h * (H - 24)) / top);
       return `<a data-goto="prs" data-item="#${p.n}"><rect x="${10 + k * bw + 2}" y="${H - 14 - h}" width="${bw - 4}" height="${h}" fill="var(${p.latency_h > 1 ? "--waiting" : "--accent"})" rx="2"><title>#${p.n}: ${esc(hrs(p.latency_h))}</title></rect></a>`; }).join("")}<line x1="10" x2="${W - 10}" y1="${H - 14}" y2="${H - 14}" stroke="var(--line)"/></svg>`, `median ${esc(hrs(med))} · the last ${ps.length} PRs`);
   }
   function weekTrend() {
     const ws = (D().weeks || []).filter((w) => w.stats); if (ws.length < 3) return "";
-    const W = 600, H = 110, val = (w) => +w.stats?.reviews?.total || 0, acc = (w) => +w.stats?.findings?.acceptance || 0, top = Math.max(1, ...ws.map(val));
+    const W = chartW(64), H = 110, val = (w) => +w.stats?.reviews?.total || 0, acc = (w) => +w.stats?.findings?.acceptance || 0, top = Math.max(1, ...ws.map(val));
     const x = (k) => 20 + (k * (W - 40)) / (ws.length - 1), line = (f, scale, ink) => `<polyline fill="none" stroke="var(${ink})" stroke-width="2" points="${ws.map((w, k) => `${x(k)},${H - 18 - f(w) * scale}`).join(" ")}"/>`;
-    return chartBox("Week by week", `<svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Reviews and acceptance of findings per week">${line(val, (H - 30) / top, "--accent")}${line(acc, H - 30, "--approved")}
+    return chartBox("Week by week", `<svg class="cg-svg" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Reviews and acceptance of findings per week">${line(val, (H - 30) / top, "--accent")}${line(acc, H - 30, "--approved")}
       ${ws.map((w, k) => `<circle cx="${x(k)}" cy="${H - 18 - val(w) * ((H - 30) / top)}" r="3" fill="var(--accent)"><title>${esc(w.week)}: ${val(w)} reviews, ${Math.round(acc(w) * 100)} % of findings accepted</title></circle>`).join("")}
       <text x="20" y="${H - 2}" class="cg-ax">${esc(ws[0].week)}</text><text x="${W - 20}" y="${H - 2}" text-anchor="end" class="cg-ax">${esc(ws.at(-1).week)}</text></svg>
       <p class="cg-legend"><span data-c="accent">Reviews · ${val(ws.at(-1))}</span><span data-c="pass">Findings accepted · ${Math.round(acc(ws.at(-1)) * 100)} %</span></p>`, arts().some((a) => a.id === "trends") ? itemA("pages", "page:trends", "the trend report") : "");
@@ -2734,8 +2737,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     [["accent", "Reviews"], ["blocked", "The rest"]], "input, output and cache writes, in thousands");
   function healthHours() {
     const hs = D().health?.hours || []; if (!hs.length) return "";
-    const W = 600, H = 90, bw = (W - 20) / hs.length, top = Math.max(1, ...hs.map((h) => (+h.errors || 0) + (+h.warns || 0)));
-    return chartBox("Errors and warnings, hour by hour", `<svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Errors and warnings per hour">${hs.map((h, k) => { const e = +h.errors || 0, w = +h.warns || 0, he = (e * (H - 24)) / top, hw = (w * (H - 24)) / top;
+    const W = chartW(64), H = 90, bw = (W - 20) / hs.length, top = Math.max(1, ...hs.map((h) => (+h.errors || 0) + (+h.warns || 0)));
+    return chartBox("Errors and warnings, hour by hour", `<svg class="cg-svg" width="${W}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Errors and warnings per hour">${hs.map((h, k) => { const e = +h.errors || 0, w = +h.warns || 0, he = (e * (H - 24)) / top, hw = (w * (H - 24)) / top;
       return `${hw ? `<rect x="${10 + k * bw}" y="${H - 14 - hw - he}" width="${Math.max(1, bw - .5)}" height="${hw}" fill="var(--waiting)"><title>${esc(h.h)}:00 — ${w} warnings</title></rect>` : ""}${he ? `<rect x="${10 + k * bw}" y="${H - 14 - he}" width="${Math.max(1, bw - .5)}" height="${he}" fill="var(--closed)"><title>${esc(h.h)}:00 — ${e} errors</title></rect>` : ""}`; }).join("")}<line x1="10" x2="${W - 10}" y1="${H - 14}" y2="${H - 14}" stroke="var(--line)"/></svg>`, "the last 14 days");
   }
   function services() {
