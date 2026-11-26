@@ -11,7 +11,7 @@ import { join } from 'node:path';
 const W = process.argv[2];
 if (!W) { console.error('usage: seed.mjs <work dir>'); process.exit(2); }
 rmSync(W, { recursive: true, force: true });
-for (const d of ['reviews/pr-artifacts', 'logs', 'health', 'audit/weeks', 'survey', 'benchmark', 'desk']) mkdirSync(join(W, d), { recursive: true });
+for (const d of ['reviews/pr-artifacts', 'logs', 'health', 'audit/weeks', 'survey', 'benchmark', 'desk', 'memory/archive']) mkdirSync(join(W, d), { recursive: true });
 
 let seed = 11;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -51,31 +51,7 @@ put('CONFIG.md', `# Code Guardian configuration
 | claude-opus-5-5 | 5 | 25 | 0.5 | 6.25 |
 | claude-sonnet-5-5 | 3 | 15 | 0.3 | 3.75 |
 `);
-put('MEMORY.md', `# Memory
 
-## Review Style
-
-- [2026-09-02 from user] Keep the summary to three sentences.
-- [2026-09-14 from user] Name the test that is missing, not only that one is missing.
-
-## Focus Areas
-
-- [2026-08-20 from user] Permission checks in \`api/projects/\` — every handler checks the member's role.
-- [2026-10-03 from review] Date handling: tasks use UTC on the server, local time only in the view.
-
-## Ignore List
-
-- [2026-09-30 from user] Skip JSDoc findings on internal helpers.
-- [2026-10-11 from user] Generated files under \`src/gen/\`.
-
-## Custom Rules
-
-- [2026-10-20 from user] A migration that drops a column needs a two-step deploy note.
-
-## Escaped Defect Classes
-
-- [2026-11-04 from escape] Missing pagination guard on list endpoints (E-2).
-`);
 
 // ------------------------------------------------ pull requests
 const TITLES = ['Add due dates to tasks', 'Fix board drag on Safari', 'Invite members by link', 'Paginate the project list', 'Rename a project keeps its tasks',
@@ -137,7 +113,7 @@ for (const pr of prs) {
     ledger.push({ src: 'ledger', pr: pr.n, ts: iso(t), sha: sha.slice(0, 7), kind: r ? 're-review' : 'first', verdict, size: { files: 2 + Math.floor(rnd() * 12), additions: 20 + Math.floor(rnd() * 400), deletions: Math.floor(rnd() * 120) }, def: '15.1.0',
       bullets: { fixed: fs.filter((x) => x.status === 'fixed').length, still: fs.filter((x) => x.status === 'still').length }, suppressed: { overrides: 0, context: 0, decisions: 0, total: 0 },
       ste: { sentences: 9, avg_sentence_words: 12.4, sentences_over_20: 0, v: 2 }, findings: fj.map(({ status, severity, file, line, summary, late }) => ({ status, severity, file, line, summary, ...(late ? { late } : {}) })) });
-    pr.last = { t, verdict, sha, triage }; rcount++;
+    pr.last = { t, verdict, sha, triage }; rcount++; pr.fs = [...fileOf].map(([f, file]) => ({ summary: f[1], file }));
     t += (3 + rnd() * 20) * H;
   }
   if (rnd() < 0.55) { const s = pr.last.sha.slice(0, 7); guides.push(pr); history += `<!-- artifact-guide: dam-${hex(8)} ${s} https://dam.example.com/a/${hex(10)} -->\n`;
@@ -240,9 +216,100 @@ put('survey/report.html', `<!doctype html><html><head><meta charset="utf-8"><sty
 put('benchmark/RESULTS.md', `| ts | model | version | fixture | trigger | f1 | sev | fixed | new | words | sec | out-tok |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| ${iso(NOW - 9 * DAY)} | claude-opus-5-5 | 15.0.0 | core | manual | 0.71 | 0.82 | 0.9 | 0.6 | 410 | 512 | 9100 |\n<!-- benchmark-dam: dam-${hex(8)} -->\n`);
 put('manifest.json', JSON.stringify({ name: 'Code Guardian', version: '15.1.0' }));
 put('manifest-publish.json', JSON.stringify({ id: `dam-${hex(8)}`, shareUrl: `https://dam.example.com/a/${hex(10)}` }));
+// ------------------------------------------------ escapes, learnings, lessons
+const withF = prs.filter((p) => p.fs?.length), esc1 = withF.find((p) => !p.open) ?? withF[0], esc2 = withF.filter((p) => !p.open).at(-1) ?? withF[1], disp = withF.find((p) => p.open && p !== esc1) ?? withF.at(-1);
+const d1 = iso(NOW - 6 * DAY).slice(0, 10), d2 = iso(NOW - 2 * DAY).slice(0, 10), tag1 = `escape ${d1}, PR #${esc1.n}, seen 1×`, tag2 = `escape ${d2}, PR #${esc2.n}, seen 2×`;
 put('ESCAPES.jsonl', [
-  { key: 'e1', env: 'production', source: 'slack', pr: prs[3].n, confidence: 'high', review: 'missed', class: 'missing pagination guard', rule: 'list endpoints cap the page size', recurrence: 1, paths: ['api/projects/handlers.ts'], at: iso(NOW - 6 * DAY), note: 'The project list timed out for a large customer.' },
-  { key: 'e2', env: 'staging', source: 'slack', pr: prs[6].n, confidence: 'medium', review: 'found-not-fixed', class: 'timezone of stored dates', rule: 'store dates in UTC', recurrence: 2, paths: ['lib/dates.ts'], at: iso(NOW - 2 * DAY), note: 'Due dates moved by one day for users in UTC-5.' },
+  { key: 'TimeoutError|query timed out|api/projects/handlers.ts:list', env: 'production', source: 'slack:C0DEMO', pr: esc1.n, confidence: 'confirmed', review: 'weak', class: 'Unbounded list query', rule: 'added', recurrence: false, paths: [esc1.fs[0].file], at: iso(NOW - 6 * DAY), note: 'The project list timed out for a large customer.' },
+  { key: 'RangeError|invalid date|lib/dates.ts:toLocal', env: 'staging', source: 'slack:C0DEMO', pr: esc2.n, confidence: 'likely', review: 'missed', class: 'Local time stored as UTC', rule: 'strengthened', recurrence: true, paths: [esc2.fs[0].file], at: iso(NOW - 2 * DAY), note: 'Due dates moved by one day for users in UTC-5.' },
 ].map((x) => JSON.stringify(x)).join('\n') + '\n');
+put('MEMORY.md', `# Memory
+
+## Review Style
+
+- [2026-09-02 from user] Keep the summary to three sentences.
+- [2026-09-14 from user] Name the missing test, not only that one is missing → archive/style.md
+
+## Focus Areas
+
+- [2026-08-20 from user] Check the member's role in every \`api/projects/\` handler.
+- [2026-10-03 from review] Tasks keep UTC on the server, local time only in the view.
+
+## Ignore List
+
+- [2026-09-30 from user] Skip JSDoc findings on internal helpers.
+- [2026-10-11 from user] Skip generated files under \`src/gen/\`.
+- [2026-11-18 from PR comments] Stale cache read in \`${disp.fs[0].file}\` is harmless: the cache resets on deploy (PR #${disp.n}) → archive/disputes.md
+
+## Custom Rules
+
+- [2026-10-20 from user] A migration that drops a column needs a two-step deploy note.
+
+## Escaped Defect Classes
+
+- [${tag1}] Unbounded list query: check each new list read for a page size cap → archive/escapes.md
+- [${tag2}] Local time stored as UTC: check each date write for its time zone → archive/escapes.md
+
+## Observed Insights
+
+- [2026-11-02 from PR context] Authors answer findings in the PR thread within a day; a nudge before that is noise.
+`);
+put('memory/api.md', `---
+scope: [api/*, lib/http/*]
+---
+# API
+
+## Custom Rules
+
+- [2026-10-28 from user] Every list endpoint takes \`limit\` and caps it at 100.
+- [2026-11-05 from slack: eva-s] Error bodies keep the shape \`{ error, code }\`.
+`);
+put('LESSONS.md', `# Lessons
+
+## Tools
+
+- [2026-10-14] \`gh pr diff\` over 3000 files fails: read the diff with \`gh api …/files\` page by page → archive/lessons.md
+- [2026-10-22] The pod has no \`jq 1.7\`: use \`jq -c 'fromjson? // empty'\`, never \`--seq\`.
+
+## Expected errors
+
+- [2026-11-01] A 502 from the GitHub API once a day is normal: retry once, never report it.
+`);
+put('memory/archive/escapes.md', `# Escaped defects
+
+## [${tag1}]
+
+Report: https://slack.example.com/archives/C0DEMO/p1 — the project list timed out for a large customer in production.
+Key: \`TimeoutError|query timed out|api/projects/handlers.ts:list\`.
+Failing code: \`${esc1.fs[0].file}\` reads every row of the list, with no page size.
+Mechanism: a customer with 40 000 projects made one query read them all; the request ran past the 30 s gateway limit.
+Why the review is weak: round 1 raised it as a suggestion only, and the PR merged over it.
+
+## [${tag2}]
+
+Report: https://slack.example.com/archives/C0DEMO/p2 — due dates moved by one day on staging.
+Failing code: \`${esc2.fs[0].file}\` stored the local date as UTC midnight.
+Mechanism: for users west of UTC the stored day is the day before.
+Why the review missed it: the diff held the write, and no finding named the time zone.
+`);
+put('memory/archive/disputes.md', `# Disputes
+
+## [2026-11-18 from PR comments]
+
+The author answered on PR #${disp.n}: "The cache is reset on every deploy, and the value is display-only. A stale read for one deploy is fine." A maintainer approved the answer.
+`);
+put('memory/archive/style.md', `# Style
+
+## [2026-09-14 from user]
+
+"Don't just say a test is missing — tell me which test, for example: the empty list case of \`listTasks\`."
+`);
+put('memory/archive/lessons.md', `# Lessons
+
+## [2026-10-14]
+
+\`gh pr diff 1203\` failed with "diff too large" (3412 files). \`gh api repos/{o}/{r}/pulls/1203/files?per_page=100&page=N\` worked.
+`);
+{ const f = `reviews/pr-${disp.n}.md`; if (disp.open) add(f, ''); }
 put('desk/artifact.url', 'https://dam.example.com/a/desk-demo\n');
 console.log(`${W}: ${prs.length} PRs, ${rcount} reviews, ${guides.length} guides`);

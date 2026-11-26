@@ -25,6 +25,9 @@ say(d.prs.some((p) => p.status === 'in_progress') && d.runs.some((r) => r.state 
 say(d.findings.some((f) => f.state === 'fixed') && d.findings.some((f) => f.state === 'open'), 'a finding is followed to fixed over its rounds');
 say(d.artifacts.some((a) => a.kind === 'guide' && a.page) && d.artifacts.some((a) => a.id === 'health' && /^https:/.test(a.url)), 'the guides and the health dashboard are pages');
 say(!JSON.stringify(d.config).includes('@'), 'the settings name no person');
+say(d.learnings.some((l) => l.layer === 'memory') && d.learnings.some((l) => l.layer === 'area' && l.scope.length) && d.learnings.some((l) => l.layer === 'lessons') && d.learnings.some((l) => l.archive), 'the learnings come from every layer, with their story from the archive');
+say(d.escapes.every((e) => e.learned && e.report) && d.findings.some((f) => f.escapes.length), 'an escape has its report and its class, and pairs with its finding');
+say(d.findings.some((f) => f.answers.some((a) => a.kind === 'rule')) && d.findings.some((f) => f.answers.some((a) => a.kind === 'override')), "a finding shows the person's rule and the learned rule that answer it");
 EOF
 OUT="$(WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/data.mjs" 2>>"$STDERR_LOG")"
 printf '%s\n' "$OUT"

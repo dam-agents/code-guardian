@@ -52,7 +52,9 @@ session), `E-<n>` an escaped defect, `I-<n>` an incident.
 | Runs | `logs/events-*.jsonl` (14 days); a precheck that found nothing is not a run; a review's phases from its `review_step` milestones, its skills from `skill_timing`, its cost from the `tokens` event and `CONFIG.md` → `## Benchmark model prices` |
 | Pages | the guide marker of `reviews/pr-<n>.md` and `reviews/pr-artifacts/pr-<n>.guide.html`; `health/state.json` and `health/dashboard.html`; `manifest-publish.json`; the markers and `report.html` of `audit/`, `survey/`, `benchmark/` |
 | Health | `health/status.json`, `health/incidents.jsonl`, `health/hours.jsonl`, `MONITOR.json` |
-| Settings | `health/schedules.json`, `MEMORY.md`, the `CONFIG.md` keys of `settings.mjs` |
+| Learnings | every rule line of `MEMORY.md`, `memory/<topic>.md` and `LESSONS.md` (`L-<n>`), its tag, and the `memory/archive/` entry its `→ archive/<file>` names |
+| A finding's answers and escapes | the PR-local overrides and learned rules that name its file or PR; the `ESCAPES.jsonl` rows of its PR and file, with the report from `memory/archive/escapes.md` |
+| Settings | `health/schedules.json`, the `CONFIG.md` keys of `settings.mjs` |
 | Charts | `audit/weeks/*.json`, `ESCAPES.jsonl`, the `tokens` events |
 
 A finding's state: **Open** (the newest round names it, the PR is open), **Fixed** (its last round
@@ -62,18 +64,19 @@ says fixed), **Not raised again** (a later round dropped it, or the PR closed wi
 ## The page
 
 One row of tabs, the same as Quality Inspector's: **Pull requests** leads (the page opens on it,
-on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the reports:
-trends, survey, benchmark — and **Health**; then **+ Review a PR**. A review guide opens from its PR's
+on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the reports
+(trends, survey, benchmark), then **Learnings** and **Health**; then **+ Review a PR**. A review guide opens from its PR's
 page, which asks for one when the PR has none.
 At the right: the search, the person's menu (Settings, How it works, day or night) and the bell.
 
 | Tab | The question it answers | An item's page |
 | --- | --- | --- |
 | Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? An urgent PR has a red **!** under its state dot | the verdict in its ink and the next step; the open findings; **How it went** — ready, each round with its findings and commit, each reminder, now; the review guide; *For the human reviewer*; **Every finding** — the round that found it, the rounds it stayed open, its state, the person's rule or the fix; the human reviewers; the PR's rules |
-| Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | four cards (what, where, what fixes it), round by round, an escape that names its file |
+| Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | the cards (what, where, what fixes it); **Answers** — the person's rule for the PR and the learned rules that answer it; round by round; **It escaped after the merge** — the escape, its report and the class it taught |
 | Reviews (All, First, Re-reviews) | What did each review say? | its findings, the checks it ran, the body as posted, its rounds as links |
 | Runs (Running, Done, With problems) — review runs only | What does a review do now, and what did it cost? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; what it posted or stopped on; every logged step |
 | Pages (a menu of the reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
+| Learnings (Rules, Area rules, Escaped classes, Lessons) | What did Code Guardian learn, and why? | the rule, who gave it and when, the story from the archive, the escapes that taught it, the findings it answers |
 | Health (Incidents, Alerts) | Is Code Guardian well? The health dashboard opens here | the incident, the runs in that time |
 
 Nothing open, each tab shows its overview: Pull requests **Now / Waiting / Next** and an open

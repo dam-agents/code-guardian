@@ -4,6 +4,7 @@
 //   prs        REVIEWS.md rows + reviews/pr-<n>.md histories + SHEPHERD.md + PR-EVENTS.jsonl
 //   reviews    every posted review R-<n>: the ledger rows united with the history sections (one per pr+ts)
 //   findings   every finding F-<n>, one per pr+file+summary, followed over the PR's rounds
+//   learnings  every rule L-<n> of MEMORY.md, memory/<topic>.md and LESSONS.md, with its archive entry
 //   runs       every run S-<n> of the event log (logs/events-*.jsonl), its job, PRs, outcome and tokens
 //   artifacts  each published page: review guides, health dashboard, manifest, trends, survey, benchmark
 //   health     status.json, incidents, MONITOR.json alerts, the hourly counts of the last 14 days
@@ -192,6 +193,42 @@ function artifactsOf(work, prs) {
   return out;
 }
 
+// What Code Guardian learned (preferences.md → Two layers, escapes.md): every rule line of MEMORY.md,
+// of the area files work/memory/<topic>.md and of LESSONS.md, with its tag parsed, and the archive
+// entry its `→ archive/<file>` names, read under the same tag.
+const TAG_RE = /^- \[([^\]]{1,120})\] (.*)$/;
+function archiveEntry(work, file, tag) {
+  if (!/^[\w.-]{1,60}\.md$/.test(file ?? '')) return null;
+  const text = String(read(join(work, 'memory', 'archive', file)) ?? ''); if (!text || !tag) return null;
+  const ls = text.split('\n'), at = ls.findIndex((l) => /^#{1,4} /.test(l) && l.includes(tag)); if (at < 0) return null;
+  const end = ls.findIndex((l, k) => k > at && /^#{1,4} /.test(l));
+  return ls.slice(at + 1, end < 0 ? undefined : end).join('\n').trim().slice(0, 3000) || null;
+}
+function learningsOf(work) {
+  const out = [];
+  const take = (layer, file, text, scope) => {
+    let sec = null;
+    for (const l of String(text ?? '').split('\n')) {
+      const h = /^## (.+)$/.exec(l); if (h) { sec = h[1].trim(); continue; }
+      if (!/^- /.test(l) || out.length >= 400) continue;
+      const m = TAG_RE.exec(l), tag = m?.[1] ?? null, body = (m?.[2] ?? l.slice(2)).trim();
+      const ref = / → archive\/([\w.-]+\.md)\s*$/.exec(body);
+      const from = tag ? (/^escape\b/.test(tag) ? 'escape' : /from ([^\],]+)/.exec(tag)?.[1]?.trim() ?? null) : null;
+      out.push({ id: `L-${out.length + 1}`, layer, file, section: sec, scope, tag, date: tag?.match(/\d{4}-\d\d-\d\d/)?.[0] ?? null, from,
+        pr: +(tag?.match(/PR #(\d+)/)?.[1] ?? body.match(/PR #(\d+)/)?.[1] ?? 0) || null, seen: +(tag?.match(/seen (\d+)×/)?.[1] ?? 0) || null,
+        text: (ref ? body.slice(0, ref.index) : body).slice(0, 400), archive_ref: ref?.[1] ?? null, archive: ref ? archiveEntry(work, ref[1], tag) : null });
+    }
+  };
+  take('memory', 'MEMORY.md', read(join(work, 'MEMORY.md')), null);
+  for (const f of ls(join(work, 'memory')).filter((x) => /^[\w.-]+\.md$/.test(x)).sort()) {
+    const t = String(read(join(work, 'memory', f)) ?? ''), fm = /^---\n([\s\S]*?)\n---/.exec(t)?.[1] ?? '';
+    const scope = /(?:scope|paths):\s*\[([^\]]*)\]/.exec(fm)?.[1]?.split(',').map((x) => x.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean) ?? [];
+    take('area', `memory/${f}`, t.replace(/^---\n[\s\S]*?\n---/, ''), scope);
+  }
+  take('lessons', 'LESSONS.md', read(join(work, 'LESSONS.md')), null);
+  return out;
+}
+
 const SEVERITY = { critical: 3, warning: 2, suggestion: 1 };
 
 export function build(work, now = Date.now()) {
@@ -230,11 +267,19 @@ export function build(work, now = Date.now()) {
   }
   const lastReview = new Map(); for (const r of reviews) lastReview.set(r.pr, r);
   const open = (n) => rows.has(n);
+  const learnings = learningsOf(work);
   const findings = [...fmap.values()].sort((a, b) => a.first.localeCompare(b.first) || a.key.localeCompare(b.key)).map((f, k) => {
     const lr = lastReview.get(f.pr), inLast = lr && f.rounds.at(-1).review === lr.id;
     const over = (hist.get(f.pr)?.overrides ?? []).find((o) => f.file && o.includes(`${f.file}${f.line ? `:${f.line}` : ''}`));
     const state = over ? 'dismissed' : f.status === 'fixed' ? 'fixed' : !inLast ? 'gone' : open(f.pr) ? 'open' : 'left';
-    return { id: `F-${k + 1}`, ...f, state, override: over ?? null };
+    // The answers to it: a person's rule for this PR that names its file, and a learned rule (a dispute
+    // resolution, a preference) that names its file or its PR.
+    const answers = [
+      ...(hist.get(f.pr)?.overrides ?? []).filter((o) => f.file && o.includes(f.file)).map((o) => { const m = TAG_RE.exec(`- ${o}`);
+        return { kind: 'override', text: (m?.[2] ?? o).replace(/^Ignore:\s*/, '').slice(0, 400), date: m?.[1]?.match(/\d{4}-\d\d-\d\d/)?.[0] ?? null, from: /from ([^\],]+)/.exec(m?.[1] ?? '')?.[1]?.trim() ?? null, exact: o === over }; }),
+      ...learnings.filter((l) => l.from !== 'escape' && ((f.file && l.text.includes(f.file)) || l.pr === f.pr)).map((l) => ({ kind: 'rule', id: l.id, text: l.text, date: l.date, from: l.from })),
+    ].slice(0, 8);
+    return { id: `F-${k + 1}`, ...f, state, override: over ?? null, answers };
   });
 
   // ------------------------------------------------ PRs: the open ones (a REVIEWS.md row) and the closed ones of the ledger
@@ -279,7 +324,15 @@ export function build(work, now = Date.now()) {
   const weeks = ls(join(work, 'audit', 'weeks')).filter((f) => f.endsWith('.json')).sort().slice(-26).map((f) => json(read(join(work, 'audit', 'weeks', f)))).filter(Boolean)
     .map((w) => ({ week: w.week ?? null, ts: w.ts ?? null, version: w.definition_version ?? null, checks: w.checks ?? null, stats: w.stats ?? null }));
   const audit = String(read(join(work, 'AUDIT.log')) ?? '').split('\n').map((l) => /^(\S+) ok=(\d+) warn=(\d+) red=(\d+)/.exec(l)).filter(Boolean).map((m) => ({ ts: m[1], ok: +m[2], warn: +m[3], red: +m[4] })).slice(-26);
-  const escapes = jsonl(read(join(work, 'ESCAPES.jsonl'))).slice(-200).map((e, k) => ({ id: `E-${k + 1}`, ...e }));
+  // An escaped defect, with its report from the archive (escapes.md → step 4) and the class it taught.
+  const escArchive = String(read(join(work, 'memory', 'archive', 'escapes.md')) ?? '');
+  const escapes = jsonl(read(join(work, 'ESCAPES.jsonl'))).slice(-200).map((e, k) => {
+    const cls = learnings.find((l) => l.from === 'escape' && ((e.pr && l.pr === e.pr) || (e.class && l.text.toLowerCase().includes(String(e.class).toLowerCase()))));
+    let report = cls?.archive ?? null;
+    if (!report && e.pr && escArchive) { const ls2 = escArchive.split('\n'), at = ls2.findIndex((l) => /^#{1,4} /.test(l) && l.includes(`PR #${e.pr}`)); if (at >= 0) { const end = ls2.findIndex((l, j) => j > at && /^#{1,4} /.test(l)); report = ls2.slice(at + 1, end < 0 ? undefined : end).join('\n').trim().slice(0, 3000) || null; } }
+    return { id: `E-${k + 1}`, ...e, report, learned: cls?.id ?? null };
+  });
+  for (const f of findings) f.escapes = escapes.filter((e) => e.pr === f.pr && (!Array.isArray(e.paths) || !e.paths.length || (f.file && e.paths.includes(f.file)))).map((e) => e.id);
   const sch = json(read(join(work, 'health', 'schedules.json')));
   const schedules = (Array.isArray(sch) ? sch : sch?.schedules ?? sch?.list ?? []).filter((s) => s && typeof s.name === 'string')
     .map((s) => ({ name: s.name, cron: s.cron ?? s.schedule ?? null, enabled: s.enabled !== false, last: s.last_run ?? s.lastRun ?? null }));
@@ -293,7 +346,7 @@ export function build(work, now = Date.now()) {
   }
   const data = { repo, repo_url: repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? `https://github.com/${repo}` : null, bot: cfg.bot_display_name || 'Code Guardian', version: String(read(join(work, 'VERSION')) ?? '').trim() || null,
     labels: { rereview: cfg.rereview_label || 'code-guardian:rereview', guide: cfg.guide_label || null },
-    prs, reviews, findings, runs, review_typical: typical, settings: settingsOf(work), artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length) };
+    prs, reviews, findings, runs, review_typical: typical, settings: settingsOf(work), artifacts, health, ticks: Object.values(ticks).slice(-30), weeks, audit, escapes, schedules, config: shown, memory: memory.filter((s) => s.rules.length), learnings };
   data.hash = createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 16);
   return data;
 }
@@ -302,7 +355,7 @@ export function build(work, now = Date.now()) {
 export function sources(work) {
   const files = ['CONFIG.md', 'VERSION', 'MEMORY.md', 'REVIEWS.md', 'REVIEW-LEDGER.jsonl', 'SHEPHERD.md', 'PR-EVENTS.jsonl', 'MONITOR.json', 'HEARTBEAT.log', 'AUDIT.log', 'ESCAPES.jsonl',
     'manifest-publish.json', 'manifest.json', 'health/state.json', 'health/status.json', 'health/incidents.jsonl', 'health/hours.jsonl', 'health/schedules.json',
-    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md'];
-  const dirs = ['reviews', 'logs', 'audit/weeks', 'reviews/pr-artifacts'];
+    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md', 'LESSONS.md'];
+  const dirs = ['reviews', 'logs', 'audit/weeks', 'reviews/pr-artifacts', 'memory', 'memory/archive'];
   return [...files.map((f) => join(work, f)), ...dirs.flatMap((d) => [join(work, d), ...ls(join(work, d)).map((f) => join(work, d, f))])];
 }

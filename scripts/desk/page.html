@@ -1976,6 +1976,12 @@
   body.na [data-setting], body.na [data-set] { pointer-events: none; }
 </style>
 <style data-cg-page>
+  .cg-answers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: 900px; } .cg-answers li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: var(--fs-meta); padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
+  .cg-answers li > span:nth-child(odd):last-child { flex-basis: 100%; }
+  .cg-esc { max-width: 900px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--closed); border-radius: var(--r-md); margin-bottom: 8px; font-size: var(--fs-meta); }
+  .cg-esc .h { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; } .cg-esc p { margin: 6px 0 0; } .cg-esc details { margin-top: 6px; } .cg-esc summary { cursor: pointer; color: var(--accent); }
+  details.navmenu .menu hr.sep-h { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
   .cg-about { flex-basis: 100%; color: var(--muted); font-size: var(--fs-meta); font-weight: 400; } .cg-mod-t .cg-about { padding-left: 20px; }
   .cg-mod-t .chev { display: inline-block; width: 12px; color: var(--muted); transition: transform .12s; } .cg-mod.open .cg-mod-t .chev { transform: rotate(90deg); }
   .cg-mod-t[disabled] { cursor: default; } .cg-mod-b { padding: 0 0 12px 20px; } .cg-grp .cg-mod-b .cg-set:last-child { border-bottom: 0; } .cg-bad { font-size: var(--fs-meta); color: var(--bad); }
@@ -2096,7 +2102,7 @@
 const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide of #\d{1,7}|fix the findings of #\d{1,7}|dismiss F-\d{1,6} as (?:false-positive|wont-fix|by-design|duplicate)|reopen F-\d{1,6}|look into S-\d{1,6}|run (?:audit|survey|benchmark|monitor|brief) now|republish (?:guide:\d{1,7}|health|manifest|trends|survey|benchmark))$/;
 
   // ---------- words people read (docs/desk.md → Writing on the Desk) ----------
-  const TABS = { prs: "Pull requests", findings: "Findings", reviews: "Reviews", runs: "Runs", pages: "Pages", health: "Health", settings: "Settings", guide: "How it works" };
+  const TABS = { prs: "Pull requests", findings: "Findings", reviews: "Reviews", runs: "Runs", pages: "Pages", health: "Health", learnings: "Learnings", settings: "Settings", guide: "How it works" };
   // A verdict as people say it, and the ink of its state: pass, fail, look, blocked, running, none.
   const VERDICT = { APPROVE: ["Approved", "pass"], REQUEST_CHANGES: ["Changes requested", "fail"], COMMENT: ["Commented", "look"], RAPID: ["Rapid review", "look"] };
   const verdictOf = (v) => VERDICT[v] || ["Not reviewed yet", "none"];
@@ -2134,7 +2140,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // ---------- state ----------
   const S = { me: null, data: null, hash: null, status: null, tab: "prs", item: null, offline: false,
-    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents", openMods: new Set() };
+    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents", lPage: "rules", openMods: new Set() };
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeUrl = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
@@ -2169,6 +2175,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const PR_FILTER = { all: () => true, changes: (p) => p.verdict === "REQUEST_CHANGES", approved: (p) => p.verdict === "APPROVE", reviewing: (p) => ["in_progress", "awaiting_label"].includes(p.status) || !p.rounds };
   const prList = (f = S.prFilter, pg = S.prPage) => prs().filter((p) => PR_PAGE[pg](p) && PR_FILTER[f](p));
   const escapes = () => D().escapes || [];
+  const learnings = () => D().learnings || [];
   const F_PAGE = { all: () => true, blocking: (f) => f.severity !== "suggestion", suggestions: (f) => f.severity === "suggestion" };
   const F_FILTER = { open: (f) => f.state === "open", fixed: (f) => f.state === "fixed", left: (f) => f.state === "left" || f.state === "gone", dismissed: (f) => f.state === "dismissed", all: () => true };
   const fList = (f = S.fFilter, pg = S.fPage) => findings().filter((x) => F_PAGE[pg]?.(x) && F_FILTER[f](x)).sort((a, b) => String(b.last).localeCompare(String(a.last)) || (a.severity === "critical" ? -1 : 1));
@@ -2203,20 +2210,22 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   // The health dashboard lives under Health.
   const reportPages = () => arts().filter((a) => !["guide", "health", "manifest"].includes(a.kind) && !["health", "manifest"].includes(a.id));
   function pagesMenu() {
-    const cur = S.tab === "pages";
-    return `<details class="more navmenu"><summary aria-current="${cur}" title="The pages Code Guardian published">${esc(TABS.pages)}</summary><div class="menu">`
+    const cur = ["pages", "health", "learnings"].includes(S.tab), openInc = incidents().filter((i) => i.open).length;
+    return `<details class="more navmenu"><summary aria-current="${cur}" title="Reports, what Code Guardian learned, and its health">${esc(TABS.pages)}${openInc ? `<span class="count warn" title="${esc(plural(openInc, "incident is", "incidents are"))} open">${openInc}</span>` : ""}</summary><div class="menu">`
       + reportPages().map((a) => `<button class="btn" data-goto="pages" data-item="page:${esc(a.id)}" aria-current="${S.item === `page:${a.id}`}" title="${esc(PAGE_ABOUT[a.kind] || "")}">${esc(a.title)}</button>`).join("")
+      + `<hr class="sep-h"><button class="btn" data-tab="learnings" aria-current="${S.tab === "learnings"}" title="The rules and lessons Code Guardian keeps, and the story behind each">Learnings <span class="count">${learnings().length}</span></button>`
+      + `<button class="btn" data-tab="health" aria-current="${S.tab === "health"}" title="Is Code Guardian well: services, incidents, alerts">Health${openInc ? ` <span class="count warn">${openInc}</span>` : ""}</button>`
       + `</div></details>`;
   }
   // Every tab looks alike: only the open one is marked, every count is grey; Findings turns amber while a blocking finding is open.
   function renderNav() {
     const you = prs().filter(needsYou).length, blocking = findings().filter((f) => f.state === "open" && f.severity !== "suggestion").length;
-    const liveRv = runs().filter((r) => r.job === "review" && r.state === "running").length, openInc = incidents().filter((i) => i.open).length;
+    const liveRv = runs().filter((r) => r.job === "review" && r.state === "running").length;
     const tab = ([k, n, warn, tip]) => `<button data-tab="${k}" aria-current="${S.tab === k}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(TABS[k])}${n ? `<span class="count${warn ? " warn" : ""}"${warn ? ` title="${esc(warn)}"` : ""}>${n}</span>` : ""}</button>`;
     const sep = `<span class="sep" aria-hidden="true"></span>`;
     const html = [[["prs", you, "", "Where each open pull request stands; the count: the ones that need a person"], ["findings", blocking, blocking && `${plural(blocking, "blocking finding is", "blocking findings are")} open`, "What the reviews found, followed to fixed"]],
       [["reviews", 0, "", "Every review Code Guardian posted"], ["runs", liveRv, "", "Every review run: its phases, its skills side by side, its cost; the count: the ones running now"]],
-      [["pages"], ["health", openInc, openInc && `${plural(openInc, "incident is", "incidents are")} open`, "Is Code Guardian well: services, incidents, alerts"]]]
+      [["pages"]]]
       .map((g) => g.map((t) => (t[0] === "pages" ? pagesMenu() : tab(t))).join("")).join(sep);
     const nav = $("#nav"); if (nav.drawn !== html) keepFocus(nav, () => { nav.innerHTML = html; nav.drawn = html; });
     $("#help").setAttribute("aria-current", String(S.tab === "guide")); $("#settings").setAttribute("aria-current", String(S.tab === "settings"));
@@ -2241,7 +2250,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const whenFact = (k, iso) => (iso ? `<span><span class="k">${esc(k)}:</span> <span class="when" title="${esc(when(iso))}">${esc(dayWord(iso))}</span></span>` : "");
   const LIST_PAGE = 20;
   // A value in a row's line with its word filters the list to the rows with the same value, as on Design Desk.
-  const pfView = () => [S.tab, S.prPage, S.fPage, S.rvPage, S.runPage, S.pgPage, S.hPage].join(":");
+  const pfView = () => [S.tab, S.prPage, S.fPage, S.rvPage, S.runPage, S.pgPage, S.hPage, S.lPage].join(":");
   const pfKey = (sp) => sp.querySelector(":scope > .k")?.textContent.replace(/:\s*$/, "").trim() || "";
   const pfValue = (sp) => { const x = sp.cloneNode(true); x.querySelector(":scope > .k")?.remove(); return x.textContent.replace(/\s+/g, " ").trim(); };
   const pfOn = () => !!S.pf && S.pf.view === pfView();
@@ -2261,7 +2270,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderListRows() {
     const list = $("#list");
     $("#main").classList.toggle("wide", S.tab === "guide" || S.tab === "settings");
-    const view = [S.tab, S.prPage, S.prFilter, S.fPage, S.fFilter, S.rvPage, S.rvFilter, S.runPage, S.runFilter, S.pgPage, S.hPage].join("|");
+    const view = [S.tab, S.prPage, S.prFilter, S.fPage, S.fFilter, S.rvPage, S.rvFilter, S.runPage, S.runFilter, S.pgPage, S.hPage, S.lPage].join("|");
     if (S.listView !== view) { S.listView = view; S.listLimit = LIST_PAGE; }
     if (S.tab === "guide" || S.tab === "settings") { list.innerHTML = ""; list.drawn = ""; return; }
     let head = "", rows = [], empty = "Nothing here.";
@@ -2299,6 +2308,12 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       rows = reportPages().map((a) => row(`page:${a.id}`, a.title, "", dot(a.state === "error" ? "fail" : "pass", a.state === "error" ? "Not published" : "Published"),
         [whenFact("published", a.utc), fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
       empty = "No report published yet.";
+    } else if (S.tab === "learnings") {
+      const L = { rules: (l) => l.layer === "memory" && l.from !== "escape", areas: (l) => l.layer === "area", escaped: (l) => l.from === "escape", lessons: (l) => l.layer === "lessons" };
+      if (!L[S.lPage]) S.lPage = "rules";
+      head = pages("lPage", [["rules", "Rules", learnings().filter(L.rules).length, "What people told Code Guardian, and what it saw in PRs: every review reads them"], ["areas", "Area rules", learnings().filter(L.areas).length, "Rules for one part of the code: a review reads them when the PR touches it"], ["escaped", "Escaped classes", learnings().filter(L.escaped).length, "Defect classes learned from errors after merge"], ["lessons", "Lessons", learnings().filter(L.lessons).length, "What Code Guardian learned about its own tools and environment"]]);
+      rows = learnings().filter(L[S.lPage]).map((l) => row(l.id, l.text, l.id, "", [l.section ? fact("in", l.section) : "", l.from ? fact("from", l.from === "user" ? "a person" : l.from) : "", l.date ? whenFact("since", l.date + "T12:00:00Z") : "", l.seen ? fact("seen", plural(l.seen, "time", "times")) : "", l.archive ? fact("story", "Yes", "The archive keeps why") : ""].join("")));
+      empty = "Nothing learned here yet.";
     } else if (S.tab === "health") {
       head = pages("hPage", [["incidents", "Incidents", incidents().length, "Something that stopped or slowed Code Guardian"], ["alerts", "Alerts", alerts().length, "What the health check told the operator"]]);
       rows = S.hPage === "alerts" ? alerts().map((a) => row(`alert:${a.id}`, human(a.kind || a.id), "", dot(a.claimed ? "pass" : "look", a.claimed ? "Taken" : "Sent"), [whenFact("first", a.first), whenFact("sent", a.sent)].join("")))
@@ -2343,6 +2358,11 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         { tone: "checking", text: "Each week and each tick it keeps its reports up to date: health, trends, the security survey, the benchmark." },
         { tone: "waiting", text: "Open one here, or share its link.", acts: ["<b>Open the page ↗</b>", "<b>Publish it again</b>"] }],
       tip: "A page with a copy here shows on the Desk itself." },
+    learnings: { about: "what Code Guardian learned, and why",
+      steps: [{ tone: "waiting", text: "A person corrects a review, answers a finding on GitHub, or reports an error after a merge.", acts: ["<b>Dismiss: …</b>", "<b>Ask Code Guardian</b>"] },
+        { tone: "checking", text: "Code Guardian keeps one short rule for it, and the story behind it in its archive." },
+        { tone: "approved", text: "Every next review reads the rules; a rule for one part of the code only when the PR touches it." }],
+      tip: "A finding shows the rules that answer it; an escaped defect shows the class it taught." },
     health: { about: "whether Code Guardian is well, and what stopped it",
       steps: [{ tone: "checking", text: "Every 15 minutes the health check looks at the model, GitHub, the platform, the backup and Slack." },
         { tone: "waiting", text: "Something wrong is an incident; the owner gets an alert.", acts: ["<b>Run the health check now</b>"] },
@@ -2356,7 +2376,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return `<details class="intro" data-intro="${S.tab}"${store.get("cg-intro") === "hidden" ? "" : " open"}><summary title="Shows or hides this tab's help; it stays as you leave it"><span class="i">i</span><span><b>${esc(TABS[S.tab])}</b> — ${esc(it.about)}</span><a href="#" class="how" data-tab="guide">How Code Guardian works</a><span class="tog"></span></summary>${process(S.tab)}</details>`; };
   document.addEventListener("click", (e) => { const d = e.target.closest?.("details.intro > summary")?.parentElement; if (d && !e.target.closest("[data-tab]")) store.set("cg-intro", d.open ? "hidden" : "shown"); }, true);
   const GUIDE = () => `<h2>How Code Guardian works</h2><p class="lead">Code Guardian reviews every pull request of ${esc(D().repo || "the repository")} within minutes, follows it round by round to the merge, and tells with evidence what is wrong and how to fix it.</p>`
-    + ["prs", "findings", "reviews", "runs", "pages", "health"].map((k) => `<h3>${esc(TABS[k])} — ${esc(INTRO()[k].about)}</h3>${process(k)}`).join("");
+    + ["prs", "findings", "reviews", "runs", "pages", "learnings", "health"].map((k) => `<h3>${esc(TABS[k])} — ${esc(INTRO()[k].about)}</h3>${process(k)}`).join("");
 
   // ---------- the detail ----------
   const back = () => `<div class="crumb"><button class="btn small" data-back title="Back to the list">← ${esc(TABS[S.tab])}</button><button class="btn small" data-copy-link title="A link that opens it: paste it in Slack, an issue or a message">🔗 Copy link</button></div>`;
@@ -2431,7 +2451,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   }
   const DISMISS_WHY = [["by-design", "It is on purpose"], ["false-positive", "It is not a problem"], ["wont-fix", "We will not fix it"], ["duplicate", "Another finding has it"]];
   function renderFinding(f) {
-    const [w, s, tip] = FSTATE[f.state], p = prOf(f.pr), esc2 = escapes().filter((e) => e.pr === f.pr && (e.paths || []).includes(f.file));
+    const [w, s, tip] = FSTATE[f.state], p = prOf(f.pr), esc2 = escapes().filter((e) => (f.escapes || []).includes(e.id));
     const acts = (f.state === "open" ? cmdBtn(`re-review #${f.pr}`, "Review again", "A new round on the PR's newest commit: it marks the finding fixed or still open", true)
       + more(DISMISS_WHY.map(([k, l]) => cmdBtn(`dismiss F-${f.id.slice(2)} as ${k}`, `Dismiss: ${l}`, "Code Guardian keeps it as a rule for this PR and does not raise it again")))
       : f.state === "dismissed" ? cmdBtn(`reopen F-${f.id.slice(2)}`, "Open it again", "Code Guardian takes the rule out; the next round can raise it again") : "") + (ghPr(f.pr) ? `<a class="btn" href="${safeUrl(`${ghPr(f.pr)}/files`)}" target="_blank" rel="noopener noreferrer" title="Opens the PR's changed files on GitHub">Files ↗</a>` : "");
@@ -2444,14 +2464,37 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + card("fix", "--approved", "What fixes it", f.fix ? `<p>${esc(f.fix)}</p>` : f.severity === "suggestion" ? `<p class="k">A suggestion: the review gives the better way in its words.</p>` : "")
       + `</div></section>`
       + (f.late ? `<p class="chip warn" title="An earlier round could have named it">Missed earlier: a later round found it</p>` : "")
-      + (f.override ? sect("Why it is dismissed", `<p>${mdLite(f.override)}</p>`) : "")
+      + sect("Answers", (f.answers || []).length ? `<ul class="cg-answers">${f.answers.map((a) => `<li><span class="chip${a.kind === "override" ? " warn" : ""}" title="${esc(a.kind === "override" ? "A rule for this PR only, in its history file" : "A rule Code Guardian learned and keeps for every review")}">${a.kind === "override" ? (a.exact ? "Dismissed here" : "A rule for this PR") : "A learned rule"}</span>${a.kind === "rule" ? ` ${itemA("learnings", a.id)}` : ""}<span>${mdLite(a.text).replace(/^<p>|<\/p>$/g, "")}</span><span class="k">${esc([a.from && (a.from === "user" ? "from a person" : `from ${a.from}`), a.date && day(a.date + "T12:00:00Z")].filter(Boolean).join(" · "))}</span></li>`).join("")}</ul>` : "", "what people answered to it")
       + sect("Round by round", `<ul class="cg-rounds">${f.rounds.slice().reverse().map((r) => `<li>${itemA("reviews", r.review)}<span class="when" title="${esc(when(r.ts))}">${esc(dayWord(r.ts))}</span>${stw(r.status === "fixed" ? "pass" : "fail", r.status === "fixed" ? "Fixed" : r.status === "still" ? "Still open" : "New")}<span></span><code class="k">${esc(String(r.sha || "").slice(0, 7))}</code></li>`).join("")}</ul>`)
-      + (esc2.length ? sect("It escaped", esc2.map((e) => `<p>${itemA("findings", e.id)} ${esc(e.class)} — ${esc(e.note || "")}</p>`).join("")) : "");
+      + (esc2.length ? sect("It escaped after the merge", esc2.map(escapeCard).join(""), "the error a running environment showed, and what the review learned") : "");
+  }
+  const ESC_REVIEW = { raised: ["The review named it", "look", "A blocking or should-fix finding named it; the PR merged over it."], weak: ["Named too weakly", "look", "Only a suggestion named it, or a rule settled it."],
+    missed: ["The review missed it", "fail", "A review read the diff that held it and raised nothing."], not_reviewed: ["Not reviewed", "none", "No review saw a commit that held it."],
+    not_visible: ["Not in the diff", "none", "It lives in data, the environment, or code the PR did not change."], unknown: ["No PR found", "none", "No PR explains it."] };
+  const ESC_RULE = { added: "A new rule", strengthened: "A rule made wider", none: "No rule" };
+  function escapeCard(e) {
+    const [w, st] = ESC_REVIEW[e.review] || [human(e.review || "not known"), "none"];
+    return `<div class="cg-esc"><div class="h">${itemA("findings", e.id)}<b>${esc(e.class || "An escaped defect")}</b>${stw(st, w)}<span class="k">${esc(e.env || "")} · ${esc(day(e.at))}</span></div>${e.note ? `<p>${esc(e.note)}</p>` : ""}`
+      + (e.report ? `<details><summary>The report and why the review let it through</summary><div class="cg-md">${mdLite(e.report)}</div></details>` : "")
+      + `<p class="k">${esc(ESC_RULE[e.rule] || "")}${e.learned ? ` · ${itemA("learnings", e.learned)} what the review checks now` : ""}</p></div>`;
+  }
+  function renderLearning(l) {
+    const LAYER = { memory: "Every review", area: "Reviews of its paths", lessons: "Every run" };
+    const fs = findings().filter((f) => (f.answers || []).some((a) => a.id === l.id)), es = escapes().filter((e) => e.learned === l.id);
+    return head(l.text.length > 90 ? l.text.slice(0, 88) + "…" : l.text, l.id, `${esc(l.section || "")} · <code>${esc(l.file)}</code>`)
+      + `<dl class="cg-facts"><dt>The rule</dt><dd>${mdLite(l.text).replace(/^<p>|<\/p>$/g, "")}</dd><dt>Read by</dt><dd>${esc(LAYER[l.layer] || "")}${l.scope?.length ? ` — <code>${esc(l.scope.join(", "))}</code>` : ""}</dd>`
+      + `${l.from ? `<dt>From</dt><dd>${esc(l.from === "user" ? "a person" : l.from === "escape" ? "an escaped defect" : l.from)}</dd>` : ""}${l.date ? `<dt>Since</dt><dd>${esc(day(l.date + "T12:00:00Z"))}</dd>` : ""}${l.seen ? `<dt>Seen</dt><dd>${esc(plural(l.seen, "time", "times"))}</dd>` : ""}${l.pr ? `<dt>PR</dt><dd>${prA(l.pr)}</dd>` : ""}</dl>`
+      + (l.archive ? sect("The story behind it", `<div class="cg-md">${mdLite(l.archive)}</div>`, `from <code>archive/${esc(l.archive_ref)}</code>`) : "")
+      + (es.length ? sect("The escapes that taught it", es.map(escapeCard).join("")) : "")
+      + (fs.length ? sect("Findings it answers", `<ul class="cg-flist">${fs.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0])}<span class="loc">${esc(f.file || "")}</span></li>`).join("")}</ul>`) : "");
   }
   function renderEscape(e) {
     return head(e.class || "An escaped defect", e.id, `Reported ${esc(day(e.at))} from ${esc(e.env || "a running environment")}${e.url ? ` · ${gh(e.url, "The report ↗", "Opens the report")}` : ""}`)
       + statusBox(e.review === "missed" ? "fail" : "look", e.review === "missed" ? "The review missed it" : "Found, but not fixed", e.review === "missed" ? "No review named this defect before the merge." : "A review named it; the PR merged with it open.", e.pr ? prA(e.pr, `PR #${e.pr}`).replace('class="anchor"', 'class="btn"') : "")
       + sect("What happened", e.note ? `<p>${esc(e.note)}</p>` : "")
+      + (e.report ? sect("The report", `<div class="cg-md">${mdLite(e.report)}</div>`, "from the archive") : "")
+      + (e.learned ? sect("What the review checks now", `<p>${itemA("learnings", e.learned)} ${esc(learnings().find((l) => l.id === e.learned)?.text || "")}</p>`) : "")
+      + (() => { const fs = findings().filter((f) => (f.escapes || []).includes(e.id)); return fs.length ? sect("The finding in that PR", `<ul class="cg-flist">${fs.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0])}<span class="loc">${esc(f.file || "")}</span></li>`).join("")}</ul>`) : ""; })()
       + sect("What the review learned", `<dl class="cg-facts"><dt>The defect class</dt><dd>${esc(e.class)}</dd><dt>The rule now</dt><dd>${esc(e.rule || "")}</dd><dt>Seen</dt><dd>${esc(plural(e.recurrence || 1, "time", "times"))}</dd><dt>How sure</dt><dd>${esc(human(e.confidence || "not known"))}</dd></dl>`)
       + sect("Where", (e.paths || []).length ? `<ul class="cg-path">${e.paths.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "");
   }
@@ -2690,6 +2733,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     if (S.tab === "reviews") return pick + reviewBars() + weekTrend() + renderIntro();
     if (S.tab === "runs") return pick + runsOverview() + renderIntro();
     if (S.tab === "pages") return pick + `<div class="cg-cards">${reportPages().map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
+    if (S.tab === "learnings") { const ls = learnings(), c = (f) => ls.filter(f).length;
+      return pick + `<div class="cg-tiles">${tile("lPage:rules", c((l) => l.layer === "memory" && l.from !== "escape"), "Rules", "every review reads them", "--accent")}${tile("lPage:areas", c((l) => l.layer === "area"), "Area rules", "for one part of the code", "--decided")}${tile("lPage:escaped", c((l) => l.from === "escape"), "Escaped classes", "learned from errors after merge", "--closed")}${tile("lPage:lessons", c((l) => l.layer === "lessons"), "Lessons", "about its tools and environment", "--waiting")}</div>` + renderIntro(); }
     if (S.tab === "health") return pick + (arts().some((a) => a.id === "health") ? `<div class="cg-cards" style="max-width:900px;margin:0 auto 16px"><button class="cg-card" data-item="page:health"><b>The health dashboard</b><span class="k">${esc(PAGE_ABOUT.health)}</span></button></div>` : "") + services() + healthHours() + renderIntro();
     return pick;
   }
@@ -2737,7 +2782,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       + (week ? `<section class="cg-grp"><h3>The week at a glance</h3>${week}</section>` : "")
       + SET_GROUPS.map(([g, label]) => { const xs = fs.filter((f) => f.group === g); return xs.length ? `<section class="cg-grp"><h3>${esc(label)}</h3>${xs.map(featRow).join("")}</section>` : ""; }).join("")
       + (st?.fixed || []).map(([label, keys, about]) => `<section class="cg-grp"><h3>${esc(label)}</h3><p class="k">${esc(about)}</p><div class="cg-mod open"><div class="cg-mod-b" style="padding-left:0">${keys.filter((k) => SK()[k]?.value).map(setRow).join("")}</div></div></section>`).join("")
-      + (rules ? `<section class="cg-grp"><h3>What Code Guardian follows</h3><p class="k">The rules people gave it, and what it learned from escaped defects. Each review reads them.</p>${rules}</section>` : "")
+      + (learnings().length ? `<section class="cg-grp"><h3>What Code Guardian follows</h3><p class="k">${esc(plural(learnings().length, "rule or lesson", "rules and lessons"))} — the rules people gave it, what it learned from escaped defects, and the story behind each: <a href="#" data-tab="learnings">Pages → Learnings</a>.</p></section>` : "")
       + peopleSection();
   }
   document.addEventListener("click", (e) => {
@@ -2797,7 +2842,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     d.classList.toggle("fill", Boolean(it) || S.tab === "guide" || S.tab === "settings");
     if (S.item !== shown) { shown = S.item; d.scrollTop = 0; d.classList.remove("enter"); void d.offsetWidth; d.classList.add("enter"); clearTimeout(entered); entered = setTimeout(() => d.classList.remove("enter"), 400); }
     $("#main").classList.toggle("has-detail", Boolean(it) || S.tab === "guide" || S.tab === "settings");
-    const R = { pr: renderPr, finding: renderFinding, escape: renderEscape, review: renderReview, run: renderRun, page: renderPage, incident: renderIncident, alert: renderAlert };
+    const R = { pr: renderPr, finding: renderFinding, escape: renderEscape, learning: renderLearning, review: renderReview, run: renderRun, page: renderPage, incident: renderIncident, alert: renderAlert };
     const html = S.tab === "guide" ? `<div class="guide">${GUIDE()}</div>` : S.tab === "settings" ? `<div class="guide cg-settings">${renderSettings()}</div>` : !it ? renderEmpty() : jobStrip(S.item) + R[it.kind](it.x);
     if (d.drawn !== html && same && busy(d)) return;
     if (d.drawn !== html) { const put = () => keepFocus(d, () => { d.innerHTML = html; d.drawn = html; d.tab = S.tab; }); if (same) keepWork(d, put); else put(); }
@@ -2808,6 +2853,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     if ((m = /^#(\d+)$/.exec(id))) { const x = prOf(m[1]); return x && { kind: "pr", x }; }
     if (/^F-\d+$/.test(id)) { const x = findings().find((f) => f.id === id); return x && { kind: "finding", x }; }
     if (/^E-\d+$/.test(id)) { const x = escapes().find((f) => f.id === id); return x && { kind: "escape", x }; }
+    if (/^L-\d+$/.test(id)) { const x = learnings().find((f) => f.id === id); return x && { kind: "learning", x }; }
     if (/^R-\d+$/.test(id)) { const x = reviewOf(id); return x && { kind: "review", x }; }
     if (/^S-\d+$/.test(id)) { const x = D().runs.find((r) => r.id === id); return x && { kind: "run", x }; }
     if (id.startsWith("page:")) { const x = arts().find((a) => a.id === id.slice(5)); return x && { kind: "page", x }; }
@@ -2816,7 +2862,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     return null;
   }
   // Where an item lives: its tab and its page of the tab.
-  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : id === "page:health" ? "health" : /^page:guide:/.test(id) ? "prs" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
+  const tabOf = (id) => /^#\d+$/.test(id) ? "prs" : /^[FE]-\d+$/.test(id) ? "findings" : /^R-\d+$/.test(id) ? "reviews" : /^S-\d+$/.test(id) ? "runs" : /^L-\d+$/.test(id) ? "learnings" : id === "page:health" ? "health" : /^page:guide:/.test(id) ? "prs" : /^page:/.test(id) ? "pages" : /^(health|alert):/.test(id) ? "health" : null;
   const place = () => { const id = S.item || "", it = findItem(id); if (!it) return;
     if (it.kind === "pr" && !PR_PAGE[S.prPage](it.x)) S.prPage = it.x.state === "closed" ? "closed" : "open";
     if (it.kind === "escape") S.fPage = "escaped"; else if (it.kind === "finding" && S.fPage === "escaped") S.fPage = "all";
@@ -2925,7 +2971,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // ---------- Ask Code Guardian: a chat in the corner, one per page ----------
   const C = { open: false, asks: [], loaded: false, drawn: "" };
-  const chatPage = () => ({ prs: `prs/${S.prPage}`, findings: `findings/${S.fPage}`, reviews: `reviews/${S.rvPage}`, runs: `runs/${S.runPage}`, pages: `pages/${S.pgPage}`, health: `health/${S.hPage}` })[S.tab] || S.tab;
+  const chatPage = () => ({ prs: `prs/${S.prPage}`, findings: `findings/${S.fPage}`, reviews: `reviews/${S.rvPage}`, runs: `runs/${S.runPage}`, pages: `pages/${S.pgPage}`, health: `health/${S.hPage}`, learnings: `learnings/${S.lPage}` })[S.tab] || S.tab;
   function chatContext() {
     const it = findItem(S.item);
     const label = !it ? `${TABS[S.tab] || "The page"}` : it.kind === "pr" ? `#${it.x.n} ${it.x.title || ""}` : it.kind === "finding" ? `${it.x.id} ${it.x.summary}` : it.kind === "review" ? `${it.x.id}, the review of #${it.x.pr}`
@@ -3137,7 +3183,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     $("#me").dataset.tip = `You are ${S.me.role === "admin" ? "an admin" : `a ${S.me.role || "viewer"}`}. ${ROLE_DO[S.me.role] || ""}`;
     document.body.classList.toggle("ro", !canAct()); $("#ask-review").hidden = !canAct(); document.querySelector("header > .head-sep").hidden = !canAct();
     document.title = S.me.name || "Code Guardian";
-    for (const k of ["prPage", "prFilter", "fPage", "fFilter", "rvPage", "rvFilter", "runPage", "runFilter", "pgPage", "hPage"]) { const v = store.get(`cg-${k}`); if (v) S[k] = v; }
+    for (const k of ["prPage", "prFilter", "fPage", "fFilter", "rvPage", "rvFilter", "runPage", "runFilter", "pgPage", "hPage", "lPage"]) { const v = store.get(`cg-${k}`); if (v) S[k] = v; }
     if (!PR_FILTER[S.prFilter]) S.prFilter = "reviewing"; if (!RUN_PAGE[S.runPage]) S.runPage = "running";
     renderTheme();
     await Promise.all([refresh(), loadAsks()]);
