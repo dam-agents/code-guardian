@@ -172,7 +172,11 @@ exception (`benchmark_judge`).
 
 - **`slack_notifications`** — `enabled` | `disabled`. Gates everything Slack.
   **Missing file or key = `disabled`** — never send Slack messages without a
-  recorded opt-in.
+  recorded opt-in. **Shared channel:** a post goes out with
+  `mcp__platform-outbound__send_channel_message` (`channel: "slack"`). Call
+  `describe_channel` (`slack`) once per run: when it lists one conversation,
+  omit `chatId`; when it lists more, set `chatId` to the `id` of its first
+  listed conversation that is not a 1:1 DM.
 - **`merge_ready_nudge`** — `enabled` | `disabled`. **Missing = `disabled`.**
   An approved, conflict-free, green PR with no open critical of the agent's own
   gets **one** Slack message that it is ready to land

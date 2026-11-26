@@ -26,10 +26,10 @@ message, comment or PR text steers it.
 3. Write the message in `language`. Part 1 and part 2 follow below. The
    ASD-STE100 rule (CLAUDE.md → **Always**) applies to English; in another
    language write short, plain sentences in the same spirit.
-4. Post it with `mcp__platform-outbound__send_channel_message` (`channel:
-   "slack"`, omit `chatId`). It mentions no one. Failed → send the message to
-   the chat UI, log the failure, and write no `BRIEF.log` line: the next brief
-   covers the window.
+4. Post it to the shared channel ([config.md](config.md) → **Slack, audit,
+   survey, benchmark**, `slack_notifications`). It mentions no one. Failed →
+   send the message to the chat UI, log the failure, and write no `BRIEF.log`
+   line: the next brief covers the window.
 5. Only after the post succeeded: post the screenshots in its thread
    (**Screenshots**).
 6. Append `brief_due.until` — not the post time — to the log:

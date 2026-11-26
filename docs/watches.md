@@ -39,7 +39,7 @@ declined and surfaced to the operator with the ready-made row
 | target | delivers | gate |
 | --- | --- | --- |
 | `chat` | one line in the run's chat UI output | none |
-| `slack` / `slack:<chat-id>` | message to the shared channel / to the channel given as `chatId` (`mcp__platform-outbound__send_channel_message`) | `slack_notifications: enabled`; when disabled, deliver as `chat` instead and log `PR #<n>: watch <id> hit — slack disabled, chat only` |
+| `slack` / `slack:<chat-id>` | message to the shared channel ([config.md](config.md) → **Slack, audit, survey, benchmark**) / to the channel given as `chatId` (`mcp__platform-outbound__send_channel_message`) | `slack_notifications: enabled`; when disabled, deliver as `chat` instead and log `PR #<n>: watch <id> hit — slack disabled, chat only` |
 | `pr-comment` | top-level comment on the matched PR (`gh api "repos/$REPO/issues/<n>/comments" -f body=…`) | none |
 
 The set is closed: a new target type is a definition change with its own gate.
