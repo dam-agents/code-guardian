@@ -64,7 +64,7 @@ says fixed), **Not raised again** (a later round dropped it, or the PR closed wi
 ## The page
 
 One row of tabs, the same as Quality Inspector's: **Pull requests** leads (the page opens on it,
-on **Reviewing**), then **Findings**; **Reviews** and **Runs**; **Pages** — a menu of the reports
+on **Reviewing**); **Runs** and **Findings**; **Pages** — a menu of the reports
 (trends, survey, benchmark), then **Learnings** and **Health**; then **+ Review a PR**. A review guide opens from its PR's
 page, which asks for one when the PR has none.
 At the right: the search, the person's menu (Settings, How it works, day or night) and the bell.
@@ -73,16 +73,15 @@ At the right: the search, the person's menu (Settings, How it works, day or nigh
 | --- | --- | --- |
 | Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? An urgent PR has a red **!** under its state dot | the verdict in its ink and the next step; the open findings; **How it went** — ready, each round with its findings and commit, each reminder, now; the review guide; *For the human reviewer*; **Every finding** — the round that found it, the rounds it stayed open, its state, the person's rule or the fix; the human reviewers; the PR's rules |
 | Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | the cards (what, where, what fixes it); **Answers** — the person's rule for the PR and the learned rules that answer it; round by round; **It escaped after the merge** — the escape, its report and the class it taught |
-| Reviews (All, First, Re-reviews) | What did each review say? | its findings, the checks it ran, the body as posted, its rounds as links |
-| Runs (Running, Done, With problems) — review runs only | What does a review do now, and what did it cost? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; what it posted or stopped on; every logged step |
+| Runs (Running, Done, With problems) — every review run | What does a review do now, what did it cost, and what did it post? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; **The review it posted** — the verdict, its findings, the checks it ran, the text as posted; what stopped; every logged step. A review `R-<n>` opens here too |
 | Pages (a menu of the reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
 | Learnings (Rules, Area rules, Escaped classes, Lessons) | What did Code Guardian learn, and why? | the rule, who gave it and when, the story from the archive, the escapes that taught it, the findings it answers; **Delete…** for the owner |
 | Health (Incidents, Alerts) | Is Code Guardian well? The health dashboard opens here | the incident, the runs in that time |
 
 Nothing open, each tab shows its overview: Pull requests **Now / Waiting / Next** and an open
 incident above it, a tile per state (a click filters), time to the first review; Findings new
-findings a day; Reviews reviews a day by verdict and the weekly trend; Runs the running reviews with
-their phases, the last 24 hours on one time line, the review cost a day; Pages a card per report; Health a card per service and the errors hour by hour. Then
+findings a day; Runs the running reviews with their phases, the last 24 hours on one time line, the
+review cost a day, reviews a day by verdict and the weekly trend; Pages a card per report; Health a card per service and the errors hour by hour. Then
 the tab's intro: the process, each step's number in the colour of who acts.
 
 The page keeps every rule of the family: a number is a link with its preview on hover; a value in
