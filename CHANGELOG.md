@@ -14,7 +14,7 @@ they are released history and stay as written.
 ## 15.1.1 — 2026-11-26
 
 **Upgrade:**
-1. Stop the Desk server once (`pkill -f "$HOME/scripts/desk/server.mjs"`); the Login item
+1. Stop the Desk server once (`pkill -f '[s]cripts/desk/server.mjs'`); the Login item
    `code-guardian-desk` starts it again with the new `data.mjs`. No server runs → nothing to do.
 2. `work/desk/artifact.id` exists → publish a revision of `scripts/desk/page.html` at that id
    ([docs/desk.md](docs/desk.md) → **Publish**, step 3).

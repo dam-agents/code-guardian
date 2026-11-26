@@ -2658,7 +2658,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     survey: "The security survey: what a slow pass over one area of the code found.", benchmark: "How well the review finds known defects, version by version." };
   const pages_ = new Map();
   // a kept page shows at its full height: its scripts do not run (no allow-scripts), so the same origin only lets the Desk measure it
-  const fitFrame = (f) => { try { const h = f.contentDocument?.documentElement?.scrollHeight; if (h) f.style.height = `${h + 2}px`; } catch { /* not measurable: the CSS height stays */ } };
+  // the height goes to 0 before it is read: scrollHeight never reads below the frame's own height, so a short page shrinks and no width change adds to it
+  const fitFrame = (f) => { const was = f.style.height; try { f.style.height = "0px"; const h = f.contentDocument?.documentElement?.scrollHeight; f.style.height = h ? `${h + 2}px` : was; } catch { f.style.height = was; /* not measurable: the CSS height stays */ } };
   // only a new width measures again: a page sized in vh units grows with its frame, so a height change never does
   const frameW = new WeakMap(), frameSizes = new ResizeObserver((es) => es.forEach((e) => { const w = Math.round(e.contentRect.width); if (frameW.get(e.target) !== w) { frameW.set(e.target, w); fitFrame(e.target); } }));
   document.addEventListener("load", (e) => { if (e.target.matches?.("iframe.cg-frame")) { fitFrame(e.target); frameSizes.observe(e.target); } }, true);
