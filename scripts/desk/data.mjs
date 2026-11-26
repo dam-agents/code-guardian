@@ -314,7 +314,12 @@ export function build(work, now = Date.now()) {
   const since14 = new Date(now - 14 * 864e5).toISOString().slice(0, 13);
   const hours = jsonl(read(join(work, 'health', 'hours.jsonl'))).filter((h) => typeof h.h === 'string' && h.h >= since14);
   const mon = json(read(join(work, 'MONITOR.json')));
-  const health = { status: json(read(join(work, 'health', 'status.json'))), incidents: jsonl(read(join(work, 'health', 'incidents.jsonl'))).slice(-60),
+  // health.sh writes an incident's detail as an object of its counts and parts ({parts: ["automode-rules"]}): the page shows text
+  const said = (v) => (Array.isArray(v) ? v.map(said).join(', ') : v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k} ${said(x)}`).join(', ') : String(v ?? ''));
+  const detailText = (d) => (d == null || typeof d === 'string' ? d ?? null
+    : Object.entries(d).filter(([, v]) => v != null).map(([k, v]) => `${{ pr: 'PR', prs: 'PRs' }[k] ?? k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())}: ${said(v)}`).join('; ') || null);
+  const health = { status: json(read(join(work, 'health', 'status.json'))),
+    incidents: jsonl(read(join(work, 'health', 'incidents.jsonl'))).slice(-60).map((i) => ({ ...i, detail: detailText(i.detail) })),
     alerts: Object.entries(mon?.alerts ?? {}).map(([id, a]) => ({ id, kind: a?.kind ?? null, first: a?.first ?? null, claimed: a?.claimed ?? null, sent: a?.sent ?? null })), hours };
   const ticks = {};
   for (const l of String(read(join(work, 'HEARTBEAT.log')) ?? '').split('\n').slice(-6000)) {

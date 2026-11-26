@@ -347,6 +347,7 @@
   .section { margin: 0 0 16px; max-width: var(--measure); }
   /* A request's page: everything on it as wide as the pane, no part narrower than the rest. */
   #detail.fill { --measure: 100%; }
+  #detail.item { --content-w: 100%; }
   /* A request's brief, what a person asked for, apart from what Design Desk made of it. */
   .brief { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 12px 16px 4px; margin: 16px 0 0; }
   details.brief:not([open]) { padding-bottom: 12px; }
@@ -1178,6 +1179,7 @@
   .linkbtn.rename svg { width: 15px; height: 15px; }
   h2.renamable:hover .linkbtn.rename, .linkbtn.rename:focus-visible { opacity: 1; }
   @media (hover: none) { .linkbtn.rename { opacity: 1; } }
+  h2 .h2-tail { white-space: nowrap; }
   h2 .num { margin-left: 12px; font-size: var(--fs-ui); font-weight: 400; color: var(--muted); }
   @media (min-width: 861px) { .crumb { display: none; } }
   /* A filter's count: quiet grey beside its words, as on the prototype. */
@@ -2054,7 +2056,7 @@
   .cg-log .m { overflow-wrap: anywhere; } .cg-log .e { font-family: var(--mono); font-size: var(--fs-micro); color: var(--muted); }
   .cg-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; max-width: var(--content-w); font-size: var(--fs-meta); }
   .cg-facts dt { color: var(--muted); } .cg-facts dd { margin: 0; overflow-wrap: anywhere; }
-  .cg-frame { width: 100%; height: 620px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+  .cg-frame { display: block; width: 100%; height: 620px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
   .cg-svc { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; max-width: var(--content-w); margin: 0 auto 16px; }
   .cg-svc > div { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); border-left: 3px solid var(--c, var(--line)); font-size: var(--fs-meta); }
   .cg-svc b { display: block; font-size: var(--fs-ui); } .cg-svc .k { color: var(--muted); }
@@ -2390,7 +2392,9 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const sect = (title, body, note = "") => (body ? `<section class="cg-sect"><h3>${esc(title)}${note ? ` <span class="k" style="font-weight:400">${note}</span>` : ""}</h3>${body}</section>` : "");
   const LINK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>`;
   const titleLink = (n) => `<button class="linkbtn" data-copy-link aria-label="Copy a link to ${esc(n || "this item")}" title="A link that opens ${esc(n || "this item")}: paste it in Slack, an issue or a message">${LINK_ICON}</button>`;
-  const head = (title, n, sub) => `${back()}<h2>${esc(title)}${num(n)}${titleLink(n)}</h2>${sub ? `<div class="sub"><span>${sub}</span></div>` : ""}`;
+  // the title's last word, its number and its link button break as one: the button never stands alone on a line
+  const head = (title, n, sub) => { const t = String(title ?? ""), k = t.trimEnd().lastIndexOf(" ");
+    return `${back()}<h2>${esc(t.slice(0, k + 1))}<span class="h2-tail">${esc(t.slice(k + 1))}${num(n)}${titleLink(n)}</span></h2>${sub ? `<div class="sub"><span>${sub}</span></div>` : ""}`; };
   const mdLite = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/(^|[\s(])#(\d{2,7})\b/g, (m, a, n) => `${a}<button class="anchor" data-goto="prs" data-item="#${n}">#${n}</button>`)
     .split(/\n{2,}/).map((p) => /^#{2,4} /.test(p) ? `<h4>${p.replace(/^#{2,4} /, "")}</h4>` : /^- /m.test(p) ? `<ul>${p.split(/\n(?=- )/).filter((l) => l.trim()).map((l) => `<li>${l.replace(/^- /, "").replace(/\n/g, "<br>")}</li>`).join("")}</ul>` : `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
@@ -2653,16 +2657,22 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     manifest: "Code Guardian's public interface card: what it does, its triggers and its contracts, for people and for other agents.", trends: "The weekly audit, week by week: reviews, findings, cost, speed.",
     survey: "The security survey: what a slow pass over one area of the code found.", benchmark: "How well the review finds known defects, version by version." };
   const pages_ = new Map();
+  // a kept page shows at its full height: its scripts do not run (no allow-scripts), so the same origin only lets the Desk measure it
+  const fitFrame = (f) => { try { const h = f.contentDocument?.documentElement?.scrollHeight; if (h) f.style.height = `${h + 2}px`; } catch { /* not measurable: the CSS height stays */ } };
+  // only a new width measures again: a page sized in vh units grows with its frame, so a height change never does
+  const frameW = new WeakMap(), frameSizes = new ResizeObserver((es) => es.forEach((e) => { const w = Math.round(e.contentRect.width); if (frameW.get(e.target) !== w) { frameW.set(e.target, w); fitFrame(e.target); } }));
+  document.addEventListener("load", (e) => { if (e.target.matches?.("iframe.cg-frame")) { fitFrame(e.target); frameSizes.observe(e.target); } }, true);
   function renderPage(a) {
     const kept = pages_.get(a.id);
     if (a.page && kept === undefined) { pages_.set(a.id, null); api("GET", `/api/artifacts/${encodeURIComponent(a.id)}/page`).then((r) => { pages_.set(a.id, r.html); renderDetail(); }).catch(() => { pages_.set(a.id, false); renderDetail(); }); }
     const kind = a.kind === "guide" ? `guide:${a.pr}` : a.kind;
     const open = safeUrl(a.url) ? `<a class="btn primary" href="${safeUrl(a.url)}" target="_blank" rel="noopener noreferrer" title="Opens the published page in a new tab: the link to share">Open the page ↗</a>` : "";
-    return head(a.title, "", `${a.utc ? `Published ${esc(when(a.utc))}` : "Published"}${a.pr ? ` · for ${prA(a.pr)}` : ""}`)
+    const guideOf = a.kind === "guide" && a.pr ? prOf(a.pr)?.title : null; // a guide names its PR in the heading
+    return head(guideOf ? `Review guide: ${guideOf}` : a.title, a.kind === "guide" && a.pr ? `#${a.pr}` : "", `${a.utc ? `Published ${esc(when(a.utc))}` : "Published"}${a.pr ? ` · for ${prA(a.pr)}` : ""}`)
       + statusBox(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published", a.error || PAGE_ABOUT[a.kind] || "",
         open + more([cmdBtn(`republish ${kind}`, "Publish it again", "Code Guardian builds the page anew and publishes it at the same link"), a.url ? `<button class="btn" data-copy="${esc(a.url)}" title="Copies the page's link">Copy its link</button>` : ""]))
       + `<p class="lead">${esc(PAGE_ABOUT[a.kind] || "")}</p>`
-      + (a.page ? (kept ? `<iframe class="cg-frame" sandbox="" referrerpolicy="no-referrer" title="${esc(a.title)}" srcdoc="${esc(kept)}"></iframe>` : kept === false ? `<p class="k">The copy here could not be read. ${open ? "Its link opens it." : ""}</p>` : `<p class="k">Loading the page…</p>`)
+      + (a.page ? (kept ? `<iframe class="cg-frame" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(a.title)}" srcdoc="${esc(kept)}"></iframe>` : kept === false ? `<p class="k">The copy here could not be read. ${open ? "Its link opens it." : ""}</p>` : `<p class="k">Loading the page…</p>`)
         : `<p class="k">No copy of it is kept here${a.dam ? ` (DAM ${esc(a.dam)})` : ""}. ${a.url ? "Its link opens it." : "Its link is kept on the platform."}</p>`);
   }
   function renderIncident(i) {
@@ -2867,6 +2877,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     const d = $("#detail"), it = findItem(S.item), same = S.quiet && S.item === shown && S.tab === d.tab && d.drawn !== undefined;
     if (S.item && !it && S.data) S.item = null;
     d.classList.toggle("fill", Boolean(it) || S.tab === "guide" || S.tab === "settings");
+    d.classList.toggle("item", Boolean(it) && S.tab !== "guide" && S.tab !== "settings");
     if (S.item !== shown) { shown = S.item; d.scrollTop = 0; d.classList.remove("enter"); void d.offsetWidth; d.classList.add("enter"); clearTimeout(entered); entered = setTimeout(() => d.classList.remove("enter"), 400); }
     $("#main").classList.toggle("has-detail", Boolean(it) || S.tab === "guide" || S.tab === "settings");
     const R = { pr: renderPr, finding: renderFinding, escape: renderEscape, learning: renderLearning, review: renderReview, run: renderRun, page: renderPage, incident: renderIncident, alert: renderAlert };
@@ -3005,9 +3016,15 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const chatPage = () => ({ prs: `prs/${S.prPage}`, findings: `findings/${S.fPage}`, reviews: `reviews/${S.rvPage}`, runs: `runs/${S.runPage}`, pages: `pages/${S.pgPage}`, health: `health/${S.hPage}`, learnings: `learnings/${S.lPage}` })[S.tab] || S.tab;
   function chatContext() {
     const it = findItem(S.item);
+    // the PR, the review and the guide the person had open: the answer reads exactly those
+    const pr = it && (it.kind === "pr" ? it.x.n : ["finding", "review"].includes(it.kind) || (it.kind === "page" && it.x.kind === "guide") ? it.x.pr : null) || null;
+    const ofPr = pr ? reviews().filter((r) => r.pr === pr) : [], sha = it?.kind === "page" ? it.x.sha : null;
+    const review = it?.kind === "review" ? it.x.id : ((sha && ofPr.filter((r) => r.sha && (r.sha.startsWith(sha) || sha.startsWith(r.sha))).at(-1)) || ofPr.at(-1))?.id || null;
+    const guide = it?.kind === "page" && it.x.kind === "guide" ? it.x.page || null : null, title = pr ? prOf(pr)?.title || "" : "";
     const label = !it ? `${TABS[S.tab] || "The page"}` : it.kind === "pr" ? `#${it.x.n} ${it.x.title || ""}` : it.kind === "finding" ? `${it.x.id} ${it.x.summary}` : it.kind === "review" ? `${it.x.id}, the review of #${it.x.pr}`
+      : it.kind === "page" && it.x.kind === "guide" ? `Review guide of #${pr}${title ? ` ${title}` : ""}${review ? ` · ${review}` : ""}`
       : it.kind === "run" ? `${it.x.id} ${runTitle(it.x)}` : it.kind === "page" ? it.x.title : it.kind === "escape" ? `${it.x.id} ${it.x.class}` : `${human(it.x.kind || "")}`;
-    return { tab: S.tab, page: chatPage(), item: S.item || null, label: label.slice(0, 200) };
+    return { tab: S.tab, page: chatPage(), item: S.item || null, pr, review, guide, label: label.slice(0, 200) };
   }
   const sameCtx = (a, b) => (a.item || null) === (b.item || null) && (a.item || (a.page || a.tab) === (b.page || b.tab));
   const STARTERS = () => { const it = findItem(S.item);

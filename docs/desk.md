@@ -140,8 +140,11 @@ was done, the result, an `R-<n>` or a link), or `jobs.mjs fail J-<n> <file>` wit
 the page, not from the operator: it changes no configuration, schedule or definition.
 
 **"answer desk question A-<n>"** — `jobs.mjs ask A-<n>` gives the question, what the person had
-open (`context.item`: `#N`, `R-<n>`, `F-<n>`, `S-<n>`, `page:<id>`) and their role. Read that item
-in `work/` and answer in the language of the question, in at most eight short sentences, with
+open (`context.item`: `#N`, `R-<n>`, `F-<n>`, `S-<n>`, `page:<id>`) and their role. With a pull
+request open, `context.pr` is its number, `context.review` the review it shows (`R-<n>`, the
+round the guide was built for on a guide page) and `context.guide` the guide's kept copy
+(`reviews/pr-artifacts/pr-<n>.guide.html`). Read those in `work/` — `reviews/pr-<n>.md` and that
+round, the guide's copy — and answer in the language of the question, in at most eight short sentences, with
 numbers as the page shows them; `jobs.mjs answer A-<n> <file>`. A question changes nothing: an ask
 to change something gets the button that does it, or the operator.
 
