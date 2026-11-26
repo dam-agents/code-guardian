@@ -2269,7 +2269,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderList() { keepFocus($("#list"), () => { renderListRows(); applyRowFilter(); }); }
   function renderListRows() {
     const list = $("#list");
-    $("#main").classList.toggle("wide", S.tab === "guide" || S.tab === "settings");
+    $("#main").classList.toggle("wide", S.tab === "guide" || S.tab === "settings" || S.tab === "pages" || S.item === "page:health");
     const view = [S.tab, S.prPage, S.prFilter, S.fPage, S.fFilter, S.rvPage, S.rvFilter, S.runPage, S.runFilter, S.pgPage, S.hPage, S.lPage].join("|");
     if (S.listView !== view) { S.listView = view; S.listLimit = LIST_PAGE; }
     if (S.tab === "guide" || S.tab === "settings") { list.innerHTML = ""; list.drawn = ""; return; }
@@ -2732,7 +2732,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         + renderIntro(); }
     if (S.tab === "reviews") return pick + reviewBars() + weekTrend() + renderIntro();
     if (S.tab === "runs") return pick + runsOverview() + renderIntro();
-    if (S.tab === "pages") return pick + `<div class="cg-cards">${reportPages().map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
+    if (S.tab === "pages") return `<div class="cg-cards">${reportPages().map((a) => `<button class="cg-card" data-item="page:${esc(a.id)}"><b>${esc(a.title)}</b><span class="k">${esc(PAGE_ABOUT[a.kind] || "")}</span><span class="k">${a.utc ? `Published ${esc(ago(a.utc))}` : ""}</span></button>`).join("")}</div>` + renderIntro();
     if (S.tab === "learnings") { const ls = learnings(), c = (f) => ls.filter(f).length;
       return pick + `<div class="cg-tiles">${tile("lPage:rules", c((l) => l.layer === "memory" && l.from !== "escape"), "Rules", "every review reads them", "--accent")}${tile("lPage:areas", c((l) => l.layer === "area"), "Area rules", "for one part of the code", "--decided")}${tile("lPage:escaped", c((l) => l.from === "escape"), "Escaped classes", "learned from errors after merge", "--closed")}${tile("lPage:lessons", c((l) => l.layer === "lessons"), "Lessons", "about its tools and environment", "--waiting")}</div>` + renderIntro(); }
     if (S.tab === "health") return pick + (arts().some((a) => a.id === "health") ? `<div class="cg-cards" style="max-width:900px;margin:0 auto 16px"><button class="cg-card" data-item="page:health"><b>The health dashboard</b><span class="k">${esc(PAGE_ABOUT.health)}</span></button></div>` : "") + services() + healthHours() + renderIntro();
