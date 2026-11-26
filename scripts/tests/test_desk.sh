@@ -78,7 +78,7 @@ const show = JSON.parse(cli('show', id));
 say(show.role === 'developer' && show.may === true && !JSON.stringify(show).includes('@'), 'the agent sees the role, never the email');
 cli('start', id); writeFileSync(join(W, 'done.txt'), 'Round 2 is posted.'); cli('done', id, join(W, 'done.txt'));
 r = await call('GET', '/api/notifications', null, 'viewer', 'dev@example.com');
-say(r.body.unread_mine === 1 && r.body.notifications.some((n) => n.mine && /^Done/.test(n.title)), 'the end of the job comes to the bell');
+say(r.body.unread_mine === 1 && r.body.notifications.some((n) => n.mine && /^Done/.test(n.title) && n.who === 'you'), 'the end of the job comes to the bell, as yours');
 r = await call('POST', '/api/asks', { text: 'Why changes?', context: { tab: 'prs', item: '#1234' } }, 'viewer', 'pat@example.com');
 say(r.status === 201 && r.body.ping === 'answer desk question A-1' && r.body.ping_conversation === 'item.pr-1234', 'a question goes to the page\'s own session');
 cli('answer', 'A-1', join(W, 'done.txt'));

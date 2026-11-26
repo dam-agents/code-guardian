@@ -28,7 +28,8 @@ it). It answers only the platform's relay, which names the caller on every reque
 id); the page cannot forge those headers. A person's questions, jobs and read marks key on the
 email, else on the subject id. Every answer stays under the relay's 1 MiB: `/api/data` carries no
 review text and no run steps — `/api/reviews/R-<n>` and `/api/runs/S-<n>` serve them — and drops
-the oldest finished runs, closed PRs' reviews and health hours while it is over. The routes are in the file's header. It writes only `work/desk/`, and one `CONFIG.md` bullet for the owner's Settings; a job is stored as data
+the oldest finished runs, closed PRs' reviews and findings, and health hours while it is over; it
+trims copies, never the cached data. The routes are in the file's header. It writes only `work/desk/`, and one `CONFIG.md` bullet for the owner's Settings; a job is stored as data
 and goes to the agent as the page's ping — the server executes nothing a page sends.
 
 - **Check:** `curl -s 127.0.0.1:5555/health` answers `{"ok":true,…}`. Its log is the Login item's

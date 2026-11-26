@@ -58,7 +58,7 @@ function spend(key) {
 // relay's cap. Over it, the oldest finished runs, then the oldest closed PRs' reviews and findings,
 // then the oldest health hours go, a tenth at a time; `trimmed` says how many.
 function pageData(full) {
-  const out = { ...full, runs: full.runs.map(({ events, ...r }) => ({ ...r, events: null })), reviews: full.reviews.map(({ body, ...r }) => ({ ...r, body: null, has_body: !!body })),
+  const out = { ...full, runs: full.runs.map(({ events, ...r }) => ({ ...r, events: null })), reviews: full.reviews.map(({ body, ...r }) => ({ ...r, body: null, has_body: !!body })), findings: full.findings.slice(),
     health: { ...full.health, hours: full.health.hours.slice() }, trimmed: { runs: 0, reviews: 0, findings: 0, hours: 0 } };
   const closed = new Set(full.prs.filter((p) => p.state !== 'open').map((p) => p.n));
   const tenth = (list, keep, n) => { const idx = list.map((x, k) => (keep(x) ? -1 : k)).filter((k) => k >= 0).slice(0, Math.max(1, Math.ceil(n / 10))); for (const k of idx.reverse()) list.splice(k, 1); return idx.length; };
@@ -101,7 +101,7 @@ function notifications(who) {
   const since = new Date(Date.now() - 30 * 864e5).toISOString(), out = [], mine = (r) => !!who.id && recCaller(r) === who.id, d = data();
   for (const j of jobsOf(JOBS)) {
     if (!j.finished || j.finished < since) continue;
-    out.push({ id: `job:${j.id}`, utc: j.finished, kind: j.state === 'done' ? 'done' : 'failed', mine: mine(j), title: `${j.state === 'done' ? 'Done' : 'Did not work'}: ${j.label || j.command}`, text: j.text, who: mine(j.email) ? 'you' : whose(j.role), item: j.item });
+    out.push({ id: `job:${j.id}`, utc: j.finished, kind: j.state === 'done' ? 'done' : 'failed', mine: mine(j), title: `${j.state === 'done' ? 'Done' : 'Did not work'}: ${j.label || j.command}`, text: j.text, who: mine(j) ? 'you' : whose(j.role), item: j.item });
   }
   const asked = new Map(asks(ASKS).filter((r) => mine(r)).map((r) => [r.id, r]));
   for (const [id, a] of answers(ANSWERS)) { const q = asked.get(id); if (!q || !a.utc || a.utc < since) continue;
