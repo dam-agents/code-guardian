@@ -2251,7 +2251,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       empty = "No runs in the last 14 days.";
     } else if (S.tab === "pages") {
       head = pages("pgPage", [["all", "All", arts().length], ["guides", "Review guides", arts().filter(PG_PAGE.guides).length, "A guide for the human reviewer of one PR"], ["reports", "Reports", arts().filter(PG_PAGE.reports).length, "Health, trends, survey, benchmark, the interface card"]]);
-      rows = arts().filter(PG_PAGE[S.pgPage]).map((a) => row(`page:${a.id}`, a.title, a.pr ? `#${a.pr}` : "", dot(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published"),
+      rows = arts().filter(PG_PAGE[S.pgPage]).map((a) => row(`page:${a.id}`, a.title, "", dot(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published"),
         [whenFact("published", a.utc), a.pr ? linkFact("PR", prA(a.pr)) : "", fact("copy here", a.page ? "Yes" : "No", a.page ? "The Desk shows the page itself" : "Only its link")].join("")));
       empty = "Nothing published yet.";
     } else if (S.tab === "health") {
@@ -2425,7 +2425,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     if (a.page && kept === undefined) { pages_.set(a.id, null); api("GET", `/api/artifacts/${encodeURIComponent(a.id)}/page`).then((r) => { pages_.set(a.id, r.html); renderDetail(); }).catch(() => { pages_.set(a.id, false); renderDetail(); }); }
     const kind = a.kind === "guide" ? `guide:${a.pr}` : a.kind;
     const open = safeUrl(a.url) ? `<a class="btn primary" href="${safeUrl(a.url)}" target="_blank" rel="noopener noreferrer" title="Opens the published page in a new tab: the link to share">Open the page ↗</a>` : "";
-    return head(a.title, a.pr ? `#${a.pr}` : "", `${a.utc ? `Published ${esc(when(a.utc))}` : "Published"}${a.pr ? ` · for ${prA(a.pr)}` : ""}`)
+    return head(a.title, "", `${a.utc ? `Published ${esc(when(a.utc))}` : "Published"}${a.pr ? ` · for ${prA(a.pr)}` : ""}`)
       + statusBox(a.state === "error" ? "fail" : a.state === "closed" ? "none" : "pass", a.state === "error" ? "Not published" : a.state === "closed" ? "PR closed" : "Published", a.error || PAGE_ABOUT[a.kind] || "",
         open + more([cmdBtn(`republish ${kind}`, "Publish it again", "Code Guardian builds the page anew and publishes it at the same link"), a.url ? `<button class="btn" data-copy="${esc(a.url)}" title="Copies the page's link">Copy its link</button>` : ""]))
       + `<p class="lead">${esc(PAGE_ABOUT[a.kind] || "")}</p>`
@@ -2864,7 +2864,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     for (const f of findings()) if (f.id.toLowerCase() === q || m(f.summary) || m(f.file)) out.push(["Finding", f.summary, f.id, "findings", f.id]);
     for (const r of reviews()) if (r.id.toLowerCase() === q) out.push(["Review", `Review of #${r.pr}`, r.id, "reviews", r.id]);
     for (const r of runs()) if (r.id.toLowerCase() === q || r.run.toLowerCase() === q) out.push(["Run", runTitle(r), r.id, "runs", r.id]);
-    for (const a of arts()) if (m(a.title)) out.push(["Page", a.title, a.pr ? `#${a.pr}` : "", "pages", `page:${a.id}`]);
+    for (const a of arts()) if (m(a.title) || (a.pr && `${a.pr}` === n)) out.push(["Page", a.title, a.pr ? `#${a.pr}` : "", "pages", `page:${a.id}`]);
     for (const e of escapes()) if (e.id.toLowerCase() === q || m(e.class)) out.push(["Escaped", e.class, e.id, "findings", e.id]);
     return out.slice(0, 30);
   }

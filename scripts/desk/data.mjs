@@ -107,7 +107,7 @@ function artifactsOf(work, prs) {
   const out = [];
   const marker = (text, name) => /<!-- ([a-z-]+)-dam: (\S+) -->/.exec(String(text ?? '').match(new RegExp(`<!-- ${name}-dam: \\S+ -->`))?.[0] ?? '')?.[2] ?? null;
   const page = (rel) => (mtime(join(work, rel)) ? rel : null);
-  for (const p of prs) if (p.guide) out.push({ id: `guide:${p.n}`, kind: 'guide', title: `Review guide of #${p.n}`, pr: p.n, dam: p.guide.id, url: p.guide.url, sha: p.guide.sha,
+  for (const p of prs) if (p.guide) out.push({ id: `guide:${p.n}`, kind: 'guide', title: 'Review guide', pr: p.n, dam: p.guide.id, url: p.guide.url, sha: p.guide.sha,
     utc: p.guide_utc ?? null, page: page(`reviews/pr-artifacts/pr-${p.n}.guide.html`), state: p.state === 'open' ? 'live' : 'closed' });
   const hs = json(read(join(work, 'health', 'state.json')));
   if (hs || mtime(join(work, 'health', 'dashboard.html'))) out.push({ id: 'health', kind: 'health', title: 'Health dashboard', dam: hs?.artifact_id ?? null, url: /^https:\/\//.test(hs?.share_url ?? '') ? hs.share_url : null,
