@@ -72,7 +72,7 @@ At the right: the search, the person's menu (Settings, How it works, day or nigh
 
 | Tab | The question it answers | An item's page |
 | --- | --- | --- |
-| Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? An urgent PR has a red **!** under its state dot | the verdict in its ink and the next step; the open findings; **How it went** — ready, each round with its findings and commit, each reminder, now; the review guide; *For the human reviewer*; **Every finding** — the round that found it, the rounds it stayed open, its state, the person's rule or the fix; the human reviewers; the PR's rules |
+| Pull requests (Open, Needs you, Closed) | Where does each PR stand, and what does it wait for? *Needs you* filters by the next move: **Human review** (the last review's triage is not `quick-check`, as `shepherd_scope: needs_human` decides, and no person approved or asked for changes), **Re-review** (new commits wait), **Merge** (Code Guardian and a person approved). An urgent PR has a red **!** under its state dot | its author; the verdict in its ink and the next step; the open findings, each edged in its severity's ink; **How it went**, newest first — now, each reminder, each round with its findings and commit, ready; the review guide; **Human reviewers** — what to focus on, what the review already checked and the time (the review's `triage`), its *For the human reviewer* words, the reviewers, their review and each reminder's date and time; **Every finding** — the round that found it, the rounds it stayed open, its state, the person's rule or the fix; the human reviewers; the PR's rules |
 | Findings (All, Blocking, Suggestions, Escaped) | What did the reviews find, and is it fixed? | the cards (what, where, what fixes it); **Answers** — the person's rule for the PR and the learned rules that answer it; round by round; **It escaped after the merge** — the escape, its report and the class it taught |
 | Runs (Running, Done, With problems) — every review run | What does a review do now, what did it cost, and what did it post? | its phases on a time line — done, running, the rest at their usual length — the skills side by side, the end estimate, the cost; **The review it posted** — the verdict, its findings, the checks it ran, the text as posted; what stopped; every logged step. A review `R-<n>` opens here too |
 | Pages (a menu of the reports) | What did it publish? | the page itself in a sandboxed frame when a copy is kept, **Open the page ↗** |
@@ -118,7 +118,8 @@ reads from the page:
 
 | Command | Who | What the agent does |
 | --- | --- | --- |
-| `review #N` · `re-review #N` | developer | the on-demand review of PR #N ([review-on-demand.md](review-on-demand.md) → **On-demand review**) |
+| `review #N` | developer | the on-demand review of PR #N ([review-on-demand.md](review-on-demand.md) → **On-demand review**) |
+| `re-review #N` | developer | the same, with `prepare <n> --on-demand --delta`: a delta re-review of the commits since the last round, also when `$REREVIEW_LABEL` is on the PR; the page adds no label |
 | `publish the review guide of #N` | developer | the review guide of PR #N now ([artifact.md](artifact.md) → **Review guide**) |
 | `fix the findings of #N` | developer | the fix round of PR #N where the repository allows it ([agent-fixes.md](agent-fixes.md)); not allowed → `fail` with why |
 | `dismiss F-<k> as <reason>` · `reopen F-<k>` | developer | add or take out the PR-local override `Ignore: <file:line> — <reason> (Desk)` in `reviews/pr-<n>.md` ([preferences.md](preferences.md)) |

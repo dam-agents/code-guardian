@@ -53,7 +53,8 @@ export function history(text) {
     return { sha: head[1] ?? null, ts: head[2] ?? null, verdict: head[3] ?? null, body, guide_owed: /<!-- guide-owed -->/.test(p), guide_seen: /<!-- guide-label-seen -->/.test(p) };
   }).filter((r) => ISO.test(r.ts ?? ''));
   const urgent = /<!-- urgent-announced: (\S+) -->/.exec(t)?.[1] ?? null;
-  return { title, urgent, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
+  const author = /^\*\*Author:\*\* @?([A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?)/m.exec(t)?.[1] ?? null;
+  return { title, author, urgent, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
 }
 
 // A review body as a person reads it: the hidden lines out, at most 24k letters.
@@ -289,7 +290,7 @@ export function build(work, now = Date.now()) {
     const row = rows.get(n), h = hist.get(n), rs = roundsOf(n), last = rs.at(-1), fs = findings.filter((f) => f.pr === n);
     const ev = events.filter((e) => e.pr === n);
     const triage = last?.meta?.triage ?? null;
-    return { n, title: h?.title ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
+    return { n, title: h?.title ?? null, author: h?.author ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
       utc: row?.ts ?? last?.ts ?? null, rounds: rs.length, reviews: rs.map((r) => r.id), first: rs[0]?.ts ?? null, guide: h?.guide ?? null, guide_owed: !!rs.at(-1)?.guide_owed,
       overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,

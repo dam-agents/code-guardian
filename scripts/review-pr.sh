@@ -7,7 +7,8 @@
 # and records the agent's choice: it never composes, drops, regrades or
 # reorders a finding.
 #
-#   prepare <n> [--eta <s>] [--on-demand]   Check 1 + the PR hold (taken when the
+#   prepare <n> [--eta <s>] [--on-demand] [--delta]
+#                                          Check 1 + the PR hold (taken when the
 #                                          run has none) + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
@@ -1143,8 +1144,8 @@ diagram_block() {
 }
 
 cmd_prepare() {
-  local ETA="" ONDEMAND=false me="$ME"
-  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (*) shift;; esac; done
+  local ETA="" ONDEMAND=false DELTA=false me="$ME"
+  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (--delta) DELTA=true; shift;; (*) shift;; esac; done
   [ -n "$REPO" ] || fail "target repo unresolved"
   # re-entrant for the run that owns the state: a second prepare returns what
   # the first one built instead of standing down against itself
@@ -1194,6 +1195,8 @@ cmd_prepare() {
   fi
   if [ "$kind" = "re-review" ]; then
     full=false; printf '%s' "$labels" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && full=true
+    # --delta: the Desk's Review again — the commits since the last round, whatever the labels say
+    [ "$DELTA" = true ] && full=false
   fi
   # the PR hold (docs/worklist.md → PR holds): a run that comes without one —
   # an on-demand review — takes it here, and a PR another live run holds is

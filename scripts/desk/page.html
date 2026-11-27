@@ -1981,8 +1981,7 @@
   /* One width for the content of an item's page, the overview and Settings; one edge for a state's ink. */
   :root { --content-w: 900px; }
   .chip.bad { background: var(--bad-soft); color: var(--bad); font-weight: 600; } .cg-listtitle { padding: 8px 4px; font-weight: 600; }
-  .cg-ftab tr { border-left: 3px solid var(--fc, transparent); } .cg-ftab tr[data-st="open"] { --fc: var(--closed); } .cg-ftab tr[data-st="fixed"] { --fc: var(--approved); }
-  .cg-ftab tr[data-st="dismissed"] { --fc: var(--decided); } .cg-ftab tr[data-st="gone"], .cg-ftab tr[data-st="left"] { --fc: var(--muted); }
+  .cg-ftab tr { border-left: 3px solid var(--fc, transparent); } .cg-ftab tr[data-sev="critical"] { --fc: var(--closed); } .cg-ftab tr[data-sev="warning"] { --fc: var(--waiting); } .cg-ftab tr[data-sev="suggestion"] { --fc: var(--approved); }
   .cg-ftab tr[data-st="fixed"] td.f a, .cg-ftab tr[data-st="gone"] td.f a { color: var(--muted); }
   details.cg-fmore { margin-top: 8px; max-width: var(--content-w); } details.cg-fmore > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-meta); padding: 4px 0; } details.cg-fmore > .cg-ftab { margin-top: 4px; }
 
@@ -2032,6 +2031,7 @@
   .sev { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
   .sev[data-v="critical"] { background: var(--closed-soft); color: var(--closed); } .sev[data-v="warning"] { background: var(--waiting-soft); color: var(--waiting); }
   .sev[data-v="suggestion"] { background: var(--soft); color: var(--muted); }
+  .cg-nudges { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: var(--fs-meta); }
   .cg-tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; max-width: var(--content-w); }
   .cg-tl li { display: grid; grid-template-columns: 22px 9em minmax(0, 1fr); gap: 8px; align-items: baseline; position: relative; padding: 4px 0; font-size: var(--fs-meta); }
   .cg-tl li::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--line); }
@@ -2151,7 +2151,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
 
   // ---------- state ----------
   const S = { me: null, data: null, hash: null, status: null, tab: "prs", item: null, offline: false,
-    prPage: "open", prFilter: "reviewing", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents", lPage: "rules", openMods: new Set() };
+    prPage: "open", prFilter: "reviewing", youFilter: "all", fPage: "all", fFilter: "open", rvPage: "all", rvFilter: "all", runPage: "running", runFilter: "all", pgPage: "all", hPage: "incidents", lPage: "rules", openMods: new Set() };
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeUrl = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
@@ -2181,10 +2181,16 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   // A PR's state, for its dot: in review now, waiting for a trigger, or its verdict.
   const prState = (p) => p.status === "in_progress" ? ["Reviewing now", "running"] : p.state === "closed" ? [`Closed · ${verdictOf(p.verdict)[0].toLowerCase()}`, "none"]
     : p.status === "awaiting_label" ? ["New commits, waiting", "blocked"] : verdictOf(p.verdict);
-  const needsYou = (p) => p.state === "open" && (p.status === "awaiting_label" || (p.verdict === "APPROVE" && p.shepherd?.status === "open") || (p.shepherd?.nudges > 0));
+  // Needs you, by the next move: a person's review (the last review's triage is not quick-check, as shepherd_scope
+  // needs_human decides; no person approved or asked for changes yet), a re-review of new commits, a merge (Code
+  // Guardian and a person approved).
+  const YOU_FILTER = { all: (p) => Object.entries(YOU_FILTER).some(([k, f]) => k !== "all" && f(p)),
+    human: (p) => !!p.rounds && p.triage?.class !== "quick-check" && p.verdict !== "REQUEST_CHANGES" && !["approved", "changes_requested"].includes(p.shepherd?.review_state),
+    rereview: (p) => p.status === "awaiting_label", merge: (p) => p.verdict === "APPROVE" && p.shepherd?.review_state === "approved" };
+  const needsYou = (p) => p.state === "open" && YOU_FILTER.all(p);
   const PR_PAGE = { open: (p) => p.state === "open", you: needsYou, closed: (p) => p.state === "closed" };
   const PR_FILTER = { all: () => true, changes: (p) => p.verdict === "REQUEST_CHANGES", approved: (p) => p.verdict === "APPROVE", reviewing: (p) => ["in_progress", "awaiting_label"].includes(p.status) || !p.rounds };
-  const prList = (f = S.prFilter, pg = S.prPage) => prs().filter((p) => PR_PAGE[pg](p) && PR_FILTER[f](p));
+  const prList = (f = S.prPage === "you" ? S.youFilter : S.prFilter, pg = S.prPage) => prs().filter((p) => PR_PAGE[pg](p) && (pg === "you" ? YOU_FILTER : PR_FILTER)[f](p));
   const escapes = () => D().escapes || [];
   const learnings = () => D().learnings || [];
   const F_PAGE = { all: () => true, blocking: (f) => f.severity !== "suggestion", suggestions: (f) => f.severity === "suggestion" };
@@ -2281,17 +2287,18 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderListRows() {
     const list = $("#list");
     $("#main").classList.toggle("wide", S.tab === "guide" || S.tab === "settings" || S.tab === "pages" || S.item === "page:health");
-    const view = [S.tab, S.prPage, S.prFilter, S.fPage, S.fFilter, S.rvPage, S.rvFilter, S.runPage, S.runFilter, S.pgPage, S.hPage, S.lPage].join("|");
+    const view = [S.tab, S.prPage, S.prFilter, S.youFilter, S.fPage, S.fFilter, S.rvPage, S.rvFilter, S.runPage, S.runFilter, S.pgPage, S.hPage, S.lPage].join("|");
     if (S.listView !== view) { S.listView = view; S.listLimit = LIST_PAGE; }
     if (S.tab === "guide" || S.tab === "settings") { list.innerHTML = ""; list.drawn = ""; return; }
     let head = "", rows = [], empty = "Nothing here.";
     if (S.tab === "prs") {
-      head = pages("prPage", [["open", "Open", prs().filter(PR_PAGE.open).length, "Every open pull request Code Guardian follows"], ["you", "Needs you", prs().filter(needsYou).length, "A person's move: new commits wait for a re-review label, an approved PR waits for a human review, or a reviewer was reminded"], ["closed", "Closed", prs().filter(PR_PAGE.closed).length, "Merged or closed pull requests of the last 180 days"]])
-        + `<div class="filterbar">${seg("prFilter", [["reviewing", "Reviewing", prList("reviewing").length, "In review now, or waiting for a trigger"], ["changes", "Changes requested", prList("changes").length, "A blocking finding is open"], ["approved", "Approved", prList("approved").length], ["all", "All", prList("all").length]])}</div>`;
+      head = pages("prPage", [["open", "Open", prs().filter(PR_PAGE.open).length, "Every open pull request Code Guardian follows"], ["you", "Needs you", prs().filter(needsYou).length, "A person's move: a human review, a re-review of new commits, or a merge"], ["closed", "Closed", prs().filter(PR_PAGE.closed).length, "Merged or closed pull requests of the last 180 days"]])
+        + `<div class="filterbar">${S.prPage === "you" ? seg("youFilter", [["all", "All", prList("all").length], ["human", "Human review", prList("human").length, "Code Guardian decided a person reviews it too, and no person has approved it yet"], ["rereview", "Re-review", prList("rereview").length, "New commits wait for the next round: Review again starts it"], ["merge", "Merge", prList("merge").length, "Code Guardian and a person approved it: merge it"]])
+          : seg("prFilter", [["reviewing", "Reviewing", prList("reviewing").length, "In review now, or waiting for a trigger"], ["changes", "Changes requested", prList("changes").length, "A blocking finding is open"], ["approved", "Approved", prList("approved").length], ["all", "All", prList("all").length]])}</div>`;
       rows = prList().slice().sort((a, b) => !!b.urgent - !!a.urgent).map((p) => { const [w, s] = prState(p);
-        return row(`#${p.n}`, p.title || `Pull request #${p.n}`, `#${p.n}`, dot(s, w) + urgentDot(p), [whenFact("reviewed", p.utc), p.rounds ? fact("rounds", String(p.rounds)) : "", p.open_findings ? fact("open", plural(p.open_findings, "finding", "findings"), `${p.blocking} of them blocking`) : "",
-          p.guide ? fact("guide", "Yes", "A review guide is published for it") : "", p.shepherd?.nudges ? fact("reminded", plural(p.shepherd.nudges, "time", "times"), "Code Guardian reminded its reviewers on Slack") : "", p.triage ? fact("needs", p.triage.class === "quick-check" ? "Quick check" : "A human review", p.triage.why) : ""].join("")); });
-      empty = S.prPage === "you" ? "Nothing waits for you. Every open pull request has what it needs." : S.prPage === "closed" ? "No closed pull requests in the record yet." : "No open pull requests.";
+        return row(`#${p.n}`, p.title || `Pull request #${p.n}`, `#${p.n}`, dot(s, w) + urgentDot(p), [p.author ? fact("author", p.author, "The author of the pull request") : "", whenFact("reviewed", p.utc), p.open_findings ? fact("open", plural(p.open_findings, "finding", "findings"), `${p.blocking} of them blocking`) : "",
+          p.guide ? fact("guide", "Yes", "A review guide is published for it") : "", p.triage ? fact("needs", p.triage.class === "quick-check" ? "Quick check" : "A human review", p.triage.why) : ""].join("")); });
+      empty = S.prPage === "you" ? ({ human: "No pull request waits for a person's review.", rereview: "No new commits wait for a re-review.", merge: "No approved pull request waits for a merge." })[S.youFilter] || "Nothing waits for you. Every open pull request has what it needs." : S.prPage === "closed" ? "No closed pull requests in the record yet." : "No open pull requests.";
     } else if (S.tab === "findings" && S.fPage === "escaped") {
       head = pages("fPage", fPages());
       rows = escapes().slice().reverse().map((e) => row(e.id, e.class || "An escaped defect", e.id, dot(e.review === "missed" ? "fail" : "look", e.review === "missed" ? "Missed" : "Found, not fixed", e.review === "missed" ? "The review did not name it" : "The review named it, the PR merged anyway"),
@@ -2400,6 +2407,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     .split(/\n{2,}/).map((p) => /^#{2,4} /.test(p) ? `<h4>${p.replace(/^#{2,4} /, "")}</h4>` : /^- /m.test(p) ? `<ul>${p.split(/\n(?=- )/).filter((l) => l.trim()).map((l) => `<li>${l.replace(/^- /, "").replace(/\n/g, "<br>")}</li>`).join("")}</ul>` : `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
 
   // A pull request's page: where it stands, its timeline, its open findings, its rounds, its guide, its people.
+  // Each reminder of a PR, newest first: its date and time.
+  const nudgeList = (p) => { const ns = p.events.filter((e) => e.kind === "nudged").sort((a, b) => b.ts.localeCompare(a.ts)); return ns.length ? `<ul class="cg-nudges">${ns.map((e) => `<li>${esc(when(e.ts))}${e.level ? ` <span class="k">(${/^\d+$/.test(String(e.level)) ? "level " : ""}${esc(e.level)})</span>` : ""}</li>`).join("")}</ul>` : ""; };
   const tlWhen = (t) => { const d = new Date(t), w = dayWord(t), hm = d.toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" }); return /^(Today|Yesterday)$/.test(w) ? `${w} ${hm}` : `${d.toLocaleDateString("en", { month: "short", day: "numeric" })}, ${hm}`; };
   // Every finding of a PR: the round that found it, how many rounds it lived, its state now, and why it
   // stays (a person's rule) or what fixes it.
@@ -2412,7 +2421,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       const life = (f.rounds || []).map((x) => `<i style="--c: var(${x.status === "fixed" ? "--approved" : x.status === "new" ? "--closed" : "--waiting"})" title="${esc(`Round ${roundOf(x.review) ?? "?"}: ${x.status === "new" ? "found" : x.status === "fixed" ? "fixed" : "still open"}`)}"></i>`).join("");
       const why = f.override ? `<b>A person's rule:</b> ${esc(String(f.override).replace(/^Ignore:\s*\S+\s*[—-]\s*/, ""))}`
         : f.state === "fixed" ? "" : f.fix ? `<b>Fix:</b> ${esc(f.fix)}` : f.state === "left" ? "The PR closed with it open." : f.state === "gone" ? "A later round did not name it again." : "";
-      return `<tr data-st="${esc(f.state)}"><td class="f">${sevChip(f.severity)} ${itemA("findings", f.id, f.summary)}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></td>
+      return `<tr data-st="${esc(f.state)}" data-sev="${esc(f.severity)}"><td class="f">${sevChip(f.severity)} ${itemA("findings", f.id, f.summary)}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></td>
         <td class="st">${stw(st, w, tip)}</td>
         <td class="meta"><span>Found in ${k0 ? `${k0 === 1 ? "the first review" : `round ${k0}`}${r0 ? ` ${itemA("runs", r0.review)}` : ""}` : "—"}</span><span title="The rounds that named it: red found, amber still open, green fixed">${named > 1 ? `Open for ${esc(plural(named, "round", "rounds"))}` : "Open for 1 round"}<span class="life">${life}</span></span>${fixedIn ? `<span>Fixed in round ${fixedIn}</span>` : ""}</td>
         <td class="why">${why}</td></tr>`; };
@@ -2444,20 +2453,21 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     for (const e of p.events.filter((x) => x.kind === "conflict")) tl.push([e.ts, "--waiting", "A merge conflict", true]);
     if (p.status === "in_progress") tl.push([p.utc, "--accent", "Reviewing now", true, "now"]);
     else if (p.status === "awaiting_label") tl.push([null, "--decided", `New commits wait for the label <code>${esc(D().labels?.rereview || "")}</code>`, true]);
-    const tlHtml = tl.length ? `<ol class="cg-tl">${tl.sort((a, b) => (a[0] || "~") < (b[0] || "~") ? -1 : (a[0] || "~") > (b[0] || "~") ? 1 : 0).map(([t, ink, txt, html, cls]) => `<li class="${cls || ""}" style="--c: var(${ink})"><span class="d"></span><span class="w" title="${esc(when(t))}">${t ? esc(tlWhen(t)) : "Now"}</span><span class="t">${html ? txt : esc(txt)}</span></li>`).join("")}</ol>` : "";
+    const tlHtml = tl.length ? `<ol class="cg-tl">${tl.sort((a, b) => (a[0] || "~") > (b[0] || "~") ? -1 : (a[0] || "~") < (b[0] || "~") ? 1 : 0).map(([t, ink, txt, html, cls]) => `<li class="${cls || ""}" style="--c: var(${ink})"><span class="d"></span><span class="w" title="${esc(when(t))}">${t ? esc(tlWhen(t)) : "Now"}</span><span class="t">${html ? txt : esc(txt)}</span></li>`).join("")}</ol>` : "";
     const open = fs.filter((f) => f.state === "open");
     const flist = (list) => `<ul class="cg-flist">${list.map((f) => `<li data-st="${esc(f.state)}">${sevChip(f.severity)}<span class="s">${itemA("findings", f.id, f.summary)}</span>${stw(FSTATE[f.state][1], FSTATE[f.state][0], FSTATE[f.state][2])}<span class="loc">${esc(f.file || "")}${f.line ? `:${esc(f.line)}` : ""}</span></li>`).join("")}</ul>`;
     const forHuman = p.for_human;
     const sh = p.shepherd;
-    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip bad" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : "", gh(ghPr(p.n))].filter(Boolean).join(" · "))
+    return head(p.title || `Pull request #${p.n}`, `#${p.n}`, [p.urgent ? `<span class="chip bad" title="Code Guardian posts a rapid review first, then the full one">! Urgent</span>` : "", p.author ? `by <b title="The author of the pull request">${esc(p.author)}</b>` : "", p.first ? `First reviewed ${esc(day(p.first))}` : "Not reviewed yet", p.rounds ? plural(p.rounds, "round", "rounds") : "", p.sha ? `<code title="The newest commit Code Guardian knows">${esc(String(p.sha).slice(0, 7))}</code>` : ""].filter(Boolean).join(" · "))
       + statusBox(s, w, help, acts, now)
       + (p.triage ? `<p class="cg-pr-head">${p.triage.class === "quick-check" ? `<span class="chip ok" title="${esc(p.triage.why || "")}">A quick check is enough</span>` : `<span class="chip warn" title="${esc(p.triage.why || "")}">Needs a human review</span>`}${p.triage.minutes ? `<span>about ${esc(p.triage.minutes)} min for a person</span>` : ""}${p.size?.files ? `<span>${esc(p.size.files)} files · +${esc(p.size.additions ?? "?")} −${esc(p.size.deletions ?? "?")}</span>` : ""}</p>` : "")
       + sect("Findings", fs.length ? findingsTable(fs, rs) : rs.length ? `<p class="k">No findings in ${esc(plural(rs.length, "round", "rounds"))}.</p>` : "", open.length ? `${plural(open.length, "is", "are")} open, ${plural(open.filter((f) => f.severity !== "suggestion").length, "blocks", "block")} the merge` : fs.length ? `${plural(fs.length, "finding", "findings")} in ${plural(rs.length, "round", "rounds")}` : "")
       + sect("How it went", tlHtml)
       + (g ? sect("Review guide", `<div class="cg-cards" style="margin:0"><button class="cg-card" data-goto="prs" data-item="page:${esc(g.id)}" title="Opens the guide here, on the Desk"><b>${esc(g.title)}</b><span class="k">${g.utc ? `Published ${esc(ago(g.utc))}` : "Published"}${g.sha ? ` · for <code>${esc(g.sha)}</code>` : ""}</span><span class="k">Where to start, and what matters in this change.</span></button></div>`) : p.guide_owed ? sect("Review guide", `<p class="k">A guide is owed: it comes with the next round.</p>`)
         : p.state === "open" && rs.length ? sect("Review guide", `<p class="k">No guide for this PR yet. A guide shows the human reviewer where to start and what matters.</p>${cmdBtn(`publish the review guide of #${p.n}`, "Ask for a review guide", "Code Guardian publishes a review guide for this PR")}`) : "")
-      + (forHuman ? sect("For the human reviewer", `<div class="cg-md">${mdLite(forHuman)}</div>`) : "")
-      + (sh ? sect("Human reviewers", `<dl class="cg-facts"><dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}` : "none yet"}</dd></dl>`) : "")
+      // Human reviewers: what the review tells a person — what to judge, what it already checked (its triage, as the
+      // reminder carries it), its "For the human reviewer" words — then who reviews and the reminders.
+      + (sh || p.triage || forHuman ? sect("Human reviewers", `<dl class="cg-facts">${p.triage ? `<dt>Focus on</dt><dd>${p.triage.class === "quick-check" ? "A quick check: confirm what the review found" : esc(p.triage.why || "The design and the risk the review cannot settle")}</dd>${typeof p.triage.verified === "string" && p.triage.verified ? `<dt>Already checked</dt><dd>${esc(p.triage.verified)}</dd>` : ""}${p.triage.minutes ? `<dt>Time</dt><dd>about ${esc(p.triage.minutes)} min</dd>` : ""}` : ""}${sh ? `<dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}${nudgeList(p)}` : "none yet"}</dd>` : ""}</dl>${forHuman ? `<div class="cg-md" style="margin-top:8px">${mdLite(forHuman)}</div>` : ""}`) : "")
       + (p.overrides.length ? sect("Rules for this PR", `<ul>${p.overrides.map((o) => `<li>${mdLite(o).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul>`, "what a person told Code Guardian about this PR") : "");
   }
   const DISMISS_WHY = [["by-design", "It is on purpose"], ["false-positive", "It is not a problem"], ["wont-fix", "We will not fix it"], ["duplicate", "Another finding has it"]];
@@ -2764,7 +2774,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   function renderEmpty() {
     const tile = (k, n, w, s, t) => `<button class="cg-tile" data-filter="${k}" style="--t: var(${t})"><span class="n">${n}</span><span class="w">${esc(w)}</span><span class="s">${esc(s)}</span></button>`;
     const n = $("#list").querySelectorAll(".row.item").length, pick = `<p class="pick">${n ? "Pick something on the left." : ""}</p>`;
-    if (S.tab === "prs") return pick + renderOverview() + `<div class="cg-tiles">${tile("prFilter:changes", prList("changes").length, "Changes requested", "a blocking finding is open", "--closed")}${tile("prFilter:approved", prList("approved").length, "Approved", "nothing blocks the merge", "--approved")}${tile("prFilter:reviewing", prList("reviewing").length, "Reviewing", "in review, or waiting for a trigger", "--decided")}</div>` + latencyChart() + renderIntro();
+    if (S.tab === "prs") return pick + renderOverview() + `<div class="cg-tiles">${tile("prFilter:changes", prList("changes", "open").length, "Changes requested", "a blocking finding is open", "--closed")}${tile("prFilter:approved", prList("approved", "open").length, "Approved", "nothing blocks the merge", "--approved")}${tile("prFilter:reviewing", prList("reviewing", "open").length, "Reviewing", "in review, or waiting for a trigger", "--decided")}</div>` + latencyChart() + renderIntro();
     if (S.tab === "findings") { const fs = findings(), c = (st) => fs.filter((f) => f.state === st).length;
       return pick + `<div class="cg-tiles">${tile("fFilter:open", c("open"), "Open", "the newest review names them", "--closed")}${tile("fFilter:fixed", c("fixed"), "Fixed", "a later round saw the fix", "--approved")}${tile("fFilter:left", c("left") + c("gone"), "Not raised again", "closed with them, or dropped", "--waiting")}${tile("fFilter:dismissed", c("dismissed"), "Dismissed", "a rule for that PR", "--decided")}</div>`
         + dayBars("Findings each day", (d) => { const fsd = fs.filter((f) => f.first.startsWith(d)); return [["--closed", fsd.filter((f) => f.severity === "critical").length, "blocking"], ["--waiting", fsd.filter((f) => f.severity === "warning").length, "should fix"], ["--line", fsd.filter((f) => f.severity === "suggestion").length, "suggestions"]]; }, [["fail", "Blocking"], ["look", "Should fix"], ["none", "Suggestion"]], "new findings, by the day they were first raised")
@@ -3089,7 +3099,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     if (t.matches("[data-tab]")) { e.preventDefault(); moreClose(); S.tab = t.dataset.tab; S.item = null; draw(); if (S.tab === "settings") loadPeople().then(draw); return; }
     if (t.matches("[data-back]")) { S.item = null; draw(); return; }
     if (t.matches("[data-reload]")) { location.reload(); return; }
-    if (t.matches("[data-filter]")) { const [k, v] = t.dataset.filter.split(":"); S[k] = v; store.set(`cg-${k}`, v); if (t.closest(".cg-tiles")) S.item = null; draw(); return; }
+    if (t.matches("[data-filter]")) { const [k, v] = t.dataset.filter.split(":"); S[k] = v; store.set(`cg-${k}`, v); if (t.closest(".cg-tiles")) { S.item = null; if (k === "prFilter" && S.prPage === "you") { S.prPage = "open"; store.set("cg-prPage", "open"); } } draw(); return; }
     if (t.matches("[data-item]")) { e.preventDefault(); S.tab = t.dataset.goto || tabOf(t.dataset.item) || S.tab; S.item = t.dataset.item; place(); draw(); }
   });
   const moreFit = (d) => { const m = d.querySelector(":scope > .menu"); if (!m) return; m.classList.remove("flip-x", "flip-y");
@@ -3232,8 +3242,8 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
     $("#me").dataset.tip = `You are ${S.me.role === "admin" ? "an admin" : `a ${S.me.role || "viewer"}`}. ${ROLE_DO[S.me.role] || ""}`;
     document.body.classList.toggle("ro", !canAct()); $("#ask-review").hidden = !canAct(); document.querySelector("header > .head-sep").hidden = !canAct();
     document.title = S.me.name || "Code Guardian";
-    for (const k of ["prPage", "prFilter", "fPage", "fFilter", "rvPage", "rvFilter", "runPage", "runFilter", "pgPage", "hPage", "lPage"]) { const v = store.get(`cg-${k}`); if (v) S[k] = v; }
-    if (!PR_FILTER[S.prFilter]) S.prFilter = "reviewing"; if (!RUN_PAGE[S.runPage]) S.runPage = "running";
+    for (const k of ["prPage", "prFilter", "youFilter", "fPage", "fFilter", "rvPage", "rvFilter", "runPage", "runFilter", "pgPage", "hPage", "lPage"]) { const v = store.get(`cg-${k}`); if (v) S[k] = v; }
+    if (!PR_FILTER[S.prFilter]) S.prFilter = "reviewing"; if (!YOU_FILTER[S.youFilter]) S.youFilter = "all"; if (!RUN_PAGE[S.runPage]) S.runPage = "running";
     renderTheme();
     await Promise.all([refresh(), loadAsks()]);
     if (!goTo(location.hash)) draw();

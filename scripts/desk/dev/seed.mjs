@@ -104,8 +104,8 @@ for (const pr of prs) {
     if (r + 1 >= 3 && !blocking) verdict = 'APPROVE';
     sha = hex(40);
     const fj = fs.map(({ status, f, late }) => ({ status, severity: f[0], file: fileOf.get(f), line: 10 + Math.floor(rnd() * 200), inline: status !== 'fixed', summary: f[1], fix: status === 'fixed' || f[0] === 'suggestion' ? null : f[2], ...(late ? { late: true } : {}) }));
-    const triage = { class: blocking || rnd() < 0.4 ? 'needs-human' : 'quick-check', why: blocking ? 'a blocking finding is open' : 'small change with tests', verified: true, minutes: 5 + Math.floor(rnd() * 25) };
-    const body = `## PR #${pr.n}: ${pr.title}\n\n### Summary\n\nThe change ${pr.title.toLowerCase()}. ${blocking ? `${blocking} finding${blocking === 1 ? '' : 's'} must be fixed before merge.` : 'No blocking finding is open.'}\n\n`
+    const triage = { class: blocking || rnd() < 0.4 ? 'needs-human' : 'quick-check', why: blocking ? 'whether the new token check fits the auth design' : 'small change with tests', verified: 'the diff, the tests it adds, and the callers of the changed code', minutes: 5 + Math.floor(rnd() * 25) };
+    const body = `## PR #${pr.n}: ${pr.title}\n**Author:** ${pr.author} | **Branch:** feature → main | **Changes:** +120 −30 (4 files)\n\n### Summary\n\nThe change ${pr.title.toLowerCase()}. ${blocking ? `${blocking} finding${blocking === 1 ? '' : 's'} must be fixed before merge.` : 'No blocking finding is open.'}\n\n`
       + (r ? `### Changes since last review\n\n- ${fs.filter((x) => x.status === 'fixed').length} fixed, ${fs.filter((x) => x.status === 'still').length} still open\n\n` : '')
       + `### Findings\n\n${fs.length ? fs.map(({ status, f }) => `- ${status === 'fixed' ? '✅ Fixed' : f[0] === 'critical' ? '🔴' : f[0] === 'warning' ? '🟡' : '🟢'} **${f[1]}** — \`${fileOf.get(f)}\`${f[2] && status !== 'fixed' ? `\n  Fix: ${f[2]}.` : ''}`).join('\n') : 'No findings.'}\n\n### Verdict\n\n${verdict}\n\n### For the human reviewer\n\nLook at the error paths in \`${pick(FILES)}\`.\n\n`
       + `<!-- findings-json: ${JSON.stringify(fj)} -->\n<!-- review-meta: ${JSON.stringify({ diff_digest: hex(12), checks: fj.slice(0, 2).map((x) => ({ for: x.summary, run: `git grep -n ${x.file.split('/').pop()}`, clean: 'no hits' })), deferred: [], triage })} -->\n<!-- code-guardian headRefOid=${sha} -->`;
@@ -123,7 +123,7 @@ for (const pr of prs) {
   if (pr.open) reviewsRows.push(`| ${pr.n} | ${pr.last.sha} | ${iso(pr.last.t)} | ${pr.last.verdict} | ${pr.n % 7 === 0 ? 'awaiting_label' : 'done'} |`);
   if (pr.open && pr.last.verdict !== 'APPROVE') {
     const nudges = Math.floor(rnd() * 3);
-    shepherd.push(`| ${pr.n} | ${iso(pr.opened)} | ${pick(PEOPLE)},${pick(PEOPLE)} | ${pick(['waiting', 'commented', 'none'])} | ${nudges} | ${nudges ? iso(NOW - rnd() * DAY) : '-'} | ${nudges ? 'reminder' : '-'} | open |`);
+    shepherd.push(`| ${pr.n} | ${iso(pr.opened)} | ${pick(PEOPLE)},${pick(PEOPLE)} | ${pick(['awaiting_review', 'awaiting_review', 'approved', 'changes_requested'])} | ${nudges} | ${nudges ? iso(NOW - rnd() * DAY) : '-'} | ${nudges ? 'reminder' : '-'} | open |`);
     for (let k = 0; k < nudges; k++) prEvents.push({ pr: pr.n, kind: "nudged", ts: iso(NOW - rnd() * Math.min(2 * DAY, NOW - pr.opened - H)), level: "reminder" });
   }
 }
