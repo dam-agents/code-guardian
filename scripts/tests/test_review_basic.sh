@@ -338,4 +338,30 @@ pr_json 2 "fresh PR" '[]' "$SHA1" | open_prs_fx
 run_preflight review
 assert_jq '.reviews_due[0] | .kind == "first" and .full == true' 'first review flagged full'
 
+# --- the Desk's people reviews without Slack (docs/desk.md → The server) -----
+new_case desk_people_reviews
+base_config
+mkdir -p "$WORK/desk"
+{ pr_json 1 "approved PR" '[]' "$SHA1"; pr_json 2 "waiting PR" '[]' "$SHA2"; pr_json 3 "unreadable PR" '[]' "$SHA1"; } | open_prs_fx
+printf '[{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","body":""},{"user":{"login":"bob"},"state":"APPROVED","body":""},{"user":{"login":"test-bot"},"state":"COMMENTED","body":"<!-- cg:review headRefOid=x -->"}]' \
+  | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+printf '[{"user":{"login":"carol"},"state":"COMMENTED","body":"looks fine"},{"user":{"login":"dan"},"state":"APPROVED","body":"<!-- cg:review headRefOid=y -->"}]' \
+  | fx "api repos/acme/widgets/pulls/2/reviews?per_page=100"
+printf 'null' | fx "api repos/acme/widgets/pulls/3/reviews?per_page=100"
+run_preflight review
+OUT="$(cat "$WORK/desk/people-reviews.json" 2>/dev/null)"
+assert_jq '.prs == {"1":"approved","2":"awaiting_review"}' "a person's latest review classifies the PR; bot and marker reviews do not count; an unreadable PR is left out"
+printf '[]' | fx "api repos/acme/widgets/pulls/1/reviews?per_page=100"
+run_preflight review
+OUT="$(cat "$WORK/desk/people-reviews.json" 2>/dev/null)"
+assert_jq '.prs["1"] == "approved"' 'a file younger than its interval is not read again'
+
+new_case desk_people_reviews_slack
+base_config '- slack_notifications: enabled'
+mkdir -p "$WORK/desk"
+pr_json 1 "approved PR" '[]' "$SHA1" | open_prs_fx
+run_preflight review
+OUT="$(jq -n --arg e "$([ -e "$WORK/desk/people-reviews.json" ] && echo yes || echo no)" '{file: $e}')"
+assert_jq '.file == "no"' 'under Slack the shepherd ledger has it: no file'
+
 finish

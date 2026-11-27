@@ -53,7 +53,8 @@ export function history(text) {
     return { sha: head[1] ?? null, ts: head[2] ?? null, verdict: head[3] ?? null, body, guide_owed: /<!-- guide-owed -->/.test(p), guide_seen: /<!-- guide-label-seen -->/.test(p) };
   }).filter((r) => ISO.test(r.ts ?? ''));
   const urgent = /<!-- urgent-announced: (\S+) -->/.exec(t)?.[1] ?? null;
-  return { title, urgent, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
+  const author = /^\*\*Author:\*\* @?([A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?)/m.exec(t)?.[1] ?? null;
+  return { title, author, urgent, guide: g ? { id: g[1], sha: g[2], url: /^https:\/\//.test(g[3]) ? g[3] : null } : null, overrides, rounds };
 }
 
 // A review body as a person reads it: the hidden lines out, at most 24k letters.
@@ -138,6 +139,8 @@ function runsOf(work, now, prices = []) {
     const r = by.get(e.run) ?? { run: e.run, job: e.job || 'session', events: [] };
     r.events.push(e); if (e.job && r.job === 'session') r.job = e.job; by.set(e.run, r);
   }
+  // A run whose events name no job but carry review steps is a review (a per-PR session logged before 15.2.0).
+  for (const r of by.values()) if (r.job === 'session' && r.events.some((e) => e.event === 'review_step')) r.job = 'review';
   let list = [...by.values()].map((r) => { r.events.sort((a, b) => a.ts.localeCompare(b.ts)); r.start = r.events[0].ts; r.end = r.events.at(-1).ts; return r; });
   // Only a precheck that found nothing: a tick, not a run (the ticks chart counts them).
   list = list.filter((r) => !(!r.events.some((e) => e.event === 'review_step' || e.event === 'tokens') && r.events.some((e) => (e.event === 'precheck' && /nothing to do/.test(e.msg ?? '')) || (e.event === 'heartbeat' && /nothing_to_do=true/.test(e.msg ?? '')))));
@@ -252,6 +255,11 @@ export function build(work, now = Date.now()) {
   // ------------------------------------------------ shepherd and PR events
   const shep = new Map(tableRows(read(join(work, 'SHEPHERD.md'))).filter(([n]) => /^\d+$/.test(n ?? '')).map(([n, since, reviewers, state, nudges, last, level, status]) =>
     [+n, { eligible_since: dash(since), reviewers: dash(reviewers)?.split(/[,\s]+/).filter(Boolean) ?? [], review_state: dash(state), nudges: +nudges || 0, last_nudge_at: dash(last), level: dash(level), status: dash(status) }]));
+  // a person's review of each open PR, from the source that is written now: the shepherd ledger under
+  // slack_notifications: enabled, else the review pass's file — the other one is left from an earlier period
+  const slackOn = String(cfg.slack_notifications ?? '').trim() === 'enabled';
+  const peopleFile = json(read(join(work, 'desk', 'people-reviews.json')))?.prs ?? {};
+  const peopleOf = (n) => (slackOn ? shep.get(n)?.review_state ?? null : typeof peopleFile[n] === 'string' ? peopleFile[n] : null);
   const events = jsonl(read(join(work, 'PR-EVENTS.jsonl'))).filter((e) => Number.isInteger(e.pr) && ISO.test(e.ts ?? ''));
 
   // ------------------------------------------------ findings: one per pr+file+summary, over the rounds
@@ -289,9 +297,9 @@ export function build(work, now = Date.now()) {
     const row = rows.get(n), h = hist.get(n), rs = roundsOf(n), last = rs.at(-1), fs = findings.filter((f) => f.pr === n);
     const ev = events.filter((e) => e.pr === n);
     const triage = last?.meta?.triage ?? null;
-    return { n, title: h?.title ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
+    return { n, title: h?.title ?? null, author: h?.author ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
       utc: row?.ts ?? last?.ts ?? null, rounds: rs.length, reviews: rs.map((r) => r.id), first: rs[0]?.ts ?? null, guide: h?.guide ?? null, guide_owed: !!rs.at(-1)?.guide_owed,
-      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, events: ev.slice(-40), triage,
+      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, people_review: peopleOf(n), events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,
       latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null,
       for_human: /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(last?.body ?? '')?.[1]?.trim().slice(0, 4000) || null,
@@ -361,7 +369,7 @@ export function build(work, now = Date.now()) {
 export function sources(work) {
   const files = ['CONFIG.md', 'VERSION', 'MEMORY.md', 'REVIEWS.md', 'REVIEW-LEDGER.jsonl', 'SHEPHERD.md', 'PR-EVENTS.jsonl', 'MONITOR.json', 'HEARTBEAT.log', 'AUDIT.log', 'ESCAPES.jsonl',
     'manifest-publish.json', 'manifest.json', 'health/state.json', 'health/status.json', 'health/incidents.jsonl', 'health/hours.jsonl', 'health/schedules.json',
-    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md', 'LESSONS.md'];
+    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md', 'LESSONS.md', 'desk/people-reviews.json'];
   const dirs = ['reviews', 'logs', 'audit/weeks', 'reviews/pr-artifacts', 'memory', 'memory/archive'];
   return [...files.map((f) => join(work, f)), ...dirs.flatMap((d) => [join(work, d), ...ls(join(work, d)).map((f) => join(work, d, f))])];
 }
