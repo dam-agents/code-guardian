@@ -516,6 +516,9 @@ pr_fx open '["cg-rereview"]'
 run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == true' 'label-triggered re-review is complete scope'
 run_rp abort 1 "reset"
+run_rp prepare 1 --on-demand --delta
+assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' '--delta keeps a re-review to the new commits under the full label'
+run_rp abort 1 "reset"
 
 # --- the PR hold: prepare takes it, and leaves a PR another live run holds -----
 setup prepare_hold

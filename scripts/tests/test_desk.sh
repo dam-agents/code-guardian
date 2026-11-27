@@ -13,7 +13,7 @@ node "$REPO_ROOT/scripts/desk/dev/seed.mjs" "$WORK" >/dev/null || { printf 'FAIL
 
 cat > "$SANDBOX/data.mjs" <<'EOF'
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 const R = process.env.REPO_ROOT, W = process.env.WORK_DIR;
 const { build } = await import(join(R, 'scripts/desk/data.mjs'));
@@ -22,6 +22,8 @@ const d = build(W);
 say(d.prs.length > 20 && d.reviews.length > 20 && d.findings.length > 5, 'the data has pull requests, reviews and findings');
 say(d.reviews.every((r, k) => r.id === `R-${k + 1}`) && d.findings.every((f) => /^F-\d+$/.test(f.id)), 'reviews and findings are numbered in order');
 say(d.prs.some((p) => p.status === 'in_progress') && d.runs.some((r) => r.state === 'running'), 'the PR in review and its run show as working');
+{ const busy = d.prs.find((p) => p.status === 'in_progress'), live = d.runs.find((r) => r.state === 'running' && r.reviews.some((x) => x.pr === busy?.n));
+  say(!!live && live.job === 'review' && live.reviews.find((x) => x.pr === busy.n).phases.length > 0, 'a review whose events name no job is a review run with its phases'); }
 say(d.findings.some((f) => f.state === 'fixed') && d.findings.some((f) => f.state === 'open'), 'a finding is followed to fixed over its rounds');
 say(d.artifacts.some((a) => a.kind === 'guide' && a.page) && d.artifacts.some((a) => a.id === 'health' && /^https:/.test(a.url)), 'the guides and the health dashboard are pages');
 say(!JSON.stringify(d.config).includes('@'), 'the settings name no person');
@@ -29,6 +31,14 @@ say(d.health.incidents.every((i) => i.detail === null || typeof i.detail === 'st
 say(d.learnings.some((l) => l.layer === 'memory') && d.learnings.some((l) => l.layer === 'area' && l.scope.length) && d.learnings.some((l) => l.layer === 'lessons') && d.learnings.some((l) => l.archive), 'the learnings come from every layer, with their story from the archive');
 say(d.escapes.every((e) => e.learned && e.report) && d.findings.some((f) => f.escapes.length), 'an escape has its report and its class, and pairs with its finding');
 say(d.findings.some((f) => f.answers.some((a) => a.kind === 'rule')) && d.findings.some((f) => f.answers.some((a) => a.kind === 'override')), "a finding shows the person's rule and the learned rule that answer it");
+say(d.prs.filter((p) => p.shepherd).every((p) => p.people_review === p.shepherd.review_state), "under Slack a person's review comes from the shepherd ledger");
+{ const cf = join(W, 'CONFIG.md'), keep = readFileSync(cf, 'utf8'), n = d.prs.find((p) => p.state === 'open' && p.shepherd && p.shepherd.review_state !== 'changes_requested').n;
+  mkdirSync(join(W, 'desk'), { recursive: true }); writeFileSync(join(W, 'desk', 'people-reviews.json'), JSON.stringify({ at: '2026-11-27T00:00:00Z', prs: { [n]: 'changes_requested' } }));
+  writeFileSync(cf, keep.replace(/^- slack_notifications:.*$/m, '- slack_notifications: disabled'));
+  const off = build(W).prs.find((p) => p.n === n).people_review;
+  writeFileSync(cf, keep); unlinkSync(join(W, 'desk', 'people-reviews.json'));
+  const on = build(W).prs.find((p) => p.n === n).people_review;
+  say(off === 'changes_requested' && on !== 'changes_requested', 'with Slack off a ledger left from before does not outrank the fresh file'); }
 EOF
 OUT="$(WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/data.mjs" 2>>"$STDERR_LOG")"
 printf '%s\n' "$OUT"
