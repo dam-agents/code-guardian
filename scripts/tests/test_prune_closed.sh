@@ -269,4 +269,19 @@ run_preflight audit
 assert_jq '.checks[] | select(.id == "closed_rows") | .status == "ok"' \
   'a PR still open but outside the open list is no ghost and no API fault'
 
+# --- the open list answers 401: the audit still reports, target_repo fails ----
+new_case audit_open_list_401
+base_config
+add_row 5 "$SHA5" "$(iso_ago 90000)" APPROVE done
+fx_out 'api repos/acme/widgets/pulls?state=open&per_page=100' '{"message":"Must authenticate to access this API.","status":"401"}'
+fx_err 'api repos/acme/widgets/pulls?state=open&per_page=100' 'gh: Must authenticate to access this API. (HTTP 401)'
+fx_fail 'api repos/acme/widgets/pulls?state=open&per_page=100'
+run_preflight audit
+assert_jq '.checks[] | select(.id == "target_repo") | .status == "fail" and (.detail | contains("could not list open PRs"))' \
+  'a 401 open list is a target_repo fail, not an empty list'
+assert_jq '.checks[] | select(.id == "closed_rows") | .status == "warn" and (.detail | contains("not checked"))' \
+  'the closed-row check is not run without the open list'
+run_preflight review
+assert_jq '.error | contains("could not list open PRs")' 'a review pass with a 401 open list is an error, not nothing to do'
+
 finish

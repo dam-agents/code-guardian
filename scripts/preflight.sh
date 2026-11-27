@@ -816,12 +816,17 @@ fi
 # ------------------------------------------------------------ open PR set ----
 # an open-PR list is always a JSON array, `[]` included: anything else is no
 # answer, and the API's own error text names the cause
+OPEN_FAIL=""
 OPEN_ERR="$(mktemp "${TMPDIR:-/tmp}/cg-open-err.XXXXXX" 2>/dev/null)" || OPEN_ERR=/dev/null
 OPEN_JSON="$(gh api "repos/$REPO/pulls?state=open&per_page=100" 2>"$OPEN_ERR")"
 if ! printf '%s' "$OPEN_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
   OPEN_WHY="$(head -c 300 "$OPEN_ERR" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
   [ "$OPEN_ERR" = /dev/null ] || rm -f "$OPEN_ERR"
-  fail_out "could not list open PRs on $REPO (API error${OPEN_WHY:+: $OPEN_WHY})"
+  OPEN_FAIL="could not list open PRs on $REPO (API error${OPEN_WHY:+: $OPEN_WHY})"
+  # the audit still reports: its target_repo check fails with this text, and
+  # the checks that need the open set say they were not run
+  [ "$MODE" = "audit" ] || fail_out "$OPEN_FAIL"
+  OPEN_JSON='[]'
 fi
 [ "$OPEN_ERR" = /dev/null ] || rm -f "$OPEN_ERR"
 OPEN_NONDRAFT="$(printf '%s' "$OPEN_JSON" | jq '[.[] | select(.draft==false) | {
@@ -2182,12 +2187,28 @@ if [ "$MODE" = "shepherd" ]; then
              ((.requested|join(","))|if .=="" then "-" else . end), .url] | @tsv')
 
   # carry over rows whose PR is not in the open non-draft set: drafts keep
-  # their nudge history; closed PRs wait for the verified prune (review mode).
+  # their nudge history. A row whose PR the batched state read shows CLOSED or
+  # MERGED is dropped here (its `nudged` facts were recorded above), so a PR
+  # that closes before its first review leaves no row behind; a row whose
+  # state does not answer is carried and read again next sweep.
+  shep_gone="$(shep_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un | tr '\n' ' ')"
+  shep_closed=""
+  if [ -n "${shep_gone// /}" ]; then
+    sstates="$(prune_states $shep_gone)"
+    for onum in $shep_gone; do
+      sst="$(printf '%s\n' "$sstates" | jq -r --argjson n "$onum" 'select(.n == $n) | .pj.state' 2>/dev/null | head -1)"
+      [ -n "$sst" ] || sst="$(gh_get "repos/$REPO/pulls/$onum" | jq -r '.state // empty' 2>/dev/null)"
+      case "$sst" in (closed|merged) shep_closed="$shep_closed $onum";; esac
+    done
+  fi
   while IFS= read -r old; do
     [ -z "$old" ] && continue
     onum="$(printf '%s' "$old" | cut -d'|' -f2 | tr -d ' ')"
-    printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson nn "$onum" 'any(.[]; .number==$nn)' >/dev/null \
-      || NEW_TABLE="$NEW_TABLE$old"$'\n'
+    printf '%s' "$OPEN_NONDRAFT" | jq -e --argjson nn "$onum" 'any(.[]; .number==$nn)' >/dev/null && continue
+    case " $shep_closed " in
+      (*" $onum "*) log "PR #$onum: closed — shepherd row dropped"; continue;;
+    esac
+    NEW_TABLE="$NEW_TABLE$old"$'\n'
   done < <(shep_rows)
 
   {
@@ -2300,7 +2321,8 @@ if [ "$MODE" = "audit" ]; then
   if [ -n "$shimmed" ]; then check tool_shims warn "behind a mise shim: $shimmed — the runtime shadows them per run, every other process still pays ~250ms per call; fix belongs in the pod image (real bin dirs ahead of the shim dir on PATH)"
   else check tool_shims ok "hot-path tools are not shimmed"; fi
 
-  check target_repo ok "$OPEN_COUNT open non-draft PRs listed"
+  if [ -n "$OPEN_FAIL" ]; then check target_repo fail "$OPEN_FAIL — no review, shepherd or survey pass has work until it answers"
+  else check target_repo ok "$OPEN_COUNT open non-draft PRs listed"; fi
 
   if [ -n "$WORK_REPO" ]; then
     if [ -e "$WORK/.git" ]; then
@@ -2392,7 +2414,7 @@ if [ "$MODE" = "audit" ]; then
   # is normal; only a row whose PR closed more than GHOST_GRACE_H ago means the
   # prune did not happen, and only that one is a warn
   GHOST_GRACE_H=72
-  ghosts="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un | tr '\n' ' ')"
+  ghosts=""; [ -n "$OPEN_FAIL" ] || ghosts="$(reviews_rows | cut -d'|' -f2 | tr -d ' ' | grep -vxF -f <(open_numbers; echo '-') | sort -un | tr '\n' ' ')"
   pending=0; stuck=""; unread=""
   if [ -n "${ghosts// /}" ]; then
     gstates="$(prune_states $ghosts)"
@@ -2408,7 +2430,8 @@ if [ "$MODE" = "audit" ]; then
     done
   fi
   pend_note=""; [ "$pending" -gt 0 ] && pend_note=" ($pending closed PR row(s) wait for the next run with work)"
-  if [ -n "$stuck" ]; then check closed_rows warn "rows for PRs closed more than ${GHOST_GRACE_H} h ago, never pruned: $stuck$pend_note"
+  if [ -n "$OPEN_FAIL" ]; then check closed_rows warn "not checked — the open PR list did not answer (target_repo)"
+  elif [ -n "$stuck" ]; then check closed_rows warn "rows for PRs closed more than ${GHOST_GRACE_H} h ago, never pruned: $stuck$pend_note"
   elif [ -n "$unread" ]; then check closed_rows warn "close time unreadable (API) for rows of non-open PRs: $unread$pend_note"
   else check closed_rows ok "every row maps to an open PR$pend_note"; fi
 
@@ -2419,7 +2442,8 @@ if [ "$MODE" = "audit" ]; then
     [ -n "$(row_for "$n")" ] && continue
     open_numbers | grep -qx "$n" || orphans="$orphans #$n"
   done
-  if [ -n "$orphans" ]; then
+  if [ -n "$OPEN_FAIL" ]; then check orphan_history warn "not checked — the open PR list did not answer (target_repo)"
+  elif [ -n "$orphans" ]; then
     check orphan_history warn "$(printf '%s' "$orphans" | wc -w | tr -d ' ') PR(s) keep reviews/ files without a REVIEWS.md row or an open PR:$orphans"
   else check orphan_history ok "every reviews/ file has a row or an open PR"; fi
 
