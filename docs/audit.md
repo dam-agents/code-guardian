@@ -415,22 +415,22 @@ ASD-STE100 ([review.md](review.md) → **Criteria & review style**):
 *Action needed*: <one line per item needing a human, or "none">
 ```
 
-- **Always sent, green or not**, and always echoed to the chat UI. Under
-  `slack_notifications: enabled` it goes to the shared Slack channel every week
-  ([config.md](config.md) → **Slack, audit, survey, benchmark**,
+- **Always sent, green or not**, and always echoed to the chat UI (full text).
+  Under `slack_notifications: enabled` it goes to the shared Slack channel
+  every week ([config.md](config.md) → **Slack, audit, survey, benchmark**,
   `slack_notifications`); a failure sends the full report to the chat UI and
   logs.
 
-**Infographic** — under `audit_infographic: enabled` and after the Slack
-post succeeded: make a directory with `d="$(mktemp -d "$HOME/cg-audit.XXXXXX")"`
-(the reply tool takes an attachment under `$HOME` only), write the report to
-`$d/report.txt`, run `bash "$HOME/scripts/audit-infographic.sh" render
-"$d/report.txt" "$d/audit.png"`, and post the PNG with
-`mcp__platform-outbound__reply` (`chatId` and `threadTs` from the post
-result, `attachment.path` = its `path`, `text` = `*Week in numbers*` plus its
-`rest`, the parts the picture leaves out, verbatim). Then `rm -rf "$d"`, also
-after a failure. `no_renderer`, `error` or a failed reply → log it and
-continue; the `audit_infographic` check names a missing renderer.
+**Infographic** — under `audit_infographic: enabled`, render the picture
+**before** the Slack post: make `d="$(mktemp -d "$HOME/cg-audit.XXXXXX")"` (the
+post tool takes an attachment under `$HOME` only), write the report to
+`$d/report.txt`, and run `bash "$HOME/scripts/audit-infographic.sh" render
+"$d/report.txt" "$d/audit.png"`. On `ok`, post the Slack report as **one**
+top-level message (`attachment.path` = its `path`, no thread reply) with the
+`*Week in numbers*` bullets replaced by its `rest`, verbatim, so nothing in the
+picture repeats as text (omit `*Week in numbers*` when `rest` is empty). On
+`no_renderer` or `error`, log it and post the full text without an attachment;
+the `audit_infographic` check names a missing renderer. Always `rm -rf "$d"`.
 
 - Append one line to `work/AUDIT.log`
   (`<ISO> ok=<n> warn=<n> red=<n> sent=<slack|chat>`), then back up `work/`
