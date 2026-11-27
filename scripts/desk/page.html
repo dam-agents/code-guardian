@@ -2543,12 +2543,14 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   }
   function renderReview(r) {
     const [w, s] = verdictOf(r.verdict), p = prOf(r.pr), run = runOfReview(r), all = reviews().filter((x) => x.pr === r.pr), k = all.indexOf(r);
+    const rv = run?.reviews?.find((x) => x.pr === r.pr && (!x.sha || !r.sha || String(x.sha).startsWith(String(r.sha).slice(0, 7))));
     const fs = r.findings, c = (st) => fs.filter((f) => f.status === st).length;
     const fid = (f) => findings().find((x) => x.pr === r.pr && x.file === f.file && String(x.summary).toLowerCase() === String(f.summary).toLowerCase())?.id;
     return head(`#${r.pr} ${p?.title || ""}`.trim(), r.id, `${k ? `Round ${k + 1}` : "First review"} of ${prA(r.pr)} · ${esc(when(r.ts))} · <code>${esc(String(r.sha || "").slice(0, 7))}</code>${run ? ` · in run ${itemA("runs", run.id)}` : ""}`)
       + statusBox(s, w, STATE_TIP[s], (ghPr(r.pr) ? `<a class="btn" href="${safeUrl(ghPr(r.pr))}" target="_blank" rel="noopener noreferrer" title="Opens the PR with this review on GitHub">GitHub ↗</a>` : ""),
         [c("new") && `${c("new")} new`, c("still") && `${c("still")} still open`, c("fixed") && `${c("fixed")} fixed`].filter(Boolean).join(" · "))
       + `<p class="cg-pr-head">${all.map((x, j) => x === r ? `<b>Round ${j + 1}</b>` : itemA("runs", x.id, `Round ${j + 1}`)).join(" · ")}</p>`
+      + (rv ? sect("How the review went", phaseChart(rv, false) + phaseLegend(false) + `<div class="cg-phnote">${runCostLine(run)}</div>`) : "")
       + reviewParts(r)
       + sect("About this review", `<dl class="cg-facts">${r.size?.files ? `<dt>Size</dt><dd>${esc(r.size.files)} files, +${esc(r.size.additions ?? "?")} −${esc(r.size.deletions ?? "?")}</dd>` : ""}${r.def ? `<dt>Definition</dt><dd>${esc(r.def)}</dd>` : ""}${r.ste?.sentences ? `<dt>Plain words</dt><dd>${esc(r.ste.sentences)} sentences, ${esc(r.ste.avg_sentence_words ?? "?")} words each on average</dd>` : ""}${r.suppressed?.total ? `<dt>Held back</dt><dd>${esc(plural(r.suppressed.total, "finding", "findings"))} a rule or a decision explained</dd>` : ""}</dl>`);
   }
@@ -2585,9 +2587,9 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
       else if (p.state === "running") { const exp = Math.max(now + 15e3, ms(p.start) + u); rows.push({ k: p.key, label: p.label, segs: [{ a: ms(p.start), b: now, kind: "running" }, { a: now, b: exp, kind: "next" }] }); cursor = exp; }
       else if (p.state === "next") { const a = cursor ?? now; rows.push({ k: p.key, label: p.label, segs: [{ a, b: a + u, kind: "next" }] }); cursor = a + u; }
       if (p.key === "skills" && p.start) {
-        const fan = ms(p.start);
-        if (x.skills?.length) for (const sk of x.skills) rows.push({ k: "skills", sub: true, label: sk.name, segs: [{ a: fan, b: ms(sk.end), kind: "done" }], tip: `${sk.name}: ${dur(sk.secs)}${T.skills[sk.name] ? ` · usually ${dur(Math.round(T.skills[sk.name]))}` : ""}` });
-        else if (p.state === "running" && x.parallel) for (let k = 0; k < x.parallel; k++) rows.push({ k: "skills", sub: true, label: `Skill ${k + 1} of ${x.parallel}`, segs: [{ a: fan, b: now, kind: "running" }], tip: "The names and times come when the skills are collected" });
+        const fan = ms(p.start), done = x.skills?.length || 0;
+        if (done) for (const sk of x.skills) rows.push({ k: "skills", sub: true, label: sk.name, segs: [{ a: fan, b: ms(sk.end), kind: "done" }], tip: `${sk.name}: ${dur(sk.secs)}${T.skills[sk.name] ? ` · usually ${dur(Math.round(T.skills[sk.name]))}` : ""}` });
+        if (p.state === "running" && x.parallel > done) for (let k = done; k < x.parallel; k++) rows.push({ k: "skills", sub: true, label: `Skill ${k + 1} of ${x.parallel}`, segs: [{ a: fan, b: now, kind: "running" }], tip: "The name and time come when the skill finishes" });
       }
     }
     return { rows, eta: running ? cursor : null };

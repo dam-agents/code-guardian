@@ -11,6 +11,14 @@ Consumed by the version check ([docs/persistence.md](docs/persistence.md) →
 Entries below 2.4.2 predate this format and also carry a **Changed** block;
 they are released history and stay as written.
 
+## 15.2.3 — 2026-11-27
+
+**Upgrade:**
+1. Stop the Desk server once (`pkill -f '[s]cripts/desk/server.mjs'`); the Login item
+   `code-guardian-desk` starts it again with the new `data.mjs`. No server runs → nothing to do.
+2. `work/desk/artifact.id` exists → publish a revision of `scripts/desk/page.html` at that id
+   ([docs/desk.md](docs/desk.md) → **Publish**, step 3).
+
 ## 15.2.2 — 2026-11-27
 
 **Upgrade:** Nothing — docs are re-read per run.
