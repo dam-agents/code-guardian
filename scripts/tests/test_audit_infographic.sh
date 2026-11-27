@@ -15,6 +15,8 @@ report() { # → $SANDBOX/report.txt
 • Reviews: 211 (123 first / 88 re) — ✅135 ⚠️73 ❌3
 • Findings acceptance: 143/198 fixed by the next re-review
 • Findings acceptance by severity: critical 2/2, warning 87/98, suggestion 50/94
+• Refuted before posting: 3 — overrides 2 / context 1 / decisions 0 (a floor)
+• Review time by phase: skills 5 min (n=89) · diff_review 1 min (n=90) — the two largest
 • Project — coverage: 79/93 merged PRs reviewed (85%) · merge conflicts: 13 PRs
 • Findings sit in: src/<generated> 1🔴/0🟡
 • Spend: $1228.99 actual · per review $5.82 · model: acme/model-x ×31854
@@ -41,7 +43,7 @@ new_case infographic_html
 report
 OUT="$(bash "$IG" html "$SANDBOX/report.txt")"
 for s in 'Acme Bot — weekly audit' '>211<' '>72 %<' '>85 %<' '\$1,229' '▼12pp' 'Approve 135' 'Request changes 3' \
-         '2 / 2 · 100 %' 'PRs with merge conflicts' '\$5.82 per review' '41 ok' '4 merged PRs had no review'; do
+         '2 / 2 · 100 %' 'Context / overrides / decisions' '1 / 2 / 0' '— skills phase' 'PRs with merge conflicts' '\$5.82 per review' '41 ok' '4 merged PRs had no review'; do
   if printf '%s' "$OUT" | grep -q "$s"; then ok "the page shows $s"; else bad "the page lacks $s"; fi
 done
 

@@ -525,7 +525,7 @@ A failure is not blocking: tell the operator to create it manually.
     **Yes** → `daily_brief: enabled`, `brief_language: <language>` (omit for
     English), and register the schedule in Step 6g. Then ask:
 
-    > Should the weekly audit report also post its numbers as one picture in its Slack thread? It needs a headless Chrome or Chromium on this pod. Default: off.
+    > Should the weekly audit report attach its numbers as one picture to the Slack post? It needs a headless Chrome or Chromium on this pod. Default: off.
 
     **Yes** → `audit_infographic: enabled`; otherwise omit the key.
 15. **`definition_issues`** (`docs/runbook.md` → **Definition-repo issues**).
@@ -583,7 +583,7 @@ Final shape:
 - slack_notifications: enabled         # or: disabled
 - audit_report: enabled                # weekly health report; or: disabled
 - audit_trend: dam                     # weekly trend artifact surface: dam (default) | off
-- audit_infographic: enabled           # the report's numbers as one picture in its Slack thread; omit = disabled
+- audit_infographic: enabled           # the report's numbers attached as one picture to its Slack post; omit = disabled
 - agent_manifest: dam                  # public interface card surface: dam (default) | off
 - definition_issues: disabled          # anonymous tracking issues on definition_repo; omit = disabled
 - channel_definition_prs: disabled     # draft definition PRs on a roster member's channel ask; omit = disabled

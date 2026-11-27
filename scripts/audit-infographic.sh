@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # audit-infographic.sh — the weekly audit's *Week in numbers* as one PNG for
-# the report's Slack thread (docs/audit.md → **Infographic**).
+# the Slack report (docs/audit.md → **Infographic**).
 #
 # The agent writes the report; this script draws it. It reads the composed
 # report text and never recomputes a number. Each bullet is cut into its parts
@@ -224,7 +224,7 @@ build() {
     sh=$(( t > 0 ? (o * 1000 + t / 2) / t : 0 ))
     q_mini+="$(mini "$avg" 'avg words / sentence')$(mini "$((sh / 10)).$((sh % 10)) %" 'sentences > 20 words')"
   fi
-  take 'Refuted before posting' '^overrides ([0-9]+) / context ([0-9]+) / decisions ([0-9]+)$' \
+  take 'Refuted before posting' '^overrides ([0-9]+) / context ([0-9]+) / decisions ([0-9]+)( \(a floor\))?$' \
     && q_rows+="$(stat 'Context / overrides / decisions' "${BASH_REMATCH[2]} / ${BASH_REMATCH[1]} / ${BASH_REMATCH[3]}")"
   local ttfr=""
   if take 'Median time-to-first-review' '^(.*) \(review itself ([^,]+), n=([0-9]+)\)$'; then
@@ -234,6 +234,7 @@ build() {
   while [ "$k" -lt 2 ] && take 'Review time by phase' '^([a-z_]+) (.+) \(n=[0-9]+\)$'; do
     q_rows+="$(stat "— ${BASH_REMATCH[1]//_/ } phase" "${BASH_REMATCH[2]}")"; k=$((k + 1))
   done
+  [ "$k" -gt 0 ] && take 'Review time by phase' '^the two largest$' || true
   take 'Wasted reviews' '.' && q_rows+="$(stat 'Wasted reviews' "${SEG_T[$J]}")"
 
   # --- project
