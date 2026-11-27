@@ -58,16 +58,28 @@ function spend(key) {
 // relay's cap. Over it, the oldest finished runs, then the oldest closed PRs' reviews and findings,
 // then the oldest health hours go, a tenth at a time; `trimmed` says how many.
 function pageData(full) {
-  const out = { ...full, runs: full.runs.map(({ events, ...r }) => ({ ...r, events: null })), reviews: full.reviews.map(({ body, ...r }) => ({ ...r, body: null, has_body: !!body })), findings: full.findings.slice(),
-    health: { ...full.health, hours: full.health.hours.slice() }, trimmed: { runs: 0, reviews: 0, findings: 0, hours: 0 } };
-  const closed = new Set(full.prs.filter((p) => p.state !== 'open').map((p) => p.n));
-  const tenth = (list, keep, n) => { const idx = list.map((x, k) => (keep(x) ? -1 : k)).filter((k) => k >= 0).slice(0, Math.max(1, Math.ceil(n / 10))); for (const k of idx.reverse()) list.splice(k, 1); return idx.length; };
-  for (let guard = 0; guard < 60 && Buffer.byteLength(JSON.stringify(out)) > MAX_REPLY - 16 * 1024; guard++) {
-    let n = out.runs.length > 40 ? tenth(out.runs, (r) => r.state === 'running', out.runs.length) : 0;
+  const out = { ...full, prs: full.prs.slice(), runs: full.runs.map(({ events, ...r }) => ({ ...r, events: null })), reviews: full.reviews.map(({ body, ...r }) => ({ ...r, body: null, has_body: !!body })), findings: full.findings.slice(),
+    health: { ...full.health, hours: full.health.hours.slice() }, trimmed: { runs: 0, prs: 0, reviews: 0, findings: 0, hours: 0 } };
+  const hasFinding = new Set(out.findings.map((f) => f.pr));
+  const tenth = (list, keep, n, fromEnd = false) => { const all = list.map((x, k) => (keep(x) ? -1 : k)).filter((k) => k >= 0), take = Math.max(1, Math.ceil(n / 10)), idx = fromEnd ? all.slice(-take) : all.slice(0, take); for (const k of idx.reverse()) list.splice(k, 1); return idx.length; };
+  const r0 = out.runs.length, p0 = out.prs.length, rv0 = out.reviews.length, f0 = out.findings.length, h0 = out.health.hours.length;
+  for (let guard = 0; guard < 80 && Buffer.byteLength(JSON.stringify(out)) > MAX_REPLY - 128 * 1024; guard++) {
+    let n = out.runs.length > 120 ? tenth(out.runs, (r) => r.state === 'running', r0) : 0;
     if (n) { out.trimmed.runs += n; continue; }
-    n = tenth(out.reviews, (r) => !closed.has(r.pr), out.reviews.length); if (n) { out.trimmed.reviews += n; continue; }
-    n = tenth(out.findings, (f) => !closed.has(f.pr), out.findings.length); if (n) { out.trimmed.findings += n; continue; }
-    n = out.health.hours.length > 24 ? tenth(out.health.hours, () => false, out.health.hours.length) : 0; if (n) { out.trimmed.hours += n; continue; }
+    n = out.prs.length > 120 ? tenth(out.prs, (p) => p.state === 'open' || hasFinding.has(p.n), p0, true) : 0;
+    if (n) {
+      out.trimmed.prs += n;
+      const keptPrs = new Set(out.prs.map((p) => p.n)), rvBefore = out.reviews.length;
+      out.reviews = out.reviews.filter((r) => keptPrs.has(r.pr));
+      out.trimmed.reviews += rvBefore - out.reviews.length;
+      continue;
+    }
+    const closed = new Set(out.prs.filter((p) => p.state !== 'open').map((p) => p.n));
+    n = tenth(out.reviews, (r) => !closed.has(r.pr), rv0); if (n) { out.trimmed.reviews += n; continue; }
+    n = tenth(out.findings, (f) => !closed.has(f.pr), f0); if (n) { out.trimmed.findings += n; continue; }
+    n = out.prs.length > 60 ? tenth(out.prs, (p) => p.state === 'open', p0, true) : 0; if (n) { out.trimmed.prs += n; continue; }
+    n = out.runs.length > 40 ? tenth(out.runs, (r) => r.state === 'running', r0) : 0; if (n) { out.trimmed.runs += n; continue; }
+    n = out.health.hours.length > 24 ? tenth(out.health.hours, () => false, h0) : 0; if (n) { out.trimmed.hours += n; continue; }
     break;
   }
   return out;

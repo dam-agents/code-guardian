@@ -130,7 +130,8 @@ function phasesOf(ev, running) {
 }
 
 function runsOf(work, now, prices = []) {
-  const files = ls(join(work, 'logs')).filter((f) => /^events-\d{4}-\d\d-\d\d\.jsonl$/.test(f)).sort();
+  const since14 = new Date(now - 14 * 864e5).toISOString().slice(0, 10);
+  const files = ls(join(work, 'logs')).filter((f) => /^events-\d{4}-\d\d-\d\d\.jsonl$/.test(f) && f.slice(7, 17) >= since14).sort();
   const by = new Map();
   for (const f of files) for (const e of jsonl(read(join(work, 'logs', f)))) {
     if (typeof e.run !== 'string' || !e.run || !ISO.test(e.ts ?? '')) continue;
@@ -139,7 +140,7 @@ function runsOf(work, now, prices = []) {
   }
   let list = [...by.values()].map((r) => { r.events.sort((a, b) => a.ts.localeCompare(b.ts)); r.start = r.events[0].ts; r.end = r.events.at(-1).ts; return r; });
   // Only a precheck that found nothing: a tick, not a run (the ticks chart counts them).
-  list = list.filter((r) => !r.events.every((e) => e.event === 'precheck' && /nothing to do/.test(e.msg ?? '')));
+  list = list.filter((r) => !(!r.events.some((e) => e.event === 'review_step' || e.event === 'tokens') && r.events.some((e) => (e.event === 'precheck' && /nothing to do/.test(e.msg ?? '')) || (e.event === 'heartbeat' && /nothing_to_do=true/.test(e.msg ?? '')))));
   list.sort((a, b) => a.start.localeCompare(b.start));
   const gates = list.filter((r) => /^[a-z]+-\d{8}T?\d{4,6}Z?-\d+$/.test(r.run) && r.events.every((e) => ['precheck', 'heartbeat', 'dispatch', 'worklist'].includes(e.event)));
   for (const g of gates) {
@@ -327,7 +328,7 @@ export function build(work, now = Date.now()) {
     const d = (ticks[m[1]] ??= { day: m[1], idle: 0, work: 0 }); if (m[3] === 'true') d.idle++; else d.work++;
   }
   const weeks = ls(join(work, 'audit', 'weeks')).filter((f) => f.endsWith('.json')).sort().slice(-26).map((f) => json(read(join(work, 'audit', 'weeks', f)))).filter(Boolean)
-    .map((w) => ({ week: w.week ?? null, ts: w.ts ?? null, version: w.definition_version ?? null, checks: w.checks ?? null, stats: w.stats ?? null }));
+    .map((w) => ({ week: w.week ?? null, ts: w.ts ?? null, version: w.definition_version ?? null, checks: w.checks ?? null, stats: w.stats ? { ...w.stats, sessions: undefined } : null }));
   const audit = String(read(join(work, 'AUDIT.log')) ?? '').split('\n').map((l) => /^(\S+) ok=(\d+) warn=(\d+) red=(\d+)/.exec(l)).filter(Boolean).map((m) => ({ ts: m[1], ok: +m[2], warn: +m[3], red: +m[4] })).slice(-26);
   // An escaped defect, with its report from the archive (escapes.md → step 4) and the class it taught.
   const escArchive = String(read(join(work, 'memory', 'archive', 'escapes.md')) ?? '');
