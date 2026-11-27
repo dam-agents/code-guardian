@@ -43,6 +43,7 @@ put('CONFIG.md', `# Code Guardian configuration
 - health_dashboard: dam
 - agent_manifest: dam
 - shepherd_enabled: true
+- slack_notifications: enabled
 
 ## Benchmark model prices
 

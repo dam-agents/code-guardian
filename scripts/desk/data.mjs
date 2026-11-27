@@ -255,8 +255,11 @@ export function build(work, now = Date.now()) {
   // ------------------------------------------------ shepherd and PR events
   const shep = new Map(tableRows(read(join(work, 'SHEPHERD.md'))).filter(([n]) => /^\d+$/.test(n ?? '')).map(([n, since, reviewers, state, nudges, last, level, status]) =>
     [+n, { eligible_since: dash(since), reviewers: dash(reviewers)?.split(/[,\s]+/).filter(Boolean) ?? [], review_state: dash(state), nudges: +nudges || 0, last_nudge_at: dash(last), level: dash(level), status: dash(status) }]));
-  // a person's review of each open PR: the shepherd ledger, else the review pass's file (no Slack)
+  // a person's review of each open PR, from the source that is written now: the shepherd ledger under
+  // slack_notifications: enabled, else the review pass's file — the other one is left from an earlier period
+  const slackOn = String(cfg.slack_notifications ?? '').trim() === 'enabled';
   const peopleFile = json(read(join(work, 'desk', 'people-reviews.json')))?.prs ?? {};
+  const peopleOf = (n) => (slackOn ? shep.get(n)?.review_state ?? null : typeof peopleFile[n] === 'string' ? peopleFile[n] : null);
   const events = jsonl(read(join(work, 'PR-EVENTS.jsonl'))).filter((e) => Number.isInteger(e.pr) && ISO.test(e.ts ?? ''));
 
   // ------------------------------------------------ findings: one per pr+file+summary, over the rounds
@@ -296,7 +299,7 @@ export function build(work, now = Date.now()) {
     const triage = last?.meta?.triage ?? null;
     return { n, title: h?.title ?? null, author: h?.author ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
       utc: row?.ts ?? last?.ts ?? null, rounds: rs.length, reviews: rs.map((r) => r.id), first: rs[0]?.ts ?? null, guide: h?.guide ?? null, guide_owed: !!rs.at(-1)?.guide_owed,
-      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, people_review: shep.get(n)?.review_state ?? (typeof peopleFile[n] === 'string' ? peopleFile[n] : null), events: ev.slice(-40), triage,
+      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, people_review: peopleOf(n), events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,
       latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null,
       for_human: /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(last?.body ?? '')?.[1]?.trim().slice(0, 4000) || null,

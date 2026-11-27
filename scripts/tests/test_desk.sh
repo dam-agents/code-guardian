@@ -31,10 +31,14 @@ say(d.health.incidents.every((i) => i.detail === null || typeof i.detail === 'st
 say(d.learnings.some((l) => l.layer === 'memory') && d.learnings.some((l) => l.layer === 'area' && l.scope.length) && d.learnings.some((l) => l.layer === 'lessons') && d.learnings.some((l) => l.archive), 'the learnings come from every layer, with their story from the archive');
 say(d.escapes.every((e) => e.learned && e.report) && d.findings.some((f) => f.escapes.length), 'an escape has its report and its class, and pairs with its finding');
 say(d.findings.some((f) => f.answers.some((a) => a.kind === 'rule')) && d.findings.some((f) => f.answers.some((a) => a.kind === 'override')), "a finding shows the person's rule and the learned rule that answer it");
-{ const led = join(W, 'SHEPHERD.md'), keep = readFileSync(led, 'utf8'), n = d.prs.find((p) => p.state === 'open').n;
-  unlinkSync(led); mkdirSync(join(W, 'desk'), { recursive: true }); writeFileSync(join(W, 'desk', 'people-reviews.json'), JSON.stringify({ at: '2026-11-27T00:00:00Z', prs: { [n]: 'approved' } }));
-  const d2 = build(W); writeFileSync(led, keep); unlinkSync(join(W, 'desk', 'people-reviews.json'));
-  say(d2.prs.find((p) => p.n === n).people_review === 'approved' && d.prs.filter((p) => p.shepherd).every((p) => p.people_review === p.shepherd.review_state), "a person's review comes from the shepherd ledger, else from the review pass's file"); }
+say(d.prs.filter((p) => p.shepherd).every((p) => p.people_review === p.shepherd.review_state), "under Slack a person's review comes from the shepherd ledger");
+{ const cf = join(W, 'CONFIG.md'), keep = readFileSync(cf, 'utf8'), n = d.prs.find((p) => p.state === 'open' && p.shepherd && p.shepherd.review_state !== 'changes_requested').n;
+  mkdirSync(join(W, 'desk'), { recursive: true }); writeFileSync(join(W, 'desk', 'people-reviews.json'), JSON.stringify({ at: '2026-11-27T00:00:00Z', prs: { [n]: 'changes_requested' } }));
+  writeFileSync(cf, keep.replace(/^- slack_notifications:.*$/m, '- slack_notifications: disabled'));
+  const off = build(W).prs.find((p) => p.n === n).people_review;
+  writeFileSync(cf, keep); unlinkSync(join(W, 'desk', 'people-reviews.json'));
+  const on = build(W).prs.find((p) => p.n === n).people_review;
+  say(off === 'changes_requested' && on !== 'changes_requested', 'with Slack off a ledger left from before does not outrank the fresh file'); }
 EOF
 OUT="$(WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/data.mjs" 2>>"$STDERR_LOG")"
 printf '%s\n' "$OUT"

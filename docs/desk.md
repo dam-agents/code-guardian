@@ -35,7 +35,9 @@ and goes to the agent as the page's ping — the server executes nothing a page 
 A person's review of each open PR (approved, changes requested, awaiting review) comes from the
 shepherd ledger. Without `slack_notifications: enabled` there is no ledger: the review pass of
 `preflight.sh` writes `work/desk/people-reviews.json` instead, where `work/desk/` exists — each open
-non-draft PR's independent reviews, classified as the shepherd does, at most every 15 minutes.
+non-draft PR's independent reviews, classified as the shepherd does, at most every 15 minutes. The Desk reads
+the source that `slack_notifications` names now and never the other one: a ledger or a file from an
+earlier period does not stand for the current state.
 
 - **Check:** `curl -s 127.0.0.1:5555/health` answers `{"ok":true,…}`. Its log is the Login item's
   log on the platform.
