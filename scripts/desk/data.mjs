@@ -88,39 +88,43 @@ function usd(prices, t) {
 const median = (xs) => { const v = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 
 // The phases of one PR's review in a run, from its review_step milestones (review.md → Progress
-// logging) and the skills' finish times from skill_timing. While the skills run, the log knows only
-// how many run side by side; their names and times come when they are collected.
+// logging) and the skills' finish times from skill:<name> done and skill_timing.
 const PHASES = [['prepare', 'Get ready', 'locked'], ['diff', 'Read the change', 'cloned'], ['skills', 'Skills', 'fanned'], ['compose', 'Write the review', 'verified'], ['post', 'Post', 'composed']];
 const MILESTONES = ['locked', 'cloned', 'fanned', 'verified', 'composed', 'posted', 'done'];
 function phasesOf(ev, running) {
   const per = new Map();
   for (const e of ev) {
-    const m = /^PR #(\d+)(?: \[(\w+)\])? (.*)$/.exec(e.msg ?? ''); if (!m) continue;
-    const x = per.get(+m[1]) ?? { pr: +m[1], sha: m[2] || null, at: {}, skills: [], n: null, verdict: null, aborted: null };
-    const step = m[3], t = e.ts;
+    const m = /^PR #(\d+)(?: (?:\[([0-9a-f]{7,40})\]|([0-9a-f]{7,40})(?= |$)))? (.*)$/.exec(e.msg ?? ''); if (!m) continue;
+    const sha = m[2] || m[3] || null, step = m[4], t = e.ts;
+    const x = per.get(+m[1]) ?? { pr: +m[1], sha, at: {}, skills: [], n: null, verdict: null, aborted: null };
     if (e.event === 'review_step') {
       if (step === 'locked') x.at.locked ??= t;
       else if (/^cloned/.test(step)) x.at.cloned ??= t;
       else if (/^fanned out/.test(step)) { x.at.fanned ??= t; x.n = +(/n=(\d+)/.exec(step)?.[1] ?? 0) || null; }
+      else if (/^skill:[\w.-]+ done$/.test(step)) { const name = step.slice(6, -5), s = x.skills.find((y) => y.name === name); if (s) s.end = t; else x.skills.push({ name, end: t }); }
       else if (/^verified/.test(step)) x.at.verified ??= t;
       else if (/^composed/.test(step)) x.at.composed ??= t;
       else if (/^posted/.test(step)) { x.at.posted ??= t; x.verdict = step.split(' ')[1] ?? null; }
       else if (/^done/.test(step)) x.at.done ??= t;
       else if (/^aborted/.test(step)) { x.at.aborted ??= t; x.aborted = step.replace(/^aborted\s*/, ''); }
-      if (!x.sha && m[2]) x.sha = m[2];
+      if (!x.sha && sha) x.sha = sha;
     } else if (e.event === 'skill_timing') {
-      for (const [, name, sec] of step.matchAll(/([\w.-]+?)(?:\.txt)?=(\d+)/g)) x.skills.push({ name, end: new Date(+sec * 1000).toISOString() });
+      for (const [, name, sec] of step.matchAll(/([\w.-]+?)(?:\.txt)?=(\d+)/g)) {
+        const end = new Date(+sec * 1000).toISOString(), s = x.skills.find((y) => y.name === name);
+        if (s) s.end = end; else x.skills.push({ name, end });
+      }
     }
     per.set(x.pr, x);
   }
   return [...per.values()].filter((x) => x.at.locked).map((x) => {
-    const stop = x.at.aborted ?? null;
-    const phases = PHASES.map(([key, label, from], k) => {
+    const stop = x.at.aborted ?? null, live = running && !x.at.done && !stop;
+    const phases = PHASES.map(([key, label, from]) => {
       const start = x.at[from] ?? null;
       const later = MILESTONES.slice(MILESTONES.indexOf(from) + 1).filter((m) => key !== 'post' || m !== 'posted' || !x.at.done);
-      let end = key === 'post' ? (x.at.done ?? x.at.posted ?? null) : (later.map((m) => x.at[m]).find(Boolean) ?? null);
+      const nextAt = later.map((m) => x.at[m]).find(Boolean) ?? null;
+      let end = key === 'post' ? (x.at.done ?? x.at.posted ?? null) : nextAt;
       if (!end && start && stop) end = stop;
-      const state = !start ? (running && !stop && !x.at.posted ? 'next' : 'skipped') : end ? (stop && end === stop && !x.at.posted ? 'stopped' : 'done') : running ? 'running' : 'stopped';
+      const state = !start ? (live && !nextAt && !x.at.posted ? 'next' : 'skipped') : end ? (stop && end === stop && !x.at.posted ? 'stopped' : 'done') : live ? 'running' : 'stopped';
       return { key, label, start, end, state };
     }).filter((p) => p.state !== 'skipped');
     const fan = x.at.fanned;
@@ -145,7 +149,7 @@ function runsOf(work, now, prices = []) {
   // Only a precheck that found nothing: a tick, not a run (the ticks chart counts them).
   list = list.filter((r) => !(!r.events.some((e) => e.event === 'review_step' || e.event === 'tokens') && r.events.some((e) => (e.event === 'precheck' && /nothing to do/.test(e.msg ?? '')) || (e.event === 'heartbeat' && /nothing_to_do=true/.test(e.msg ?? '')))));
   list.sort((a, b) => a.start.localeCompare(b.start));
-  const gates = list.filter((r) => /^[a-z]+-\d{8}T?\d{4,6}Z?-\d+$/.test(r.run) && r.events.every((e) => ['precheck', 'heartbeat', 'dispatch', 'worklist'].includes(e.event)));
+  const gates = list.filter((r) => /^[a-z]+-\d{8}T?\d{4,6}Z?-\d+$/.test(r.run) && !r.events.some((e) => e.event === 'review_step' || e.event === 'tokens'));
   for (const g of gates) {
     const s = list.find((r) => r !== g && r.job === g.job && !gates.includes(r) && r.start >= g.start && Date.parse(r.start) - Date.parse(g.end) < 180e3);
     if (s) { s.events = [...g.events, ...s.events]; s.start = g.start; s.gate = g.run; g.merged = true; }
@@ -155,10 +159,10 @@ function runsOf(work, now, prices = []) {
     const ev = r.events, prs = new Set(), posted = [], aborted = [];
     let tok = null;
     for (const e of ev) {
-      const m = /PR #(\d+)/.exec(e.msg ?? ''); if (m) prs.add(+m[1]);
+      if (e.event !== 'preflight' && e.event !== 'precheck') { const m = /PR #(\d+)/.exec(e.msg ?? ''); if (m) prs.add(+m[1]); }
       if (e.event === 'review_step') {
-        const p = /PR #(\d+) \[(\w+)\] posted (\w+)/.exec(e.msg ?? ''); if (p) posted.push({ pr: +p[1], sha: p[2], verdict: p[3] });
-        const a = /PR #(\d+) \[(\w+)\] aborted (.*)/.exec(e.msg ?? ''); if (a) aborted.push({ pr: +a[1], why: a[3] });
+        const p = /^PR #(\d+) (?:\[([0-9a-f]{7,40})\]|([0-9a-f]{7,40})) posted (\w+)/.exec(e.msg ?? ''); if (p) posted.push({ pr: +p[1], sha: p[2] || p[3], verdict: p[4] });
+        const a = /^PR #(\d+)(?: (?:\[([0-9a-f]{7,40})\]|([0-9a-f]{7,40})(?= |$)))? aborted (.*)/.exec(e.msg ?? ''); if (a) aborted.push({ pr: +a[1], why: a[4] });
       }
       if (e.event === 'tokens') {
         const kv = Object.fromEntries(String(e.msg ?? '').split(/\s+/).map((x) => x.split('=')).filter((x) => x.length === 2));
@@ -167,11 +171,14 @@ function runsOf(work, now, prices = []) {
     }
     const errors = ev.filter((e) => e.level === 'error'), warns = ev.filter((e) => e.level === 'warn');
     const quiet = now - Date.parse(r.end);
-    const ended = ev.some((e) => /^(run_end|session_end)$/.test(e.event) || (e.event === 'review_step' && /\b(done|aborted)\b/.test(e.msg ?? ''))) || tok || quiet > 20 * 60e3;
+    const steps = ev.filter((e) => e.event === 'review_step' && !/^PR #\d+ skill:/.test(e.msg ?? ''));
+    const ended = gates.includes(r) || ev.some((e) => /^(run_end|session_end)$/.test(e.event)) || (steps.length > 0 && /^PR #\d+(?: \[?[0-9a-f]{7,40}\]?)? (?:done|aborted\b)/.test(steps.at(-1).msg ?? '')) || !!tok || quiet > 20 * 60e3;
     const state = !ended ? 'running' : errors.length ? 'fail' : warns.length || aborted.length ? 'look' : 'pass';
+    const reviews = r.job === 'review' ? phasesOf(ev, state === 'running') : [];
+    for (const x of reviews) prs.add(x.pr);
     return { id: `S-${k + 1}`, run: r.run, gate: r.gate ?? null, job: r.job, start: r.start, end: r.end, secs: Math.round((Date.parse(r.end) - Date.parse(r.start)) / 1000),
       state, prs: [...prs].sort((a, b) => a - b).slice(0, 40), posted, aborted, tokens: tok, cost_usd: usd(prices, tok), errors: errors.length, warns: warns.length,
-      reviews: r.job === 'review' ? phasesOf(ev, state === 'running') : [],
+      reviews,
       events: ev.slice(-160).map((e) => ({ ts: e.ts, level: e.level, event: e.event, msg: String(e.msg ?? '').slice(0, 400) })), count: ev.length };
   });
 }

@@ -23,7 +23,9 @@ say(d.prs.length > 20 && d.reviews.length > 20 && d.findings.length > 5, 'the da
 say(d.reviews.every((r, k) => r.id === `R-${k + 1}`) && d.findings.every((f) => /^F-\d+$/.test(f.id)), 'reviews and findings are numbered in order');
 say(d.prs.some((p) => p.status === 'in_progress') && d.runs.some((r) => r.state === 'running'), 'the PR in review and its run show as working');
 { const busy = d.prs.find((p) => p.status === 'in_progress'), live = d.runs.find((r) => r.state === 'running' && r.reviews.some((x) => x.pr === busy?.n));
-  say(!!live && live.job === 'review' && live.reviews.find((x) => x.pr === busy.n).phases.length > 0, 'a review whose events name no job is a review run with its phases'); }
+  const rv = live?.reviews.find((x) => x.pr === busy.n);
+  say(!!live && live.job === 'review' && rv?.phases.length > 0 && rv.skills?.length === 1 && rv.parallel === 4, 'a running review parses bare-SHA milestones and keeps running after a skill:<name> done step'); }
+say(d.runs.some((r) => r.gate && r.posted.length === 1 && !r.prs.includes(999)), 'a gate with preflight events joins its review run without adding pruned PR numbers');
 say(d.findings.some((f) => f.state === 'fixed') && d.findings.some((f) => f.state === 'open'), 'a finding is followed to fixed over its rounds');
 say(d.artifacts.some((a) => a.kind === 'guide' && a.page) && d.artifacts.some((a) => a.id === 'health' && /^https:/.test(a.url)), 'the guides and the health dashboard are pages');
 say(!JSON.stringify(d.config).includes('@'), 'the settings name no person');
