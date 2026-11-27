@@ -2544,7 +2544,8 @@ if [ "$MODE" = "audit" ]; then
       (*)             verified=$((verified+1));;
     esac
   done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .head_sha] | @tsv')
-  if [ -n "$drift" ]; then
+  if [ -n "$OPEN_FAIL" ]; then check state_drift warn "not checked — the open PR list did not answer (target_repo)"
+  elif [ -n "$drift" ]; then
     extra=""; [ "$unverifiable" -gt 0 ] && extra="; $unverifiable more unverifiable (marker scan API errors)"
     check state_drift fail "rows whose SHA has no marker on GitHub: $drift$extra"
   elif [ "$unverifiable" -gt 0 ]; then
@@ -3539,7 +3540,9 @@ if [ "$MODE" = "audit" ]; then
   # Every JSON part travels on stdin, one document per line, never in argv: the
   # week's sessions alone near MAX_ARG_STRLEN (128 KiB per argument), and a
   # too-long argument kills jq with no output — the audit then printed nothing.
-  STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "${OPEN_COUNT:-null}" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
+  # no open list → no open-PR count: `null`, never a measured 0
+  STATS_OPEN="${OPEN_COUNT:-null}"; [ -n "$OPEN_FAIL" ] && STATS_OPEN=null
+  STATS="$(printf '%s\n' "${AWAITING_JSON:-null}" "$STATS_OPEN" "${REVIEWS_AGG:-null}" "${REVIEW_DUR:-null}" "${REVIEW_PHASES:-null}" \
       "${hb_total:-null}" "${hb_idle:-null}" "${NUDGED_JSON:-null}" "${ev_err:-null}" "${ev_warn:-null}" "${TOKENS_WEEK:-null}" "${STALLS_WEEK:-null}" \
       "${REACTIONS:-null}" "${PROJECT_JSON:-null}" "${WAKEUPS_WEEK:-null}" "${REVIEW_SHAPE:-null}" "${DISK_JSON:-null}" \
       "${SESSIONS_WEEK:-null}" "${OVERRULED:-null}" "${GUARD_WEEK:-null}" "${GUIDES_WEEK:-null}" "${LAST_GATE_RUN:-null}" \

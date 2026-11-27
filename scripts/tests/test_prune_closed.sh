@@ -281,6 +281,9 @@ assert_jq '.checks[] | select(.id == "target_repo") | .status == "fail" and (.de
   'a 401 open list is a target_repo fail, not an empty list'
 assert_jq '.checks[] | select(.id == "closed_rows") | .status == "warn" and (.detail | contains("not checked"))' \
   'the closed-row check is not run without the open list'
+assert_jq '[.checks[] | select(.id == "orphan_history" or .id == "state_drift") | select(.status == "warn" and (.detail | contains("not checked")))] | length == 2' \
+  'orphan_history and state_drift are not run without the open list'
+assert_jq '.stats.open_prs == null' 'the open-PR count is unknown, not zero'
 run_preflight review
 assert_jq '.error | contains("could not list open PRs")' 'a review pass with a 401 open list is an error, not nothing to do'
 
