@@ -121,6 +121,7 @@ usage() { # the subcommand table of this file's header, verbatim
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
 case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge) ;;
+  (prune) printf 'review-pr.sh has no prune command. A prune is the procedure of docs/review-bookkeeping.md → Pruning; its row step is: review-pr.sh row <n> --delete\n' >&2; exit 2;;
   (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
@@ -253,7 +254,7 @@ state_damaged() {
     next:("leave PR #" + $n + " to the heartbeat — the takeover of a dead run takes its lock")}')"
 }
 need_ctx() {
-  [ -f "$CTX/pr.json" ] || [ -f "$STATE_COPY" ] || fail "no prepared state for PR #$N — run: review-pr.sh prepare $N"
+  [ -f "$CTX/pr.json" ] || [ -f "$STATE_COPY" ] || fail "no prepared state for PR #$N. Either prepare did not run, or this review already ended: post, abort and a HEAD move delete the state. After an end, run no other command for PR #$N in this cycle. To start a review: review-pr.sh prepare $N"
   ctx_restore || state_damaged
 }
 
@@ -1869,6 +1870,7 @@ cmd_delta() {
   # The findings file is the agent's own output, not a prepare artifact: name the
   # missing path so a wrong one is not read as malformed JSON.
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
+  [ -s "$cur" ] || fail "$cur is empty — write this round's findings as a JSON array to it, and [] when the round has no findings"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
   head_guard delta "$cur"
   local prior overrides age ann="$CTX/findings.annotated.json"
