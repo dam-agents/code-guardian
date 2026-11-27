@@ -13,7 +13,7 @@ node "$REPO_ROOT/scripts/desk/dev/seed.mjs" "$WORK" >/dev/null || { printf 'FAIL
 
 cat > "$SANDBOX/data.mjs" <<'EOF'
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 const R = process.env.REPO_ROOT, W = process.env.WORK_DIR;
 const { build } = await import(join(R, 'scripts/desk/data.mjs'));
@@ -31,6 +31,10 @@ say(d.health.incidents.every((i) => i.detail === null || typeof i.detail === 'st
 say(d.learnings.some((l) => l.layer === 'memory') && d.learnings.some((l) => l.layer === 'area' && l.scope.length) && d.learnings.some((l) => l.layer === 'lessons') && d.learnings.some((l) => l.archive), 'the learnings come from every layer, with their story from the archive');
 say(d.escapes.every((e) => e.learned && e.report) && d.findings.some((f) => f.escapes.length), 'an escape has its report and its class, and pairs with its finding');
 say(d.findings.some((f) => f.answers.some((a) => a.kind === 'rule')) && d.findings.some((f) => f.answers.some((a) => a.kind === 'override')), "a finding shows the person's rule and the learned rule that answer it");
+{ const led = join(W, 'SHEPHERD.md'), keep = readFileSync(led, 'utf8'), n = d.prs.find((p) => p.state === 'open').n;
+  unlinkSync(led); mkdirSync(join(W, 'desk'), { recursive: true }); writeFileSync(join(W, 'desk', 'people-reviews.json'), JSON.stringify({ at: '2026-11-27T00:00:00Z', prs: { [n]: 'approved' } }));
+  const d2 = build(W); writeFileSync(led, keep); unlinkSync(join(W, 'desk', 'people-reviews.json'));
+  say(d2.prs.find((p) => p.n === n).people_review === 'approved' && d.prs.filter((p) => p.shepherd).every((p) => p.people_review === p.shepherd.review_state), "a person's review comes from the shepherd ledger, else from the review pass's file"); }
 EOF
 OUT="$(WORK_DIR="$WORK" REPO_ROOT="$REPO_ROOT" node "$SANDBOX/data.mjs" 2>>"$STDERR_LOG")"
 printf '%s\n' "$OUT"

@@ -2182,11 +2182,12 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
   const prState = (p) => p.status === "in_progress" ? ["Reviewing now", "running"] : p.state === "closed" ? [`Closed · ${verdictOf(p.verdict)[0].toLowerCase()}`, "none"]
     : p.status === "awaiting_label" ? ["New commits, waiting", "blocked"] : verdictOf(p.verdict);
   // Needs you, by the next move: a person's review (the last review's triage is not quick-check, as shepherd_scope
-  // needs_human decides; no person approved or asked for changes yet), a re-review of new commits, a merge (Code
+  // needs_human decides; no person approved or asked for changes yet — people_review: the shepherd ledger, else the
+  // review pass's work/desk/people-reviews.json), a re-review of new commits, a merge (Code
   // Guardian and a person approved).
   const YOU_FILTER = { all: (p) => Object.entries(YOU_FILTER).some(([k, f]) => k !== "all" && f(p)),
-    human: (p) => !!p.rounds && p.triage?.class !== "quick-check" && p.verdict !== "REQUEST_CHANGES" && !["approved", "changes_requested"].includes(p.shepherd?.review_state),
-    rereview: (p) => p.status === "awaiting_label", merge: (p) => p.verdict === "APPROVE" && p.shepherd?.review_state === "approved" };
+    human: (p) => !!p.rounds && p.triage?.class !== "quick-check" && p.verdict !== "REQUEST_CHANGES" && !["approved", "changes_requested"].includes(p.people_review),
+    rereview: (p) => p.status === "awaiting_label", merge: (p) => p.verdict === "APPROVE" && p.people_review === "approved" };
   const needsYou = (p) => p.state === "open" && YOU_FILTER.all(p);
   const PR_PAGE = { open: (p) => p.state === "open", you: needsYou, closed: (p) => p.state === "closed" };
   const PR_FILTER = { all: () => true, changes: (p) => p.verdict === "REQUEST_CHANGES", approved: (p) => p.verdict === "APPROVE", reviewing: (p) => ["in_progress", "awaiting_label"].includes(p.status) || !p.rounds };
@@ -2469,7 +2470,7 @@ const CMD_RE = /^(?:review #\d{1,7}|re-review #\d{1,7}|publish the review guide 
         : p.state === "open" && rs.length ? sect("Review guide", `<p class="k">No guide for this PR yet. A guide shows the human reviewer where to start and what matters.</p>${cmdBtn(`publish the review guide of #${p.n}`, "Ask for a review guide", "Code Guardian publishes a review guide for this PR")}`) : "")
       // Human reviewers: what the review tells a person — what to judge, what it already checked (its triage, as the
       // reminder carries it), its "For the human reviewer" words — then who reviews and the reminders.
-      + (sh || p.triage || forHuman ? sect("Human reviewers", `<dl class="cg-facts">${p.triage ? `<dt>Focus on</dt><dd>${p.triage.class === "quick-check" ? "A quick check: confirm what the review found" : esc(p.triage.why || "The design and the risk the review cannot settle")}</dd>${typeof p.triage.verified === "string" && p.triage.verified ? `<dt>Already checked</dt><dd>${esc(p.triage.verified)}</dd>` : ""}${p.triage.minutes ? `<dt>Time</dt><dd>about ${esc(p.triage.minutes)} min</dd>` : ""}` : ""}${sh ? `<dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}${nudgeList(p)}` : "none yet"}</dd>` : ""}</dl>${forHuman ? `<div class="cg-md" style="margin-top:8px">${mdLite(forHuman)}</div>` : ""}`) : "")
+      + (sh || p.triage || forHuman || p.people_review ? sect("Human reviewers", `<dl class="cg-facts">${p.triage ? `<dt>Focus on</dt><dd>${p.triage.class === "quick-check" ? "A quick check: confirm what the review found" : esc(p.triage.why || "The design and the risk the review cannot settle")}</dd>${typeof p.triage.verified === "string" && p.triage.verified ? `<dt>Already checked</dt><dd>${esc(p.triage.verified)}</dd>` : ""}${p.triage.minutes ? `<dt>Time</dt><dd>about ${esc(p.triage.minutes)} min</dd>` : ""}` : ""}${sh ? `<dt>Reviewers</dt><dd>${esc(sh.reviewers.join(", ") || "none yet")}</dd><dt>Their review</dt><dd>${esc(human(sh.review_state || "none"))}</dd><dt>Reminders</dt><dd>${sh.nudges ? `${esc(plural(sh.nudges, "reminder", "reminders"))}, the last ${esc(ago(sh.last_nudge_at))}${nudgeList(p)}` : "none yet"}</dd>` : p.people_review ? `<dt>Their review</dt><dd>${esc(human(p.people_review))}</dd>` : ""}</dl>${forHuman ? `<div class="cg-md" style="margin-top:8px">${mdLite(forHuman)}</div>` : ""}`) : "")
       + (p.overrides.length ? sect("Rules for this PR", `<ul>${p.overrides.map((o) => `<li>${mdLite(o).replace(/^<p>|<\/p>$/g, "")}</li>`).join("")}</ul>`, "what a person told Code Guardian about this PR") : "");
   }
   const DISMISS_WHY = [["by-design", "It is on purpose"], ["false-positive", "It is not a problem"], ["wont-fix", "We will not fix it"], ["duplicate", "Another finding has it"]];

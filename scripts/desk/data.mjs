@@ -255,6 +255,8 @@ export function build(work, now = Date.now()) {
   // ------------------------------------------------ shepherd and PR events
   const shep = new Map(tableRows(read(join(work, 'SHEPHERD.md'))).filter(([n]) => /^\d+$/.test(n ?? '')).map(([n, since, reviewers, state, nudges, last, level, status]) =>
     [+n, { eligible_since: dash(since), reviewers: dash(reviewers)?.split(/[,\s]+/).filter(Boolean) ?? [], review_state: dash(state), nudges: +nudges || 0, last_nudge_at: dash(last), level: dash(level), status: dash(status) }]));
+  // a person's review of each open PR: the shepherd ledger, else the review pass's file (no Slack)
+  const peopleFile = json(read(join(work, 'desk', 'people-reviews.json')))?.prs ?? {};
   const events = jsonl(read(join(work, 'PR-EVENTS.jsonl'))).filter((e) => Number.isInteger(e.pr) && ISO.test(e.ts ?? ''));
 
   // ------------------------------------------------ findings: one per pr+file+summary, over the rounds
@@ -294,7 +296,7 @@ export function build(work, now = Date.now()) {
     const triage = last?.meta?.triage ?? null;
     return { n, title: h?.title ?? null, author: h?.author ?? null, state: row ? 'open' : 'closed', sha: row?.sha ?? last?.sha ?? null, status: row?.status ?? null, verdict: row?.verdict && row.verdict !== '-' ? row.verdict : last?.verdict ?? null,
       utc: row?.ts ?? last?.ts ?? null, rounds: rs.length, reviews: rs.map((r) => r.id), first: rs[0]?.ts ?? null, guide: h?.guide ?? null, guide_owed: !!rs.at(-1)?.guide_owed,
-      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, events: ev.slice(-40), triage,
+      overrides: h?.overrides ?? [], shepherd: shep.get(n) ?? null, people_review: shep.get(n)?.review_state ?? (typeof peopleFile[n] === 'string' ? peopleFile[n] : null), events: ev.slice(-40), triage,
       size: last?.size ?? null, open_findings: fs.filter((f) => f.state === 'open').length, blocking: fs.filter((f) => f.state === 'open' && f.severity !== 'suggestion').length,
       latency_h: ev.find((e) => e.kind === 'first_review')?.latency_hours ?? null,
       for_human: /### For the human reviewer\n([\s\S]*?)(?=\n### |$)/.exec(last?.body ?? '')?.[1]?.trim().slice(0, 4000) || null,
@@ -364,7 +366,7 @@ export function build(work, now = Date.now()) {
 export function sources(work) {
   const files = ['CONFIG.md', 'VERSION', 'MEMORY.md', 'REVIEWS.md', 'REVIEW-LEDGER.jsonl', 'SHEPHERD.md', 'PR-EVENTS.jsonl', 'MONITOR.json', 'HEARTBEAT.log', 'AUDIT.log', 'ESCAPES.jsonl',
     'manifest-publish.json', 'manifest.json', 'health/state.json', 'health/status.json', 'health/incidents.jsonl', 'health/hours.jsonl', 'health/schedules.json',
-    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md', 'LESSONS.md'];
+    'audit/TRENDS.md', 'survey/LEDGER.md', 'benchmark/RESULTS.md', 'LESSONS.md', 'desk/people-reviews.json'];
   const dirs = ['reviews', 'logs', 'audit/weeks', 'reviews/pr-artifacts', 'memory', 'memory/archive'];
   return [...files.map((f) => join(work, f)), ...dirs.flatMap((d) => [join(work, d), ...ls(join(work, d)).map((f) => join(work, d, f))])];
 }

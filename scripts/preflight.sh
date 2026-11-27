@@ -1089,6 +1089,35 @@ emit() { # reviews label_cleanups selfheals prunes nudges alerts mentions skills
 }
 
 # =========================================================== REVIEW MODE ====
+# A person's review of each open PR, for the Desk's Needs you
+# (docs/desk.md → The server). The shepherd ledger has it under
+# slack_notifications: enabled; without Slack, this file does: every open
+# non-draft PR's independent reviews (bot, author and marker reviews out, as
+# the shepherd classifies them), one REST read each, at most every
+# PEOPLE_REVIEWS_EVERY_S. Only where the Desk is set up (work/desk/). A PR
+# whose reviews cannot be read is left out, never guessed.
+PEOPLE_REVIEWS_EVERY_S="${PEOPLE_REVIEWS_EVERY_S:-900}"
+desk_people_reviews() {
+  local f="$WORK/desk/people-reviews.json" age out='{}' n author st
+  [ -d "$WORK/desk" ] && [ "$SLACK" != "enabled" ] || return 0
+  age="$(state_lock_age "$f" 2>/dev/null)" && [ "$age" -lt "$PEOPLE_REVIEWS_EVERY_S" ] && return 0
+  while IFS=$'\t' read -r n author; do
+    [ -n "$n" ] || continue
+    st="$(gh_get_all "repos/$REPO/pulls/$n/reviews?per_page=100" | jq -r --arg a "$author" --arg b "$BOT_LOGIN" --arg m "<!-- $REVIEW_MARKER" '
+        if type != "array" then empty else
+          [ .[] | select(.user.login != $b and .user.login != $a)
+                | select((.body // "") | contains($m) | not) ]
+          | group_by(.user.login) | map(last | .state)
+          | if any(. == "APPROVED") then "approved"
+            elif any(. == "CHANGES_REQUESTED") then "changes_requested"
+            else "awaiting_review" end
+        end' 2>/dev/null)"
+    [ -n "$st" ] && out="$(printf '%s' "$out" | jq -c --arg n "$n" --arg s "$st" '. + {($n): $s}')"
+  done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r '.[] | [.number, .author] | @tsv' 2>/dev/null)
+  jq -n --argjson p "$out" --arg at "$NOW_ISO" '{at: $at, prs: $p}' > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f" \
+    || { rm -f "$f.tmp"; log_warn "work/desk/people-reviews.json could not be written"; }
+}
+
 if [ "$MODE" = "review" ]; then
   REVIEWS_DUE='[]'; CLEANUPS_DUE='[]'; SELFHEALS_DUE='[]'; PRUNES_DUE='[]'; ALERTS_DUE='[]'; MENTIONS_DUE='[]'; SKILLS='{}'
   CI_FAILURES_DUE='[]'
@@ -1888,6 +1917,7 @@ if [ "$MODE" = "review" ]; then
     done < <(printf '%s' "$OPEN_NONDRAFT" | jq -r --arg l "$AF_LABEL" '.[] | select(.labels | index($l)) | [.number, .head_sha] | @tsv')
   fi
 
+  desk_people_reviews
   apply_holds mentions
   emit "$REVIEWS_DUE" "$CLEANUPS_DUE" "$SELFHEALS_DUE" "$PRUNES_DUE" '[]' "$ALERTS_DUE" "$MENTIONS_DUE" "$SKILLS"
   exit 0
