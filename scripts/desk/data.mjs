@@ -139,6 +139,8 @@ function runsOf(work, now, prices = []) {
     const r = by.get(e.run) ?? { run: e.run, job: e.job || 'session', events: [] };
     r.events.push(e); if (e.job && r.job === 'session') r.job = e.job; by.set(e.run, r);
   }
+  // A run whose events name no job but carry review steps is a review (a per-PR session logged before 15.2.0).
+  for (const r of by.values()) if (r.job === 'session' && r.events.some((e) => e.event === 'review_step')) r.job = 'review';
   let list = [...by.values()].map((r) => { r.events.sort((a, b) => a.ts.localeCompare(b.ts)); r.start = r.events[0].ts; r.end = r.events.at(-1).ts; return r; });
   // Only a precheck that found nothing: a tick, not a run (the ticks chart counts them).
   list = list.filter((r) => !(!r.events.some((e) => e.event === 'review_step' || e.event === 'tokens') && r.events.some((e) => (e.event === 'precheck' && /nothing to do/.test(e.msg ?? '')) || (e.event === 'heartbeat' && /nothing_to_do=true/.test(e.msg ?? '')))));

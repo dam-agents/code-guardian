@@ -158,6 +158,8 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now_hm()  { date -u +%H:%M; }
 
 LOG_JOB=review
+# a review session started on its own (a dispatched per-PR session) logs as a review, not a bare session
+LOG_JOB="${LOG_JOB:-review}"
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
