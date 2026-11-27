@@ -19,6 +19,10 @@ they are released history and stay as written.
 2. `work/desk/artifact.id` exists → publish a revision of `scripts/desk/page.html` at that id
    ([docs/desk.md](docs/desk.md) → **Publish**, step 3).
 
+## 15.1.3 — 2026-11-27
+
+**Upgrade:** Nothing — docs are re-read per run.
+
 ## 15.1.2 — 2026-11-26
 
 **Upgrade:**
