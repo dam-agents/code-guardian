@@ -43,6 +43,7 @@ put('CONFIG.md', `# Code Guardian configuration
 - health_dashboard: dam
 - agent_manifest: dam
 - shepherd_enabled: true
+- slack_notifications: enabled
 
 ## Benchmark model prices
 
@@ -104,8 +105,8 @@ for (const pr of prs) {
     if (r + 1 >= 3 && !blocking) verdict = 'APPROVE';
     sha = hex(40);
     const fj = fs.map(({ status, f, late }) => ({ status, severity: f[0], file: fileOf.get(f), line: 10 + Math.floor(rnd() * 200), inline: status !== 'fixed', summary: f[1], fix: status === 'fixed' || f[0] === 'suggestion' ? null : f[2], ...(late ? { late: true } : {}) }));
-    const triage = { class: blocking || rnd() < 0.4 ? 'needs-human' : 'quick-check', why: blocking ? 'a blocking finding is open' : 'small change with tests', verified: true, minutes: 5 + Math.floor(rnd() * 25) };
-    const body = `## PR #${pr.n}: ${pr.title}\n\n### Summary\n\nThe change ${pr.title.toLowerCase()}. ${blocking ? `${blocking} finding${blocking === 1 ? '' : 's'} must be fixed before merge.` : 'No blocking finding is open.'}\n\n`
+    const triage = { class: blocking || rnd() < 0.4 ? 'needs-human' : 'quick-check', why: blocking ? 'whether the new token check fits the auth design' : 'small change with tests', verified: 'the diff, the tests it adds, and the callers of the changed code', minutes: 5 + Math.floor(rnd() * 25) };
+    const body = `## PR #${pr.n}: ${pr.title}\n**Author:** ${pr.author} | **Branch:** feature → main | **Changes:** +120 −30 (4 files)\n\n### Summary\n\nThe change ${pr.title.toLowerCase()}. ${blocking ? `${blocking} finding${blocking === 1 ? '' : 's'} must be fixed before merge.` : 'No blocking finding is open.'}\n\n`
       + (r ? `### Changes since last review\n\n- ${fs.filter((x) => x.status === 'fixed').length} fixed, ${fs.filter((x) => x.status === 'still').length} still open\n\n` : '')
       + `### Findings\n\n${fs.length ? fs.map(({ status, f }) => `- ${status === 'fixed' ? '✅ Fixed' : f[0] === 'critical' ? '🔴' : f[0] === 'warning' ? '🟡' : '🟢'} **${f[1]}** — \`${fileOf.get(f)}\`${f[2] && status !== 'fixed' ? `\n  Fix: ${f[2]}.` : ''}`).join('\n') : 'No findings.'}\n\n### Verdict\n\n${verdict}\n\n### For the human reviewer\n\nLook at the error paths in \`${pick(FILES)}\`.\n\n`
       + `<!-- findings-json: ${JSON.stringify(fj)} -->\n<!-- review-meta: ${JSON.stringify({ diff_digest: hex(12), checks: fj.slice(0, 2).map((x) => ({ for: x.summary, run: `git grep -n ${x.file.split('/').pop()}`, clean: 'no hits' })), deferred: [], triage })} -->\n<!-- code-guardian headRefOid=${sha} -->`;
@@ -123,7 +124,7 @@ for (const pr of prs) {
   if (pr.open) reviewsRows.push(`| ${pr.n} | ${pr.last.sha} | ${iso(pr.last.t)} | ${pr.last.verdict} | ${pr.n % 7 === 0 ? 'awaiting_label' : 'done'} |`);
   if (pr.open && pr.last.verdict !== 'APPROVE') {
     const nudges = Math.floor(rnd() * 3);
-    shepherd.push(`| ${pr.n} | ${iso(pr.opened)} | ${pick(PEOPLE)},${pick(PEOPLE)} | ${pick(['waiting', 'commented', 'none'])} | ${nudges} | ${nudges ? iso(NOW - rnd() * DAY) : '-'} | ${nudges ? 'reminder' : '-'} | open |`);
+    shepherd.push(`| ${pr.n} | ${iso(pr.opened)} | ${pick(PEOPLE)},${pick(PEOPLE)} | ${pick(['awaiting_review', 'awaiting_review', 'approved', 'changes_requested'])} | ${nudges} | ${nudges ? iso(NOW - rnd() * DAY) : '-'} | ${nudges ? 'reminder' : '-'} | open |`);
     for (let k = 0; k < nudges; k++) prEvents.push({ pr: pr.n, kind: "nudged", ts: iso(NOW - rnd() * Math.min(2 * DAY, NOW - pr.opened - H)), level: "reminder" });
   }
 }
@@ -174,7 +175,7 @@ for (let d = 13; d >= 0; d--) {
 { const t = NOW - 3 * DAY - 4 * H, run = `sess-${hex(12)}`; ev(t, run, 'survey', 'info', 'heartbeat', 'survey: area api/auth'); ev(t + 25 * MIN, run, 'survey', 'info', 'survey', 'pass 3: 1 🔴 · 2 🟡 · 4 🟢'); tok(t + 26 * MIN, run, 'survey', 1.8); }
 { const t = NOW - 1 * DAY - 7 * H, run = `sess-${hex(12)}`; ev(t, run, 'review', 'info', 'review_step', `PR #${prs[14].n} [${hex(7)}] locked`); ev(t + 4 * MIN, run, 'review', 'error', 'classifier_block', 'the classifier refused a git command; review aborted'); ev(t + 5 * MIN, run, 'review', 'info', 'review_step', `PR #${prs[14].n} [${hex(7)}] aborted classifier refusal`); }
 // The run that works now.
-{ const t = NOW - 6 * MIN, run = `sess-${hex(12)}`, sha = hex(7); ev(t, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] locked`); ev(t + 50e3, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] cloned`); ev(t + 2 * MIN, run, 'review', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] fanned out (n=4)`); }
+{ const t = NOW - 6 * MIN, run = `sess-${hex(12)}`, sha = hex(7); ev(t, run, 'session', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] locked`); ev(t + 50e3, run, 'session', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] cloned`); ev(t + 2 * MIN, run, 'session', 'info', 'review_step', `PR #${busy.n + 40} [${sha}] fanned out (n=4)`); }
 // A second review side by side (per-PR sessions run in parallel), now writing its review.
 { const p = prs.find((x) => x.open && x.n !== busy.n), t = NOW - 11 * MIN, run = `sess-${hex(12)}`, sha = hex(7);
   if (p) { ev(t, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] locked`); ev(t + 40e3, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] cloned`); ev(t + 2 * MIN, run, 'review', 'info', 'review_step', `PR #${p.n} [${sha}] fanned out (n=4)`);

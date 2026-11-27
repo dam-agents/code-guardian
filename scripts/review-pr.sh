@@ -7,7 +7,8 @@
 # and records the agent's choice: it never composes, drops, regrades or
 # reorders a finding.
 #
-#   prepare <n> [--eta <s>] [--on-demand]   Check 1 + the PR hold (taken when the
+#   prepare <n> [--eta <s>] [--on-demand] [--delta]
+#                                          Check 1 + the PR hold (taken when the
 #                                          run has none) + live-holder re-check, the
 #                                          lock row, PR context, the diff with a
 #                                          hunk index, clone + base ref + per-skill
@@ -121,6 +122,7 @@ usage() { # the subcommand table of this file's header, verbatim
 }
 case " $* " in (*" -h "*|*" --help "*) usage; exit 0;; esac
 case "$CMD" in (prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge) ;;
+  (prune) printf 'review-pr.sh has no prune command. A prune is the procedure of docs/review-bookkeeping.md → Pruning; its row step is: review-pr.sh row <n> --delete\n' >&2; exit 2;;
   (*) printf 'usage: %s prepare|step|guard|context|sweep|collect|delta|compose-brief|rapid|post|guide|ci|verify|abort|hold|release|row|progress|fix-start|fix-push|merge <pr-number> …\n' "$0" >&2; usage >&2; exit 2;; esac
 case "$N" in (''|*[!0-9]*) printf '{"outcome":"error","error":"pr number missing or not numeric"}\n'; exit 0;; esac
 shift 2
@@ -157,6 +159,8 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now_hm()  { date -u +%H:%M; }
 
 LOG_JOB=review
+# a review session started on its own (a dispatched per-PR session) logs as a review, not a bare session
+LOG_JOB="${LOG_JOB:-review}"
 if ! . "$SCRIPT_DIR/log.sh" 2>/dev/null; then logev() { :; }; fi
 LOG_DIR="${LOG_DIR:-$WORK/logs}"
 
@@ -253,7 +257,7 @@ state_damaged() {
     next:("leave PR #" + $n + " to the heartbeat — the takeover of a dead run takes its lock")}')"
 }
 need_ctx() {
-  [ -f "$CTX/pr.json" ] || [ -f "$STATE_COPY" ] || fail "no prepared state for PR #$N — run: review-pr.sh prepare $N"
+  [ -f "$CTX/pr.json" ] || [ -f "$STATE_COPY" ] || fail "no prepared state for PR #$N. Either prepare did not run, or this review already ended: post, abort and a HEAD move delete the state. After an end, run no other command for PR #$N in this cycle. To start a review: review-pr.sh prepare $N"
   ctx_restore || state_damaged
 }
 
@@ -1143,8 +1147,8 @@ diagram_block() {
 }
 
 cmd_prepare() {
-  local ETA="" ONDEMAND=false me="$ME"
-  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (*) shift;; esac; done
+  local ETA="" ONDEMAND=false DELTA=false me="$ME"
+  while [ $# -gt 0 ]; do case "$1" in (--eta) ETA="${2:-}"; shift 2;; (--on-demand) ONDEMAND=true; shift;; (--delta) DELTA=true; shift;; (*) shift;; esac; done
   [ -n "$REPO" ] || fail "target repo unresolved"
   # re-entrant for the run that owns the state: a second prepare returns what
   # the first one built instead of standing down against itself
@@ -1194,6 +1198,8 @@ cmd_prepare() {
   fi
   if [ "$kind" = "re-review" ]; then
     full=false; printf '%s' "$labels" | jq -e --arg x "$REREVIEW_LABEL" 'index($x) != null' >/dev/null 2>&1 && full=true
+    # --delta: the Desk's Review again — the commits since the last round, whatever the labels say
+    [ "$DELTA" = true ] && full=false
   fi
   # the PR hold (docs/worklist.md → PR holds): a run that comes without one —
   # an on-demand review — takes it here, and a PR another live run holds is
@@ -1869,6 +1875,7 @@ cmd_delta() {
   # The findings file is the agent's own output, not a prepare artifact: name the
   # missing path so a wrong one is not read as malformed JSON.
   [ -f "$cur" ] || fail "$cur does not exist — write this round's findings to that path first"
+  [ -s "$cur" ] || fail "$cur is empty — write this round's findings as a JSON array to it, and [] when the round has no findings"
   jq -e 'type=="array"' "$cur" >/dev/null 2>&1 || fail "$cur is not a JSON array of findings"
   head_guard delta "$cur"
   local prior overrides age ann="$CTX/findings.annotated.json"

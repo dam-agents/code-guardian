@@ -21,7 +21,8 @@ reply goes to the requesting channel or thread and does not require
    [skills.md](skills.md), then run the per-PR sequence from step b. `kind` =
    `re-review` when a prior review exists, else `first`; a re-review also reads
    [review-rereview.md](review-rereview.md) and runs **delta scope** unless
-   `$REREVIEW_LABEL` is also on the PR; no trigger is required at `prepare` or
+   `$REREVIEW_LABEL` is also on the PR — `prepare --delta` (the Desk's
+   Review again) keeps delta scope under that label too; no trigger is required at `prepare` or
    `post`; install missing skills per [skills.md](skills.md) → **Installation**.
    Reply with a link to the posted review, or why the review ended without
    one. Then `review-pr.sh release <n>` — unless

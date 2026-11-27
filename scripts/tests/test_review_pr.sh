@@ -516,6 +516,9 @@ pr_fx open '["cg-rereview"]'
 run_rp prepare 1
 assert_jq '.outcome == "ready" and .kind == "re-review" and .full == true' 'label-triggered re-review is complete scope'
 run_rp abort 1 "reset"
+run_rp prepare 1 --on-demand --delta
+assert_jq '.outcome == "ready" and .kind == "re-review" and .full == false' '--delta keeps a re-review to the new commits under the full label'
+run_rp abort 1 "reset"
 
 # --- the PR hold: prepare takes it, and leaves a PR another live run holds -----
 setup prepare_hold
@@ -851,7 +854,15 @@ run_rp delta 1 "$SANDBOX/obj.json"
 assert_jq '.outcome == "error" and (.error | contains("not a JSON array"))' 'a non-array findings file is still reported as malformed'
 run_rp delta 1
 assert_jq '.outcome == "error" and (.error | contains("usage: delta"))' 'a missing argument prints the usage'
+: > "$SANDBOX/empty.json"
+run_rp delta 1 "$SANDBOX/empty.json"
+assert_jq '.outcome == "error" and (.error | contains("is empty")) and (.error | contains("[]"))' 'an empty findings file says to write [] for no findings'
 run_rp abort 1 "reset"
+run_rp step 1 "verified"
+assert_jq '.outcome == "error" and (.error | contains("already ended")) and (.error | contains("run no other command"))' 'a step after the end says the review ended'
+OUT="$(bash "$RP" prune 1 2>&1)"; RC=$?
+[ "$RC" = 2 ] && printf 'ok   %s: prune exits 2\n' "$CASE" || { printf 'FAIL %s: prune exit %s\n' "$CASE" "$RC"; FAILED=1; }
+assert_out_contains 'row <n> --delete' 'a prune call names the row deletion and the procedure'
 
 # --- delta: an override hides a finding, it does not fix the defect --------------
 setup delta_suppressed_prior

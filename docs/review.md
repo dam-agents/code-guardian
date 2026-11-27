@@ -66,6 +66,12 @@ b. **Orient** — read `memory_due`, `profile_slice` and `history_slice`
 c. **Review the diff** — answer every `gates[]` hit first (**Gate check**),
    then file by file in `files[]` order: classes `code`, `test`, `docs`,
    `config`. Read each entry's `diff` (its section of `$PR_DIR.diff`) once.
+   Open only a path that `files[]`, `paths.pack`, a `sweep` hit or a listing
+   of the clone (`git -C $PR_DIR ls-files`) names, and read a long file with
+   `review-pr.sh context` around the line. The clone is read, not run: install
+   no dependencies and build or type-check nothing in it. A build or type
+   result comes from the PR's CI (`review-pr.sh ci <n>`,
+   [ci-triage.md](ci-triage.md)).
    The noise classes (`lockfile`, `snapshot`, `build`, `vendored`, `minified`,
    `sourcemap`, `generated`) carry no `diff`, are not reviewed as code and get
    one `### Summary` line:
@@ -86,8 +92,10 @@ d. **Run every configured review skill** per [skills.md](skills.md):
    status `run`, then `review-pr.sh collect <n>`. Verify every blocking
    finding, yours and the skills' (**Full-file verification**), sweep
    siblings (**Sibling sweep**), then `review-pr.sh step <n> verified`. On a
-   re-review, `review-pr.sh delta <n> <ctx>/findings.json` classifies your
-   findings against `prior_findings` ([review-rereview.md](review-rereview.md)
+   re-review, write your findings to `<ctx>/findings.json` (a JSON array,
+   `[]` for none; format in [review-mechanics.md](review-mechanics.md)), then
+   `review-pr.sh delta <n> <ctx>/findings.json` classifies them against
+   `prior_findings` ([review-rereview.md](review-rereview.md)
    → **Re-review output**).
 e. **Compose** — `review-pr.sh compose-brief <n>` prints this PR's contract:
    the `body.md` skeleton, the `findings.json`, `meta.json` and
@@ -217,7 +225,9 @@ task 31).
 ## Criteria & review style
 
 Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
-risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
+risks, races; a new read of a value: grep the value's other resolvers, in the
+diff or not, match their fallback (`a ?? b`), and check that a test covers the
+fallback case) · **Security** (injection, credential leaks, OWASP top 10) ·
 **Reliability** (an external call with no timeout or error handling, a retry
 that is not idempotent, a swallowed error, a multi-step operation that a
 failure leaves half-applied) · **Performance** (allocations, N+1, missing
