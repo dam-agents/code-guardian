@@ -449,4 +449,22 @@ pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
 run_preflight shepherd
 assert_jq '[.nudges_due[0].candidates[].login] == ["bob", "dave"]' 'a backticked id is mentionable'
 
+# --- a closed PR's row leaves the ledger; an unreadable one is carried --------
+# #5 closed before its first review (no REVIEWS.md row), #6's state does not answer
+new_case shepherd_closed_row_dropped
+shep_setup
+pr_json 1 "old PR" '[]' "$SHA1" | open_prs_fx
+printf '{"number":5,"state":"closed","merged":true,"closed_at":"2026-09-01T00:00:00Z"}' | fx 'api repos/acme/widgets/pulls/5'
+{
+  printf '| PR | eligible_since | reviewers | review_state | nudges | last_nudge_at | level | status |\n'
+  printf '|----|----|----|----|----|----|----|----|\n'
+  printf '| 5 | 2026-07-01T00:00:00Z | bob | awaiting_review | 0 | - | 0 | watching |\n'
+  printf '| 6 | 2026-07-01T00:00:00Z | bob | awaiting_review | 0 | - | 0 | watching |\n'
+} > "$WORK/SHEPHERD.md"
+run_preflight shepherd
+if grep -qE '^\| *5 *\|' "$WORK/SHEPHERD.md"; then printf 'FAIL %s: the closed PR row stays\n' "$CASE"; FAILED=1
+else printf 'ok   %s: the closed PR row is dropped\n' "$CASE"; fi
+assert_file_contains "$WORK/SHEPHERD.md" '^\| *6 *\|' 'a row whose state does not answer is carried'
+assert_file_contains "$WORK/SHEPHERD.md" '^\| *1 *\|' 'the open PR keeps its row'
+
 finish

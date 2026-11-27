@@ -225,7 +225,9 @@ task 31).
 ## Criteria & review style
 
 Unless preferences say otherwise: **Correctness** (logic, off-by-one, null
-risks, races) · **Security** (injection, credential leaks, OWASP top 10) ·
+risks, races; a new read of a value: grep the value's other resolvers, in the
+diff or not, match their fallback (`a ?? b`), and check that a test covers the
+fallback case) · **Security** (injection, credential leaks, OWASP top 10) ·
 **Reliability** (an external call with no timeout or error handling, a retry
 that is not idempotent, a swallowed error, a multi-step operation that a
 failure leaves half-applied) · **Performance** (allocations, N+1, missing

@@ -12,7 +12,8 @@ the clock) on class transitions, kept `held` rows held, flagged merge
 conflicts (`conflict: true`, author-directed), decided **Ready to land**
 (under `merge_ready_nudge: enabled`), and updated the ledger's bookkeeping
 columns. A PR whose reviews could not be read is **deferred**: no class, no
-nudge, its row carried over verbatim. **Rows with a due nudge are left for
+nudge, its row carried over verbatim. A row whose PR the sweep reads as
+closed or merged leaves the ledger. **Rows with a due nudge are left for
 your post-send record step.**
 
 ## Hard rules
